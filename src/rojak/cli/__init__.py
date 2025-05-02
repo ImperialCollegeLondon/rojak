@@ -1,3 +1,4 @@
-def main():
-    print("HELLO from the other side")
+from rojak.cli.main import app
+
+app()
 
