@@ -1,0 +1,14 @@
+[project]
+name = "rojak"
+version = "0.1.0"
+description = "rojak a package with a blend of features -- from turbulence diagnostics to aeroelasticity"
+readme = "README.md"
+authors = [
+    { name = "Hui Ling Wong", email = "71387295+wong-hl@users.noreply.github.com " }
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
