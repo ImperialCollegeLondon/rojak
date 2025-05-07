@@ -131,8 +131,4 @@ class MadisAmdarPreprocessor:
             data[variables_to_keep].to_dataframe().to_parquet(output_directory / f"{filepath.stem}.parquet")
 
             temp_netcdf_file.unlink()
-
-
-
-
-
+            del data
