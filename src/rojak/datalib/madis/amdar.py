@@ -30,7 +30,7 @@ ALL_AMDAR_DATA_VARS: FrozenSet[str] = frozenset(
      'sounding_airport_id', 'phaseFlight', 'tamdarCarrier3', 'tamdarCarrier', 'tamdarAcType', 'filterSetNum',
      'wvssTest1'})
 
-class Preprocessor:
+class MadisAmdarPreprocessor:
     filepaths: Iterable[Path]
     data_vars_for_turbulence: list[str] = ["altitude", "altitudeDD", "bounceError", "correctedFlag", "dataDescriptor",
         "dataSource", "dataType", "dest_airport_id", "en_tailNumber", "heading", "interpolatedLL", "interpolatedTime",
