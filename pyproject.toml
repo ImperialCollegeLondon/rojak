@@ -34,3 +34,7 @@ docs = []
 ecmwf = [
     "cdsapi>=0.7.5",
 ]
+amdar = [
+    "netcdf4>=1.7.2",
+    "pyarrow>=20.0.0",
+]
