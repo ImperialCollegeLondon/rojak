@@ -57,11 +57,13 @@ class Preprocessor:
             if isinstance(filepaths, Iterable):
                 self.filepaths = [path for fpath in filepaths for path in fpath.glob(glob_pattern)]
             else:
-                self.filepaths = filepaths.glob(glob_pattern)
+                self.filepaths = list(filepaths.glob(glob_pattern))
         else:
             if isinstance(filepaths, Iterable):
                 self.filepaths = filepaths
             else:
+                if not filepaths.is_file():
+                    raise ValueError(f"File {filepaths} is not a file. As glob pattern is not defined this must be a file")
                 self.filepaths = [filepaths]
 
     @staticmethod
