@@ -1,11 +1,17 @@
+import fnmatch
 import gzip
+import itertools
 import shutil
 import tempfile
+import calendar
+from ftplib import FTP
 from pathlib import Path
 from typing import FrozenSet, Iterable
 
 import xarray as xr
+import dask.dataframe as dd
 
+from rojak.datalib.utils import Date
 
 ALL_AMDAR_DATA_VARS: FrozenSet[str] = frozenset(
     {'nStaticIds', 'staticIds', 'lastRecord', 'invTime', 'prevRecord', 'inventory', 'globalInventory', 'firstOverflow',
@@ -187,3 +193,58 @@ class MadisAmdarPreprocessor:
             
             temp_netcdf_file.unlink()
             del data
+
+
+class AcarsRetriever:
+    ftp_host: str = "madis-data.ncep.noaa.gov"
+    product: str = "acars"
+    file_pattern: str
+
+    def __init__(self, file_pattern: str = "*.gz"):
+        self.file_pattern = file_pattern
+
+    def _download_file(self, date: Date, base_output_dir: Path) -> None:
+        output_dir: Path = (
+            base_output_dir / f"{date.year:02d}" / f"{date.month:02d}"
+        ).resolve()
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        with FTP(self.ftp_host) as ftp:
+            ftp.login()
+            ftp.cwd(
+                f"archive/{date.year}/{date.month:02d}/{date.day:02d}/point/{self.product}/netcdf/"
+            )
+            files: list[str] = ftp.nlst()
+            matching_files: list[str] = fnmatch.filter(files, self.file_pattern)
+            for file in matching_files:
+                target_file_path: Path = output_dir / file
+                with open(target_file_path, "wb") as f_out:
+                    ftp.retrbinary(f"RETR {file}", f_out.write)
+
+    @staticmethod
+    def compute_date_combinations(
+        years: list[int], months: list[int], days: list[int]
+    ) -> list[Date]:
+        if len(months) == 1 and months[0] == -1:
+            months = list(range(1, 13))
+        if len(days) == 1 and days[0] == -1:
+            return [
+                Date(y, m, d)
+                for y, m in itertools.product(years, months)
+                for d in range(1, calendar.monthrange(y, m)[1] + 1)
+            ]
+        return [
+            Date(*combination) for combination in itertools.product(years, months, days)
+        ]
+
+    def download_files(
+        self,
+        years: list[int],
+        months: list[int],
+        days: list[int],
+        base_output_dir: Path,
+    ) -> None:
+        dates: list[Date] = self.compute_date_combinations(years, months, days)
+        for date in dates:
+            self._download_file(date, base_output_dir)
+

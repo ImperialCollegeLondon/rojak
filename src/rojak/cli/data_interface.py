@@ -4,7 +4,7 @@ from typing import Annotated, Optional
 
 import typer
 
-from rojak.datalib.madis.amdar import MadisAmdarPreprocessor
+from rojak.datalib.madis.amdar import MadisAmdarPreprocessor, AcarsRetriever
 
 data_app = typer.Typer()
 
@@ -25,7 +25,44 @@ def retrieve(
             help="Select where data should be retrieved from",
         ),
     ],
-): ...
+    years: Annotated[
+        list[int], typer.Option("-y", "--years", help="Year(s) to retrieve data for")
+    ],
+    months: Annotated[
+        list[int],
+        typer.Option(
+            "-m",
+            "--months",
+            help="Months(s) to retrieve data for. Use -1 to specify all months in year",
+        ),
+    ],
+    days: Annotated[
+        list[int],
+        typer.Option(
+            "-d",
+            "--days",
+            help="Day(s) to retrieve data for. Use -1 to specify all days in month",
+        ),
+    ],
+    output_dir: Annotated[
+        Optional[Path],
+        typer.Option(
+            "-o",
+            "--output_dir",
+            help="Directory to save retrieved files. If unspecified, it will be in the current directory",
+        ),
+    ] = None,
+):
+    if output_dir is None:
+        output_dir = Path.cwd() / "data" / source
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    match source:
+        case "madis-amdar":
+            retriever = AcarsRetriever()
+            retriever.download_files(years, months, days, output_dir)
+        case "ukmo-amdar":
+            raise NotImplementedError("Not implemented UKMO AMDAR data retrieval")
 
 
 @data_app.command()
