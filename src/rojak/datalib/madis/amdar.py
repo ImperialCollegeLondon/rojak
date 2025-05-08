@@ -28,7 +28,7 @@ ALL_AMDAR_DATA_VARS: FrozenSet[str] = frozenset(
      'turbulenceError', 'correctedFlag', 'rptStation', 'timeReceived', 'fileTimeFSL', 'origAirport', 'orig_airport_id',
      'destAirport', 'dest_airport_id', 'indAltitude', 'relHumidity', 'sounding_flag', 'soundingSecs',
      'sounding_airport_id', 'phaseFlight', 'tamdarCarrier3', 'tamdarCarrier', 'tamdarAcType', 'filterSetNum',
-     'wvssTest1'})
+     'wvssTest1'}) # fmt: skip
 
 class MadisAmdarPreprocessor:
     filepaths: Iterable[Path]
@@ -39,9 +39,9 @@ class MadisAmdarPreprocessor:
         "temperature", "temperatureDD", "timeMaxTurbulence", "timeObs", "timeObsDD",  "trueAirSpeed",
         "trueAirSpeedDD", "trueAirSpeedError", "turbIndex", "turbIndexDD", "turbulenceError",
         "vertAccel", "vertGust", "windDir", "windDirDD", "windDirError", "windSpeed", "windSpeedDD", "windSpeedError",
-    ]
+    ] # fmt: skip
     quality_control_vars: list[str] = ["altitudeDD", "windSpeedDD", "timeObsDD", "latitudeDD", "longitudeDD",
-        "maxEDRDD", "medEDRDD", "temperatureDD", "trueAirSpeedDD", "turbIndexDD", "windDirDD", "windSpeedDD"]
+        "maxEDRDD", "medEDRDD", "temperatureDD", "trueAirSpeedDD", "turbIndexDD", "windDirDD", "windSpeedDD"] # fmt: skip
     error_vars: list[str] = ["bounceError", "speedError", "turbulenceError",
         ## Including the ones below ends up making a lot of data nan. Leave that data in and let the user decide
         ## what to do with it later
@@ -49,7 +49,7 @@ class MadisAmdarPreprocessor:
         # "trueAirSpeedError",
         # "windDirError",
         # "windSpeedError",
-    ]
+    ] # fmt: skip
     dimension_name: str = "recNum"
 
     def __init__(self, filepaths: Iterable[Path] | Path, glob_pattern: str | None = None):
