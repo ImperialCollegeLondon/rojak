@@ -41,29 +41,37 @@ class MadisAmdarPreprocessor:
         "trueAirSpeedDD", "trueAirSpeedError", "turbIndex", "turbIndexDD", "turbulenceError",
         "vertAccel", "vertGust", "windDir", "windDirDD", "windDirError", "windSpeed", "windSpeedDD", "windSpeedError",
     ]  # fmt: skip
-    quality_control_vars: list[str] = ["altitudeDD", "windSpeedDD", "timeObsDD", "latitudeDD", "longitudeDD",
-        "maxEDRDD", "medEDRDD", "temperatureDD", "trueAirSpeedDD", "turbIndexDD", "windDirDD", "windSpeedDD"]  # fmt: skip
-    error_vars: list[str] = ["bounceError", "speedError", "turbulenceError",
+    quality_control_vars: set[str] = {"altitudeDD", "windSpeedDD", "timeObsDD", "latitudeDD", "longitudeDD",
+        "maxEDRDD", "medEDRDD", "temperatureDD", "trueAirSpeedDD", "turbIndexDD", "windDirDD", "windSpeedDD"}  # fmt: skip
+    error_vars: set[str] = {"bounceError", "speedError", "turbulenceError",
         ## Including the ones below ends up making a lot of data nan. Leave that data in and let the user decide
         ## what to do with it later
         # "tempError",
         # "trueAirSpeedError",
         # "windDirError",
         # "windSpeedError",
-    ]  # fmt: skip
+    }  # fmt: skip
     dimension_name: str = "recNum"
+    relative_to_root_path: Path | None = None
 
     def __init__(
         self, filepaths: Iterable[Path] | Path, glob_pattern: str | None = None
     ):
         if glob_pattern is not None:
+            target_files: list[Path]
             if isinstance(filepaths, Iterable):
-                self.filepaths = [
+                target_files = [
                     path for fpath in filepaths for path in fpath.glob(glob_pattern)
                 ]
+                self.relative_to_root_path = None
             else:
-                self.filepaths = list(filepaths.glob(glob_pattern))
+                target_files = list(filepaths.glob(glob_pattern))
+                self.relative_to_root_path = target_files[0].relative_to(filepaths).parents[0]
+
+            assert len(target_files) > 0
+            self.filepaths = target_files
         else:
+            self.relative_to_root_path = None
             if isinstance(filepaths, Iterable):
                 self.filepaths = filepaths
             else:
@@ -114,9 +122,10 @@ class MadisAmdarPreprocessor:
         )
 
     def drop_invalid_qc_data(self, dataset: xr.Dataset) -> xr.Dataset:
-        for var in self.quality_control_vars:
+        qc_vars_present: set[str] = dataset.data_vars.keys() & self.quality_control_vars
+        for var in qc_vars_present:
             dataset = self.__mask_invalid_qc_for_var(dataset, var)
-        return dataset.dropna(self.dimension_name, subset=self.quality_control_vars)
+        return dataset.dropna(self.dimension_name, subset=qc_vars_present)
 
     @staticmethod
     def __mask_invalid_error_var(dataset: xr.Dataset, data_var: str) -> xr.Dataset:
@@ -126,11 +135,14 @@ class MadisAmdarPreprocessor:
         return dataset.where(((dataset[data_var] == 112) | (dataset[data_var] == 45)))
 
     def drop_invalid_error_data(self, dataset: xr.Dataset) -> xr.Dataset:
-        for var in self.error_vars:
+        error_vars_present: set[str] = dataset.data_vars.keys() & self.error_vars
+        for var in error_vars_present:
             dataset = self.__mask_invalid_error_var(dataset, var)
-        return dataset.dropna(self.dimension_name, subset=self.error_vars)
+        return dataset.dropna(self.dimension_name, subset=error_vars_present)
 
     def filter_and_export_as_parquet(self, output_directory: Path):
+        output_directory.mkdir(parents=True, exist_ok=True)
+        
         for filepath in self.filepaths:
             temp_netcdf_file: Path = self.decompress_gz(filepath)
             set_of_data_vars: set = set(self.data_vars_for_turbulence)
@@ -140,16 +152,12 @@ class MadisAmdarPreprocessor:
                 decode_timedelta=True,
                 drop_variables=ALL_AMDAR_DATA_VARS - set_of_data_vars,
             )
+
+            turbulence_subset: set[str] = data.data_vars.keys() & {"maxEDR", "medEDR", "turbIndex", "medTurbulence", "maxTurbulence"}
             # Drop all the nan data that's already present in the data
             data = data.dropna(
                 self.dimension_name,
-                subset=[
-                    "maxEDR",
-                    "medEDR",
-                    "turbIndex",
-                    "medTurbulence",
-                    "maxTurbulence",
-                ],
+                subset=turbulence_subset,
             )
 
             # Make all the data that's invalid based on QC and error nan
@@ -157,10 +165,12 @@ class MadisAmdarPreprocessor:
             data = self.drop_invalid_error_data(data)
 
             variables_to_keep: list[str] = list(
-                set_of_data_vars - set(self.quality_control_vars) - set(self.error_vars)
+                (data.data_vars.keys() & set_of_data_vars)
+                - self.quality_control_vars
+                - self.error_vars
             )
             data[variables_to_keep].to_dataframe().to_parquet(
-                output_directory / f"{filepath.stem}.parquet"
+                output_directory / f"{filepath.stem}.parquet" if self.relative_to_root_path is None else output_directory / self.relative_to_root_path / 
             )
 
             temp_netcdf_file.unlink()
