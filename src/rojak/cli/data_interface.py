@@ -73,7 +73,9 @@ def preprocess(
 def preprocess_madis_amdar_data(
     input_dir: Path, output_dir: Path | None, glob_pattern: str | None
 ):
-    preprocessor: MadisAmdarPreprocessor = MadisAmdarPreprocessor(input_dir, glob_pattern=glob_pattern)
+    preprocessor: MadisAmdarPreprocessor = MadisAmdarPreprocessor(
+        input_dir, glob_pattern=glob_pattern
+    )
     if output_dir is None:
         output_dir = input_dir
     preprocessor.filter_and_export_as_parquet(output_dir)
