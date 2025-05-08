@@ -10,6 +10,7 @@ from typing import FrozenSet, Iterable
 
 import xarray as xr
 import dask.dataframe as dd
+from rich.progress import track
 
 from rojak.datalib.utils import Date
 
@@ -156,7 +157,7 @@ class MadisAmdarPreprocessor:
     def filter_and_export_as_parquet(self, output_directory: Path):
         output_directory.mkdir(parents=True, exist_ok=True)
 
-        for index, filepath in enumerate(self.filepaths):
+        for index, filepath in track(enumerate(self.filepaths)):
             temp_netcdf_file: Path = self.decompress_gz(filepath)
             data: xr.Dataset = xr.open_dataset(
                 temp_netcdf_file,
@@ -249,7 +250,7 @@ class AcarsRetriever:
         base_output_dir: Path,
     ) -> None:
         dates: list[Date] = self.compute_date_combinations(years, months, days)
-        for date in dates:
+        for date in track(dates):
             self._download_file(date, base_output_dir)
 
 
