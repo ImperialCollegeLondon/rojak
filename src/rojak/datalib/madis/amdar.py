@@ -253,3 +253,7 @@ class AcarsRetriever:
         for date in dates:
             self._download_file(date, base_output_dir)
 
+
+def load_acars_amdar_data(path: str | list) -> "dd.DataFrame":
+    # ASSUMES FILES ARE IN PARQUET FORMAT
+    return dd.read_parquet(path, filesystem="arrow")
