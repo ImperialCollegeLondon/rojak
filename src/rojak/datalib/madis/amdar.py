@@ -66,7 +66,9 @@ class MadisAmdarPreprocessor:
                 self.relative_to_root_path = None
             else:
                 target_files = list(filepaths.glob(glob_pattern))
-                self.relative_to_root_path = target_files[0].relative_to(filepaths).parents[0]
+                self.relative_to_root_path = (
+                    target_files[0].relative_to(filepaths).parents[0]
+                )
 
             assert len(target_files) > 0
             self.filepaths = target_files
@@ -142,7 +144,7 @@ class MadisAmdarPreprocessor:
 
     def filter_and_export_as_parquet(self, output_directory: Path):
         output_directory.mkdir(parents=True, exist_ok=True)
-        
+
         for filepath in self.filepaths:
             temp_netcdf_file: Path = self.decompress_gz(filepath)
             set_of_data_vars: set = set(self.data_vars_for_turbulence)
@@ -153,7 +155,13 @@ class MadisAmdarPreprocessor:
                 drop_variables=ALL_AMDAR_DATA_VARS - set_of_data_vars,
             )
 
-            turbulence_subset: set[str] = data.data_vars.keys() & {"maxEDR", "medEDR", "turbIndex", "medTurbulence", "maxTurbulence"}
+            turbulence_subset: set[str] = data.data_vars.keys() & {
+                "maxEDR",
+                "medEDR",
+                "turbIndex",
+                "medTurbulence",
+                "maxTurbulence",
+            }
             # Drop all the nan data that's already present in the data
             data = data.dropna(
                 self.dimension_name,
@@ -169,9 +177,13 @@ class MadisAmdarPreprocessor:
                 - self.quality_control_vars
                 - self.error_vars
             )
-            data[variables_to_keep].to_dataframe().to_parquet(
-                output_directory / f"{filepath.stem}.parquet" if self.relative_to_root_path is None else output_directory / self.relative_to_root_path / 
-            )
-
+            output_file: Path = (
+                output_directory / f"{filepath.stem}.parquet"
+                if self.relative_to_root_path is None
+                else output_directory / self.relative_to_root_path / f"{filepath.stem}.parquet"
+            ) # fmt: skip
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+            data[variables_to_keep].to_dataframe().to_parquet(output_file)
+            
             temp_netcdf_file.unlink()
             del data
