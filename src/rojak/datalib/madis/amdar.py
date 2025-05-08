@@ -58,23 +58,28 @@ class MadisAmdarPreprocessor:
         # "windSpeedError",
     }  # fmt: skip
     dimension_name: str = "recNum"
-    relative_to_root_path: Path | None = None
+    relative_to_root_path: list[Path] | None = None
 
     def __init__(
         self, filepaths: Iterable[Path] | Path, glob_pattern: str | None = None
     ):
         if glob_pattern is not None:
-            target_files: list[Path]
+            target_files: list[Path] = []
+            self.relative_to_root_path = []
             if isinstance(filepaths, Iterable):
-                target_files = [
-                    path for fpath in filepaths for path in fpath.glob(glob_pattern)
-                ]
-                self.relative_to_root_path = None
+                for base_fpath in filepaths:
+                    for path in base_fpath.glob(glob_pattern):
+                        target_files.append(path)
+                        self.relative_to_root_path.append(
+                            path.relative_to(base_fpath).parents[0]
+                        )
             else:
-                target_files = list(filepaths.glob(glob_pattern))
-                self.relative_to_root_path = (
-                    target_files[0].relative_to(filepaths).parents[0]
-                )
+                self.relative_to_root_path = []
+                for item in filepaths.glob(glob_pattern):
+                    target_files.append(item)
+                    self.relative_to_root_path.append(
+                        item.relative_to(filepaths).parents[0]
+                    )
 
             assert len(target_files) > 0
             self.filepaths = target_files
@@ -151,7 +156,7 @@ class MadisAmdarPreprocessor:
     def filter_and_export_as_parquet(self, output_directory: Path):
         output_directory.mkdir(parents=True, exist_ok=True)
 
-        for filepath in self.filepaths:
+        for index, filepath in enumerate(self.filepaths):
             temp_netcdf_file: Path = self.decompress_gz(filepath)
             set_of_data_vars: set = set(self.data_vars_for_turbulence)
             data: xr.Dataset = xr.open_dataset(
@@ -186,11 +191,11 @@ class MadisAmdarPreprocessor:
             output_file: Path = (
                 output_directory / f"{filepath.stem}.parquet"
                 if self.relative_to_root_path is None
-                else output_directory / self.relative_to_root_path / f"{filepath.stem}.parquet"
-            ) # fmt: skip
+                else output_directory / self.relative_to_root_path[index] / f"{filepath.stem}.parquet"
+            )  # fmt: skip
             output_file.parent.mkdir(parents=True, exist_ok=True)
             data[variables_to_keep].to_dataframe().to_parquet(output_file)
-            
+
             temp_netcdf_file.unlink()
             del data
 
