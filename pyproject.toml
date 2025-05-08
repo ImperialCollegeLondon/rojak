@@ -23,6 +23,7 @@ build-backend = "hatchling.build"
 rojak = "rojak.cli:app"
 
 [dependency-groups]
+complete = ["rojak[ecmwf,amdar]"]
 dev = [
     "pyright>=1.1.400",
     "ruff>=0.11.8",
