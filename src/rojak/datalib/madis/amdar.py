@@ -28,7 +28,8 @@ ALL_AMDAR_DATA_VARS: FrozenSet[str] = frozenset(
      'turbulenceError', 'correctedFlag', 'rptStation', 'timeReceived', 'fileTimeFSL', 'origAirport', 'orig_airport_id',
      'destAirport', 'dest_airport_id', 'indAltitude', 'relHumidity', 'sounding_flag', 'soundingSecs',
      'sounding_airport_id', 'phaseFlight', 'tamdarCarrier3', 'tamdarCarrier', 'tamdarAcType', 'filterSetNum',
-     'wvssTest1'}) # fmt: skip
+     'wvssTest1'})  # fmt: skip
+
 
 class MadisAmdarPreprocessor:
     filepaths: Iterable[Path]
@@ -39,9 +40,9 @@ class MadisAmdarPreprocessor:
         "temperature", "temperatureDD", "timeMaxTurbulence", "timeObs", "timeObsDD",  "trueAirSpeed",
         "trueAirSpeedDD", "trueAirSpeedError", "turbIndex", "turbIndexDD", "turbulenceError",
         "vertAccel", "vertGust", "windDir", "windDirDD", "windDirError", "windSpeed", "windSpeedDD", "windSpeedError",
-    ] # fmt: skip
+    ]  # fmt: skip
     quality_control_vars: list[str] = ["altitudeDD", "windSpeedDD", "timeObsDD", "latitudeDD", "longitudeDD",
-        "maxEDRDD", "medEDRDD", "temperatureDD", "trueAirSpeedDD", "turbIndexDD", "windDirDD", "windSpeedDD"] # fmt: skip
+        "maxEDRDD", "medEDRDD", "temperatureDD", "trueAirSpeedDD", "turbIndexDD", "windDirDD", "windSpeedDD"]  # fmt: skip
     error_vars: list[str] = ["bounceError", "speedError", "turbulenceError",
         ## Including the ones below ends up making a lot of data nan. Leave that data in and let the user decide
         ## what to do with it later
@@ -49,13 +50,17 @@ class MadisAmdarPreprocessor:
         # "trueAirSpeedError",
         # "windDirError",
         # "windSpeedError",
-    ] # fmt: skip
+    ]  # fmt: skip
     dimension_name: str = "recNum"
 
-    def __init__(self, filepaths: Iterable[Path] | Path, glob_pattern: str | None = None):
+    def __init__(
+        self, filepaths: Iterable[Path] | Path, glob_pattern: str | None = None
+    ):
         if glob_pattern is not None:
             if isinstance(filepaths, Iterable):
-                self.filepaths = [path for fpath in filepaths for path in fpath.glob(glob_pattern)]
+                self.filepaths = [
+                    path for fpath in filepaths for path in fpath.glob(glob_pattern)
+                ]
             else:
                 self.filepaths = list(filepaths.glob(glob_pattern))
         else:
@@ -63,7 +68,9 @@ class MadisAmdarPreprocessor:
                 self.filepaths = filepaths
             else:
                 if not filepaths.is_file():
-                    raise ValueError(f"File {filepaths} is not a file. As glob pattern is not defined this must be a file")
+                    raise ValueError(
+                        f"File {filepaths} is not a file. As glob pattern is not defined this must be a file"
+                    )
                 self.filepaths = [filepaths]
 
     @staticmethod
@@ -71,7 +78,9 @@ class MadisAmdarPreprocessor:
         if not filepath.is_file():
             raise FileNotFoundError(filepath)
         elif filepath.suffix != ".gz":
-            raise ValueError(f"Unsupported file extension: {filepath.suffix}. File must be .gz")
+            raise ValueError(
+                f"Unsupported file extension: {filepath.suffix}. File must be .gz"
+            )
 
         temp_file = tempfile.NamedTemporaryFile(delete=False)
         temp_file_path: Path = Path(temp_file.name)
@@ -94,8 +103,15 @@ class MadisAmdarPreprocessor:
         # S - Screened
         # V - Verified
         # G - Good
-        return dataset.where(((dataset[data_var] == b"Z") | (dataset[data_var] == b"C") | (dataset[data_var] == b"S") |
-                              (dataset[data_var] == b"V") | (dataset[data_var] == b"G")))
+        return dataset.where(
+            (
+                (dataset[data_var] == b"Z")
+                | (dataset[data_var] == b"C")
+                | (dataset[data_var] == b"S")
+                | (dataset[data_var] == b"V")
+                | (dataset[data_var] == b"G")
+            )
+        )
 
     def drop_invalid_qc_data(self, dataset: xr.Dataset) -> xr.Dataset:
         for var in self.quality_control_vars:
@@ -118,17 +134,34 @@ class MadisAmdarPreprocessor:
         for filepath in self.filepaths:
             temp_netcdf_file: Path = self.decompress_gz(filepath)
             set_of_data_vars: set = set(self.data_vars_for_turbulence)
-            data: xr.Dataset = xr.open_dataset(temp_netcdf_file, engine="netcdf4", decode_timedelta=True,
-                                               drop_variables=ALL_AMDAR_DATA_VARS - set_of_data_vars)
+            data: xr.Dataset = xr.open_dataset(
+                temp_netcdf_file,
+                engine="netcdf4",
+                decode_timedelta=True,
+                drop_variables=ALL_AMDAR_DATA_VARS - set_of_data_vars,
+            )
             # Drop all the nan data that's already present in the data
-            data = data.dropna(self.dimension_name, subset=["maxEDR", "medEDR", "turbIndex", "medTurbulence", "maxTurbulence"])
+            data = data.dropna(
+                self.dimension_name,
+                subset=[
+                    "maxEDR",
+                    "medEDR",
+                    "turbIndex",
+                    "medTurbulence",
+                    "maxTurbulence",
+                ],
+            )
 
             # Make all the data that's invalid based on QC and error nan
             data = self.drop_invalid_qc_data(data)
             data = self.drop_invalid_error_data(data)
 
-            variables_to_keep: list[str] = list(set_of_data_vars - set(self.quality_control_vars) - set(self.error_vars))
-            data[variables_to_keep].to_dataframe().to_parquet(output_directory / f"{filepath.stem}.parquet")
+            variables_to_keep: list[str] = list(
+                set_of_data_vars - set(self.quality_control_vars) - set(self.error_vars)
+            )
+            data[variables_to_keep].to_dataframe().to_parquet(
+                output_directory / f"{filepath.stem}.parquet"
+            )
 
             temp_netcdf_file.unlink()
             del data
