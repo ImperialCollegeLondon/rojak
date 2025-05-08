@@ -40,3 +40,7 @@ amdar = [
     "netcdf4>=1.7.2",
     "pyarrow>=20.0.0",
 ]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
