@@ -39,14 +39,14 @@ ALL_AMDAR_DATA_VARS: FrozenSet[str] = frozenset(
 
 class MadisAmdarPreprocessor:
     filepaths: Iterable[Path]
-    data_vars_for_turbulence: list[str] = ["altitude", "altitudeDD", "bounceError", "correctedFlag", "dataDescriptor",
+    data_vars_for_turbulence: set[str] = {"altitude", "altitudeDD", "bounceError", "correctedFlag", "dataDescriptor",
         "dataSource", "dataType", "dest_airport_id", "en_tailNumber", "heading", "interpolatedLL", "interpolatedTime",
         "latitude", "latitudeDD", "longitude", "longitudeDD", "mach", "maxEDR", "maxEDRDD", "maxTurbulence",
         "medEDR", "medEDRDD", "medTurbulence", "orig_airport_id", "phaseFlight", "speedError", "tempError",
         "temperature", "temperatureDD", "timeMaxTurbulence", "timeObs", "timeObsDD",  "trueAirSpeed",
         "trueAirSpeedDD", "trueAirSpeedError", "turbIndex", "turbIndexDD", "turbulenceError",
         "vertAccel", "vertGust", "windDir", "windDirDD", "windDirError", "windSpeed", "windSpeedDD", "windSpeedError",
-    ]  # fmt: skip
+    }  # fmt: skip
     quality_control_vars: set[str] = {"altitudeDD", "windSpeedDD", "timeObsDD", "latitudeDD", "longitudeDD",
         "maxEDRDD", "medEDRDD", "temperatureDD", "trueAirSpeedDD", "turbIndexDD", "windDirDD", "windSpeedDD"}  # fmt: skip
     error_vars: set[str] = {"bounceError", "speedError", "turbulenceError",
@@ -158,12 +158,11 @@ class MadisAmdarPreprocessor:
 
         for index, filepath in enumerate(self.filepaths):
             temp_netcdf_file: Path = self.decompress_gz(filepath)
-            set_of_data_vars: set = set(self.data_vars_for_turbulence)
             data: xr.Dataset = xr.open_dataset(
                 temp_netcdf_file,
                 engine="netcdf4",
                 decode_timedelta=True,
-                drop_variables=ALL_AMDAR_DATA_VARS - set_of_data_vars,
+                drop_variables=ALL_AMDAR_DATA_VARS - self.data_vars_for_turbulence,
             )
 
             turbulence_subset: set[str] = data.data_vars.keys() & {
@@ -184,7 +183,7 @@ class MadisAmdarPreprocessor:
             data = self.drop_invalid_error_data(data)
 
             variables_to_keep: list[str] = list(
-                (data.data_vars.keys() & set_of_data_vars)
+                (data.data_vars.keys() & self.data_vars_for_turbulence)
                 - self.quality_control_vars
                 - self.error_vars
             )
