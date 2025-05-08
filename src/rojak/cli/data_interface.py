@@ -49,7 +49,7 @@ def retrieve(
         typer.Option(
             "-o",
             "--output_dir",
-            help="Directory to save retrieved files. If unspecified, it will be in the current directory",
+            help="Directory to save retrieved files. If unspecified, it will be in the 'data' folder in current directory",
         ),
     ] = None,
 ):
