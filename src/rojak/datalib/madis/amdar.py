@@ -1,9 +1,7 @@
 import fnmatch
 import gzip
-import itertools
 import shutil
 import tempfile
-import calendar
 from ftplib import FTP
 from pathlib import Path
 from typing import FrozenSet, Iterable
@@ -225,22 +223,6 @@ class AcarsRetriever(DataRetriever):
                 target_file_path: Path = output_dir / file
                 with open(target_file_path, "wb") as f_out:
                     ftp.retrbinary(f"RETR {file}", f_out.write)
-
-    @staticmethod
-    def compute_date_combinations(
-        years: list[int], months: list[int], days: list[int]
-    ) -> list[Date]:
-        if len(months) == 1 and months[0] == -1:
-            months = list(range(1, 13))
-        if len(days) == 1 and days[0] == -1:
-            return [
-                Date(y, m, d)
-                for y, m in itertools.product(years, months)
-                for d in range(1, calendar.monthrange(y, m)[1] + 1)
-            ]
-        return [
-            Date(*combination) for combination in itertools.product(years, months, days)
-        ]
 
     def download_files(
         self,

@@ -1,3 +1,5 @@
+import calendar
+import itertools
 from abc import ABC, abstractmethod
 from typing import List, TYPE_CHECKING, NamedTuple
 
@@ -23,3 +25,19 @@ class DataRetriever(ABC):
 
     @abstractmethod
     def _download_file(self, date: Date, base_output_dir: "Path") -> None: ...
+
+    @staticmethod
+    def compute_date_combinations(
+        years: list[int], months: list[int], days: list[int]
+    ) -> list[Date]:
+        if len(months) == 1 and months[0] == -1:
+            months = list(range(1, 13))
+        if len(days) == 1 and days[0] == -1:
+            return [
+                Date(y, m, d)
+                for y, m in itertools.product(years, months)
+                for d in range(1, calendar.monthrange(y, m)[1] + 1)
+            ]
+        return [
+            Date(*combination) for combination in itertools.product(years, months, days)
+        ]
