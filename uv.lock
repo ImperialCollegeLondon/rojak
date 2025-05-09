@@ -576,6 +576,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "dask" },
+    { name = "pyyaml" },
     { name = "typer" },
     { name = "xarray" },
 ]
@@ -603,6 +604,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "dask", specifier = ">=2025.4.1" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "typer", specifier = ">=0.15.3" },
     { name = "xarray", specifier = ">=2025.4.0" },
 ]
