@@ -41,3 +41,8 @@ class DataRetriever(ABC):
         return [
             Date(*combination) for combination in itertools.product(years, months, days)
         ]
+
+
+class DataPreprocessor(ABC):
+    @abstractmethod
+    def apply_preprocessor(self, output_directory: Path) -> None: ...

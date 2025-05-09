@@ -1,10 +1,13 @@
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated, Optional, TYPE_CHECKING
 
 import typer
 
 from rojak.datalib.madis.amdar import MadisAmdarPreprocessor, AcarsRetriever
+
+if TYPE_CHECKING:
+    from rojak.core.data import DataPreprocessor
 
 data_app = typer.Typer()
 
@@ -110,12 +113,12 @@ def preprocess(
 def preprocess_madis_amdar_data(
     input_dir: Path, output_dir: Path | None, glob_pattern: str | None
 ):
-    preprocessor: MadisAmdarPreprocessor = MadisAmdarPreprocessor(
+    preprocessor: "DataPreprocessor" = MadisAmdarPreprocessor(
         input_dir, glob_pattern=glob_pattern
     )
     if output_dir is None:
         output_dir = input_dir
-    preprocessor.filter_and_export_as_parquet(output_dir)
+    preprocessor.apply_preprocessor(output_dir)
 
 
 if __name__ == "__main__":
