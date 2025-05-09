@@ -12,7 +12,7 @@ import xarray as xr
 import dask.dataframe as dd
 from rich.progress import track
 
-from rojak.datalib.utils import Date
+from rojak.core.data import Date, DataRetriever
 
 ALL_AMDAR_DATA_VARS: FrozenSet[str] = frozenset(
     {'nStaticIds', 'staticIds', 'lastRecord', 'invTime', 'prevRecord', 'inventory', 'globalInventory', 'firstOverflow',
@@ -200,7 +200,7 @@ class MadisAmdarPreprocessor:
             del data
 
 
-class AcarsRetriever:
+class AcarsRetriever(DataRetriever):
     ftp_host: str = "madis-data.ncep.noaa.gov"
     product: str = "acars"
     file_pattern: str
