@@ -23,7 +23,9 @@ build-backend = "hatchling.build"
 rojak = "rojak.cli:app"
 
 [dependency-groups]
+complete = ["rojak[ecmwf,amdar]"]
 dev = [
+    "pre-commit>=4.2.0",
     "pyright>=1.1.400",
     "ruff>=0.11.8",
 ]
@@ -34,3 +36,11 @@ docs = []
 ecmwf = [
     "cdsapi>=0.7.5",
 ]
+amdar = [
+    "netcdf4>=1.7.2",
+    "pyarrow>=20.0.0",
+]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
