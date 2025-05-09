@@ -10,7 +10,7 @@ import xarray as xr
 import dask.dataframe as dd
 from rich.progress import track
 
-from rojak.core.data import Date, DataRetriever
+from rojak.core.data import Date, DataRetriever, DataPreprocessor
 
 ALL_AMDAR_DATA_VARS: FrozenSet[str] = frozenset(
     {'nStaticIds', 'staticIds', 'lastRecord', 'invTime', 'prevRecord', 'inventory', 'globalInventory', 'firstOverflow',
@@ -36,7 +36,7 @@ ALL_AMDAR_DATA_VARS: FrozenSet[str] = frozenset(
      'wvssTest1'})  # fmt: skip
 
 
-class MadisAmdarPreprocessor:
+class MadisAmdarPreprocessor(DataPreprocessor):
     filepaths: Iterable[Path]
     data_vars_for_turbulence: set[str] = {"altitude", "altitudeDD", "bounceError", "correctedFlag", "dataDescriptor",
         "dataSource", "dataType", "dest_airport_id", "en_tailNumber", "heading", "interpolatedLL", "interpolatedTime",
@@ -152,7 +152,8 @@ class MadisAmdarPreprocessor:
             dataset = self.__mask_invalid_error_var(dataset, var)
         return dataset.dropna(self.dimension_name, subset=error_vars_present)
 
-    def filter_and_export_as_parquet(self, output_directory: Path):
+    def apply_preprocessor(self, output_directory: Path):
+        # Filters and exports data to parquet
         output_directory.mkdir(parents=True, exist_ok=True)
 
         for index, filepath in track(enumerate(self.filepaths)):
