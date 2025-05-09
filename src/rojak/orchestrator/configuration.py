@@ -1,4 +1,6 @@
-from pydantic import BaseModel
+from typing import Annotated
+
+from pydantic import BaseModel, Field
 
 
 class TurbulenceConfig(BaseModel):
@@ -18,6 +20,9 @@ class DataConfig(BaseModel):
 
 class Context(BaseModel):
     # Root configuration
+    name: Annotated[
+        str, Field(description="Name of run", repr=True, strict=True, frozen=True)
+    ]
     turbulence_config: TurbulenceConfig | None = None
     contrails_config: ContrailsConfig | None = None
     data_config: DataConfig
