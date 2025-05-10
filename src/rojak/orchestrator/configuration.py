@@ -1,6 +1,15 @@
-from typing import Annotated
+from typing import Annotated, Self, TYPE_CHECKING
 
-from pydantic import BaseModel, Field
+import yaml
+from pydantic import BaseModel, Field, ValidationError
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+
+class InvalidConfiguration(Exception):
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
 
 
 class TurbulenceConfig(BaseModel):
@@ -26,3 +35,18 @@ class Context(BaseModel):
     turbulence_config: TurbulenceConfig | None = None
     contrails_config: ContrailsConfig | None = None
     data_config: DataConfig
+
+    @classmethod
+    def from_yaml(cls, path: "Path") -> Self:
+        if path.is_file():
+            data: dict = {}
+            with open(path, "r") as f:
+                data = yaml.safe_load(f)
+
+            try:
+                cls.model_validate(data)
+            except ValidationError as e:
+                raise InvalidConfiguration(str(e)) from e
+            return cls(**data)
+        else:
+            raise InvalidConfiguration("Configuration file not found or is not a file.")
