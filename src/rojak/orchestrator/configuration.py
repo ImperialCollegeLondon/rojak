@@ -24,6 +24,7 @@ class ContrailsConfig(BaseModel):
 
 class DataConfig(BaseModel):
     # Config for data, this would cover both observational data and weather data
+    name: str
     ...
 
 
@@ -44,9 +45,9 @@ class Context(BaseModel):
                 data = yaml.safe_load(f)
 
             try:
-                cls.model_validate(data)
+                instance = cls.model_validate(data)
             except ValidationError as e:
                 raise InvalidConfiguration(str(e)) from e
-            return cls(**data)
+            return instance
         else:
             raise InvalidConfiguration("Configuration file not found or is not a file.")
