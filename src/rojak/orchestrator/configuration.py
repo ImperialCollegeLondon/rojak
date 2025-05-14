@@ -1,10 +1,9 @@
-from typing import Annotated, Self, TYPE_CHECKING
+from enum import StrEnum
+from typing import Annotated, Self
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from pathlib import Path
 
 
 class InvalidConfiguration(Exception):
@@ -12,8 +11,55 @@ class InvalidConfiguration(Exception):
         super().__init__(message)
 
 
+class TurbulenceSeverity(StrEnum):
+    LIGHT = "light"
+    LIGHT_TO_MODERATE = "light_to_moderate"
+    MODERATE = "moderate"
+    MODERATE_TO_SEVERE = "moderate_to_severe"
+    SEVERE = "severe"
+    MODERATE_OR_GREATER = "moderate_or_greater"
+
+
 class TurbulenceConfig(BaseModel):
     # Config for turbulence analysis
+    evaluation_data_dir: Annotated[
+        Path,
+        Field(
+            description="Path to directory containing evaluation data",
+            repr=True,
+            strict=True,
+            frozen=True,
+        ),
+    ]
+    chunks: Annotated[
+        dict,
+        Field(
+            description="How data should be chunked (dask)",
+            frozen=True,
+            repr=True,
+            strict=True,
+        ),
+    ]
+    calibration_data_dir: Annotated[
+        Path | None,
+        Field(
+            description="Path to directory containing calibration data",
+            repr=True,
+            frozen=True,
+        ),
+    ] = None
+    thresholds_file_path: Annotated[
+        Path | None,
+        Field(
+            description="Path to directory containing thresholds data",
+            repr=True,
+            frozen=True,
+        ),
+    ]
+    severities: Annotated[
+        list[TurbulenceSeverity],
+        Field(description="Target turbulence severity", repr=True),
+    ] = [TurbulenceSeverity.LIGHT]
     ...
 
 
