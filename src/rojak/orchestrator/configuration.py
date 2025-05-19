@@ -2,13 +2,18 @@ from enum import StrEnum
 from typing import Annotated, Self
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, AfterValidator
 from pathlib import Path
 
 
 class InvalidConfiguration(Exception):
     def __init__(self, message: str) -> None:
         super().__init__(message)
+
+
+def make_dir_if_not_present(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 class TurbulenceSeverity(StrEnum):
@@ -83,10 +88,14 @@ class Context(BaseModel):
         str, Field(description="Format of output plots", strict=True, frozen=True)
     ]
     output_dir: Annotated[
-        Path, Field(description="Output directory", repr=True, strict=True, frozen=True)
+        Path,
+        Field(description="Output directory", repr=True, strict=True, frozen=True),
+        AfterValidator(make_dir_if_not_present),
     ]
     plots_dir: Annotated[
-        Path, Field(description="Plots directory", repr=True, strict=True, frozen=True)
+        Path,
+        Field(description="Plots directory", repr=True, strict=True, frozen=True),
+        AfterValidator(make_dir_if_not_present),
     ]
     turbulence_config: TurbulenceConfig | None = None
     contrails_config: ContrailsConfig | None = None
