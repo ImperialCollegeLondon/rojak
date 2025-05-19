@@ -21,7 +21,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project.scripts]
-rojak = "rojak.cli:app"
+rojak = "rojak.cli.main:app"
 
 [dependency-groups]
 complete = ["rojak[ecmwf,amdar]"]
