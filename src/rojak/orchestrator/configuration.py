@@ -11,6 +11,14 @@ class InvalidConfiguration(Exception):
         super().__init__(message)
 
 
+def dir_must_exist(path: Path) -> Path:
+    if not path.exists():
+        raise InvalidConfiguration(f"{path} does not exist")
+    if not path.is_dir():
+        raise InvalidConfiguration(f"{path} is not a directory")
+    return path
+
+
 def make_dir_if_not_present(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     return path
@@ -35,6 +43,7 @@ class TurbulenceConfig(BaseModel):
             strict=True,
             frozen=True,
         ),
+        AfterValidator(dir_must_exist),
     ]
     chunks: Annotated[
         dict,
@@ -60,7 +69,7 @@ class TurbulenceConfig(BaseModel):
             repr=True,
             frozen=True,
         ),
-    ]
+    ] = None
     severities: Annotated[
         list[TurbulenceSeverity],
         Field(description="Target turbulence severity", repr=True),
