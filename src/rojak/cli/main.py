@@ -1,11 +1,10 @@
-from typing import Annotated, TYPE_CHECKING
+from typing import Annotated
+from pathlib import Path
 
 import typer
 
 from rojak.cli import data_interface
 
-if TYPE_CHECKING:
-    from pathlib import Path
 
 app = typer.Typer()
 app.add_typer(data_interface.data_app, name="data")
