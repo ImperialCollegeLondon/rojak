@@ -28,6 +28,10 @@ jobs:
         run: uv sync --locked --all-groups
       - name: Install ruff and lint code
         uses: astral-sh/ruff-action@v3
+      - name: Run pyright
+        uses: jakebailey/pyright-action@v2
+        with:
+          python-version: ${{ matrix.python-version }}
       - name: Test with pytest
         run: |
           uv run pytest
