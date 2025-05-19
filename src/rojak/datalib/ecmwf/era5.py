@@ -72,7 +72,6 @@ class Era5Retriever(DataRetriever):
         )
         for date in dates:
             self._download_file(date, base_output_dir)
-        pass
 
     def _download_file(self, date: "Date", base_output_dir: "Path") -> None:
         this_request = self.request_body
