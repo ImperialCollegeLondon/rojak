@@ -204,8 +204,11 @@ class AcarsRetriever(DataRetriever):
     product: str = "acars"
     file_pattern: str
 
-    def __init__(self, file_pattern: str = "*.gz"):
-        self.file_pattern = file_pattern
+    def __init__(self, file_pattern: str | None = None):
+        if file_pattern is None:
+            self.file_pattern = "*.gz"
+        else:
+            self.file_pattern = file_pattern
 
     def _download_file(self, date: Date, base_output_dir: Path) -> None:
         output_dir: Path = (
