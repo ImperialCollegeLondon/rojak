@@ -11,6 +11,7 @@ keywords = ["turbulence", "climate", "contrails", "avaiation", "aerospace", "aer
 requires-python = ">=3.12"
 dependencies = [
     "dask>=2025.4.1",
+    "pyyaml>=6.0.2",
     "typer>=0.15.3",
     "xarray>=2025.4.0",
 ]
