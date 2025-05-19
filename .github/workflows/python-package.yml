@@ -32,4 +32,4 @@ jobs:
         src: "./src"
     - name: Test with pytest
       run: |
-        uv run pytest --cov=rojak
+        uv run pytest
