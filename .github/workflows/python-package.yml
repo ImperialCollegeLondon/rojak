@@ -28,8 +28,6 @@ jobs:
       run: uv sync --locked --all-groups
     - name: Install ruff and lint code
       uses: astral-sh/ruff-action@v3
-      with:
-        src: "./src"
     - name: Test with pytest
       run: |
         uv run pytest
