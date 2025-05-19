@@ -9,6 +9,7 @@ from rojak.datalib.ecmwf.constants import (
 )
 
 import cdsapi
+from rich.progress import track
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -70,7 +71,7 @@ class Era5Retriever(DataRetriever):
         (base_output_dir / self.folder_name).resolve().mkdir(
             parents=True, exist_ok=True
         )
-        for date in dates:
+        for date in track(dates):
             self._download_file(date, base_output_dir)
 
     def _download_file(self, date: "Date", base_output_dir: "Path") -> None:
