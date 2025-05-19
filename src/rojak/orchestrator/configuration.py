@@ -79,6 +79,15 @@ class Context(BaseModel):
     name: Annotated[
         str, Field(description="Name of run", repr=True, strict=True, frozen=True)
     ]
+    image_format: Annotated[
+        str, Field(description="Format of output plots", strict=True, frozen=True)
+    ]
+    output_dir: Annotated[
+        Path, Field(description="Output directory", repr=True, strict=True, frozen=True)
+    ]
+    plots_dir: Annotated[
+        Path, Field(description="Plots directory", repr=True, strict=True, frozen=True)
+    ]
     turbulence_config: TurbulenceConfig | None = None
     contrails_config: ContrailsConfig | None = None
     data_config: DataConfig
