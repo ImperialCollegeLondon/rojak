@@ -67,6 +67,7 @@ def test_context_from_yaml_basic(
     assert context.contrails_config is None
     assert context.plots_dir.exists() and context.plots_dir.is_dir()
     assert context.output_dir.exists() and context.output_dir.is_dir()
+    assert context.image_format == "png"
 
     if is_created:
         assert context.plots_dir.name.startswith("plots")
