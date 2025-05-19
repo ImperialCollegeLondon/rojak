@@ -1,9 +1,7 @@
 import fnmatch
 import gzip
-import itertools
 import shutil
 import tempfile
-import calendar
 from ftplib import FTP
 from pathlib import Path
 from typing import FrozenSet, Iterable
@@ -12,7 +10,7 @@ import xarray as xr
 import dask.dataframe as dd
 from rich.progress import track
 
-from rojak.datalib.utils import Date
+from rojak.core.data import Date, DataRetriever, DataPreprocessor
 
 ALL_AMDAR_DATA_VARS: FrozenSet[str] = frozenset(
     {'nStaticIds', 'staticIds', 'lastRecord', 'invTime', 'prevRecord', 'inventory', 'globalInventory', 'firstOverflow',
@@ -38,7 +36,7 @@ ALL_AMDAR_DATA_VARS: FrozenSet[str] = frozenset(
      'wvssTest1'})  # fmt: skip
 
 
-class MadisAmdarPreprocessor:
+class MadisAmdarPreprocessor(DataPreprocessor):
     filepaths: Iterable[Path]
     data_vars_for_turbulence: set[str] = {"altitude", "altitudeDD", "bounceError", "correctedFlag", "dataDescriptor",
         "dataSource", "dataType", "dest_airport_id", "en_tailNumber", "heading", "interpolatedLL", "interpolatedTime",
@@ -154,7 +152,8 @@ class MadisAmdarPreprocessor:
             dataset = self.__mask_invalid_error_var(dataset, var)
         return dataset.dropna(self.dimension_name, subset=error_vars_present)
 
-    def filter_and_export_as_parquet(self, output_directory: Path):
+    def apply_preprocessor(self, output_directory: Path):
+        # Filters and exports data to parquet
         output_directory.mkdir(parents=True, exist_ok=True)
 
         for index, filepath in track(enumerate(self.filepaths)):
@@ -200,7 +199,7 @@ class MadisAmdarPreprocessor:
             del data
 
 
-class AcarsRetriever:
+class AcarsRetriever(DataRetriever):
     ftp_host: str = "madis-data.ncep.noaa.gov"
     product: str = "acars"
     file_pattern: str
@@ -225,22 +224,6 @@ class AcarsRetriever:
                 target_file_path: Path = output_dir / file
                 with open(target_file_path, "wb") as f_out:
                     ftp.retrbinary(f"RETR {file}", f_out.write)
-
-    @staticmethod
-    def compute_date_combinations(
-        years: list[int], months: list[int], days: list[int]
-    ) -> list[Date]:
-        if len(months) == 1 and months[0] == -1:
-            months = list(range(1, 13))
-        if len(days) == 1 and days[0] == -1:
-            return [
-                Date(y, m, d)
-                for y, m in itertools.product(years, months)
-                for d in range(1, calendar.monthrange(y, m)[1] + 1)
-            ]
-        return [
-            Date(*combination) for combination in itertools.product(years, months, days)
-        ]
 
     def download_files(
         self,
