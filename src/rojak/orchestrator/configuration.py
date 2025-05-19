@@ -89,12 +89,12 @@ class Context(BaseModel):
     ]
     output_dir: Annotated[
         Path,
-        Field(description="Output directory", repr=True, strict=True, frozen=True),
+        Field(description="Output directory", repr=True, frozen=True),
         AfterValidator(make_dir_if_not_present),
     ]
     plots_dir: Annotated[
         Path,
-        Field(description="Plots directory", repr=True, strict=True, frozen=True),
+        Field(description="Plots directory", repr=True, frozen=True),
         AfterValidator(make_dir_if_not_present),
     ]
     turbulence_config: TurbulenceConfig | None = None

@@ -11,7 +11,15 @@ if TYPE_CHECKING:
 
 @pytest.fixture
 def basic_context_yaml_file(tmp_path_factory) -> "Path":
-    content: dict = {"data_config": {"name": "test"}, "name": "test"}
+    tmp_output: Path = tmp_path_factory.mktemp("output")
+    tmp_plots: Path = tmp_path_factory.mktemp("plots")
+    content: dict = {
+        "data_config": {"name": "test"},
+        "name": "test",
+        "image_format": "png",
+        "output_dir": str(tmp_output),
+        "plots_dir": str(tmp_plots),
+    }
     output_file: "Path" = tmp_path_factory.mktemp("config") / "simplest_config.yml"
     with open(output_file, "w") as file:
         yaml.safe_dump(content, file, encoding="utf-8")
