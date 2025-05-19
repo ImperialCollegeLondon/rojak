@@ -55,6 +55,10 @@ def retrieve(
             help="Directory to save retrieved files. If unspecified, it will be in the 'data' folder in current directory",
         ),
     ] = None,
+    glob_pattern: Annotated[
+        Optional[str],
+        typer.Option(help="Glob pattern to select files ONLY APPLICABLE for MADIS"),
+    ] = None,
 ):
     if output_dir is None:
         output_dir = Path.cwd() / "data" / source
@@ -62,7 +66,7 @@ def retrieve(
 
     match source:
         case "madis-amdar":
-            retriever = AcarsRetriever()
+            retriever = AcarsRetriever(glob_pattern)
             retriever.download_files(years, months, days, output_dir)
         case "ukmo-amdar":
             raise NotImplementedError("Not implemented UKMO AMDAR data retrieval")
