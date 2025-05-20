@@ -33,6 +33,40 @@ class TurbulenceSeverity(StrEnum):
     MODERATE_OR_GREATER = "moderate_or_greater"
 
 
+class TurbulenceThresholdMode(StrEnum):
+    BOUNDED = "bounded"
+    GEQ = "geq"
+
+
+class TurbulenceDiagnostics(StrEnum):
+    RICHARDSON = "richardson"
+    F2D = "f2d"
+    F3D = "f3d"
+    UBF = "ubf"
+    TI1 = "ti1"
+    TI2 = "ti2"
+    NCSU1 = "ncsu1"
+    ENDLICH = "endlich"
+    COLSON_PANOFSKY = "colson_panofsky"
+    WIND_SPEED = "wind_speed"
+    BRUNT_VAISALA = "bunt_vaisala"
+    VWS = "vertical_wind_shear"
+    DEF = "deformation"
+    DIRECTIONAL_SHEAR = "directional_shear"
+    TEMPERATURE_GRADIENT = "temperature_gradient"
+    HORIZONTAL_DIVERGENCE = "horizontal_divergence"
+    NGM1 = "ngm1"
+    NGM2 = "ngm2"
+    BROWN1 = "brown1"
+    BROWN2 = "brown2"
+    MAGNITUDE_PV = "magnitude_pv"
+    PV_GRADIENT = "gradient_pv"
+    NVA = "nva"
+    DUTTON = "dutton"
+    EDR_LUNNON = "edr_lunnon"
+    VORTICITY_SQUARED = "vortical_squared"
+
+
 class BaseConfigModel(BaseModel):
     @classmethod
     def from_yaml(cls, path: "Path") -> Self:
@@ -57,7 +91,6 @@ class TurbulenceConfig(BaseConfigModel):
         Field(
             description="Path to directory containing evaluation data",
             repr=True,
-            strict=True,
             frozen=True,
         ),
         AfterValidator(dir_must_exist),
@@ -71,6 +104,23 @@ class TurbulenceConfig(BaseConfigModel):
             strict=True,
         ),
     ]
+    diagnostics: Annotated[
+        list[TurbulenceDiagnostics],
+        Field(
+            description="List of turbulence diagnostics to evaluate",
+            repr=True,
+            frozen=True,
+        ),
+    ]
+    threshold_mode: Annotated[
+        TurbulenceThresholdMode,
+        Field(
+            default=TurbulenceThresholdMode.BOUNDED,
+            description="How thresholds are used to determine if turbulent",
+            repr=True,
+            frozen=True,
+        ),
+    ] = TurbulenceThresholdMode.BOUNDED
     calibration_data_dir: Annotated[
         Path | None,
         Field(
@@ -91,7 +141,31 @@ class TurbulenceConfig(BaseConfigModel):
         list[TurbulenceSeverity],
         Field(description="Target turbulence severity", repr=True),
     ] = [TurbulenceSeverity.LIGHT]
-    ...
+
+    @model_validator(mode="after")
+    def check_either_calibration_data_or_thresholds_present(self) -> Self:
+        if self.calibration_data_dir is None and self.thresholds_file_path is None:
+            raise InvalidConfiguration(
+                "Either calibration data directory or thresholds file must be provided."
+            )
+        if (
+            self.calibration_data_dir is not None
+            and self.thresholds_file_path is not None
+        ):
+            raise InvalidConfiguration(
+                "Either calibration data directory or thresholds file must be provided, NOT both"
+            )
+        if (
+            self.calibration_data_dir is not None
+            and not self.calibration_data_dir.is_dir()
+        ):
+            raise InvalidConfiguration("Calibration data directory is not a directory.")
+        if (
+            self.thresholds_file_path is not None
+            and not self.thresholds_file_path.is_file()
+        ):
+            raise InvalidConfiguration("Thresholds file provided is not a file.")
+        return self
 
 
 class ContrailsConfig(BaseConfigModel):
