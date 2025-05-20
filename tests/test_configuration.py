@@ -134,6 +134,18 @@ def spatial_domain_file(request, tmp_path) -> "Path":
             "minimum_longitude": 0,
             "maximum_longitude": 181,
         },
+        {
+            "minimum_latitude": 90,
+            "maximum_latitude": 90,
+            "minimum_longitude": 0,
+            "maximum_longitude": 180,
+        },
+        {
+            "minimum_latitude": 0,
+            "maximum_latitude": 90,
+            "minimum_longitude": 0,
+            "maximum_longitude": 0,
+        },
     ],
     indirect=True,
 )
