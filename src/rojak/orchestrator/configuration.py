@@ -33,6 +33,23 @@ class TurbulenceSeverity(StrEnum):
     MODERATE_OR_GREATER = "moderate_or_greater"
 
 
+class BaseConfigModel(BaseModel):
+    @classmethod
+    def from_yaml(cls, path: "Path") -> Self:
+        if path.is_file():
+            data: dict = {}
+            with open(path, "r") as f:
+                data = yaml.safe_load(f)
+
+            try:
+                instance = cls.model_validate(data)
+            except ValidationError as e:
+                raise InvalidConfiguration(str(e)) from e
+            return instance
+        else:
+            raise InvalidConfiguration("Configuration file not found or is not a file.")
+
+
 class TurbulenceConfig(BaseModel):
     # Config for turbulence analysis
     evaluation_data_dir: Annotated[
@@ -88,7 +105,7 @@ class DataConfig(BaseModel):
     ...
 
 
-class Context(BaseModel):
+class Context(BaseConfigModel):
     # Root configuration
     name: Annotated[
         str, Field(description="Name of run", repr=True, strict=True, frozen=True)
@@ -109,18 +126,3 @@ class Context(BaseModel):
     turbulence_config: TurbulenceConfig | None = None
     contrails_config: ContrailsConfig | None = None
     data_config: DataConfig
-
-    @classmethod
-    def from_yaml(cls, path: "Path") -> Self:
-        if path.is_file():
-            data: dict = {}
-            with open(path, "r") as f:
-                data = yaml.safe_load(f)
-
-            try:
-                instance = cls.model_validate(data)
-            except ValidationError as e:
-                raise InvalidConfiguration(str(e)) from e
-            return instance
-        else:
-            raise InvalidConfiguration("Configuration file not found or is not a file.")
