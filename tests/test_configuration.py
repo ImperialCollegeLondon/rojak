@@ -1,5 +1,6 @@
 from contextlib import nullcontext
 from enum import StrEnum
+import copy
 
 import pytest
 import yaml
@@ -215,8 +216,8 @@ def make_empty_temp_dir(tmp_path_factory) -> "Path":
 
 
 @pytest.fixture()
-def make_empty_temp_text_file(tmp_path) -> "Path":
-    output_file = tmp_path / "file.txt"
+def make_empty_temp_text_file(tmp_path_factory) -> "Path":
+    output_file = tmp_path_factory.getbasetemp() / "file.txt"
     output_file.touch()
     return output_file
 
@@ -232,7 +233,7 @@ def test_turbulence_config_invalid_config_default(dict_to_file) -> None:
 def make_turbulence_config_with_calibration_dir(
     make_empty_temp_dir, tmp_path_factory, request
 ) -> "Path":
-    content = request.param
+    content = copy.deepcopy(request.param)
     content["calibration_data_dir"] = str(make_empty_temp_dir)
     content["evaluation_data_dir"] = str(tmp_path_factory.mktemp("data"))
     return dump_dict_to_file(tmp_path_factory.getbasetemp(), content)
@@ -261,10 +262,7 @@ turbulence_config_field_permutations = [
         ],
     },
 ]
-
-
-@pytest.mark.parametrize(
-    "make_turbulence_config_with_calibration_dir, expectation",
+turbulence_config_parametrisation = (
     [
         pytest.param({}, pytest.raises(InvalidConfiguration), id="only_has_dirs"),
         pytest.param(
@@ -286,6 +284,12 @@ turbulence_config_field_permutations = [
             id="succeeds_with_multiple_severities",
         ),
     ],
+)
+
+
+@pytest.mark.parametrize(
+    "make_turbulence_config_with_calibration_dir, expectation",
+    *turbulence_config_parametrisation,
     indirect=["make_turbulence_config_with_calibration_dir"],
 )
 def test_turbulence_config_with_calibration_dir(
@@ -318,7 +322,7 @@ def test_turbulence_config_with_calibration_dir(
 def make_turbulence_config_with_threshold_file(
     make_empty_temp_text_file, tmp_path_factory, request
 ) -> "Path":
-    content = request.param
+    content = copy.deepcopy(request.param)
     content["thresholds_file_path"] = str(make_empty_temp_text_file)
     content["evaluation_data_dir"] = str(tmp_path_factory.mktemp("data"))
     return dump_dict_to_file(tmp_path_factory.getbasetemp(), content)
@@ -326,27 +330,7 @@ def make_turbulence_config_with_threshold_file(
 
 @pytest.mark.parametrize(
     "make_turbulence_config_with_threshold_file, expectation",
-    [
-        pytest.param({}, pytest.raises(InvalidConfiguration), id="only_has_dirs"),
-        pytest.param(
-            {"chunks": {}}, pytest.raises(InvalidConfiguration), id="only_has_chunks"
-        ),
-        pytest.param(
-            turbulence_config_field_permutations[0],
-            nullcontext(turbulence_config_field_permutations[0]),
-            id="succeeds_only_required",
-        ),
-        pytest.param(
-            turbulence_config_field_permutations[1],
-            nullcontext(turbulence_config_field_permutations[1]),
-            id="succeeds_with_threshold_mode",
-        ),
-        pytest.param(
-            turbulence_config_field_permutations[2],
-            nullcontext(turbulence_config_field_permutations[2]),
-            id="succeeds_with_multiple_severities",
-        ),
-    ],
+    *turbulence_config_parametrisation,
     indirect=["make_turbulence_config_with_threshold_file"],
 )
 def test_turbulence_config_with_threshold_file(
