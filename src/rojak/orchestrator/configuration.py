@@ -50,7 +50,7 @@ class BaseConfigModel(BaseModel):
             raise InvalidConfiguration("Configuration file not found or is not a file.")
 
 
-class TurbulenceConfig(BaseModel):
+class TurbulenceConfig(BaseConfigModel):
     # Config for turbulence analysis
     evaluation_data_dir: Annotated[
         Path,
@@ -94,12 +94,12 @@ class TurbulenceConfig(BaseModel):
     ...
 
 
-class ContrailsConfig(BaseModel):
+class ContrailsConfig(BaseConfigModel):
     # Config for contrail analysis
     ...
 
 
-class DataConfig(BaseModel):
+class DataConfig(BaseConfigModel):
     # Config for data, this would cover both observational data and weather data
     name: str
     ...
