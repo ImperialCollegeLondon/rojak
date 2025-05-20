@@ -119,6 +119,10 @@ class SpatialDomain(BaseConfigModel):
             raise ValueError("Maximum latitude must be greater than minimum latitude")
         if self.minimum_longitude > self.maximum_longitude:
             raise ValueError("Maximum longitude must be greater than minimum longitude")
+        if self.minimum_latitude == self.maximum_latitude:
+            raise ValueError("Minimum latitude must NOT be equal to maximum latitude")
+        if self.minimum_longitude == self.maximum_longitude:
+            raise ValueError("Minimum longitude must NOT be equal to maximum longitude")
         return self
 
 
