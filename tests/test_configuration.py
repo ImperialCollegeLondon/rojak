@@ -86,9 +86,8 @@ def test_context_from_yaml_basic(
     assert context.data_config.spatial_domain.maximum_longitude == 180
 
 
-# Make this method more generic if needed (i.e. dumps for any dictionary)
 @pytest.fixture
-def spatial_domain_file(request, tmp_path) -> "Path":
+def dict_to_file(request, tmp_path) -> "Path":
     output_file: Path = tmp_path / "spatial_domain.yml"
     with open(output_file, "w") as file:
         yaml.safe_dump(request.param, file, encoding="utf-8")
@@ -96,7 +95,7 @@ def spatial_domain_file(request, tmp_path) -> "Path":
 
 
 @pytest.mark.parametrize(
-    "spatial_domain_file",
+    "dict_to_file",
     [
         {
             "minimum_latitude": 90,
@@ -149,14 +148,14 @@ def spatial_domain_file(request, tmp_path) -> "Path":
     ],
     indirect=True,
 )
-def test_spatial_domain_invalid_config(spatial_domain_file) -> None:
+def test_spatial_domain_invalid_config(dict_to_file) -> None:
     with pytest.raises(InvalidConfiguration) as excinfo:
-        configuration.SpatialDomain.from_yaml(spatial_domain_file)
+        configuration.SpatialDomain.from_yaml(dict_to_file)
     assert excinfo.type is InvalidConfiguration
 
 
 @pytest.mark.parametrize(
-    "spatial_domain_file",
+    "dict_to_file",
     [
         {
             "minimum_latitude": -90,
@@ -191,6 +190,6 @@ def test_spatial_domain_invalid_config(spatial_domain_file) -> None:
     ],
     indirect=True,
 )
-def test_spatial_domain_valid_config(spatial_domain_file) -> None:
-    spatial_domain = SpatialDomain.from_yaml(spatial_domain_file)
+def test_spatial_domain_valid_config(dict_to_file) -> None:
+    spatial_domain = SpatialDomain.from_yaml(dict_to_file)
     assert spatial_domain.minimum_longitude == 0
