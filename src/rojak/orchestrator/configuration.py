@@ -2,7 +2,7 @@ from enum import StrEnum
 from typing import Annotated, Self
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, AfterValidator
+from pydantic import BaseModel, Field, ValidationError, AfterValidator, model_validator
 from pathlib import Path
 
 
@@ -99,9 +99,33 @@ class ContrailsConfig(BaseConfigModel):
     ...
 
 
+class SpatialDomain(BaseConfigModel):
+    minimum_latitude: Annotated[
+        float, Field(default=-90, description="Minimum latitude", ge=-90, le=90)
+    ]
+    maximum_latitude: Annotated[
+        float, Field(default=90, description="Maximum latitude", ge=-90, le=90)
+    ]
+    minimum_longitude: Annotated[
+        float, Field(default=-180, description="Minimum longitude", ge=-180, le=180)
+    ]
+    maximum_longitude: Annotated[
+        float, Field(default=180, description="Minimum longitude", ge=-180, le=180)
+    ]
+
+    @model_validator(mode="after")
+    def check_valid_ranges(self) -> Self:
+        if self.minimum_latitude > self.maximum_latitude:
+            raise ValueError("Maximum latitude must be greater than minimum latitude")
+        if self.minimum_longitude > self.maximum_longitude:
+            raise ValueError("Maximum longitude must be greater than minimum longitude")
+        return self
+
+
 class DataConfig(BaseConfigModel):
     # Config for data, this would cover both observational data and weather data
     name: str
+    spatial_domain: SpatialDomain
     ...
 
 
