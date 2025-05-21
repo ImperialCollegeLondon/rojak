@@ -356,3 +356,21 @@ def test_turbulence_config_with_threshold_file(
 
     if not isinstance(e, dict):
         assert e.type is InvalidConfiguration
+
+
+@pytest.mark.parametrize(
+    "dict_to_file, expectation",
+    [
+        pytest.param({}, pytest.raises(InvalidConfiguration)),
+        pytest.param({"contrail_model": "issr"}, nullcontext("issr")),
+        pytest.param({"contrail_model": "sac"}, nullcontext("sac")),
+        pytest.param({"contrail_model": "pcr"}, nullcontext("pcr")),
+    ],
+    indirect=["dict_to_file"],
+)
+def test_contrails_config(dict_to_file, expectation) -> None:
+    with expectation as e:
+        config = configuration.ContrailsConfig.from_yaml(dict_to_file)
+        assert config.contrail_model == e
+    if not isinstance(e, str):
+        assert e.type is InvalidConfiguration
