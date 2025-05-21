@@ -9,18 +9,31 @@ from rojak.datalib.madis.amdar import MadisAmdarPreprocessor, AcarsRetriever
 if TYPE_CHECKING:
     from rojak.core.data import DataPreprocessor
 
-data_app = typer.Typer()
+data_app = typer.Typer(help="Perform operations on data")
+amdar_app = typer.Typer(help="Operations for AMDAR data")
+meteorology_app = typer.Typer(help="Operations for Meteorology data")
+data_app.add_typer(amdar_app, name="amdar")
+data_app.add_typer(meteorology_app, name="meteorology")
 
 
-class DataSource(StrEnum):
-    MADIS = "madis-amdar"
-    UKMO_AMDAR = "ukmo-amdar"
+class AmdarDataSource(StrEnum):
+    MADIS = "madis"
+    UKMO_AMDAR = "ukmo"
 
 
-@data_app.command()
+def create_output_dir(
+    output_dir: Path | None, source: StrEnum, intermediate_folder_name: str
+) -> Path:
+    if output_dir is None:
+        output_dir = Path.cwd() / intermediate_folder_name / source
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return output_dir
+
+
+@amdar_app.command()
 def retrieve(
     source: Annotated[
-        DataSource,
+        AmdarDataSource,
         typer.Option(
             "-s",
             "--source",
@@ -60,22 +73,20 @@ def retrieve(
         typer.Option(help="Glob pattern to select files ONLY APPLICABLE for MADIS"),
     ] = None,
 ):
-    if output_dir is None:
-        output_dir = Path.cwd() / "data" / source
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = create_output_dir(output_dir, source, "data")
 
     match source:
-        case "madis-amdar":
+        case "madis":
             retriever = AcarsRetriever(glob_pattern)
             retriever.download_files(years, months, days, output_dir)
-        case "ukmo-amdar":
+        case "ukmo":
             raise NotImplementedError("Not implemented UKMO AMDAR data retrieval")
 
 
-@data_app.command()
+@amdar_app.command()
 def preprocess(
     source: Annotated[
-        DataSource,
+        AmdarDataSource,
         typer.Option(
             "-s",
             "--source",
@@ -108,9 +119,9 @@ def preprocess(
     ] = None,
 ):
     match source:
-        case "madis-amdar":
+        case "madis":
             preprocess_madis_amdar_data(input_dir, output_dir, glob_pattern)
-        case "ukmo-amdar":
+        case "ukmo":
             raise NotImplementedError("Not implemented UKMO AMDAR data preprocessing")
 
 
