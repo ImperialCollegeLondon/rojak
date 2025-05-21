@@ -16,20 +16,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.13"]
+        python-version: [ "3.12", "3.13" ]
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Install uv and set the python version
-      uses: astral-sh/setup-uv@v5
-      with:
+      - uses: actions/checkout@v4
+      - name: Install uv and set the python version
+        uses: astral-sh/setup-uv@v5
+        with:
           python-version: ${{ matrix.python-version }}
-    - name: Install the project 
-      run: uv sync --locked --all-groups
-    - name: Install ruff and lint code
-      uses: astral-sh/ruff-action@v3
-      with:
-        src: "./src"
-    - name: Test with pytest
-      run: |
-        uv run pytest
+      - name: Install the project
+        run: uv sync --locked --all-groups
+      - name: Install ruff and lint code
+        uses: astral-sh/ruff-action@v3
+      - name: Run pyright
+        uses: jakebailey/pyright-action@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Test with pytest
+        run: |
+          uv run pytest --cov=rojak
