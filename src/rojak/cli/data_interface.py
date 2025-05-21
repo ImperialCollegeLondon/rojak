@@ -70,7 +70,11 @@ def retrieve(
     ] = None,
     glob_pattern: Annotated[
         Optional[str],
-        typer.Option(help="Glob pattern to select files ONLY APPLICABLE for MADIS"),
+        typer.Option(
+            "-g",
+            "--glob-pattern",
+            help="Glob pattern to select files ONLY APPLICABLE for MADIS",
+        ),
     ] = None,
 ):
     output_dir = create_output_dir(output_dir, source, "data")
