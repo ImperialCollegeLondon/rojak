@@ -1,7 +1,7 @@
 from typing import Dict
 
 reanalysis_dataset_names: dict[str, str] = {
-    "pressure_level": "reanalysis-era5-pressure-levels",
+    "pressure-level": "reanalysis-era5-pressure-levels",
     "single-level": "reanalysis-era5-single-levels",
 }
 
