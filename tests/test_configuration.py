@@ -374,3 +374,21 @@ def test_contrails_config(dict_to_file, expectation) -> None:
         assert config.contrail_model == e
     if not isinstance(e, str):
         assert e.type is InvalidConfiguration
+
+
+@pytest.mark.parametrize(
+    "dict_to_file, expectation",
+    [
+        pytest.param({}, pytest.raises(InvalidConfiguration), id="empty_config"),
+        pytest.param(
+            {"evaluation_data_dir": "random/nonsense/dir"},
+            pytest.raises(InvalidConfiguration),
+            id="dir_does_not_exist",
+        ),
+    ],
+    indirect=["dict_to_file"],
+)
+def test_meteorology_config(dict_to_file, expectation) -> None:
+    with expectation as e:
+        configuration.MeteorologyConfig.from_yaml(dict_to_file)
+    assert e.type is InvalidConfiguration

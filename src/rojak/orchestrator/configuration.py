@@ -85,7 +85,7 @@ class BaseConfigModel(BaseModel):
 
 
 class TurbulenceConfig(BaseConfigModel):
-    # Config for turbulence analysis
+    # Remove this and have it only in data config?????
     evaluation_data_dir: Annotated[
         Path,
         Field(
@@ -212,10 +212,23 @@ class SpatialDomain(BaseConfigModel):
         return self
 
 
+class MeteorologyConfig(BaseConfigModel):
+    evaluation_data_dir: Annotated[
+        Path,
+        Field(
+            description="Path to directory containing evaluation data",
+            repr=True,
+            frozen=True,
+        ),
+        AfterValidator(dir_must_exist),
+    ]
+
+
 class DataConfig(BaseConfigModel):
     # Config for data, this would cover both observational data and weather data
     name: str
     spatial_domain: SpatialDomain
+    meteorology_config: MeteorologyConfig | None = None
     ...
 
 
