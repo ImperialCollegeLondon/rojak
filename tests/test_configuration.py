@@ -362,6 +362,9 @@ def test_turbulence_config_with_threshold_file(
     "dict_to_file, expectation",
     [
         pytest.param({}, pytest.raises(InvalidConfiguration)),
+        pytest.param(
+            {"contrail_model": "invalid_option"}, pytest.raises(InvalidConfiguration)
+        ),
         pytest.param({"contrail_model": "issr"}, nullcontext("issr")),
         pytest.param({"contrail_model": "sac"}, nullcontext("sac")),
         pytest.param({"contrail_model": "pcr"}, nullcontext("pcr")),
