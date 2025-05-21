@@ -21,6 +21,10 @@ class InvalidEra5RequestConfiguration(Exception):
         super().__init__(message)
 
 
+type Era5DefaultsName = Literal["cat", "surface", "contrail"] | None
+type Era5DatasetName = Literal["pressure-level", "single-level"]
+
+
 class Era5Retriever(DataRetriever):
     request_body: dict
     request_dataset_name: str
@@ -29,13 +33,14 @@ class Era5Retriever(DataRetriever):
 
     def __init__(
         self,
-        dataset_name: Literal["pressure-level", "single-level"],
+        dataset_name: Era5DatasetName,
         folder_name: str,
-        default_name: Literal["cat", "surface", "contrail"] | None = None,
+        default_name: Era5DefaultsName = None,
         pressure_levels: list[int] | None = None,
         variables: list[str] | None = None,
         times: list[str] | None = None,
     ) -> None:
+        print(default_name)
         if default_name is None:
             if pressure_levels is None or variables is None:
                 raise InvalidEra5RequestConfiguration(
