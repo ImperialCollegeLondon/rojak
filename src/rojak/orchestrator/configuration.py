@@ -168,8 +168,20 @@ class TurbulenceConfig(BaseConfigModel):
         return self
 
 
+class ContrailModel(StrEnum):
+    ISSR = "issr"
+    SAC = "sac"
+    PCR = "pcr"
+
+
 class ContrailsConfig(BaseConfigModel):
     # Config for contrail analysis
+    contrail_model: Annotated[
+        ContrailModel,
+        Field(
+            description="Contrail model from pycontrails to use", repr=True, frozen=True
+        ),
+    ]
     ...
 
 
