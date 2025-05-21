@@ -169,10 +169,34 @@ def test_preprocess_data_madis_single_file(retrieve_madis_data_single_file) -> N
             id="invalid_dataset_name",
         ),
         pytest.param(
+            "nonsense",
+            "cat",
+            "Invalid dataset name",
+            id="invalid_dataset_name_default_cat",
+        ),
+        pytest.param(
+            "nonsense",
+            "surface",
+            "Invalid dataset name",
+            id="invalid_dataset_name_default_surface",
+        ),
+        pytest.param(
+            "nonsense",
+            "contrail",
+            "Invalid dataset name",
+            id="invalid_dataset_name_default_contrail",
+        ),
+        pytest.param(
             "pressure-level",
             "nonsense",
             "Invalid default name",
-            id="invalid_default_name",
+            id="invalid_default_name_pl",
+        ),
+        pytest.param(
+            "single-level",
+            "nonsense",
+            "Invalid default name",
+            id="invalid_default_name_sl",
         ),
         pytest.param(
             "pressure-level",
