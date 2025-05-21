@@ -75,6 +75,7 @@ def retrieve_madis_data(tmp_path) -> Tuple["Path", "Result"]:
     return tmp_path, result
 
 
+@pytest.mark.slow
 def test_retrieve_data_madis(retrieve_madis_data) -> None:
     output_path, result = retrieve_madis_data
     assert result.exit_code == 0
@@ -82,6 +83,7 @@ def test_retrieve_data_madis(retrieve_madis_data) -> None:
         assert (output_path / "2024" / "01" / f"20240101_{hour:02d}00.gz").exists()
 
 
+@pytest.mark.slow
 def test_preprocess_data_madis(retrieve_madis_data) -> None:
     input_path, retrieve_result = retrieve_madis_data
     assert retrieve_result.exit_code == 0
