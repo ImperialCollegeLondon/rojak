@@ -1,12 +1,10 @@
 import warnings
-from typing import NamedTuple, TYPE_CHECKING, Literal
+from typing import NamedTuple, Literal
 
 import numpy as np
 from pyproj import Geod
-from rojak.utilities.types import GoHomeYouAreDrunk
+from rojak.utilities.types import ArrayLike, GoHomeYouAreDrunk
 
-if TYPE_CHECKING:
-    from rojak.utilities.types import ArrayLike
 
 GridSpacing = NamedTuple("GridSpacing", [("dx", ArrayLike), ("dy", ArrayLike)])
 
@@ -16,8 +14,27 @@ def is_in_degrees(
     coordinate: Literal["latitude", "longitude"] | None = None,
     axis: int | None = None,
 ) -> bool:
-    if coordinate is None or coordinate == "longitude":
+    """
+    Checks if array could be in degrees based whether it exceeds the maximum radian value for the specified coordinate.
+
+    >>> np.set_printoptions(legacy="1.25")
+    >>> is_in_degrees(np.asarray([0, 180, 360, -180]), coordinate="longitude")
+    True
+    >>> is_in_degrees(np.asarray([-90, 0, 90]), coordinate="latitude")
+    True
+    >>> is_in_degrees(np.asarray([0, 2 *np.pi]))
+    False
+    >>> is_in_degrees(np.asarray([0, np.pi / 4]), coordinate="latitude")
+    False
+    >>> is_in_degrees(np.asarray([np.pi/2 + 0.01]), coordinate="latitude")
+    True
+    >>> is_in_degrees(np.asarray([0]), coordinate="longitude")
+    False
+    """
+    if coordinate is None:
         pi_factor = 2
+    elif coordinate == "longitude":
+        pi_factor = 1
     else:  # Latitude
         pi_factor = 1 / 2
     return np.any(
