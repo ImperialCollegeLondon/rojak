@@ -1,3 +1,4 @@
+import warnings
 from typing import NamedTuple, TYPE_CHECKING, Literal
 
 import numpy as np
@@ -42,13 +43,29 @@ def is_lat_lon_in_degrees(
 
 # Modified from https://github.com/Unidata/MetPy/blob/b9a9dbd88524e1d9600e353318ee9d9f25b05f57/src/metpy/calc/tools.py#L789
 def grid_spacing(
-    latitude: ArrayLike, longitude: ArrayLike, geod: Geod | None = None
+    latitude: ArrayLike,
+    longitude: ArrayLike,
+    units: Literal["deg", "rad"],
+    geod: Geod | None = None,
 ) -> GridSpacing:
     if geod is None:
         geod = Geod(ellps="WGS84")
 
     if latitude.ndim != longitude.ndim:
         raise ValueError("latitude and longitude must have same number of dimensions")
+
+    are_in_degrees: bool = is_lat_lon_in_degrees(latitude, longitude)
+    if units == "deg" and not are_in_degrees:
+        warnings.warn(
+            "Latitude and longitude specified to be in degrees, but are smaller than pi values"
+        )
+    elif units == "rad" and are_in_degrees:
+        raise ValueError(
+            "Latitude and longitude specified to be in radians, but are too large to be in radians"
+        )
+    elif units == "rad" and not are_in_degrees:
+        latitude = np.radians(latitude)
+        longitude = np.radians(longitude)
 
     if not is_lat_lon_in_degrees(latitude, longitude):
         latitude = np.rad2deg(latitude)
