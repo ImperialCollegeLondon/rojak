@@ -5,6 +5,7 @@ import dask.array as da
 import pytest
 
 from rojak.core import derivatives
+from rojak.utilities.types import ArrayLike
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
@@ -70,3 +71,18 @@ def test_is_lat_lon_in_degrees(
     outcome = derivatives.is_lat_lon_in_degrees(lon, lon)
     assert outcome == expected
     assert is_in_deg_mock.call_count == 2
+
+
+@pytest.mark.parametrize(
+    "lat, lon",
+    [
+        (np.asarray([0.0, np.pi / 2]), np.asarray([180.0, 360.0])),
+        (np.asarray([0.0, 90.0]), np.asarray([0, np.pi])),
+        (xr.DataArray([0.0, np.pi / 2]), xr.DataArray([180.0, 360.0])),
+        (xr.DataArray([0.0, 90.0]), xr.DataArray([0, np.pi])),
+    ],
+)
+def test_is_lat_lon_in_degrees_error(lat: "ArrayLike", lon: "ArrayLike") -> None:
+    with pytest.raises(ValueError) as excinfo:
+        derivatives.is_lat_lon_in_degrees(lat, lon)
+    assert excinfo.type is ValueError
