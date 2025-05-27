@@ -24,6 +24,22 @@ def is_in_degrees(
     )
 
 
+def is_lat_lon_in_degrees(
+    latitude: ArrayLike,
+    longitude: ArrayLike,
+) -> bool:
+    is_lat_in_degrees: bool = is_in_degrees(latitude, coordinate="latitude")
+    is_lon_in_degrees: bool = is_in_degrees(longitude, coordinate="longitude")
+
+    if is_lat_in_degrees and not is_lon_in_degrees:
+        raise ValueError("Latitude is in degrees, but longitude is not")
+    elif not is_lat_in_degrees and is_lon_in_degrees:
+        raise ValueError("Longitude is in degrees, but latitude is not")
+    else:
+        # Both should be true or false
+        return is_lat_in_degrees
+
+
 # Modified from https://github.com/Unidata/MetPy/blob/b9a9dbd88524e1d9600e353318ee9d9f25b05f57/src/metpy/calc/tools.py#L789
 def grid_spacing(
     latitude: ArrayLike, longitude: ArrayLike, geod: Geod | None = None
@@ -34,10 +50,8 @@ def grid_spacing(
     if latitude.ndim != longitude.ndim:
         raise ValueError("latitude and longitude must have same number of dimensions")
 
-    if not is_in_degrees(latitude, coordinate="latitude"):
+    if not is_lat_lon_in_degrees(latitude, longitude):
         latitude = np.rad2deg(latitude)
-
-    if not is_in_degrees(longitude, coordinate="longitude"):
         longitude = np.rad2deg(longitude)
 
     lat_grid: ArrayLike
