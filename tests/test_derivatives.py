@@ -1,9 +1,13 @@
+from typing import TYPE_CHECKING
 import numpy as np
 import xarray as xr
 import dask.array as da
 import pytest
 
 from rojak.core import derivatives
+
+if TYPE_CHECKING:
+    from pytest_mock import MockerFixture
 
 
 @pytest.mark.parametrize(
@@ -46,3 +50,23 @@ from rojak.core import derivatives
 def test_is_in_degrees(values, coordinate, expected):
     outcome = derivatives.is_in_degrees(np.asarray(values), coordinate)
     assert outcome == expected
+
+
+@pytest.mark.parametrize(
+    "expected, lat, lon",
+    [
+        (True, np.asarray([1, 2, 3]), np.asarray([3, 4, 5])),
+        (True, xr.DataArray([1, 2, 3]), xr.DataArray([3, 4, 5])),
+        (False, np.asarray([1, 2, 3]), np.asarray([3, 4, 5])),
+        (False, xr.DataArray([1, 2, 3]), xr.DataArray([3, 4, 5])),
+    ],
+)
+def test_is_lat_lon_in_degrees(
+    expected: bool, mocker: "MockerFixture", lat, lon
+) -> None:
+    is_in_deg_mock = mocker.patch(
+        "rojak.core.derivatives.is_in_degrees", return_value=expected
+    )
+    outcome = derivatives.is_lat_lon_in_degrees(lon, lon)
+    assert outcome == expected
+    assert is_in_deg_mock.call_count == 2
