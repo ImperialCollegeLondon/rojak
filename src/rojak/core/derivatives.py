@@ -1,5 +1,5 @@
 import warnings
-from typing import NamedTuple, Literal
+from typing import NamedTuple, Literal, Tuple
 
 import numpy as np
 from pyproj import Geod
@@ -58,11 +58,14 @@ def is_lat_lon_in_degrees(
         return is_lat_in_degrees
 
 
+type LatLonUnits = Literal["deg", "rad"]
+
+
 # Modified from https://github.com/Unidata/MetPy/blob/b9a9dbd88524e1d9600e353318ee9d9f25b05f57/src/metpy/calc/tools.py#L789
 def grid_spacing(
     latitude: ArrayLike,
     longitude: ArrayLike,
-    units: Literal["deg", "rad"],
+    units: LatLonUnits,
     geod: Geod | None = None,
 ) -> GridSpacing:
     if geod is None:
@@ -71,22 +74,7 @@ def grid_spacing(
     if latitude.ndim != longitude.ndim:
         raise ValueError("latitude and longitude must have same number of dimensions")
 
-    are_in_degrees: bool = is_lat_lon_in_degrees(latitude, longitude)
-    if units == "deg" and not are_in_degrees:
-        warnings.warn(
-            "Latitude and longitude specified to be in degrees, but are smaller than pi values"
-        )
-    elif units == "rad" and are_in_degrees:
-        raise ValueError(
-            "Latitude and longitude specified to be in radians, but are too large to be in radians"
-        )
-    elif units == "rad" and not are_in_degrees:
-        latitude = np.radians(latitude)
-        longitude = np.radians(longitude)
-
-    if not is_lat_lon_in_degrees(latitude, longitude):
-        latitude = np.rad2deg(latitude)
-        longitude = np.rad2deg(longitude)
+    latitude, longitude = check_lat_lon_units(latitude, longitude, units)
 
     lat_grid: ArrayLike
     lon_grid: ArrayLike
@@ -114,3 +102,22 @@ def grid_spacing(
     dx[(forward_azimuth < 0.0) | (forward_azimuth > 180.0)] *= -1
 
     return GridSpacing(dx, dy)
+
+
+def check_lat_lon_units(
+    latitude: "ArrayLike", longitude: "ArrayLike", units: LatLonUnits
+) -> Tuple["ArrayLike", "ArrayLike"]:
+    are_in_degrees: bool = is_lat_lon_in_degrees(latitude, longitude)
+    if units == "deg" and not are_in_degrees:
+        warnings.warn(
+            "Latitude and longitude specified to be in degrees, but are smaller than pi values"
+        )
+    elif units == "rad" and are_in_degrees:
+        raise ValueError(
+            "Latitude and longitude specified to be in radians, but are too large to be in radians"
+        )
+    elif units == "rad" and not are_in_degrees:
+        latitude = np.rad2deg(latitude)
+        longitude = np.rad2deg(longitude)
+
+    return latitude, longitude
