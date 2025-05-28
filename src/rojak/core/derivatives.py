@@ -61,6 +61,25 @@ def is_lat_lon_in_degrees(
 type LatLonUnits = Literal["deg", "rad"]
 
 
+def check_lat_lon_units(
+    latitude: "ArrayLike", longitude: "ArrayLike", units: LatLonUnits
+) -> Tuple["ArrayLike", "ArrayLike"]:
+    are_in_degrees: bool = is_lat_lon_in_degrees(latitude, longitude)
+    if units == "deg" and not are_in_degrees:
+        warnings.warn(
+            "Latitude and longitude specified to be in degrees, but are smaller than pi values"
+        )
+    elif units == "rad" and are_in_degrees:
+        raise ValueError(
+            "Latitude and longitude specified to be in radians, but are too large to be in radians"
+        )
+    elif units == "rad" and not are_in_degrees:
+        latitude = np.rad2deg(latitude)
+        longitude = np.rad2deg(longitude)
+
+    return latitude, longitude
+
+
 # Modified from https://github.com/Unidata/MetPy/blob/b9a9dbd88524e1d9600e353318ee9d9f25b05f57/src/metpy/calc/tools.py#L789
 def grid_spacing(
     latitude: ArrayLike,
@@ -104,20 +123,29 @@ def grid_spacing(
     return GridSpacing(dx, dy)
 
 
-def check_lat_lon_units(
-    latitude: "ArrayLike", longitude: "ArrayLike", units: LatLonUnits
-) -> Tuple["ArrayLike", "ArrayLike"]:
-    are_in_degrees: bool = is_lat_lon_in_degrees(latitude, longitude)
-    if units == "deg" and not are_in_degrees:
-        warnings.warn(
-            "Latitude and longitude specified to be in degrees, but are smaller than pi values"
-        )
-    elif units == "rad" and are_in_degrees:
-        raise ValueError(
-            "Latitude and longitude specified to be in radians, but are too large to be in radians"
-        )
-    elif units == "rad" and not are_in_degrees:
-        latitude = np.rad2deg(latitude)
-        longitude = np.rad2deg(longitude)
+# Modified from: https://github.com/Unidata/MetPy/blob/6df0cde7893c0f55e44946137263cb322d59aae4/src/metpy/calc/tools.py#L868
+def nominal_grid_spacing(
+    latitude: ArrayLike,
+    longitude: ArrayLike,
+    units: LatLonUnits,
+    geod: Geod | None = None,
+) -> GridSpacing:
+    if latitude.ndim != 1 or longitude.ndim != 1:
+        raise ValueError("Latitude and longitude must have 1 dimension")
+    if geod is None:
+        # In metpy, geod = CRS('+proj=latlon').get_geod()
+        geod = Geod(ellps="WGS84")
 
-    return latitude, longitude
+    latitude, longitude = check_lat_lon_units(latitude, longitude, units)
+
+    lat_equator = np.zeros_like(longitude)
+    _, _, dx = geod.inv(
+        longitude[:-1], lat_equator[:-1], longitude[1:], lat_equator[1:]
+    )
+    lon_meridian = np.zeros_like(latitude)
+    forward_azimuth, _, dy = geod.inv(
+        lon_meridian[:-1], latitude[:-1], lon_meridian[1:], lat_equator[1:]
+    )
+    dy[(forward_azimuth < -90.0) | (forward_azimuth > 90.0)] *= -1
+
+    return GridSpacing(dx, dy)
