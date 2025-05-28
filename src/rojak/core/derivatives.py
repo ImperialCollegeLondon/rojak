@@ -260,6 +260,13 @@ SpatialGradient = NamedTuple(
 )
 
 
+def check_lat_lon_dimensions_in_array(array: "xr.DataArray") -> None:
+    if "longitude" not in array.dims:
+        raise ValueError(f"Longitude not in dimension of array - {array.dims}")
+    if "latitude" not in array.dims:
+        raise ValueError(f"Latitude not in dimension of array - {array.dims}")
+
+
 # TODO: TEST
 # Combines implementation from metpy and the existing derivatives methods in prototype lib
 def spatial_gradient(
@@ -270,10 +277,7 @@ def spatial_gradient(
     geod: Geod | None = None,
     crs: CRS | None = None,
 ) -> SpatialGradient:
-    if "longitude" not in array.dims:
-        raise ValueError(f"Longitude not in dimension of array - {array.dims}")
-    if "latitude" not in array.dims:
-        raise ValueError(f"Latitude not in dimension of array - {array.dims}")
+    check_lat_lon_dimensions_in_array(array)
 
     gradients: dict[str, xr.DataArray | None] = {"dfdx": None, "dfdy": None}
     grid_deltas = nominal_grid_spacing(
