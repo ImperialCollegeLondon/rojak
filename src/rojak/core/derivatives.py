@@ -1,10 +1,13 @@
 import warnings
-from typing import NamedTuple, Literal, Tuple
+from typing import NamedTuple, Literal, Tuple, TYPE_CHECKING
 
 import numpy as np
-from pyproj import Geod
+from numpy.typing import NDArray
+from pyproj import Geod, CRS, Proj
 from rojak.utilities.types import ArrayLike, GoHomeYouAreDrunk
 
+if TYPE_CHECKING:
+    import xarray as xr
 
 GridSpacing = NamedTuple("GridSpacing", [("dx", ArrayLike), ("dy", ArrayLike)])
 
@@ -149,3 +152,30 @@ def nominal_grid_spacing(
     dy[(forward_azimuth < -90.0) | (forward_azimuth > 90.0)] *= -1
 
     return GridSpacing(dx, dy)
+
+
+class ProjectionCorrectionFactors(NamedTuple):
+    # add | float as type checker thinks it should be a float ¯\_(ツ)_/¯
+    parallel_scale: NDArray | float
+    meridional_scale: NDArray | float
+
+
+# Modified from https://github.com/Unidata/MetPy/blob/6df0cde7893c0f55e44946137263cb322d59aae4/src/metpy/calc/tools.py#L1124
+def get_projection_correction_factors(
+    latitude: "xr.DataArray",
+    longitude: "xr.DataArray",
+    is_radians=False,
+    crs: CRS | None = None,
+) -> ProjectionCorrectionFactors:
+    if latitude.ndim != longitude.ndim:
+        raise ValueError("Latitude and longitude must have same number of dimensions")
+    if latitude.ndim != 1:
+        raise ValueError("Latitude and longitude must have 1 dimension")
+
+    if crs is None:
+        crs = CRS("+proj=latlon")
+
+    lon_grid, lat_grid = np.meshgrid(longitude, latitude)
+    factors = Proj(crs).get_factors(lon_grid, lat_grid, radians=is_radians)
+
+    return ProjectionCorrectionFactors(factors.parallel_scale, factors.meridional_scale)
