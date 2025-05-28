@@ -6,7 +6,6 @@ import dask.array as da
 import xarray as xr
 from dask.base import is_dask_collection
 import numpy as np
-from numpy.typing import NDArray
 from pyproj import Geod, CRS, Proj
 from rojak.utilities.types import ArrayLike, GoHomeYouAreDrunk
 
@@ -166,8 +165,8 @@ def nominal_grid_spacing(
 
 class ProjectionCorrectionFactors(NamedTuple):
     # add | float as type checker thinks it should be a float ¯\_(ツ)_/¯
-    parallel_scale: NDArray | float
-    meridional_scale: NDArray | float
+    parallel_scale: xr.DataArray
+    meridional_scale: xr.DataArray
 
 
 # TODO: TEST
@@ -189,7 +188,7 @@ def get_projection_correction_factors(
     lon_grid, lat_grid = np.meshgrid(longitude, latitude)
     factors = Proj(crs).get_factors(lon_grid, lat_grid, radians=is_radians)
 
-    return ProjectionCorrectionFactors(factors.parallel_scale, factors.meridional_scale)
+    return ProjectionCorrectionFactors(factors.parallel_scale, factors.meridional_scale)  # type: ignore
 
 
 # TODO: TEST
@@ -238,7 +237,7 @@ class CartesianDimension(StrEnum):
 
     def get_correction_factor(
         self, factors: ProjectionCorrectionFactors | None
-    ) -> NDArray | float:
+    ) -> xr.DataArray:
         if factors is None:
             raise ValueError("Factors cannot be None")
 
@@ -256,7 +255,7 @@ class GradientMode(Enum):
 
 
 SpatialGradient = NamedTuple(
-    "SpatialGradient", [("dfdx", ArrayLike | None), ("dfdy", ArrayLike | None)]
+    "SpatialGradient", [("dfdx", xr.DataArray | None), ("dfdy", xr.DataArray | None)]
 )
 
 
@@ -265,6 +264,9 @@ def check_lat_lon_dimensions_in_array(array: "xr.DataArray") -> None:
         raise ValueError(f"Longitude not in dimension of array - {array.dims}")
     if "latitude" not in array.dims:
         raise ValueError(f"Latitude not in dimension of array - {array.dims}")
+
+
+type SpatialGradientKeys = Literal["dfdx", "dfdy"]
 
 
 # TODO: TEST
@@ -276,10 +278,10 @@ def spatial_gradient(
     dimension: CartesianDimension | None = None,
     geod: Geod | None = None,
     crs: CRS | None = None,
-) -> SpatialGradient:
+) -> dict[SpatialGradientKeys, xr.DataArray]:
     check_lat_lon_dimensions_in_array(array)
 
-    gradients: dict[str, xr.DataArray | None] = {"dfdx": None, "dfdy": None}
+    gradients: dict[SpatialGradientKeys, xr.DataArray] = {}
     grid_deltas = nominal_grid_spacing(
         array["latitude"], array["longitude"], units, geod=geod
     )
@@ -310,4 +312,134 @@ def spatial_gradient(
             case CartesianDimension.Y:
                 gradients["dfdy"] = computed_gradient
 
-    return SpatialGradient(**gradients)
+    return gradients
+
+
+# TODO: TEST
+def divergence(du_dx: ArrayLike, dv_dy: ArrayLike) -> ArrayLike:
+    return du_dx + dv_dy
+
+
+# TODO: TEST
+def spatial_laplacian(
+    array: "xr.DataArray",
+    units: LatLonUnits,
+    gradient_mode: GradientMode,
+    geod: Geod | None = None,
+    crs: CRS | None = None,
+) -> ArrayLike:
+    gradients = spatial_gradient(array, units, gradient_mode, geod=geod, crs=crs)
+    return divergence(gradients["dfdx"], gradients["dfdy"])
+
+
+class VelocityDerivative(StrEnum):
+    DU_DX = "du_dx"
+    DU_DY = "du_dy"
+    DV_DX = "dv_dx"
+    DV_DY = "dv_dy"
+
+
+# TODO: TEST
+def vector_derivatives(
+    u: xr.DataArray,
+    v: xr.DataArray,
+    units: LatLonUnits,
+    components: list[VelocityDerivative] | None = None,
+    geod: Geod | None = None,
+    crs: CRS | None = None,
+) -> dict[VelocityDerivative, xr.DataArray]:
+    check_lat_lon_dimensions_in_array(u)
+    check_lat_lon_dimensions_in_array(v)
+
+    if components is None:
+        components = [
+            VelocityDerivative.DU_DX,
+            VelocityDerivative.DU_DY,
+            VelocityDerivative.DV_DX,
+            VelocityDerivative.DV_DY,
+        ]
+
+    correction_factors = get_projection_correction_factors(
+        u["latitude"], u["longitude"], is_radians=(units == "rad"), crs=crs
+    )
+
+    dp_dy: xr.DataArray = spatial_gradient(
+        correction_factors.parallel_scale,
+        units,
+        GradientMode.CARTESIAN,
+        dimension=CartesianDimension.Y,
+        geod=geod,
+        crs=crs,
+    )["dfdy"]
+    dm_dx: xr.DataArray = spatial_gradient(
+        correction_factors.meridional_scale,
+        units,
+        GradientMode.CARTESIAN,
+        dimension=CartesianDimension.X,
+        geod=geod,
+        crs=crs,
+    )["dfdx"]
+    dx_correction: xr.DataArray = (
+        correction_factors.meridional_scale / correction_factors.parallel_scale
+    ) * dp_dy
+    dy_correction: xr.DataArray = (
+        correction_factors.parallel_scale / correction_factors.meridional_scale
+    ) * dm_dx
+
+    derivatives: dict[VelocityDerivative, xr.DataArray] = {}
+    for component in components:
+        match component:
+            case VelocityDerivative.DU_DX:
+                derivatives[VelocityDerivative.DU_DX] = (
+                    correction_factors.parallel_scale
+                    * spatial_gradient(
+                        u,
+                        units,
+                        GradientMode.CARTESIAN,
+                        dimension=CartesianDimension.X,
+                        geod=geod,
+                        crs=crs,
+                    )["dfdx"]
+                    - v * dx_correction
+                )
+            case VelocityDerivative.DU_DY:
+                derivatives[VelocityDerivative.DU_DY] = (
+                    correction_factors.meridional_scale
+                    * spatial_gradient(
+                        u,
+                        units,
+                        GradientMode.CARTESIAN,
+                        dimension=CartesianDimension.Y,
+                        geod=geod,
+                        crs=crs,
+                    )["dfdy"]
+                    + v * dy_correction
+                )
+            case VelocityDerivative.DV_DX:
+                derivatives[VelocityDerivative.DV_DX] = (
+                    correction_factors.parallel_scale
+                    * spatial_gradient(
+                        v,
+                        units,
+                        GradientMode.CARTESIAN,
+                        dimension=CartesianDimension.X,
+                        geod=geod,
+                        crs=crs,
+                    )["dfdx"]
+                    + u * dx_correction
+                )
+            case VelocityDerivative.DV_DY:
+                derivatives[VelocityDerivative.DV_DY] = (
+                    correction_factors.meridional_scale
+                    * spatial_gradient(
+                        v,
+                        units,
+                        GradientMode.CARTESIAN,
+                        dimension=CartesianDimension.Y,
+                        geod=geod,
+                        crs=crs,
+                    )["dfdy"]
+                    - u * dy_correction
+                )
+
+    return derivatives
