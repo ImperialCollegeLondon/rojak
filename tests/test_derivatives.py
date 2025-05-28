@@ -4,6 +4,7 @@ import numpy.testing as npt
 import xarray as xr
 import dask.array as da
 import pytest
+from pyproj import Geod
 
 from rojak.core import derivatives
 from rojak.utilities.types import ArrayLike
@@ -157,3 +158,54 @@ def test_check_lat_lon_in_degree(
         npt.assert_array_almost_equal(np.asarray(new_lon), longitude_in_rad)
 
     assert is_in_deg_mock.call_count == 1
+
+
+def test_nominal_grid_spacing(mocker: "MockerFixture") -> None:
+    lat = np.array([25.0, 35.0, 45.0])
+    lon = np.array([-105, -100, -95, -90])
+
+    ensure_is_deg_mock = mocker.patch(
+        "rojak.core.derivatives.ensure_lat_lon_in_deg", return_value=(lat, lon)
+    )
+
+    # Subcase 1: Specify geod
+    grid_deltas: derivatives.GridSpacing = derivatives.nominal_grid_spacing(
+        lat, lon, "deg", geod=Geod(a=4370997)
+    )
+    npt.assert_array_almost_equal(
+        grid_deltas.dx, np.asarray([381441.44622397, 381441.44622397, 381441.44622397])
+    )
+    npt.assert_array_almost_equal(
+        grid_deltas.dy, np.asarray([762882.8924479455, 762882.8924479454])
+    )
+    assert ensure_is_deg_mock.call_count == 1
+
+    # Subcase 2: default geod
+    default_geod_deltas: derivatives.GridSpacing = derivatives.nominal_grid_spacing(
+        lat, lon, "deg"
+    )
+    npt.assert_array_almost_equal(
+        default_geod_deltas.dx,
+        np.asarray([556597.45396637, 556597.45396637, 556597.45396637]),
+    )
+    npt.assert_array_almost_equal(
+        default_geod_deltas.dy, np.asarray([1108538.7325489155, 1110351.4762828045])
+    )
+    assert ensure_is_deg_mock.call_count == 2
+
+
+def test_nominal_grid_spacing_error(mocker: "MockerFixture") -> None:
+    lat = np.arange(-10, 10, 0.5)
+    lon = np.arange(-30, 30, 2)
+
+    with pytest.raises(ValueError) as excinfo:
+        derivatives.nominal_grid_spacing(lat.reshape((2, -1)), lon, "deg")
+
+    assert excinfo.type is ValueError
+    assert excinfo.match("Latitude and longitude must have 1 dimension")
+
+    with pytest.raises(ValueError) as excinfo:
+        derivatives.nominal_grid_spacing(lat, lon.reshape((2, -1)), "deg")
+
+    assert excinfo.type is ValueError
+    assert excinfo.match("Latitude and longitude must have 1 dimension")

@@ -156,7 +156,7 @@ def nominal_grid_spacing(
     )
     lon_meridian = np.zeros_like(latitude)
     forward_azimuth, _, dy = geod.inv(
-        lon_meridian[:-1], latitude[:-1], lon_meridian[1:], lat_equator[1:]
+        lon_meridian[:-1], latitude[:-1], lon_meridian[1:], latitude[1:]
     )
     dy[(forward_azimuth < -90.0) | (forward_azimuth > 90.0)] *= -1
 
