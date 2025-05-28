@@ -1,13 +1,15 @@
 import warnings
-from typing import NamedTuple, Literal, Tuple, TYPE_CHECKING
+from enum import StrEnum, Enum, auto
+from typing import NamedTuple, Literal, Tuple
 
+import dask.array as da
+import xarray as xr
+from dask.base import is_dask_collection
 import numpy as np
 from numpy.typing import NDArray
 from pyproj import Geod, CRS, Proj
 from rojak.utilities.types import ArrayLike, GoHomeYouAreDrunk
 
-if TYPE_CHECKING:
-    import xarray as xr
 
 GridSpacing = NamedTuple("GridSpacing", [("dx", ArrayLike), ("dy", ArrayLike)])
 
@@ -179,3 +181,116 @@ def get_projection_correction_factors(
     factors = Proj(crs).get_factors(lon_grid, lat_grid, radians=is_radians)
 
     return ProjectionCorrectionFactors(factors.parallel_scale, factors.meridional_scale)
+
+
+def get_dimension_number(name: str, data_array: "xr.DataArray") -> int:
+    if name not in data_array.dims:
+        raise ValueError(
+            f"Attempting to retrieve inexistent dimension ({name}) from data array"
+        )
+    return data_array.dims.index(name)
+
+
+def first_derivative(
+    array: "xr.DataArray", grid_spacing_in_meters: ArrayLike, axis: int
+) -> "xr.DataArray":
+    coordinate_of_values: np.ndarray = np.cumsum(
+        np.insert(grid_spacing_in_meters, 0, [0])
+    )
+    if is_dask_collection(array):
+        computed_gradient = da.gradient(array, coordinate_of_values, axis=axis)
+    else:
+        computed_gradient = np.gradient(array, coordinate_of_values, axis=axis)
+    return computed_gradient
+
+
+class CartesianDimension(StrEnum):
+    X = "x"
+    Y = "y"
+
+    def get_geographic_coordinate(self) -> str | None:
+        match self:
+            case CartesianDimension.X:
+                return "longitude"
+            case CartesianDimension.Y:
+                return "latitude"
+        return None
+
+    def get_grid_spacing(self, grid_deltas: GridSpacing) -> ArrayLike:
+        match self:
+            case CartesianDimension.X:
+                grid_delta = grid_deltas.dx
+            case CartesianDimension.Y:
+                grid_delta = grid_deltas.dy
+        return grid_delta
+
+    def get_correction_factor(
+        self, factors: ProjectionCorrectionFactors | None
+    ) -> NDArray | float:
+        if factors is None:
+            raise ValueError("Factors cannot be None")
+
+        match self:
+            case CartesianDimension.X:
+                factor = factors.parallel_scale
+            case CartesianDimension.Y:
+                factor = factors.meridional_scale
+        return factor
+
+
+class GradientMode(Enum):
+    GEOSPATIAL = auto()
+    CARTESIAN = auto()
+
+
+SpatialGradient = NamedTuple(
+    "SpatialGradient", [("dfdx", ArrayLike | None), ("dfdy", ArrayLike | None)]
+)
+
+
+# Combines implementation from metpy and the existing derivatives methods in prototype lib
+def spatial_gradient(
+    array: "xr.DataArray",
+    units: LatLonUnits,
+    gradient_mode: GradientMode,
+    dimension: CartesianDimension | None = None,
+    geod: Geod | None = None,
+    crs: CRS | None = None,
+) -> SpatialGradient:
+    if "longitude" not in array.dims:
+        raise ValueError(f"Longitude not in dimension of array - {array.dims}")
+    if "latitude" not in array.dims:
+        raise ValueError(f"Latitude not in dimension of array - {array.dims}")
+
+    gradients: dict[str, xr.DataArray | None] = {"dfdx": None, "dfdy": None}
+    grid_deltas = nominal_grid_spacing(
+        array["latitude"], array["longitude"], units, geod=geod
+    )
+    if gradient_mode == GradientMode.GEOSPATIAL:
+        correction_factors = get_projection_correction_factors(
+            array["latitude"], array["longitude"], is_radians=(units == "rad"), crs=crs
+        )
+    else:
+        correction_factors = None
+
+    target_dimensions: list[CartesianDimension] = (
+        [dimension]
+        if dimension is not None
+        else [CartesianDimension.X, CartesianDimension.Y]
+    )
+    for dim in target_dimensions:
+        dim_name: str | None = dim.get_geographic_coordinate()
+        assert dim_name is not None
+        axis: int = get_dimension_number(dim_name, array)
+        grid_delta = dim.get_grid_spacing(grid_deltas)
+        computed_gradient: "xr.DataArray" = first_derivative(array, grid_delta, axis)
+        if gradient_mode == GradientMode.GEOSPATIAL:
+            correction = dim.get_correction_factor(correction_factors)
+            computed_gradient = computed_gradient * correction
+        match dim:
+            case CartesianDimension.X:
+                gradients["dfdx"] = computed_gradient
+            case CartesianDimension.Y:
+                gradients["dfdy"] = computed_gradient
+
+    return SpatialGradient(**gradients)
