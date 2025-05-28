@@ -169,6 +169,7 @@ class ProjectionCorrectionFactors(NamedTuple):
     meridional_scale: NDArray | float
 
 
+# NOT TESTED
 # Modified from https://github.com/Unidata/MetPy/blob/6df0cde7893c0f55e44946137263cb322d59aae4/src/metpy/calc/tools.py#L1124
 def get_projection_correction_factors(
     latitude: "xr.DataArray",
@@ -190,6 +191,7 @@ def get_projection_correction_factors(
     return ProjectionCorrectionFactors(factors.parallel_scale, factors.meridional_scale)
 
 
+# NOT TESTED
 def get_dimension_number(name: str, data_array: "xr.DataArray") -> int:
     if name not in data_array.dims:
         raise ValueError(
@@ -198,6 +200,7 @@ def get_dimension_number(name: str, data_array: "xr.DataArray") -> int:
     return data_array.dims.index(name)
 
 
+# NOT TESTED
 def first_derivative(
     array: "xr.DataArray", grid_spacing_in_meters: ArrayLike, axis: int
 ) -> "xr.DataArray":
@@ -211,6 +214,7 @@ def first_derivative(
     return computed_gradient
 
 
+# NOT TESTED
 class CartesianDimension(StrEnum):
     X = "x"
     Y = "y"
@@ -255,6 +259,7 @@ SpatialGradient = NamedTuple(
 )
 
 
+# NOT TESTED
 # Combines implementation from metpy and the existing derivatives methods in prototype lib
 def spatial_gradient(
     array: "xr.DataArray",
