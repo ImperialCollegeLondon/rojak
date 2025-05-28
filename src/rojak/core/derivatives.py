@@ -36,14 +36,15 @@ def is_in_degrees(
     >>> is_in_degrees(np.asarray([0]), coordinate="longitude")
     False
     """
-    if coordinate is None:
-        pi_factor = 2
+    if coordinate is None or coordinate == "longitude":
+        positive_factor, negative_factor = 2, 2
     elif coordinate == "longitude":
-        pi_factor = 1
+        positive_factor, negative_factor = 2, 1
     else:  # Latitude
-        pi_factor = 1 / 2
+        positive_factor, negative_factor = 1 / 2, 1 / 2
     return np.any(
-        (array > (pi_factor * np.pi)) | (array < (-pi_factor * np.pi)), axis=axis
+        (array > (positive_factor * np.pi)) | (array < (-negative_factor * np.pi)),
+        axis=axis,
     )
 
 
@@ -66,9 +67,15 @@ def is_lat_lon_in_degrees(
 type LatLonUnits = Literal["deg", "rad"]
 
 
-def check_lat_lon_units(
+def ensure_lat_lon_in_deg(
     latitude: "ArrayLike", longitude: "ArrayLike", units: LatLonUnits
 ) -> Tuple["ArrayLike", "ArrayLike"]:
+    """
+    >>> ensure_lat_lon_in_deg(np.asarray([90, 0, -90]), np.asarray([360, 180, 0]), "deg")
+    (array([ 90,   0, -90]), array([360, 180,   0]))
+    >>> ensure_lat_lon_in_deg(np.asarray([np.pi/2, 0, -np.pi/2]), np.asarray([2*np.pi, np.pi, 0]), "rad")
+    (array([ 90.,   0., -90.]), array([360., 180.,   0.]))
+    """
     are_in_degrees: bool = is_lat_lon_in_degrees(latitude, longitude)
     if units == "deg" and not are_in_degrees:
         warnings.warn(
@@ -98,7 +105,7 @@ def grid_spacing(
     if latitude.ndim != longitude.ndim:
         raise ValueError("latitude and longitude must have same number of dimensions")
 
-    latitude, longitude = check_lat_lon_units(latitude, longitude, units)
+    latitude, longitude = ensure_lat_lon_in_deg(latitude, longitude, units)
 
     lat_grid: ArrayLike
     lon_grid: ArrayLike
@@ -141,7 +148,7 @@ def nominal_grid_spacing(
         # In metpy, geod = CRS('+proj=latlon').get_geod()
         geod = Geod(ellps="WGS84")
 
-    latitude, longitude = check_lat_lon_units(latitude, longitude, units)
+    latitude, longitude = ensure_lat_lon_in_deg(latitude, longitude, units)
 
     lat_equator = np.zeros_like(longitude)
     _, _, dx = geod.inv(
