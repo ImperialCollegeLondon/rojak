@@ -235,3 +235,73 @@ def test_get_dimension_number(create_random_lat_lon_dataarray, dim_name, expecta
         assert dim_num == e
     if not isinstance(e, int):
         assert e.type is ValueError
+
+
+@pytest.mark.parametrize(
+    "dimension, expected_name",
+    [
+        (derivatives.CartesianDimension.X, "longitude"),
+        (derivatives.CartesianDimension.Y, "latitude"),
+    ],
+)
+def test_cartesian_dimension_get_geographic_coord_name(
+    dimension: derivatives.CartesianDimension, expected_name: str
+) -> None:
+    name: str | None = dimension.get_geographic_coordinate()
+    assert name == expected_name
+
+
+@pytest.mark.parametrize(
+    "dim, grid_deltas, expected",
+    [
+        (
+            derivatives.CartesianDimension.X,
+            derivatives.GridSpacing(np.arange(5), np.arange(6, 10)),
+            np.arange(5),
+        ),
+        (
+            derivatives.CartesianDimension.Y,
+            derivatives.GridSpacing(np.arange(5), np.arange(6, 10)),
+            np.arange(6, 10),
+        ),
+    ],
+)
+def test_cartesian_dimension_get_grid_spacing(
+    dim: derivatives.CartesianDimension, grid_deltas: derivatives.GridSpacing, expected
+) -> None:
+    delta = dim.get_grid_spacing(grid_deltas)
+    npt.assert_array_equal(delta, expected)
+
+
+@pytest.mark.parametrize(
+    "dim, factors, expected",
+    [
+        (
+            derivatives.CartesianDimension.X,
+            derivatives.ProjectionCorrectionFactors(
+                xr.DataArray(np.arange(5)), xr.DataArray(np.arange(6, 10))
+            ),
+            xr.DataArray(np.arange(5)),
+        ),
+        (
+            derivatives.CartesianDimension.Y,
+            derivatives.ProjectionCorrectionFactors(
+                xr.DataArray(np.arange(5)), xr.DataArray(np.arange(6, 10))
+            ),
+            xr.DataArray(np.arange(6, 10)),
+        ),
+    ],
+)
+def test_get_correction_factor(
+    dim: derivatives.CartesianDimension,
+    factors: derivatives.ProjectionCorrectionFactors,
+    expected,
+) -> None:
+    scaling_factor: xr.DataArray = dim.get_correction_factor(factors)
+    xr.testing.assert_equal(scaling_factor, expected)
+
+
+def test_divergence(create_random_lat_lon_dataarray) -> None:
+    du_dx = create_random_lat_lon_dataarray
+    dv_dy = create_random_lat_lon_dataarray
+    xr.testing.assert_allclose(du_dx + dv_dy, derivatives.divergence(du_dx, dv_dy))
