@@ -4,7 +4,7 @@ import cdsapi
 from dask.base import is_dask_collection
 from rich.progress import track
 
-from rojak.core.data import CATPrognosticData, DataRetriever, DataVarSchema, MetData
+from rojak.core.data import CATData, DataRetriever, DataVarSchema, MetData
 from rojak.datalib.ecmwf.constants import (
     blank_default,
     data_defaults,
@@ -112,7 +112,7 @@ class Era5Data(MetData):
         super().__init__()
         self._on_pressure_level = on_pressure_level
 
-    def to_clear_air_turbulence_data(self) -> CATPrognosticData:
+    def to_clear_air_turbulence_data(self) -> CATData:
         target_variables: list[DataVarSchema] = [
             Era5Data.temperature,
             Era5Data.divergence,
@@ -135,4 +135,4 @@ class Era5Data(MetData):
         target_data.rename({"valid_time": "time"})
         if is_dask_collection(target_data):
             target_data = target_data.drop_vars("expver")
-        return CATPrognosticData(target_data)
+        return CATData(target_data)
