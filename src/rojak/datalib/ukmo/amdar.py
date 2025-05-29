@@ -3,11 +3,13 @@ from typing import FrozenSet, Iterable, List
 import dask.dataframe as dd
 
 UKMO_AMDAR_TIME_COLUMNS: FrozenSet[str] = frozenset({'year', 'month', 'day', 'hour', 'minute', 'second'})  # fmt: skip
-TURBULENCE_COL_INDICES: List[int] = [0, 1, 2, 3, 4, 5, 11, 12, 13, 14, 15, 20, 21, 22, 24, 25, 26, 27, 28, 30, 32]  # fmt: skip
-COLUMN_NAMES_FOR_INDICES: List[str] = ['year', 'month', 'day', 'hour', 'minute', 'second', 'registration_number', 'call_sign',
-                                       'latitude', 'longitude', 'altitude', 'roll_angle', 'pressure', 'flight_phase',
-                                       'wind_direction', 'wind_speed', 'vert_gust_velocity', 'vert_gust_acceleration',
-                                       'turbulence_degree', 'air_temperature', 'relative_humidity']  # fmt: skip
+TURBULENCE_COL_INDICES: List[int] = [0, 1, 2, 3, 4, 5, 11, 12, 13, 14, 15, 20, 21, 22, 24, 25, 26, 27, 28,
+                                     30, 32]  # fmt: skip
+COLUMN_NAMES_FOR_INDICES: List[str] = ['year', 'month', 'day', 'hour', 'minute', 'second', 'registration_number',
+                                       'call_sign', 'latitude', 'longitude', 'altitude', 'roll_angle', 'pressure',
+                                       'flight_phase', 'wind_direction', 'wind_speed', 'vert_gust_velocity',
+                                       'vert_gust_acceleration', 'turbulence_degree', 'air_temperature',
+                                       'relative_humidity']  # fmt: skip
 
 
 def load_ukmo_amdar_dataset(
