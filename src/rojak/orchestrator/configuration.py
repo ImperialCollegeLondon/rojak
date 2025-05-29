@@ -6,16 +6,16 @@ import yaml
 from pydantic import AfterValidator, BaseModel, Field, ValidationError, model_validator
 
 
-class InvalidConfiguration(Exception):
+class InvalidConfigurationError(Exception):
     def __init__(self, message: str) -> None:
         super().__init__(message)
 
 
 def dir_must_exist(path: Path) -> Path:
     if not path.exists():
-        raise InvalidConfiguration(f"{path} does not exist")
+        raise InvalidConfigurationError(f"{path} does not exist")
     if not path.is_dir():
-        raise InvalidConfiguration(f"{path} is not a directory")
+        raise InvalidConfigurationError(f"{path} is not a directory")
     return path
 
 
@@ -78,9 +78,9 @@ class BaseConfigModel(BaseModel):
             try:
                 instance = cls.model_validate(data)
             except ValidationError as e:
-                raise InvalidConfiguration(str(e)) from e
+                raise InvalidConfigurationError(str(e)) from e
             return instance
-        raise InvalidConfiguration("Configuration file not found or is not a file.")
+        raise InvalidConfigurationError("Configuration file not found or is not a file.")
 
 
 class TurbulenceConfig(BaseConfigModel):
@@ -144,15 +144,15 @@ class TurbulenceConfig(BaseConfigModel):
     @model_validator(mode="after")
     def check_either_calibration_data_or_thresholds_present(self) -> Self:
         if self.calibration_data_dir is None and self.thresholds_file_path is None:
-            raise InvalidConfiguration("Either calibration data directory or thresholds file must be provided.")
+            raise InvalidConfigurationError("Either calibration data directory or thresholds file must be provided.")
         if self.calibration_data_dir is not None and self.thresholds_file_path is not None:
-            raise InvalidConfiguration(
+            raise InvalidConfigurationError(
                 "Either calibration data directory or thresholds file must be provided, NOT both"
             )
         if self.calibration_data_dir is not None and not self.calibration_data_dir.is_dir():
-            raise InvalidConfiguration("Calibration data directory is not a directory.")
+            raise InvalidConfigurationError("Calibration data directory is not a directory.")
         if self.thresholds_file_path is not None and not self.thresholds_file_path.is_file():
-            raise InvalidConfiguration("Thresholds file provided is not a file.")
+            raise InvalidConfigurationError("Thresholds file provided is not a file.")
         return self
 
 

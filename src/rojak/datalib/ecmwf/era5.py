@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from rojak.core.data import Date
 
 
-class InvalidEra5RequestConfiguration(Exception):
+class InvalidEra5RequestConfigurationError(Exception):
     def __init__(self, message):
         super().__init__(message)
 
@@ -44,7 +44,7 @@ class Era5Retriever(DataRetriever):
         print(default_name)
         if default_name is None:
             if pressure_levels is None or variables is None:
-                raise InvalidEra5RequestConfiguration(
+                raise InvalidEra5RequestConfigurationError(
                     "Default not specified. As such, which variables and pressure levels must be specified."
                 )
             self.request_body = blank_default

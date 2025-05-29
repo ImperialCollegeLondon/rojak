@@ -9,7 +9,7 @@ import yaml
 from rojak.orchestrator import configuration
 from rojak.orchestrator.configuration import (
     DataConfig,
-    InvalidConfiguration,
+    InvalidConfigurationError,
     SpatialDomain,
 )
 
@@ -162,9 +162,9 @@ def dict_to_file(request, tmp_path) -> "Path":
     indirect=True,
 )
 def test_spatial_domain_invalid_config(dict_to_file) -> None:
-    with pytest.raises(InvalidConfiguration) as excinfo:
+    with pytest.raises(InvalidConfigurationError) as excinfo:
         configuration.SpatialDomain.from_yaml(dict_to_file)
-    assert excinfo.type is InvalidConfiguration
+    assert excinfo.type is InvalidConfigurationError
 
 
 @pytest.mark.parametrize(
@@ -222,9 +222,9 @@ def make_empty_temp_text_file(tmp_path_factory) -> "Path":
 
 @pytest.mark.parametrize("dict_to_file", [{}], indirect=True)
 def test_turbulence_config_invalid_config_default(dict_to_file) -> None:
-    with pytest.raises(InvalidConfiguration) as excinfo:
+    with pytest.raises(InvalidConfigurationError) as excinfo:
         configuration.TurbulenceConfig.from_yaml(dict_to_file)
-    assert excinfo.type is InvalidConfiguration
+    assert excinfo.type is InvalidConfigurationError
 
 
 @pytest.fixture
@@ -260,8 +260,8 @@ turbulence_config_field_permutations = [
 ]
 turbulence_config_parametrisation = (
     [
-        pytest.param({}, pytest.raises(InvalidConfiguration), id="only_has_dirs"),
-        pytest.param({"chunks": {}}, pytest.raises(InvalidConfiguration), id="only_has_chunks"),
+        pytest.param({}, pytest.raises(InvalidConfigurationError), id="only_has_dirs"),
+        pytest.param({"chunks": {}}, pytest.raises(InvalidConfigurationError), id="only_has_chunks"),
         pytest.param(
             turbulence_config_field_permutations[0],
             nullcontext(turbulence_config_field_permutations[0]),
@@ -303,7 +303,7 @@ def test_turbulence_config_with_calibration_dir(make_turbulence_config_with_cali
             assert config.severities == [configuration.TurbulenceSeverity.LIGHT]
 
     if not isinstance(e, dict):
-        assert e.type is InvalidConfiguration
+        assert e.type is InvalidConfigurationError
 
 
 @pytest.fixture
@@ -335,14 +335,14 @@ def test_turbulence_config_with_threshold_file(make_turbulence_config_with_thres
         assert config.calibration_data_dir is None
 
     if not isinstance(e, dict):
-        assert e.type is InvalidConfiguration
+        assert e.type is InvalidConfigurationError
 
 
 @pytest.mark.parametrize(
     "dict_to_file, expectation",
     [
-        pytest.param({}, pytest.raises(InvalidConfiguration)),
-        pytest.param({"contrail_model": "invalid_option"}, pytest.raises(InvalidConfiguration)),
+        pytest.param({}, pytest.raises(InvalidConfigurationError)),
+        pytest.param({"contrail_model": "invalid_option"}, pytest.raises(InvalidConfigurationError)),
         pytest.param({"contrail_model": "issr"}, nullcontext("issr")),
         pytest.param({"contrail_model": "sac"}, nullcontext("sac")),
         pytest.param({"contrail_model": "pcr"}, nullcontext("pcr")),
@@ -354,16 +354,16 @@ def test_contrails_config(dict_to_file, expectation) -> None:
         config = configuration.ContrailsConfig.from_yaml(dict_to_file)
         assert config.contrail_model == e
     if not isinstance(e, str):
-        assert e.type is InvalidConfiguration
+        assert e.type is InvalidConfigurationError
 
 
 @pytest.mark.parametrize(
     "dict_to_file, expectation",
     [
-        pytest.param({}, pytest.raises(InvalidConfiguration), id="empty_config"),
+        pytest.param({}, pytest.raises(InvalidConfigurationError), id="empty_config"),
         pytest.param(
             {"evaluation_data_dir": "random/nonsense/dir"},
-            pytest.raises(InvalidConfiguration),
+            pytest.raises(InvalidConfigurationError),
             id="dir_does_not_exist",
         ),
     ],
@@ -372,4 +372,4 @@ def test_contrails_config(dict_to_file, expectation) -> None:
 def test_meteorology_config(dict_to_file, expectation) -> None:
     with expectation as e:
         configuration.MeteorologyConfig.from_yaml(dict_to_file)
-    assert e.type is InvalidConfiguration
+    assert e.type is InvalidConfigurationError

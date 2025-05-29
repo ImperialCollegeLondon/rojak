@@ -8,7 +8,7 @@ import xarray as xr
 from dask.base import is_dask_collection
 from pyproj import CRS, Geod, Proj
 
-from rojak.utilities.types import ArrayLike, GoHomeYouAreDrunk
+from rojak.utilities.types import ArrayLike, GoHomeYouAreDrunkError
 
 GridSpacing = NamedTuple("GridSpacing", [("dx", ArrayLike), ("dy", ArrayLike)])
 
@@ -111,7 +111,7 @@ def grid_spacing(
         # lon_grid = longitude
         raise NotImplementedError("Function doesn't support 2D latitude and longitude inputs")
     else:
-        raise GoHomeYouAreDrunk("What are you doing? How do lat and lon have >2 dimensions?")
+        raise GoHomeYouAreDrunkError("What are you doing? How do lat and lon have >2 dimensions?")
 
     forward_azimuth, _, dy = geod.inv(lon_grid[:-1, :], lat_grid[:-1, :], lon_grid[1:, :], lat_grid[1:, :])
     # I don't understand why this lines is here... Copied from metpy
