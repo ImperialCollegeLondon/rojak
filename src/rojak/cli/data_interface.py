@@ -8,7 +8,7 @@ from rojak.datalib.ecmwf.era5 import (
     Era5DatasetName,
     Era5DefaultsName,
     Era5Retriever,
-    InvalidEra5RequestConfiguration,
+    InvalidEra5RequestConfigurationError,
 )
 from rojak.datalib.madis.amdar import AcarsRetriever, MadisAmdarPreprocessor
 
@@ -151,7 +151,7 @@ def validate_era5_default_name(
         return "surface"
     if default_name_input == "contrail":
         return "contrail"
-    raise InvalidEra5RequestConfiguration("Invalid default name")
+    raise InvalidEra5RequestConfigurationError("Invalid default name")
 
 
 def validate_era5_dataset_name(dataset_name_input: str) -> Era5DatasetName:
@@ -159,7 +159,7 @@ def validate_era5_dataset_name(dataset_name_input: str) -> Era5DatasetName:
         return "pressure-level"
     if dataset_name_input == "single-level":
         return "single-level"
-    raise InvalidEra5RequestConfiguration("Invalid dataset name")
+    raise InvalidEra5RequestConfigurationError("Invalid dataset name")
 
 
 @meteorology_app.command("retrieve")
