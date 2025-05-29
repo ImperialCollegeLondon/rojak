@@ -1,30 +1,28 @@
 from contextlib import nullcontext
 from typing import TYPE_CHECKING
+
+import dask.array as da
 import numpy as np
 import numpy.testing as npt
-import xarray as xr
-import dask.array as da
 import pytest
+import xarray as xr
 from pyproj import Geod
 
 from rojak.core import derivatives
-from rojak.utilities.types import ArrayLike
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
+
+    from rojak.utilities.types import ArrayLike
 
 
 @pytest.mark.parametrize(
     "values, coordinate, expected",
     [
         pytest.param([8], None, True, id="No coordinate in degrees"),
-        pytest.param(
-            [np.pi * 2, -np.pi * 2], None, False, id="No coordinate on boundary"
-        ),
+        pytest.param([np.pi * 2, -np.pi * 2], None, False, id="No coordinate on boundary"),
         pytest.param([2 * np.pi, 0, -2 * np.pi], None, False, id="Longitude boundary"),
-        pytest.param(
-            [np.pi * (1 / 2), 0, -np.pi * (1 / 2)], None, False, id="Latitude boundary"
-        ),
+        pytest.param([np.pi * (1 / 2), 0, -np.pi * (1 / 2)], None, False, id="Latitude boundary"),
         pytest.param(
             [2 * np.pi + 0.01, 0, -2 * np.pi + 0.01],
             "longitude",
@@ -45,9 +43,7 @@ if TYPE_CHECKING:
         ),
         pytest.param(da.asarray([1, 2, 3, 4]), "latitude", True, id="Latitude dask"),
         pytest.param(da.asarray([1, 2, 3, 7]), "longitude", True, id="Longitude dask"),
-        pytest.param(
-            da.asarray([1, 2, 3, 4]), None, False, id="No coord dask too small"
-        ),
+        pytest.param(da.asarray([1, 2, 3, 4]), None, False, id="No coord dask too small"),
         pytest.param(da.asarray([1, 2, 3, 4, 9]), None, True, id="No coord dask"),
     ],
 )
@@ -65,12 +61,8 @@ def test_is_in_degrees(values, coordinate, expected):
         (False, xr.DataArray([1, 2, 3]), xr.DataArray([3, 4, 5])),
     ],
 )
-def test_is_lat_lon_in_degrees(
-    expected: bool, mocker: "MockerFixture", lat, lon
-) -> None:
-    is_in_deg_mock = mocker.patch(
-        "rojak.core.derivatives.is_in_degrees", return_value=expected
-    )
+def test_is_lat_lon_in_degrees(expected: bool, mocker: "MockerFixture", lat, lon) -> None:
+    is_in_deg_mock = mocker.patch("rojak.core.derivatives.is_in_degrees", return_value=expected)
     outcome = derivatives.is_lat_lon_in_degrees(lon, lon)
     assert outcome == expected
     assert is_in_deg_mock.call_count == 2
@@ -92,9 +84,7 @@ def test_is_lat_lon_in_degrees_error(lat: "ArrayLike", lon: "ArrayLike") -> None
 
 
 def test_check_lat_lon_units_warning(mocker: "MockerFixture") -> None:
-    is_in_deg_mock = mocker.patch(
-        "rojak.core.derivatives.is_lat_lon_in_degrees", return_value=False
-    )
+    is_in_deg_mock = mocker.patch("rojak.core.derivatives.is_lat_lon_in_degrees", return_value=False)
     with pytest.warns(UserWarning) as record:
         derivatives.ensure_lat_lon_in_deg(np.asarray([0, 1]), np.asarray([0, 1]), "deg")
 
@@ -107,13 +97,9 @@ def test_check_lat_lon_units_warning(mocker: "MockerFixture") -> None:
 
 
 def test_check_lat_lon_units_error(mocker: "MockerFixture") -> None:
-    is_in_deg_mock = mocker.patch(
-        "rojak.core.derivatives.is_lat_lon_in_degrees", return_value=True
-    )
+    is_in_deg_mock = mocker.patch("rojak.core.derivatives.is_lat_lon_in_degrees", return_value=True)
     with pytest.raises(ValueError) as excinfo:
-        derivatives.ensure_lat_lon_in_deg(
-            np.asarray([0, 90]), np.asarray([180, 360]), "rad"
-        )
+        derivatives.ensure_lat_lon_in_deg(np.asarray([0, 90]), np.asarray([180, 360]), "rad")
 
     assert excinfo.type is ValueError
     assert is_in_deg_mock.call_count == 1
@@ -142,15 +128,9 @@ longitude_in_rad: np.ndarray = np.deg2rad(longitude_in_deg)
         ),
     ],
 )
-def test_check_lat_lon_in_degree(
-    mocker: "MockerFixture", lat, lon, is_deg: bool
-) -> None:
-    is_in_deg_mock = mocker.patch(
-        "rojak.core.derivatives.is_lat_lon_in_degrees", return_value=is_deg
-    )
-    new_lat, new_lon = derivatives.ensure_lat_lon_in_deg(
-        lat, lon, "deg" if is_deg else "rad"
-    )
+def test_check_lat_lon_in_degree(mocker: "MockerFixture", lat, lon, is_deg: bool) -> None:
+    is_in_deg_mock = mocker.patch("rojak.core.derivatives.is_lat_lon_in_degrees", return_value=is_deg)
+    new_lat, new_lon = derivatives.ensure_lat_lon_in_deg(lat, lon, "deg" if is_deg else "rad")
     if is_deg:
         npt.assert_array_almost_equal(np.asarray(new_lat), np.asarray(latitude_in_deg))
         npt.assert_array_almost_equal(np.asarray(new_lon), np.asarray(longitude_in_deg))
@@ -165,33 +145,21 @@ def test_nominal_grid_spacing(mocker: "MockerFixture") -> None:
     lat = np.array([25.0, 35.0, 45.0])
     lon = np.array([-105, -100, -95, -90])
 
-    ensure_is_deg_mock = mocker.patch(
-        "rojak.core.derivatives.ensure_lat_lon_in_deg", return_value=(lat, lon)
-    )
+    ensure_is_deg_mock = mocker.patch("rojak.core.derivatives.ensure_lat_lon_in_deg", return_value=(lat, lon))
 
     # Subcase 1: Specify geod
-    grid_deltas: derivatives.GridSpacing = derivatives.nominal_grid_spacing(
-        lat, lon, "deg", geod=Geod(a=4370997)
-    )
-    npt.assert_array_almost_equal(
-        grid_deltas.dx, np.asarray([381441.44622397, 381441.44622397, 381441.44622397])
-    )
-    npt.assert_array_almost_equal(
-        grid_deltas.dy, np.asarray([762882.8924479455, 762882.8924479454])
-    )
+    grid_deltas: derivatives.GridSpacing = derivatives.nominal_grid_spacing(lat, lon, "deg", geod=Geod(a=4370997))
+    npt.assert_array_almost_equal(grid_deltas.dx, np.asarray([381441.44622397, 381441.44622397, 381441.44622397]))
+    npt.assert_array_almost_equal(grid_deltas.dy, np.asarray([762882.8924479455, 762882.8924479454]))
     assert ensure_is_deg_mock.call_count == 1
 
     # Subcase 2: default geod
-    default_geod_deltas: derivatives.GridSpacing = derivatives.nominal_grid_spacing(
-        lat, lon, "deg"
-    )
+    default_geod_deltas: derivatives.GridSpacing = derivatives.nominal_grid_spacing(lat, lon, "deg")
     npt.assert_array_almost_equal(
         default_geod_deltas.dx,
         np.asarray([556597.45396637, 556597.45396637, 556597.45396637]),
     )
-    npt.assert_array_almost_equal(
-        default_geod_deltas.dy, np.asarray([1108538.7325489155, 1110351.4762828045])
-    )
+    npt.assert_array_almost_equal(default_geod_deltas.dy, np.asarray([1108538.7325489155, 1110351.4762828045]))
     assert ensure_is_deg_mock.call_count == 2
 
 
@@ -214,9 +182,7 @@ def test_nominal_grid_spacing_error(mocker: "MockerFixture") -> None:
 
 @pytest.fixture()
 def create_random_lat_lon_dataarray():
-    return xr.DataArray(
-        np.random.rand(20, 30, 4), dims=["latitude", "time", "longitude"]
-    )
+    return xr.DataArray(np.random.default_rng().random((20, 30, 4)), dims=["latitude", "time", "longitude"])
 
 
 @pytest.mark.parametrize(
@@ -229,9 +195,7 @@ def create_random_lat_lon_dataarray():
 )
 def test_get_dimension_number(create_random_lat_lon_dataarray, dim_name, expectation):
     with expectation as e:
-        dim_num: int = derivatives.get_dimension_number(
-            dim_name, create_random_lat_lon_dataarray
-        )
+        dim_num: int = derivatives.get_dimension_number(dim_name, create_random_lat_lon_dataarray)
         assert dim_num == e
     if not isinstance(e, int):
         assert e.type is ValueError
@@ -278,16 +242,12 @@ def test_cartesian_dimension_get_grid_spacing(
     [
         (
             derivatives.CartesianDimension.X,
-            derivatives.ProjectionCorrectionFactors(
-                xr.DataArray(np.arange(5)), xr.DataArray(np.arange(6, 10))
-            ),
+            derivatives.ProjectionCorrectionFactors(xr.DataArray(np.arange(5)), xr.DataArray(np.arange(6, 10))),
             xr.DataArray(np.arange(5)),
         ),
         (
             derivatives.CartesianDimension.Y,
-            derivatives.ProjectionCorrectionFactors(
-                xr.DataArray(np.arange(5)), xr.DataArray(np.arange(6, 10))
-            ),
+            derivatives.ProjectionCorrectionFactors(xr.DataArray(np.arange(5)), xr.DataArray(np.arange(6, 10))),
             xr.DataArray(np.arange(6, 10)),
         ),
     ],

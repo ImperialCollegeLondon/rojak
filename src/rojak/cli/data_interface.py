@@ -1,16 +1,16 @@
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated, Optional
 
 import typer
 
 from rojak.datalib.ecmwf.era5 import (
-    Era5Retriever,
-    InvalidEra5RequestConfiguration,
-    Era5DefaultsName,
     Era5DatasetName,
+    Era5DefaultsName,
+    Era5Retriever,
+    InvalidEra5RequestConfigurationError,
 )
-from rojak.datalib.madis.amdar import MadisAmdarPreprocessor, AcarsRetriever
+from rojak.datalib.madis.amdar import AcarsRetriever, MadisAmdarPreprocessor
 
 if TYPE_CHECKING:
     from rojak.core.data import DataPreprocessor
@@ -27,9 +27,7 @@ class AmdarDataSource(StrEnum):
     UKMO_AMDAR = "ukmo"
 
 
-def create_output_dir(
-    output_dir: Path | None, source: StrEnum, intermediate_folder_name: str
-) -> Path:
+def create_output_dir(output_dir: Path | None, source: StrEnum, intermediate_folder_name: str) -> Path:
     if output_dir is None:
         output_dir = Path.cwd() / intermediate_folder_name / source
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -47,9 +45,7 @@ def retrieve(
             help="Select where data should be retrieved from",
         ),
     ],
-    years: Annotated[
-        list[int], typer.Option("-y", "--years", help="Year(s) to retrieve data for")
-    ],
+    years: Annotated[list[int], typer.Option("-y", "--years", help="Year(s) to retrieve data for")],
     months: Annotated[
         list[int],
         typer.Option(
@@ -71,7 +67,8 @@ def retrieve(
         typer.Option(
             "-o",
             "--output_dir",
-            help="Directory to save retrieved files. If unspecified, it will be in the 'data' folder in current directory",
+            help="Directory to save retrieved files. "
+            "If unspecified, it will be in the 'data' folder in current directory",
         ),
     ] = None,
     glob_pattern: Annotated[
@@ -82,7 +79,7 @@ def retrieve(
             help="Glob pattern to select files ONLY APPLICABLE for MADIS",
         ),
     ] = None,
-):
+) -> None:
     output_dir = create_output_dir(output_dir, source, "data")
 
     match source:
@@ -124,10 +121,8 @@ def preprocess(
             help="Directory to save preprocessed files. If unspecified, it will be the input directory",
         ),
     ] = None,
-    glob_pattern: Annotated[
-        Optional[str], typer.Option(help="Glob pattern to select files")
-    ] = None,
-):
+    glob_pattern: Annotated[Optional[str], typer.Option(help="Glob pattern to select files")] = None,
+) -> None:
     match source:
         case "madis":
             preprocess_madis_amdar_data(input_dir, output_dir, glob_pattern)
@@ -135,12 +130,8 @@ def preprocess(
             raise NotImplementedError("Not implemented UKMO AMDAR data preprocessing")
 
 
-def preprocess_madis_amdar_data(
-    input_dir: Path, output_dir: Path | None, glob_pattern: str | None
-):
-    preprocessor: "DataPreprocessor" = MadisAmdarPreprocessor(
-        input_dir, glob_pattern=glob_pattern
-    )
+def preprocess_madis_amdar_data(input_dir: Path, output_dir: Path | None, glob_pattern: str | None) -> None:
+    preprocessor: "DataPreprocessor" = MadisAmdarPreprocessor(input_dir, glob_pattern=glob_pattern)
     if output_dir is None:
         output_dir = input_dir
     preprocessor.apply_preprocessor(output_dir)
@@ -155,23 +146,21 @@ def validate_era5_default_name(
 ) -> Era5DefaultsName:
     if default_name_input is None:
         return None
-    elif default_name_input == "cat":
+    if default_name_input == "cat":
         return "cat"
-    elif default_name_input == "surface":
+    if default_name_input == "surface":
         return "surface"
-    elif default_name_input == "contrail":
+    if default_name_input == "contrail":
         return "contrail"
-    else:
-        raise InvalidEra5RequestConfiguration("Invalid default name")
+    raise InvalidEra5RequestConfigurationError("Invalid default name")
 
 
 def validate_era5_dataset_name(dataset_name_input: str) -> Era5DatasetName:
     if dataset_name_input == "pressure-level":
         return "pressure-level"
-    elif dataset_name_input == "single-level":
+    if dataset_name_input == "single-level":
         return "single-level"
-    else:
-        raise InvalidEra5RequestConfiguration("Invalid dataset name")
+    raise InvalidEra5RequestConfigurationError("Invalid dataset name")
 
 
 @meteorology_app.command("retrieve")
@@ -185,9 +174,7 @@ def retrieve_meteorology(
             help="Select where data should be retrieved from",
         ),
     ],
-    years: Annotated[
-        list[int], typer.Option("-y", "--years", help="Year(s) to retrieve data for")
-    ],
+    years: Annotated[list[int], typer.Option("-y", "--years", help="Year(s) to retrieve data for")],
     months: Annotated[
         list[int],
         typer.Option(
@@ -204,9 +191,7 @@ def retrieve_meteorology(
             help="Day(s) to retrieve data for. Use -1 to specify all days in month",
         ),
     ],
-    data_set_name: Annotated[
-        str, typer.Option("-n", "--data-set-name", help="Name of data set to retrieve")
-    ],
+    data_set_name: Annotated[str, typer.Option("-n", "--data-set-name", help="Name of data set to retrieve")],
     output_dir: Annotated[
         Optional[Path],
         typer.Option(
@@ -224,9 +209,7 @@ def retrieve_meteorology(
     ] = None,
     pressure_levels: Annotated[
         list[int] | None,
-        typer.Option(
-            "-p", "--pressure-levels", help="Pressure levels to request data on"
-        ),
+        typer.Option("-p", "--pressure-levels", help="Pressure levels to request data on"),
     ] = None,
     variables: Annotated[
         list[str] | None,
@@ -236,7 +219,7 @@ def retrieve_meteorology(
         list[str] | None,
         typer.Option("-t", "--times", help="Times to retrieve in data request"),
     ] = None,
-):
+) -> None:
     output_dir = create_output_dir(output_dir, source, "met_data")
 
     match source:
