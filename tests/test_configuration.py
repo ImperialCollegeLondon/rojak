@@ -29,7 +29,7 @@ def basic_context_yaml_file(tmp_path_factory) -> "Path":
         "plots_dir": str(tmp_plots),
     }
     output_file: "Path" = tmp_path_factory.mktemp("config") / "simplest_config.yml"
-    with open(output_file, "w") as file:
+    with output_file.open(mode="w") as file:
         yaml.safe_dump(content, file, encoding="utf-8")
 
     return output_file
@@ -49,7 +49,7 @@ def basic_context_yaml_file_create_output_plots_on_validation(
         "plots_dir": str(tmp_folder / "plots"),
     }
     output_file: "Path" = tmp_path_factory.mktemp("config") / "simplest_config.yml"
-    with open(output_file, "w") as file:
+    with output_file.open("w") as file:
         yaml.safe_dump(content, file, encoding="utf-8")
 
     return output_file
@@ -97,7 +97,7 @@ def dump_dict_to_file(target_path: "Path", content: dict) -> "Path":
         StrEnum,
         yaml.representer.SafeRepresenter.represent_str,
     )
-    with open(output_file, "w") as file:
+    with output_file.open("w") as file:
         yaml.safe_dump(content, file, encoding="utf-8")
     return output_file
 
