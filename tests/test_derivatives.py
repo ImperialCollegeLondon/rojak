@@ -9,10 +9,11 @@ import xarray as xr
 from pyproj import Geod
 
 from rojak.core import derivatives
-from rojak.utilities.types import ArrayLike
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
+
+    from rojak.utilities.types import ArrayLike
 
 
 @pytest.mark.parametrize(
