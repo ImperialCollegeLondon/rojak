@@ -93,10 +93,7 @@ def dump_dict_to_file(target_path: "Path", content: dict) -> "Path":
     # Allows for StrEnums to be dumped to yaml
     # See: https://github.com/yaml/pyyaml/issues/722
     # noinspection PyTypeChecker
-    yaml.SafeDumper.add_multi_representer(
-        StrEnum,
-        yaml.representer.SafeRepresenter.represent_str,
-    )
+    yaml.SafeDumper.add_multi_representer(StrEnum, yaml.representer.SafeRepresenter.represent_str)
     with output_file.open("w") as file:
         yaml.safe_dump(content, file, encoding="utf-8")
     return output_file

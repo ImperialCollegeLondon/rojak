@@ -40,15 +40,7 @@ def test_preprocess_data_ukmo_amdar(tmp_path) -> None:
     with pytest.raises(NotImplementedError) as excinfo:
         runner.invoke(
             app,
-            [
-                "data",
-                "amdar",
-                "preprocess",
-                "-s",
-                "ukmo",
-                "-i",
-                str(tmp_path),
-            ],
+            ["data", "amdar", "preprocess", "-s", "ukmo", "-i", str(tmp_path)],
             catch_exceptions=False,
         )
     assert excinfo.type is NotImplementedError
@@ -163,12 +155,7 @@ def test_preprocess_data_madis_single_file(retrieve_madis_data_single_file) -> N
 @pytest.mark.parametrize(
     "data_set_name, default_name, matches",
     [
-        pytest.param(
-            "nonsense",
-            None,
-            "Invalid dataset name",
-            id="invalid_dataset_name",
-        ),
+        pytest.param("nonsense", None, "Invalid dataset name", id="invalid_dataset_name"),
         pytest.param(
             "nonsense",
             "cat",
@@ -199,12 +186,7 @@ def test_preprocess_data_madis_single_file(retrieve_madis_data_single_file) -> N
             "Invalid default name",
             id="invalid_default_name_sl",
         ),
-        pytest.param(
-            "pressure-level",
-            None,
-            "Default not specified",
-            id="default_not_specified",
-        ),
+        pytest.param("pressure-level", None, "Default not specified", id="default_not_specified"),
     ],
 )
 def test_retrieve_meteorology_era5_invalid_config(data_set_name, default_name, matches, tmp_path) -> None:

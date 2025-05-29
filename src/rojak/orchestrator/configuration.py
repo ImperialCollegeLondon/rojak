@@ -83,6 +83,9 @@ class BaseConfigModel(BaseModel):
         raise InvalidConfigurationError("Configuration file not found or is not a file.")
 
 
+# Make threshold values something that is passed in
+
+
 class TurbulenceConfig(BaseConfigModel):
     # Remove this and have it only in data config?????
     evaluation_data_dir: Annotated[
