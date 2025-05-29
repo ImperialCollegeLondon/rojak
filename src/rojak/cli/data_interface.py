@@ -141,9 +141,7 @@ class MeteorologyDataSource(StrEnum):
     ERA5 = "era5"
 
 
-def validate_era5_default_name(
-    default_name_input: str | None,
-) -> Era5DefaultsName:
+def validate_era5_default_name(default_name_input: str | None) -> Era5DefaultsName:
     if default_name_input is None:
         return None
     if default_name_input == "cat":

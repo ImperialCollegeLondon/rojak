@@ -167,10 +167,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
                 "maxTurbulence",
             }
             # Drop all the nan data that's already present in the data
-            data = data.dropna(
-                self.dimension_name,
-                subset=turbulence_subset,
-            )
+            data = data.dropna(self.dimension_name, subset=turbulence_subset)
 
             # Make all the data that's invalid based on QC and error nan
             data = self.drop_invalid_qc_data(data)

@@ -47,10 +47,7 @@ def is_in_degrees(
     )
 
 
-def is_lat_lon_in_degrees(
-    latitude: ArrayLike,
-    longitude: ArrayLike,
-) -> bool:
+def is_lat_lon_in_degrees(latitude: ArrayLike, longitude: ArrayLike) -> bool:
     is_lat_in_degrees: bool = is_in_degrees(latitude, coordinate="latitude")
     is_lon_in_degrees: bool = is_in_degrees(longitude, coordinate="longitude")
 
