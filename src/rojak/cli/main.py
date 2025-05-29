@@ -1,24 +1,23 @@
-from typing import Annotated
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
 from rojak.cli import data_interface
-
 
 app = typer.Typer()
 app.add_typer(data_interface.data_app, name="data")
 
 
 @app.command()
-def turbulence():
+def turbulence() -> None:
     print("HELLO from the other side")
 
 
 @app.command()
 def run(
     config_file: Annotated[
-        "Path",
+        Path,
         typer.Argument(
             help="Path to configuration file",
             exists=True,
@@ -32,5 +31,5 @@ def run(
 
 
 @app.command()
-def get_data():
+def get_data() -> None:
     print("potatoes")

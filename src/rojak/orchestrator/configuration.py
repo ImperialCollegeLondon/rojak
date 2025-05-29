@@ -1,21 +1,21 @@
 from enum import StrEnum
+from pathlib import Path
 from typing import Annotated, Self
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, AfterValidator, model_validator
-from pathlib import Path
+from pydantic import AfterValidator, BaseModel, Field, ValidationError, model_validator
 
 
-class InvalidConfiguration(Exception):
+class InvalidConfigurationError(Exception):
     def __init__(self, message: str) -> None:
         super().__init__(message)
 
 
 def dir_must_exist(path: Path) -> Path:
     if not path.exists():
-        raise InvalidConfiguration(f"{path} does not exist")
+        raise InvalidConfigurationError(f"{path} does not exist")
     if not path.is_dir():
-        raise InvalidConfiguration(f"{path} is not a directory")
+        raise InvalidConfigurationError(f"{path} is not a directory")
     return path
 
 
@@ -72,16 +72,15 @@ class BaseConfigModel(BaseModel):
     def from_yaml(cls, path: "Path") -> Self:
         if path.is_file():
             data: dict = {}
-            with open(path, "r") as f:
+            with path.open(mode="r") as f:
                 data = yaml.safe_load(f)
 
             try:
                 instance = cls.model_validate(data)
             except ValidationError as e:
-                raise InvalidConfiguration(str(e)) from e
+                raise InvalidConfigurationError(str(e)) from e
             return instance
-        else:
-            raise InvalidConfiguration("Configuration file not found or is not a file.")
+        raise InvalidConfigurationError("Configuration file not found or is not a file.")
 
 
 class TurbulenceConfig(BaseConfigModel):
@@ -145,26 +144,15 @@ class TurbulenceConfig(BaseConfigModel):
     @model_validator(mode="after")
     def check_either_calibration_data_or_thresholds_present(self) -> Self:
         if self.calibration_data_dir is None and self.thresholds_file_path is None:
-            raise InvalidConfiguration(
-                "Either calibration data directory or thresholds file must be provided."
-            )
-        if (
-            self.calibration_data_dir is not None
-            and self.thresholds_file_path is not None
-        ):
-            raise InvalidConfiguration(
+            raise InvalidConfigurationError("Either calibration data directory or thresholds file must be provided.")
+        if self.calibration_data_dir is not None and self.thresholds_file_path is not None:
+            raise InvalidConfigurationError(
                 "Either calibration data directory or thresholds file must be provided, NOT both"
             )
-        if (
-            self.calibration_data_dir is not None
-            and not self.calibration_data_dir.is_dir()
-        ):
-            raise InvalidConfiguration("Calibration data directory is not a directory.")
-        if (
-            self.thresholds_file_path is not None
-            and not self.thresholds_file_path.is_file()
-        ):
-            raise InvalidConfiguration("Thresholds file provided is not a file.")
+        if self.calibration_data_dir is not None and not self.calibration_data_dir.is_dir():
+            raise InvalidConfigurationError("Calibration data directory is not a directory.")
+        if self.thresholds_file_path is not None and not self.thresholds_file_path.is_file():
+            raise InvalidConfigurationError("Thresholds file provided is not a file.")
         return self
 
 
@@ -178,26 +166,16 @@ class ContrailsConfig(BaseConfigModel):
     # Config for contrail analysis
     contrail_model: Annotated[
         ContrailModel,
-        Field(
-            description="Contrail model from pycontrails to use", repr=True, frozen=True
-        ),
+        Field(description="Contrail model from pycontrails to use", repr=True, frozen=True),
     ]
     ...
 
 
 class SpatialDomain(BaseConfigModel):
-    minimum_latitude: Annotated[
-        float, Field(default=-90, description="Minimum latitude", ge=-90, le=90)
-    ]
-    maximum_latitude: Annotated[
-        float, Field(default=90, description="Maximum latitude", ge=-90, le=90)
-    ]
-    minimum_longitude: Annotated[
-        float, Field(default=-180, description="Minimum longitude", ge=-180, le=180)
-    ]
-    maximum_longitude: Annotated[
-        float, Field(default=180, description="Minimum longitude", ge=-180, le=180)
-    ]
+    minimum_latitude: Annotated[float, Field(default=-90, description="Minimum latitude", ge=-90, le=90)]
+    maximum_latitude: Annotated[float, Field(default=90, description="Maximum latitude", ge=-90, le=90)]
+    minimum_longitude: Annotated[float, Field(default=-180, description="Minimum longitude", ge=-180, le=180)]
+    maximum_longitude: Annotated[float, Field(default=180, description="Minimum longitude", ge=-180, le=180)]
 
     @model_validator(mode="after")
     def check_valid_ranges(self) -> Self:
@@ -234,12 +212,8 @@ class DataConfig(BaseConfigModel):
 
 class Context(BaseConfigModel):
     # Root configuration
-    name: Annotated[
-        str, Field(description="Name of run", repr=True, strict=True, frozen=True)
-    ]
-    image_format: Annotated[
-        str, Field(description="Format of output plots", strict=True, frozen=True)
-    ]
+    name: Annotated[str, Field(description="Name of run", repr=True, strict=True, frozen=True)]
+    image_format: Annotated[str, Field(description="Format of output plots", strict=True, frozen=True)]
     output_dir: Annotated[
         Path,
         Field(description="Output directory", repr=True, frozen=True),

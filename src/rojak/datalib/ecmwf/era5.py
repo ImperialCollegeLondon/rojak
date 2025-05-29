@@ -1,23 +1,24 @@
-from typing import Literal, List, TYPE_CHECKING
-
-from rojak.core.data import DataRetriever
-from rojak.datalib.ecmwf.constants import (
-    blank_default,
-    reanalysis_dataset_names,
-    data_defaults,
-    six_hourly,
-)
+from typing import TYPE_CHECKING, List, Literal
 
 import cdsapi
 from rich.progress import track
 
+from rojak.core.data import DataRetriever
+from rojak.datalib.ecmwf.constants import (
+    blank_default,
+    data_defaults,
+    reanalysis_dataset_names,
+    six_hourly,
+)
+
 if TYPE_CHECKING:
     from pathlib import Path
+
     from rojak.core.data import Date
 
 
-class InvalidEra5RequestConfiguration(Exception):
-    def __init__(self, message):
+class InvalidEra5RequestConfigurationError(Exception):
+    def __init__(self, message: str) -> None:
         super().__init__(message)
 
 
@@ -43,7 +44,7 @@ class Era5Retriever(DataRetriever):
         print(default_name)
         if default_name is None:
             if pressure_levels is None or variables is None:
-                raise InvalidEra5RequestConfiguration(
+                raise InvalidEra5RequestConfigurationError(
                     "Default not specified. As such, which variables and pressure levels must be specified."
                 )
             self.request_body = blank_default
@@ -73,9 +74,7 @@ class Era5Retriever(DataRetriever):
         base_output_dir: "Path",
     ) -> None:
         dates: list["Date"] = self.compute_date_combinations(years, months, days)
-        (base_output_dir / self.folder_name).resolve().mkdir(
-            parents=True, exist_ok=True
-        )
+        (base_output_dir / self.folder_name).resolve().mkdir(parents=True, exist_ok=True)
         for date in track(dates):
             self._download_file(date, base_output_dir)
 
@@ -87,9 +86,5 @@ class Era5Retriever(DataRetriever):
         self.cds_client.retrieve(
             self.request_dataset_name,
             this_request,
-            target=(
-                base_output_dir
-                / self.folder_name
-                / f"{date.year}-{date.month}-{date.day}.nc"
-            ),
+            target=(base_output_dir / self.folder_name / f"{date.year}-{date.month}-{date.day}.nc"),
         )

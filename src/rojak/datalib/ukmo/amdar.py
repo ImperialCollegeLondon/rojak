@@ -3,11 +3,13 @@ from typing import FrozenSet, Iterable, List
 import dask.dataframe as dd
 
 UKMO_AMDAR_TIME_COLUMNS: FrozenSet[str] = frozenset({'year', 'month', 'day', 'hour', 'minute', 'second'})  # fmt: skip
-TURBULENCE_COL_INDICES: List[int] = [0, 1, 2, 3, 4, 5, 11, 12, 13, 14, 15, 20, 21, 22, 24, 25, 26, 27, 28, 30, 32]  # fmt: skip
-COLUMN_NAMES_FOR_INDICES: List[str] = ['year', 'month', 'day', 'hour', 'minute', 'second', 'registration_number', 'call_sign',
-                                       'latitude', 'longitude', 'altitude', 'roll_angle', 'pressure', 'flight_phase',
-                                       'wind_direction', 'wind_speed', 'vert_gust_velocity', 'vert_gust_acceleration',
-                                       'turbulence_degree', 'air_temperature', 'relative_humidity']  # fmt: skip
+TURBULENCE_COL_INDICES: List[int] = [0, 1, 2, 3, 4, 5, 11, 12, 13, 14, 15, 20, 21, 22, 24, 25, 26, 27, 28,
+                                     30, 32]  # fmt: skip
+COLUMN_NAMES_FOR_INDICES: List[str] = ['year', 'month', 'day', 'hour', 'minute', 'second', 'registration_number',
+                                       'call_sign', 'latitude', 'longitude', 'altitude', 'roll_angle', 'pressure',
+                                       'flight_phase', 'wind_direction', 'wind_speed', 'vert_gust_velocity',
+                                       'vert_gust_acceleration', 'turbulence_degree', 'air_temperature',
+                                       'relative_humidity']  # fmt: skip
 
 
 def load_ukmo_amdar_dataset(
@@ -21,9 +23,7 @@ def load_ukmo_amdar_dataset(
         column_names = COLUMN_NAMES_FOR_INDICES
 
     col_names = set(column_names)
-    assert UKMO_AMDAR_TIME_COLUMNS < col_names, (
-        "Columns must contain all the time column names"
-    )
+    assert col_names > UKMO_AMDAR_TIME_COLUMNS, "Columns must contain all the time column names"
     assert "turbulence_degree" in col_names, "Turbulence degree must be in column names"
 
     # 1. skiprows - skips the 183 rows which contain the properties
@@ -38,12 +38,8 @@ def load_ukmo_amdar_dataset(
         names=column_names,
         encoding="cp1252",
     )
-    data = data.fillna(
-        value={"second": 0}
-    )  # Prevents NaNs from making valid datetime a NaT
-    data["datetime"] = dd.to_datetime(
-        data[["year", "month", "day", "hour", "minute", "second"]]
-    )
+    data = data.fillna(value={"second": 0})  # Prevents NaNs from making valid datetime a NaT
+    data["datetime"] = dd.to_datetime(data[["year", "month", "day", "hour", "minute", "second"]])
     data = data.drop(["year", "month", "day", "hour", "minute", "second"], axis=1)
 
     # Dictionary key 29 is turbulence degree
