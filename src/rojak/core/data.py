@@ -6,6 +6,10 @@ from typing import TYPE_CHECKING, ClassVar, List, NamedTuple
 
 import xarray as xr
 
+from rojak.core import derivatives
+from rojak.core.derivatives import VelocityDerivative
+from rojak.turbulence import calculations as turb_calc
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -71,6 +75,7 @@ class CATPrognosticData:
     )
     required_coords: ClassVar[frozenset[str]] = frozenset(["pressure_level", "latitude", "longitude", "time"])
 
+    # TODO: TEST
     def __init__(self, dataset: xr.Dataset) -> None:
         if dataset.data_vars.keys() < self.required_variables:
             missing_variables = self.required_variables - dataset.data_vars.keys()
@@ -82,34 +87,102 @@ class CATPrognosticData:
             raise ValueError(f"Attempting to instantiate CATPrognosticData with missing coords: {missing_coords}")
         self._dataset = dataset
 
+    # TODO: TEST
     def temperature(self) -> xr.DataArray:
         return self._dataset["temperature"]
 
+    # TODO: TEST
     def divergence(self) -> xr.DataArray:
         return self._dataset["divergence_of_wind"]
 
+    # TODO: TEST
     def geopotential(self) -> xr.DataArray:
         return self._dataset["geopotential"]
 
+    # TODO: TEST
     def specific_humidity(self) -> xr.DataArray:
         return self._dataset["specific_humidity"]
 
+    # TODO: TEST
     def u_wind(self) -> xr.DataArray:
         return self._dataset["eastward_wind"]
 
+    # TODO: TEST
     def v_wind(self) -> xr.DataArray:
         return self._dataset["northward_wind"]
 
+    # TODO: TEST
     def potential_vorticity(self) -> xr.DataArray:
         return self._dataset["potential_vorticity"]
 
+    # TODO: TEST
     def vorticity(self) -> xr.DataArray:
         return self._dataset["vorticity"]
 
 
+class CATData(CATPrognosticData):
+    _potential_temperature: xr.DataArray | None = None
+    _velocity_derivatives: dict[VelocityDerivative, xr.DataArray] | None = None
+    _shear_deformation: xr.DataArray | None = None
+    _stretching_deformation: xr.DataArray | None = None
+
+    def __init__(self, dataset: xr.Dataset) -> None:
+        super().__init__(dataset)
+
+    # TODO: TEST
+    def potential_temperature(self) -> xr.DataArray:
+        if self._potential_temperature is None:
+            self._potential_temperature = turb_calc.potential_temperature(
+                self.temperature(), self.temperature()["pressure_level"]
+            )
+        return self._potential_temperature
+
+    # TODO: TEST
+    def velocity_derivatives(self) -> dict[VelocityDerivative, xr.DataArray]:
+        if self._velocity_derivatives is None:
+            self._velocity_derivatives = derivatives.vector_derivatives(self.u_wind(), self.v_wind(), "deg")
+        return self._velocity_derivatives
+
+    # TODO: TEST
+    def specific_velocity_derivative(self, target_derivative: VelocityDerivative) -> xr.DataArray:
+        if self._velocity_derivatives is None:
+            return self.velocity_derivatives()[target_derivative]
+        return self._velocity_derivatives[target_derivative]
+
+    # TODO: TEST
+    def shear_deformation(self) -> xr.DataArray:
+        if self._shear_deformation is None:
+            self._shear_deformation = turb_calc.shearing_deformation(
+                self.specific_velocity_derivative(VelocityDerivative.DV_DX),
+                self.specific_velocity_derivative(VelocityDerivative.DU_DY),
+            )
+        return self._shear_deformation
+
+    # TODO: TEST
+    def stretching_deformation(self) -> xr.DataArray:
+        if self._stretching_deformation is None:
+            self._stretching_deformation = turb_calc.stretching_deformation(
+                self.specific_velocity_derivative(VelocityDerivative.DU_DX),
+                self.specific_velocity_derivative(VelocityDerivative.DV_DY),
+            )
+        return self._stretching_deformation
+
+    # TODO: TEST
+    def total_deformation(self) -> xr.DataArray:
+        return turb_calc.magnitude_of_vector(self.shear_deformation(), self.stretching_deformation(), is_squared=True)
+
+    # TODO: TEST
+    def jacobian_horizontal_velocity(self) -> xr.DataArray:
+        vec_derivs = self.velocity_derivatives()
+        return (
+            vec_derivs[VelocityDerivative.DU_DX] * vec_derivs[VelocityDerivative.DV_DY]
+            - vec_derivs[VelocityDerivative.DU_DY] * vec_derivs[VelocityDerivative.DV_DX]
+        )
+
+
 class MetData(ABC):
     @abstractmethod
-    def to_clear_air_turbulence_data(self) -> CATPrognosticData: ...
+    def to_clear_air_turbulence_data(self) -> CATData: ...
 
     # TODO: TEST
     @staticmethod

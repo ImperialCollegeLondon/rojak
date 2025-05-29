@@ -9,14 +9,17 @@ EARTH_AVG_RADIUS: float = 6371008.7714  # m
 EARTH_ANGULAR_VELOCITY: float = 7292115e-11  # rad/s
 
 
+# TODO: TEST
 def shearing_deformation(dv_dx: xr.DataArray, du_dy: xr.DataArray) -> xr.DataArray:
     return dv_dx + du_dy
 
 
+# TODO: TEST
 def stretching_deformation(du_dx: xr.DataArray, dv_dy: xr.DataArray) -> xr.DataArray:
     return du_dx - dv_dy
 
 
+# TODO: TEST
 def total_deformation(
     du_dx: xr.DataArray, du_dy: xr.DataArray, dv_dx: xr.DataArray, dv_dy: xr.DataArray, is_squared: bool
 ) -> xr.DataArray:
@@ -25,6 +28,7 @@ def total_deformation(
     )
 
 
+# TODO: TEST
 def magnitude_of_vector(
     x_component: xr.DataArray, y_component: xr.DataArray, is_abs: bool = False, is_squared: bool = False
 ) -> xr.DataArray:
@@ -34,10 +38,12 @@ def magnitude_of_vector(
     return (x_component * x_component + y_component * y_component) if is_squared else np.hypot(x_component, y_component)  # pyright: ignore[reportReturnType]
 
 
+# TODO: TEST
 def vertical_component_vorticity(dvdx: xr.DataArray, dudy: xr.DataArray) -> xr.DataArray:
     return dvdx - dudy
 
 
+# TODO: TEST
 def altitude_derivative_on_pressure_level(
     function: xr.DataArray, geopotential: xr.DataArray, level_coord_name: str = "pressure_level"
 ) -> xr.DataArray:
@@ -60,12 +66,14 @@ class WrapAroundAngleArray(np.ndarray):
         raise TypeError(f"unsupported operand types(s) for: '{self.__class__} and '{other.__class__}'")
 
 
+# TODO: TEST
 def angles_gradient(array: np.ndarray, target_axis: int, coord_values: np.ndarray | None = None) -> np.ndarray:
     if coord_values is None:
         return np.gradient(WrapAroundAngleArray(array), axis=target_axis)
     return np.gradient(WrapAroundAngleArray(array), coord_values, axis=target_axis)
 
 
+# TODO: TEST
 def wind_direction(u_wind: xr.DataArray, v_wind: xr.DataArray) -> xr.DataArray:
     # See https://github.com/Unidata/MetPy/blob/34bfda1deaead3fed9070f3a766f7d842373c6d9/src/metpy/calc/basic.py#L106
     # np.arctan2 returns angle between hypotenuse and x-axis but wind direction is w.r.t y-axis
@@ -79,6 +87,7 @@ def wind_direction(u_wind: xr.DataArray, v_wind: xr.DataArray) -> xr.DataArray:
     return xr.where((u_wind == 0) & (v_wind == 0), 0, met_wind_direction)
 
 
+# TODO: TEST
 def potential_temperature(temperature: xr.DataArray, pressure: xr.DataArray) -> xr.DataArray:
     reference_pressure: int = 1000  # hPa
     kappa: float = 0.28571428571428564  # R / cp (dimensionless)
@@ -87,6 +96,7 @@ def potential_temperature(temperature: xr.DataArray, pressure: xr.DataArray) -> 
     return temperature / ((pressure / reference_pressure) ** kappa)
 
 
+# TODO: TEST
 def coriolis_parameter(latitude: xr.DataArray) -> xr.DataArray:
     if latitude.max() > np.pi:
         latitude = np.deg2rad(latitude)  # pyright: ignore[reportAssignmentType]
@@ -95,19 +105,20 @@ def coriolis_parameter(latitude: xr.DataArray) -> xr.DataArray:
     return 2 * EARTH_ANGULAR_VELOCITY * np.sin(latitude)  # pyright: ignore[reportReturnType]
 
 
+# TODO: TEST
 def latitudinal_derivative(coriolis_param: xr.DataArray) -> xr.DataArray:
     return coriolis_param / EARTH_AVG_RADIUS
 
 
-def absolute_vorticity(vorticity: xr.DataArray, is_parallel: bool) -> xr.DataArray:
+# TODO: TEST
+def absolute_vorticity(vorticity: xr.DataArray) -> xr.DataArray:
     return vorticity + coriolis_parameter(vorticity["latitude"])
 
 
+# TODO: TEST
 # theta is potential temperature
-def potential_vorticity(vorticity: xr.DataArray, theta: xr.DataArray, is_parallel: bool) -> xr.DataArray:
-    return (
-        -GRAVITATIONAL_ACCELERATION * absolute_vorticity(vorticity, is_parallel) * theta.differentiate("pressure_level")
-    )
+def potential_vorticity(vorticity: xr.DataArray, theta: xr.DataArray) -> xr.DataArray:
+    return -GRAVITATIONAL_ACCELERATION * absolute_vorticity(vorticity) * theta.differentiate("pressure_level")
 
 
 # def magnitude_of_geospatial_gradient(
@@ -126,6 +137,7 @@ def potential_vorticity(vorticity: xr.DataArray, theta: xr.DataArray, is_paralle
 #     return magnitude_of_vector(x_component, y_component, is_squared=is_squared)
 
 
+# TODO: TEST
 def vertical_wind_shear(
     u_wind: xr.DataArray,
     v_wind: xr.DataArray,
@@ -143,6 +155,7 @@ def vertical_wind_shear(
     return magnitude_of_vector(du_dz, dv_dz, is_abs=is_abs_velocities, is_squared=is_vws_squared)
 
 
+# TODO: TEST
 def wind_speed(
     u_wind: xr.DataArray, v_wind: xr.DataArray, is_abs_velocities: bool = False, is_speed_squared: bool = False
 ) -> xr.DataArray:
