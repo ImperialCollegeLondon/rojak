@@ -2,11 +2,12 @@ import calendar
 import itertools
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import List, TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, List, NamedTuple
+
+import xarray as xr
 
 if TYPE_CHECKING:
     from pathlib import Path
-    import xarray as xr
 
 
 class Date(NamedTuple):
@@ -29,9 +30,7 @@ class DataRetriever(ABC):
     def _download_file(self, date: Date, base_output_dir: "Path") -> None: ...
 
     @staticmethod
-    def compute_date_combinations(
-        years: list[int], months: list[int], days: list[int]
-    ) -> list[Date]:
+    def compute_date_combinations(years: list[int], months: list[int], days: list[int]) -> list[Date]:
         if len(months) == 1 and months[0] == -1:
             months = list(range(1, 13))
         if len(days) == 1 and days[0] == -1:
@@ -40,9 +39,7 @@ class DataRetriever(ABC):
                 for y, m in itertools.product(years, months)
                 for d in range(1, calendar.monthrange(y, m)[1] + 1)
             ]
-        return [
-            Date(*combination) for combination in itertools.product(years, months, days)
-        ]
+        return [Date(*combination) for combination in itertools.product(years, months, days)]
 
 
 class DataPreprocessor(ABC):

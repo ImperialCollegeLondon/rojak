@@ -1,15 +1,15 @@
+import copy
 from contextlib import nullcontext
 from enum import StrEnum
-import copy
+from typing import TYPE_CHECKING
 
 import pytest
 import yaml
-from typing import TYPE_CHECKING
 
 from rojak.orchestrator import configuration
 from rojak.orchestrator.configuration import (
     DataConfig,
-    InvalidConfiguration,
+    InvalidConfigurationError,
     SpatialDomain,
 )
 
@@ -29,7 +29,7 @@ def basic_context_yaml_file(tmp_path_factory) -> "Path":
         "plots_dir": str(tmp_plots),
     }
     output_file: "Path" = tmp_path_factory.mktemp("config") / "simplest_config.yml"
-    with open(output_file, "w") as file:
+    with output_file.open(mode="w") as file:
         yaml.safe_dump(content, file, encoding="utf-8")
 
     return output_file
@@ -49,7 +49,7 @@ def basic_context_yaml_file_create_output_plots_on_validation(
         "plots_dir": str(tmp_folder / "plots"),
     }
     output_file: "Path" = tmp_path_factory.mktemp("config") / "simplest_config.yml"
-    with open(output_file, "w") as file:
+    with output_file.open("w") as file:
         yaml.safe_dump(content, file, encoding="utf-8")
 
     return output_file
@@ -64,9 +64,7 @@ def test_context_from_yaml_basic(
     if is_created:
         context = configuration.Context.from_yaml(basic_context_yaml_file)
     else:
-        context = configuration.Context.from_yaml(
-            basic_context_yaml_file_create_output_plots_on_validation
-        )
+        context = configuration.Context.from_yaml(basic_context_yaml_file_create_output_plots_on_validation)
 
     assert isinstance(context, configuration.Context)
     assert context.name == "test"
@@ -99,7 +97,7 @@ def dump_dict_to_file(target_path: "Path", content: dict) -> "Path":
         StrEnum,
         yaml.representer.SafeRepresenter.represent_str,
     )
-    with open(output_file, "w") as file:
+    with output_file.open("w") as file:
         yaml.safe_dump(content, file, encoding="utf-8")
     return output_file
 
@@ -164,9 +162,9 @@ def dict_to_file(request, tmp_path) -> "Path":
     indirect=True,
 )
 def test_spatial_domain_invalid_config(dict_to_file) -> None:
-    with pytest.raises(InvalidConfiguration) as excinfo:
+    with pytest.raises(InvalidConfigurationError) as excinfo:
         configuration.SpatialDomain.from_yaml(dict_to_file)
-    assert excinfo.type is InvalidConfiguration
+    assert excinfo.type is InvalidConfigurationError
 
 
 @pytest.mark.parametrize(
@@ -224,15 +222,13 @@ def make_empty_temp_text_file(tmp_path_factory) -> "Path":
 
 @pytest.mark.parametrize("dict_to_file", [{}], indirect=True)
 def test_turbulence_config_invalid_config_default(dict_to_file) -> None:
-    with pytest.raises(InvalidConfiguration) as excinfo:
+    with pytest.raises(InvalidConfigurationError) as excinfo:
         configuration.TurbulenceConfig.from_yaml(dict_to_file)
-    assert excinfo.type is InvalidConfiguration
+    assert excinfo.type is InvalidConfigurationError
 
 
 @pytest.fixture
-def make_turbulence_config_with_calibration_dir(
-    make_empty_temp_dir, tmp_path_factory, request
-) -> "Path":
+def make_turbulence_config_with_calibration_dir(make_empty_temp_dir, tmp_path_factory, request) -> "Path":
     content = copy.deepcopy(request.param)
     content["calibration_data_dir"] = str(make_empty_temp_dir)
     content["evaluation_data_dir"] = str(tmp_path_factory.mktemp("data"))
@@ -264,10 +260,8 @@ turbulence_config_field_permutations = [
 ]
 turbulence_config_parametrisation = (
     [
-        pytest.param({}, pytest.raises(InvalidConfiguration), id="only_has_dirs"),
-        pytest.param(
-            {"chunks": {}}, pytest.raises(InvalidConfiguration), id="only_has_chunks"
-        ),
+        pytest.param({}, pytest.raises(InvalidConfigurationError), id="only_has_dirs"),
+        pytest.param({"chunks": {}}, pytest.raises(InvalidConfigurationError), id="only_has_chunks"),
         pytest.param(
             turbulence_config_field_permutations[0],
             nullcontext(turbulence_config_field_permutations[0]),
@@ -292,13 +286,9 @@ turbulence_config_parametrisation = (
     *turbulence_config_parametrisation,
     indirect=["make_turbulence_config_with_calibration_dir"],
 )
-def test_turbulence_config_with_calibration_dir(
-    make_turbulence_config_with_calibration_dir, expectation
-) -> None:
+def test_turbulence_config_with_calibration_dir(make_turbulence_config_with_calibration_dir, expectation) -> None:
     with expectation as e:
-        config = configuration.TurbulenceConfig.from_yaml(
-            make_turbulence_config_with_calibration_dir
-        )
+        config = configuration.TurbulenceConfig.from_yaml(make_turbulence_config_with_calibration_dir)
         # assert isinstance(config, configuration.TurbulenceConfig)
         assert config.chunks == e["chunks"]
         assert config.diagnostics == e["diagnostics"]
@@ -306,22 +296,18 @@ def test_turbulence_config_with_calibration_dir(
         if "threshold_mode" in e:
             assert config.threshold_mode == e["threshold_mode"]
         else:
-            assert (
-                config.threshold_mode == configuration.TurbulenceThresholdMode.BOUNDED
-            )
+            assert config.threshold_mode == configuration.TurbulenceThresholdMode.BOUNDED
         if "severities" in e:
             assert config.severities == e["severities"]
         else:
             assert config.severities == [configuration.TurbulenceSeverity.LIGHT]
 
     if not isinstance(e, dict):
-        assert e.type is InvalidConfiguration
+        assert e.type is InvalidConfigurationError
 
 
 @pytest.fixture
-def make_turbulence_config_with_threshold_file(
-    make_empty_temp_text_file, tmp_path_factory, request
-) -> "Path":
+def make_turbulence_config_with_threshold_file(make_empty_temp_text_file, tmp_path_factory, request) -> "Path":
     content = copy.deepcopy(request.param)
     content["thresholds_file_path"] = str(make_empty_temp_text_file)
     content["evaluation_data_dir"] = str(tmp_path_factory.mktemp("data"))
@@ -333,21 +319,15 @@ def make_turbulence_config_with_threshold_file(
     *turbulence_config_parametrisation,
     indirect=["make_turbulence_config_with_threshold_file"],
 )
-def test_turbulence_config_with_threshold_file(
-    make_turbulence_config_with_threshold_file, expectation
-) -> None:
+def test_turbulence_config_with_threshold_file(make_turbulence_config_with_threshold_file, expectation) -> None:
     with expectation as e:
-        config = configuration.TurbulenceConfig.from_yaml(
-            make_turbulence_config_with_threshold_file
-        )
+        config = configuration.TurbulenceConfig.from_yaml(make_turbulence_config_with_threshold_file)
         assert config.chunks == e["chunks"]
         assert config.diagnostics == e["diagnostics"]
         if "threshold_mode" in e:
             assert config.threshold_mode == e["threshold_mode"]
         else:
-            assert (
-                config.threshold_mode == configuration.TurbulenceThresholdMode.BOUNDED
-            )
+            assert config.threshold_mode == configuration.TurbulenceThresholdMode.BOUNDED
         if "severities" in e:
             assert config.severities == e["severities"]
         else:
@@ -355,16 +335,14 @@ def test_turbulence_config_with_threshold_file(
         assert config.calibration_data_dir is None
 
     if not isinstance(e, dict):
-        assert e.type is InvalidConfiguration
+        assert e.type is InvalidConfigurationError
 
 
 @pytest.mark.parametrize(
     "dict_to_file, expectation",
     [
-        pytest.param({}, pytest.raises(InvalidConfiguration)),
-        pytest.param(
-            {"contrail_model": "invalid_option"}, pytest.raises(InvalidConfiguration)
-        ),
+        pytest.param({}, pytest.raises(InvalidConfigurationError)),
+        pytest.param({"contrail_model": "invalid_option"}, pytest.raises(InvalidConfigurationError)),
         pytest.param({"contrail_model": "issr"}, nullcontext("issr")),
         pytest.param({"contrail_model": "sac"}, nullcontext("sac")),
         pytest.param({"contrail_model": "pcr"}, nullcontext("pcr")),
@@ -376,16 +354,16 @@ def test_contrails_config(dict_to_file, expectation) -> None:
         config = configuration.ContrailsConfig.from_yaml(dict_to_file)
         assert config.contrail_model == e
     if not isinstance(e, str):
-        assert e.type is InvalidConfiguration
+        assert e.type is InvalidConfigurationError
 
 
 @pytest.mark.parametrize(
     "dict_to_file, expectation",
     [
-        pytest.param({}, pytest.raises(InvalidConfiguration), id="empty_config"),
+        pytest.param({}, pytest.raises(InvalidConfigurationError), id="empty_config"),
         pytest.param(
             {"evaluation_data_dir": "random/nonsense/dir"},
-            pytest.raises(InvalidConfiguration),
+            pytest.raises(InvalidConfigurationError),
             id="dir_does_not_exist",
         ),
     ],
@@ -394,4 +372,4 @@ def test_contrails_config(dict_to_file, expectation) -> None:
 def test_meteorology_config(dict_to_file, expectation) -> None:
     with expectation as e:
         configuration.MeteorologyConfig.from_yaml(dict_to_file)
-    assert e.type is InvalidConfiguration
+    assert e.type is InvalidConfigurationError
