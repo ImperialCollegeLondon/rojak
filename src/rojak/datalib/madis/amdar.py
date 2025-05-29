@@ -59,7 +59,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
     dimension_name: str = "recNum"
     relative_to_root_path: list[Path] | None = None
 
-    def __init__(self, filepaths: Iterable[Path] | Path, glob_pattern: str | None = None):
+    def __init__(self, filepaths: Iterable[Path] | Path, glob_pattern: str | None = None) -> None:
         if glob_pattern is not None:
             target_files: list[Path] = []
             self.relative_to_root_path = []
@@ -145,7 +145,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
             dataset = self.__mask_invalid_error_var(dataset, var)
         return dataset.dropna(self.dimension_name, subset=error_vars_present)
 
-    def apply_preprocessor(self, output_directory: Path):
+    def apply_preprocessor(self, output_directory: Path) -> None:
         # Filters and exports data to parquet
         output_directory.mkdir(parents=True, exist_ok=True)
 
@@ -195,7 +195,7 @@ class AcarsRetriever(DataRetriever):
     product: str = "acars"
     file_pattern: str
 
-    def __init__(self, file_pattern: str | None = None):
+    def __init__(self, file_pattern: str | None = None) -> None:
         if file_pattern is None:
             self.file_pattern = "*.gz"
         else:

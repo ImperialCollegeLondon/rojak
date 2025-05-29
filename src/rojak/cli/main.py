@@ -10,7 +10,7 @@ app.add_typer(data_interface.data_app, name="data")
 
 
 @app.command()
-def turbulence():
+def turbulence() -> None:
     print("HELLO from the other side")
 
 
@@ -31,5 +31,5 @@ def run(
 
 
 @app.command()
-def get_data():
+def get_data() -> None:
     print("potatoes")

@@ -78,7 +78,7 @@ def retrieve(
             help="Glob pattern to select files ONLY APPLICABLE for MADIS",
         ),
     ] = None,
-):
+) -> None:
     output_dir = create_output_dir(output_dir, source, "data")
 
     match source:
@@ -121,7 +121,7 @@ def preprocess(
         ),
     ] = None,
     glob_pattern: Annotated[Optional[str], typer.Option(help="Glob pattern to select files")] = None,
-):
+) -> None:
     match source:
         case "madis":
             preprocess_madis_amdar_data(input_dir, output_dir, glob_pattern)
@@ -129,7 +129,7 @@ def preprocess(
             raise NotImplementedError("Not implemented UKMO AMDAR data preprocessing")
 
 
-def preprocess_madis_amdar_data(input_dir: Path, output_dir: Path | None, glob_pattern: str | None):
+def preprocess_madis_amdar_data(input_dir: Path, output_dir: Path | None, glob_pattern: str | None) -> None:
     preprocessor: "DataPreprocessor" = MadisAmdarPreprocessor(input_dir, glob_pattern=glob_pattern)
     if output_dir is None:
         output_dir = input_dir
@@ -218,7 +218,7 @@ def retrieve_meteorology(
         list[str] | None,
         typer.Option("-t", "--times", help="Times to retrieve in data request"),
     ] = None,
-):
+) -> None:
     output_dir = create_output_dir(output_dir, source, "met_data")
 
     match source:
