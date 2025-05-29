@@ -213,7 +213,6 @@ def first_derivative(
     return computed_gradient
 
 
-# TODO: TEST
 class CartesianDimension(StrEnum):
     X = "x"
     Y = "y"
@@ -314,7 +313,6 @@ def spatial_gradient(
     return gradients
 
 
-# TODO: TEST
 def divergence(du_dx: ArrayLike, dv_dy: ArrayLike) -> ArrayLike:
     return du_dx + dv_dy
 
