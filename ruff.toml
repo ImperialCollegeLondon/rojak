@@ -15,7 +15,7 @@ extend-select = [
     "ICN", # Import conventions
     "LOG", # Logging
     "RET", # Good return practices
-    #    "SIM", # Simplifications
+    "SIM", # Simplifications
     "TID", # Tidy imports
     "TC", # Type checking
 ]
