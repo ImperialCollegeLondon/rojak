@@ -21,9 +21,7 @@ def load_ukmo_amdar_dataset(
         column_names = COLUMN_NAMES_FOR_INDICES
 
     col_names = set(column_names)
-    assert UKMO_AMDAR_TIME_COLUMNS < col_names, (
-        "Columns must contain all the time column names"
-    )
+    assert UKMO_AMDAR_TIME_COLUMNS < col_names, "Columns must contain all the time column names"
     assert "turbulence_degree" in col_names, "Turbulence degree must be in column names"
 
     # 1. skiprows - skips the 183 rows which contain the properties
@@ -38,12 +36,8 @@ def load_ukmo_amdar_dataset(
         names=column_names,
         encoding="cp1252",
     )
-    data = data.fillna(
-        value={"second": 0}
-    )  # Prevents NaNs from making valid datetime a NaT
-    data["datetime"] = dd.to_datetime(
-        data[["year", "month", "day", "hour", "minute", "second"]]
-    )
+    data = data.fillna(value={"second": 0})  # Prevents NaNs from making valid datetime a NaT
+    data["datetime"] = dd.to_datetime(data[["year", "month", "day", "hour", "minute", "second"]])
     data = data.drop(["year", "month", "day", "hour", "minute", "second"], axis=1)
 
     # Dictionary key 29 is turbulence degree

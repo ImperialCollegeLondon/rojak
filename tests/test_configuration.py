@@ -1,10 +1,10 @@
+import copy
 from contextlib import nullcontext
 from enum import StrEnum
-import copy
+from typing import TYPE_CHECKING
 
 import pytest
 import yaml
-from typing import TYPE_CHECKING
 
 from rojak.orchestrator import configuration
 from rojak.orchestrator.configuration import (
@@ -64,9 +64,7 @@ def test_context_from_yaml_basic(
     if is_created:
         context = configuration.Context.from_yaml(basic_context_yaml_file)
     else:
-        context = configuration.Context.from_yaml(
-            basic_context_yaml_file_create_output_plots_on_validation
-        )
+        context = configuration.Context.from_yaml(basic_context_yaml_file_create_output_plots_on_validation)
 
     assert isinstance(context, configuration.Context)
     assert context.name == "test"
@@ -230,9 +228,7 @@ def test_turbulence_config_invalid_config_default(dict_to_file) -> None:
 
 
 @pytest.fixture
-def make_turbulence_config_with_calibration_dir(
-    make_empty_temp_dir, tmp_path_factory, request
-) -> "Path":
+def make_turbulence_config_with_calibration_dir(make_empty_temp_dir, tmp_path_factory, request) -> "Path":
     content = copy.deepcopy(request.param)
     content["calibration_data_dir"] = str(make_empty_temp_dir)
     content["evaluation_data_dir"] = str(tmp_path_factory.mktemp("data"))
@@ -265,9 +261,7 @@ turbulence_config_field_permutations = [
 turbulence_config_parametrisation = (
     [
         pytest.param({}, pytest.raises(InvalidConfiguration), id="only_has_dirs"),
-        pytest.param(
-            {"chunks": {}}, pytest.raises(InvalidConfiguration), id="only_has_chunks"
-        ),
+        pytest.param({"chunks": {}}, pytest.raises(InvalidConfiguration), id="only_has_chunks"),
         pytest.param(
             turbulence_config_field_permutations[0],
             nullcontext(turbulence_config_field_permutations[0]),
@@ -292,13 +286,9 @@ turbulence_config_parametrisation = (
     *turbulence_config_parametrisation,
     indirect=["make_turbulence_config_with_calibration_dir"],
 )
-def test_turbulence_config_with_calibration_dir(
-    make_turbulence_config_with_calibration_dir, expectation
-) -> None:
+def test_turbulence_config_with_calibration_dir(make_turbulence_config_with_calibration_dir, expectation) -> None:
     with expectation as e:
-        config = configuration.TurbulenceConfig.from_yaml(
-            make_turbulence_config_with_calibration_dir
-        )
+        config = configuration.TurbulenceConfig.from_yaml(make_turbulence_config_with_calibration_dir)
         # assert isinstance(config, configuration.TurbulenceConfig)
         assert config.chunks == e["chunks"]
         assert config.diagnostics == e["diagnostics"]
@@ -306,9 +296,7 @@ def test_turbulence_config_with_calibration_dir(
         if "threshold_mode" in e:
             assert config.threshold_mode == e["threshold_mode"]
         else:
-            assert (
-                config.threshold_mode == configuration.TurbulenceThresholdMode.BOUNDED
-            )
+            assert config.threshold_mode == configuration.TurbulenceThresholdMode.BOUNDED
         if "severities" in e:
             assert config.severities == e["severities"]
         else:
@@ -319,9 +307,7 @@ def test_turbulence_config_with_calibration_dir(
 
 
 @pytest.fixture
-def make_turbulence_config_with_threshold_file(
-    make_empty_temp_text_file, tmp_path_factory, request
-) -> "Path":
+def make_turbulence_config_with_threshold_file(make_empty_temp_text_file, tmp_path_factory, request) -> "Path":
     content = copy.deepcopy(request.param)
     content["thresholds_file_path"] = str(make_empty_temp_text_file)
     content["evaluation_data_dir"] = str(tmp_path_factory.mktemp("data"))
@@ -333,21 +319,15 @@ def make_turbulence_config_with_threshold_file(
     *turbulence_config_parametrisation,
     indirect=["make_turbulence_config_with_threshold_file"],
 )
-def test_turbulence_config_with_threshold_file(
-    make_turbulence_config_with_threshold_file, expectation
-) -> None:
+def test_turbulence_config_with_threshold_file(make_turbulence_config_with_threshold_file, expectation) -> None:
     with expectation as e:
-        config = configuration.TurbulenceConfig.from_yaml(
-            make_turbulence_config_with_threshold_file
-        )
+        config = configuration.TurbulenceConfig.from_yaml(make_turbulence_config_with_threshold_file)
         assert config.chunks == e["chunks"]
         assert config.diagnostics == e["diagnostics"]
         if "threshold_mode" in e:
             assert config.threshold_mode == e["threshold_mode"]
         else:
-            assert (
-                config.threshold_mode == configuration.TurbulenceThresholdMode.BOUNDED
-            )
+            assert config.threshold_mode == configuration.TurbulenceThresholdMode.BOUNDED
         if "severities" in e:
             assert config.severities == e["severities"]
         else:
@@ -362,9 +342,7 @@ def test_turbulence_config_with_threshold_file(
     "dict_to_file, expectation",
     [
         pytest.param({}, pytest.raises(InvalidConfiguration)),
-        pytest.param(
-            {"contrail_model": "invalid_option"}, pytest.raises(InvalidConfiguration)
-        ),
+        pytest.param({"contrail_model": "invalid_option"}, pytest.raises(InvalidConfiguration)),
         pytest.param({"contrail_model": "issr"}, nullcontext("issr")),
         pytest.param({"contrail_model": "sac"}, nullcontext("sac")),
         pytest.param({"contrail_model": "pcr"}, nullcontext("pcr")),

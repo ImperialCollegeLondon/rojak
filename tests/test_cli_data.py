@@ -8,6 +8,7 @@ from tests.test_cli import runner
 
 if TYPE_CHECKING:
     from pathlib import Path
+
     from click.testing import Result
 
 
@@ -206,9 +207,7 @@ def test_preprocess_data_madis_single_file(retrieve_madis_data_single_file) -> N
         ),
     ],
 )
-def test_retrieve_meteorology_era5_invalid_config(
-    data_set_name, default_name, matches, tmp_path
-) -> None:
+def test_retrieve_meteorology_era5_invalid_config(data_set_name, default_name, matches, tmp_path) -> None:
     with pytest.raises(InvalidEra5RequestConfiguration, match=matches) as excinfo:
         runner.invoke(
             app,

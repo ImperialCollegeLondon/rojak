@@ -1,14 +1,14 @@
 import warnings
-from enum import StrEnum, Enum, auto
-from typing import NamedTuple, Literal, Tuple
+from enum import Enum, StrEnum, auto
+from typing import Literal, NamedTuple, Tuple
 
 import dask.array as da
+import numpy as np
 import xarray as xr
 from dask.base import is_dask_collection
-import numpy as np
-from pyproj import Geod, CRS, Proj
-from rojak.utilities.types import ArrayLike, GoHomeYouAreDrunk
+from pyproj import CRS, Geod, Proj
 
+from rojak.utilities.types import ArrayLike, GoHomeYouAreDrunk
 
 GridSpacing = NamedTuple("GridSpacing", [("dx", ArrayLike), ("dy", ArrayLike)])
 
@@ -56,11 +56,10 @@ def is_lat_lon_in_degrees(
 
     if is_lat_in_degrees and not is_lon_in_degrees:
         raise ValueError("Latitude is in degrees, but longitude is not")
-    elif not is_lat_in_degrees and is_lon_in_degrees:
+    if not is_lat_in_degrees and is_lon_in_degrees:
         raise ValueError("Longitude is in degrees, but latitude is not")
-    else:
-        # Both should be true or false
-        return is_lat_in_degrees
+    # Both should be true or false
+    return is_lat_in_degrees
 
 
 type LatLonUnits = Literal["deg", "rad"]
@@ -77,13 +76,9 @@ def ensure_lat_lon_in_deg(
     """
     are_in_degrees: bool = is_lat_lon_in_degrees(latitude, longitude)
     if units == "deg" and not are_in_degrees:
-        warnings.warn(
-            "Latitude and longitude specified to be in degrees, but are smaller than pi values"
-        )
+        warnings.warn("Latitude and longitude specified to be in degrees, but are smaller than pi values")
     elif units == "rad" and are_in_degrees:
-        raise ValueError(
-            "Latitude and longitude specified to be in radians, but are too large to be in radians"
-        )
+        raise ValueError("Latitude and longitude specified to be in radians, but are too large to be in radians")
     elif units == "rad" and not are_in_degrees:
         latitude = np.rad2deg(latitude)
         longitude = np.rad2deg(longitude)
@@ -114,22 +109,14 @@ def grid_spacing(
     elif latitude.ndim == 2:
         # lat_grid = latitude
         # lon_grid = longitude
-        raise NotImplementedError(
-            "Function doesn't support 2D latitude and longitude inputs"
-        )
+        raise NotImplementedError("Function doesn't support 2D latitude and longitude inputs")
     else:
-        raise GoHomeYouAreDrunk(
-            "What are you doing? How do lat and lon have >2 dimensions?"
-        )
+        raise GoHomeYouAreDrunk("What are you doing? How do lat and lon have >2 dimensions?")
 
-    forward_azimuth, _, dy = geod.inv(
-        lon_grid[:-1, :], lat_grid[:-1, :], lon_grid[1:, :], lat_grid[1:, :]
-    )
+    forward_azimuth, _, dy = geod.inv(lon_grid[:-1, :], lat_grid[:-1, :], lon_grid[1:, :], lat_grid[1:, :])
     # I don't understand why this lines is here... Copied from metpy
     dy[(forward_azimuth < -90.0) | (forward_azimuth > 90.0)] *= -1
-    forward_azimuth, _, dx = geod.inv(
-        lon_grid[:, :-1], lat_grid[:, :-1], lon_grid[:, 1:], lat_grid[:, 1:]
-    )
+    forward_azimuth, _, dx = geod.inv(lon_grid[:, :-1], lat_grid[:, :-1], lon_grid[:, 1:], lat_grid[:, 1:])
     dx[(forward_azimuth < 0.0) | (forward_azimuth > 180.0)] *= -1
 
     return GridSpacing(dx, dy)
@@ -151,13 +138,9 @@ def nominal_grid_spacing(
     latitude, longitude = ensure_lat_lon_in_deg(latitude, longitude, units)
 
     lat_equator = np.zeros_like(longitude)
-    _, _, dx = geod.inv(
-        longitude[:-1], lat_equator[:-1], longitude[1:], lat_equator[1:]
-    )
+    _, _, dx = geod.inv(longitude[:-1], lat_equator[:-1], longitude[1:], lat_equator[1:])
     lon_meridian = np.zeros_like(latitude)
-    forward_azimuth, _, dy = geod.inv(
-        lon_meridian[:-1], latitude[:-1], lon_meridian[1:], latitude[1:]
-    )
+    forward_azimuth, _, dy = geod.inv(lon_meridian[:-1], latitude[:-1], lon_meridian[1:], latitude[1:])
     dy[(forward_azimuth < -90.0) | (forward_azimuth > 90.0)] *= -1
 
     return GridSpacing(dx, dy)
@@ -193,19 +176,13 @@ def get_projection_correction_factors(
 
 def get_dimension_number(name: str, data_array: "xr.DataArray") -> int:
     if name not in data_array.dims:
-        raise ValueError(
-            f"Attempting to retrieve inexistent dimension ({name}) from data array"
-        )
+        raise ValueError(f"Attempting to retrieve inexistent dimension ({name}) from data array")
     return data_array.dims.index(name)
 
 
 # TODO: TEST
-def first_derivative(
-    array: "xr.DataArray", grid_spacing_in_meters: ArrayLike, axis: int
-) -> "xr.DataArray":
-    coordinate_of_values: np.ndarray = np.cumsum(
-        np.insert(grid_spacing_in_meters, 0, [0])
-    )
+def first_derivative(array: "xr.DataArray", grid_spacing_in_meters: ArrayLike, axis: int) -> "xr.DataArray":
+    coordinate_of_values: np.ndarray = np.cumsum(np.insert(grid_spacing_in_meters, 0, [0]))
     if is_dask_collection(array):
         computed_gradient = da.gradient(array, coordinate_of_values, axis=axis)
     else:
@@ -233,9 +210,7 @@ class CartesianDimension(StrEnum):
                 grid_delta = grid_deltas.dy
         return grid_delta
 
-    def get_correction_factor(
-        self, factors: ProjectionCorrectionFactors | None
-    ) -> xr.DataArray:
+    def get_correction_factor(self, factors: ProjectionCorrectionFactors | None) -> xr.DataArray:
         if factors is None:
             raise ValueError("Factors cannot be None")
 
@@ -252,9 +227,7 @@ class GradientMode(Enum):
     CARTESIAN = auto()
 
 
-SpatialGradient = NamedTuple(
-    "SpatialGradient", [("dfdx", xr.DataArray | None), ("dfdy", xr.DataArray | None)]
-)
+SpatialGradient = NamedTuple("SpatialGradient", [("dfdx", xr.DataArray | None), ("dfdy", xr.DataArray | None)])
 
 
 def check_lat_lon_dimensions_in_array(array: "xr.DataArray") -> None:
@@ -280,9 +253,7 @@ def spatial_gradient(
     check_lat_lon_dimensions_in_array(array)
 
     gradients: dict[SpatialGradientKeys, xr.DataArray] = {}
-    grid_deltas = nominal_grid_spacing(
-        array["latitude"], array["longitude"], units, geod=geod
-    )
+    grid_deltas = nominal_grid_spacing(array["latitude"], array["longitude"], units, geod=geod)
     if gradient_mode == GradientMode.GEOSPATIAL:
         correction_factors = get_projection_correction_factors(
             array["latitude"], array["longitude"], is_radians=(units == "rad"), crs=crs
@@ -291,9 +262,7 @@ def spatial_gradient(
         correction_factors = None
 
     target_dimensions: list[CartesianDimension] = (
-        [dimension]
-        if dimension is not None
-        else [CartesianDimension.X, CartesianDimension.Y]
+        [dimension] if dimension is not None else [CartesianDimension.X, CartesianDimension.Y]
     )
     for dim in target_dimensions:
         dim_name: str | None = dim.get_geographic_coordinate()
@@ -376,12 +345,8 @@ def vector_derivatives(
         geod=geod,
         crs=crs,
     )["dfdx"]
-    dx_correction: xr.DataArray = (
-        correction_factors.meridional_scale / correction_factors.parallel_scale
-    ) * dp_dy
-    dy_correction: xr.DataArray = (
-        correction_factors.parallel_scale / correction_factors.meridional_scale
-    ) * dm_dx
+    dx_correction: xr.DataArray = (correction_factors.meridional_scale / correction_factors.parallel_scale) * dp_dy
+    dy_correction: xr.DataArray = (correction_factors.parallel_scale / correction_factors.meridional_scale) * dm_dx
 
     derivatives: dict[VelocityDerivative, xr.DataArray] = {}
     for component in components:
