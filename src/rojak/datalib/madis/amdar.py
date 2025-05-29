@@ -6,11 +6,11 @@ from ftplib import FTP
 from pathlib import Path
 from typing import FrozenSet, Iterable
 
-import xarray as xr
 import dask.dataframe as dd
+import xarray as xr
 from rich.progress import track
 
-from rojak.core.data import Date, DataRetriever, DataPreprocessor
+from rojak.core.data import DataPreprocessor, DataRetriever, Date
 
 ALL_AMDAR_DATA_VARS: FrozenSet[str] = frozenset(
     {'nStaticIds', 'staticIds', 'lastRecord', 'invTime', 'prevRecord', 'inventory', 'globalInventory', 'firstOverflow',
@@ -59,9 +59,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
     dimension_name: str = "recNum"
     relative_to_root_path: list[Path] | None = None
 
-    def __init__(
-        self, filepaths: Iterable[Path] | Path, glob_pattern: str | None = None
-    ):
+    def __init__(self, filepaths: Iterable[Path] | Path, glob_pattern: str | None = None):
         if glob_pattern is not None:
             target_files: list[Path] = []
             self.relative_to_root_path = []
@@ -69,16 +67,12 @@ class MadisAmdarPreprocessor(DataPreprocessor):
                 for base_fpath in filepaths:
                     for path in base_fpath.glob(glob_pattern):
                         target_files.append(path)
-                        self.relative_to_root_path.append(
-                            path.relative_to(base_fpath).parents[0]
-                        )
+                        self.relative_to_root_path.append(path.relative_to(base_fpath).parents[0])
             else:
                 self.relative_to_root_path = []
                 for item in filepaths.glob(glob_pattern):
                     target_files.append(item)
-                    self.relative_to_root_path.append(
-                        item.relative_to(filepaths).parents[0]
-                    )
+                    self.relative_to_root_path.append(item.relative_to(filepaths).parents[0])
 
             assert len(target_files) > 0
             self.filepaths = target_files
@@ -97,10 +91,8 @@ class MadisAmdarPreprocessor(DataPreprocessor):
     def decompress_gz(filepath: Path) -> Path:
         if not filepath.is_file():
             raise FileNotFoundError(filepath)
-        elif filepath.suffix != ".gz":
-            raise ValueError(
-                f"Unsupported file extension: {filepath.suffix}. File must be .gz"
-            )
+        if filepath.suffix != ".gz":
+            raise ValueError(f"Unsupported file extension: {filepath.suffix}. File must be .gz")
 
         temp_file = tempfile.NamedTemporaryFile(delete=False)
         temp_file_path: Path = Path(temp_file.name)
@@ -183,9 +175,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
             data = self.drop_invalid_error_data(data)
 
             variables_to_keep: list[str] = list(
-                (data.data_vars.keys() & self.data_vars_for_turbulence)
-                - self.quality_control_vars
-                - self.error_vars
+                (data.data_vars.keys() & self.data_vars_for_turbulence) - self.quality_control_vars - self.error_vars
             )
             output_file: Path = (
                 output_directory / f"{filepath.stem}.parquet"
@@ -211,16 +201,12 @@ class AcarsRetriever(DataRetriever):
             self.file_pattern = file_pattern
 
     def _download_file(self, date: Date, base_output_dir: Path) -> None:
-        output_dir: Path = (
-            base_output_dir / f"{date.year:02d}" / f"{date.month:02d}"
-        ).resolve()
+        output_dir: Path = (base_output_dir / f"{date.year:02d}" / f"{date.month:02d}").resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
 
         with FTP(self.ftp_host) as ftp:
             ftp.login()
-            ftp.cwd(
-                f"archive/{date.year}/{date.month:02d}/{date.day:02d}/point/{self.product}/netcdf/"
-            )
+            ftp.cwd(f"archive/{date.year}/{date.month:02d}/{date.day:02d}/point/{self.product}/netcdf/")
             files: list[str] = ftp.nlst()
             matching_files: list[str] = fnmatch.filter(files, self.file_pattern)
             for file in matching_files:
