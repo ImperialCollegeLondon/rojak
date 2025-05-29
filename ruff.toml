@@ -9,7 +9,7 @@ extend-select = [
     "N", # PEP 8 Naming
     #    "E", "W", # pycodestyle, error and warning
     "I",
-    #    "ANN", # Type annotations
+    "ANN", # Type annotations
     "C4", # Comprehensions
     "ISC", # Implicit string concatenation
     "ICN", # Import conventions

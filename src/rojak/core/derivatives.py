@@ -157,7 +157,7 @@ class ProjectionCorrectionFactors(NamedTuple):
 def get_projection_correction_factors(
     latitude: "xr.DataArray",
     longitude: "xr.DataArray",
-    is_radians=False,
+    is_radians: bool = False,
     crs: CRS | None = None,
 ) -> ProjectionCorrectionFactors:
     if latitude.ndim != longitude.ndim:
