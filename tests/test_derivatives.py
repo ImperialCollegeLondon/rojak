@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from typing import TYPE_CHECKING
 import numpy as np
 import numpy.testing as npt
@@ -209,3 +210,28 @@ def test_nominal_grid_spacing_error(mocker: "MockerFixture") -> None:
 
     assert excinfo.type is ValueError
     assert excinfo.match("Latitude and longitude must have 1 dimension")
+
+
+@pytest.fixture()
+def create_random_lat_lon_dataarray():
+    return xr.DataArray(
+        np.random.rand(20, 30, 4), dims=["latitude", "time", "longitude"]
+    )
+
+
+@pytest.mark.parametrize(
+    "dim_name, expectation",
+    [
+        pytest.param("latitude", nullcontext(0), id="latitude"),
+        pytest.param("longitude", nullcontext(2), id="longitude"),
+        pytest.param("lol", pytest.raises(ValueError), id="inexistent dim"),
+    ],
+)
+def test_get_dimension_number(create_random_lat_lon_dataarray, dim_name, expectation):
+    with expectation as e:
+        dim_num: int = derivatives.get_dimension_number(
+            dim_name, create_random_lat_lon_dataarray
+        )
+        assert dim_num == e
+    if not isinstance(e, int):
+        assert e.type is ValueError
