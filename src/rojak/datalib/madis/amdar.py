@@ -99,7 +99,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
 
         try:
             with gzip.open(filepath, "rb") as f_in:
-                with open(temp_file_path, "wb") as f_out:
+                with temp_file_path.open(mode="wb") as f_out:
                     # noinspection PyTypeChecker
                     shutil.copyfileobj(f_in, f_out)
         except Exception as e:
@@ -211,7 +211,7 @@ class AcarsRetriever(DataRetriever):
             matching_files: list[str] = fnmatch.filter(files, self.file_pattern)
             for file in matching_files:
                 target_file_path: Path = output_dir / file
-                with open(target_file_path, "wb") as f_out:
+                with target_file_path.open(mode="wb") as f_out:
                     ftp.retrbinary(f"RETR {file}", f_out.write)
 
     def download_files(

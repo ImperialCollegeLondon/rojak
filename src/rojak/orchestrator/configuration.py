@@ -72,7 +72,7 @@ class BaseConfigModel(BaseModel):
     def from_yaml(cls, path: "Path") -> Self:
         if path.is_file():
             data: dict = {}
-            with open(path, "r") as f:
+            with path.open(mode="r") as f:
                 data = yaml.safe_load(f)
 
             try:
