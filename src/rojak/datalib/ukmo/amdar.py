@@ -21,7 +21,7 @@ def load_ukmo_amdar_dataset(
         column_names = COLUMN_NAMES_FOR_INDICES
 
     col_names = set(column_names)
-    assert UKMO_AMDAR_TIME_COLUMNS < col_names, "Columns must contain all the time column names"
+    assert col_names > UKMO_AMDAR_TIME_COLUMNS, "Columns must contain all the time column names"
     assert "turbulence_degree" in col_names, "Turbulence degree must be in column names"
 
     # 1. skiprows - skips the 183 rows which contain the properties

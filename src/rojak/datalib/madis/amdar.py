@@ -94,17 +94,18 @@ class MadisAmdarPreprocessor(DataPreprocessor):
         if filepath.suffix != ".gz":
             raise ValueError(f"Unsupported file extension: {filepath.suffix}. File must be .gz")
 
-        temp_file = tempfile.NamedTemporaryFile(delete=False)
-        temp_file_path: Path = Path(temp_file.name)
+        temp_file_path: Path
 
-        try:
-            with gzip.open(filepath, "rb") as f_in:
-                with temp_file_path.open(mode="wb") as f_out:
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            temp_file_path: Path = Path(temp_file.name)
+
+            try:
+                with gzip.open(filepath, "rb") as f_in, temp_file_path.open(mode="wb") as f_out:
                     # noinspection PyTypeChecker
                     shutil.copyfileobj(f_in, f_out)
-        except Exception as e:
-            temp_file_path.unlink(missing_ok=True)
-            raise e
+            except Exception as e:
+                temp_file_path.unlink(missing_ok=True)
+                raise e
 
         return temp_file_path
 
