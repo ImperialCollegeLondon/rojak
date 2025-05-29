@@ -5,7 +5,7 @@ line-length = 120
 extend-select = [
     "A", # builtins
     #    "PTH", # use pathlib instead of os.path
-    #    "NPY", # NumPy-specific rules
+    "NPY", # NumPy-specific rules
     "N", # PEP 8 Naming
     #    "E", "W", # pycodestyle, error and warning
     "I",

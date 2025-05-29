@@ -181,7 +181,7 @@ def test_nominal_grid_spacing_error(mocker: "MockerFixture") -> None:
 
 @pytest.fixture()
 def create_random_lat_lon_dataarray():
-    return xr.DataArray(np.random.rand(20, 30, 4), dims=["latitude", "time", "longitude"])
+    return xr.DataArray(np.random.default_rng().random((20, 30, 4)), dims=["latitude", "time", "longitude"])
 
 
 @pytest.mark.parametrize(
