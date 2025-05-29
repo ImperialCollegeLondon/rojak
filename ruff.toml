@@ -17,7 +17,7 @@ extend-select = [
     "RET", # Good return practices
     #    "SIM", # Simplifications
     "TID", # Tidy imports
-    #    "TC", # Type checking
+    "TC", # Type checking
 ]
 
 [lint.extend-per-file-ignores]

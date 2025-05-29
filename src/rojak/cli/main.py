@@ -17,7 +17,7 @@ def turbulence():
 @app.command()
 def run(
     config_file: Annotated[
-        "Path",
+        Path,
         typer.Argument(
             help="Path to configuration file",
             exists=True,
