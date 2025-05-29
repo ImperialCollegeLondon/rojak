@@ -1,10 +1,12 @@
 import calendar
 import itertools
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import List, TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:
     from pathlib import Path
+    import xarray as xr
 
 
 class Date(NamedTuple):
@@ -46,3 +48,26 @@ class DataRetriever(ABC):
 class DataPreprocessor(ABC):
     @abstractmethod
     def apply_preprocessor(self, output_directory: "Path") -> None: ...
+
+
+# NOTE: cf_name is the key that'll be used
+@dataclass(frozen=True)
+class DataVarSchema:
+    database_name: str  # Name of variable in the dataset
+    cf_name: str  # CF standard name for the variable
+
+
+class CATPrognosticData:
+    _dataset: xr.Dataset
+
+    def __init__(self, dataset: xr.Dataset) -> None:
+        self._dataset = dataset
+
+
+class MetData(ABC):
+    @abstractmethod
+    def to_clear_air_turbulence_data(self) -> CATPrognosticData: ...
+
+    # To be added later
+    # @abstractmethod
+    # def to_contrails_data(self) -> xr.Dataset: ...
