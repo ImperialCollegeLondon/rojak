@@ -191,7 +191,6 @@ def get_projection_correction_factors(
     return ProjectionCorrectionFactors(factors.parallel_scale, factors.meridional_scale)  # type: ignore
 
 
-# TODO: TEST
 def get_dimension_number(name: str, data_array: "xr.DataArray") -> int:
     if name not in data_array.dims:
         raise ValueError(
