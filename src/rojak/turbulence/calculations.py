@@ -3,6 +3,8 @@ from __future__ import annotations
 import numpy as np
 import xarray as xr
 
+from rojak.core import derivatives
+
 # https://physics.nist.gov/cgi-bin/cuu/Value?gn
 GRAVITATIONAL_ACCELERATION: float = 9.80665  # m/s
 EARTH_AVG_RADIUS: float = 6371008.7714  # m
@@ -121,20 +123,12 @@ def potential_vorticity(vorticity: xr.DataArray, theta: xr.DataArray) -> xr.Data
     return -GRAVITATIONAL_ACCELERATION * absolute_vorticity(vorticity) * theta.differentiate("pressure_level")
 
 
-# def magnitude_of_geospatial_gradient(
-#     array: xr.DataArray,
-#     is_parallel: bool,
-#     map_projection: Optional["metpyutils.MapProjectionScales"] = None,
-#     lateral_coordinates: Optional["metpyutils.LateralCoordinate"] = None,
-#     is_squared: bool = False,
-# ) -> xr.DataArray:
-#     x_component: xr.DataArray = geospatial_gradient(
-#         array, TargetDimension.X, is_parallel, map_projection=map_projection, lateral_coordinates=lateral_coordinates
-#     )
-#     y_component: xr.DataArray = geospatial_gradient(
-#         array, TargetDimension.Y, is_parallel, map_projection=map_projection, lateral_coordinates=lateral_coordinates
-#     )
-#     return magnitude_of_vector(x_component, y_component, is_squared=is_squared)
+def magnitude_of_geospatial_gradient(
+    array: xr.DataArray,
+    is_squared: bool = False,
+) -> xr.DataArray:
+    grad = derivatives.spatial_gradient(array, "deg", derivatives.GradientMode.GEOSPATIAL)
+    return magnitude_of_vector(grad["dfdx"], grad["dfdy"], is_squared=is_squared)
 
 
 # TODO: TEST
