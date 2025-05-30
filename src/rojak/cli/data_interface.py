@@ -1,6 +1,6 @@
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Optional
+from typing import TYPE_CHECKING, Annotated, Optional, assert_never
 
 import typer
 
@@ -83,11 +83,13 @@ def retrieve(
     output_dir = create_output_dir(output_dir, source, "data")
 
     match source:
-        case "madis":
+        case AmdarDataSource.MADIS:
             retriever = AcarsRetriever(glob_pattern)
             retriever.download_files(years, months, days, output_dir)
-        case "ukmo":
+        case AmdarDataSource.UKMO_AMDAR:
             raise NotImplementedError("Not implemented UKMO AMDAR data retrieval")
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 @amdar_app.command()
@@ -124,10 +126,12 @@ def preprocess(
     glob_pattern: Annotated[Optional[str], typer.Option(help="Glob pattern to select files")] = None,
 ) -> None:
     match source:
-        case "madis":
+        case AmdarDataSource.MADIS:
             preprocess_madis_amdar_data(input_dir, output_dir, glob_pattern)
-        case "ukmo":
+        case AmdarDataSource.UKMO_AMDAR:
             raise NotImplementedError("Not implemented UKMO AMDAR data preprocessing")
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 def preprocess_madis_amdar_data(input_dir: Path, output_dir: Path | None, glob_pattern: str | None) -> None:
@@ -231,6 +235,8 @@ def retrieve_meteorology(
                 times=times,
             )
             retriever.download_files(years, months, days, output_dir.parent)
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 if __name__ == "__main__":
