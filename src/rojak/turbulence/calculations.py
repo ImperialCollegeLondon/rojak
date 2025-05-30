@@ -11,17 +11,14 @@ EARTH_AVG_RADIUS: float = 6371008.7714  # m
 EARTH_ANGULAR_VELOCITY: float = 7292115e-11  # rad/s
 
 
-# TODO: TEST
 def shearing_deformation(dv_dx: xr.DataArray, du_dy: xr.DataArray) -> xr.DataArray:
     return dv_dx + du_dy
 
 
-# TODO: TEST
 def stretching_deformation(du_dx: xr.DataArray, dv_dy: xr.DataArray) -> xr.DataArray:
     return du_dx - dv_dy
 
 
-# TODO: TEST
 def total_deformation(
     du_dx: xr.DataArray, du_dy: xr.DataArray, dv_dx: xr.DataArray, dv_dy: xr.DataArray, is_squared: bool
 ) -> xr.DataArray:
@@ -30,7 +27,6 @@ def total_deformation(
     )
 
 
-# TODO: TEST
 def magnitude_of_vector(
     x_component: xr.DataArray, y_component: xr.DataArray, is_abs: bool = False, is_squared: bool = False
 ) -> xr.DataArray:
