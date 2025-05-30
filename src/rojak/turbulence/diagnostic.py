@@ -1,10 +1,14 @@
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
 import numpy as np
 import xarray as xr
 
 from rojak.core.derivatives import GradientMode, VelocityDerivative, spatial_gradient
-from rojak.turbulence.calculations import altitude_derivative_on_pressure_level
+from rojak.turbulence.calculations import altitude_derivative_on_pressure_level, magnitude_of_vector
+
+if TYPE_CHECKING:
+    from rojak.core.derivatives import SpatialGradientKeys
 
 type DiagnosticName = str
 
@@ -103,4 +107,55 @@ class Frontogenesis3D(Diagnostic):
             self.x_component(dtheta_dx, dtheta_dy)
             + self.y_component(dtheta_dx, dtheta_dy)
             + self.z_component(dtheta_dx, dtheta_dy, dtheta_dz)
+        )
+
+
+class Frontogenesis2D(Diagnostic):
+    _u_wind: xr.DataArray
+    _v_wind: xr.DataArray
+    _potential_temperature: xr.DataArray
+    _geopotential: xr.DataArray
+    _du_dx: xr.DataArray
+    _dv_dx: xr.DataArray
+    _du_dy: xr.DataArray
+    _dv_dy: xr.DataArray
+
+    def __init__(
+        self,
+        u_wind: xr.DataArray,
+        v_wind: xr.DataArray,
+        potential_temperature: xr.DataArray,
+        geopotential: xr.DataArray,
+        vector_derivatives: dict[VelocityDerivative, xr.DataArray],
+    ) -> None:
+        super().__init__("F2D")
+        self._u_wind = u_wind
+        self._v_wind = v_wind
+        self._potential_temperature = potential_temperature
+        self._geopotential = geopotential
+        self._du_dx = vector_derivatives[VelocityDerivative.DU_DX]
+        self._dv_dx = vector_derivatives[VelocityDerivative.DV_DX]
+        self._du_dy = vector_derivatives[VelocityDerivative.DU_DY]
+        self._dv_dy = vector_derivatives[VelocityDerivative.DV_DY]
+
+    def _compute(self) -> xr.DataArray:
+        r"""
+        .. math:: F = - \frac{1}{\left| \nabla_{p} \theta \right|} \left[\left( \frac{ \partial \theta }{ \partial x }
+        \right)^{2} \frac{ \partial u }{ \partial x } + \frac{ \partial \theta }{ \partial y }
+        \frac{ \partial \theta }{ \partial x }\frac{ \partial v }{ \partial x } + \frac{ \partial \theta }{ \partial x }
+        \frac{ \partial \theta }{ \partial y }\frac{ \partial u }{ \partial y } +
+        \left( \frac{ \partial \theta }{ \partial y }  \right)^{2} \frac{ \partial v }{ \partial y }\right]
+        """
+        dtheta: dict[SpatialGradientKeys, xr.DataArray] = spatial_gradient(
+            self._potential_temperature, "deg", GradientMode.GEOSPATIAL
+        )
+        inverse_mag_grad_theta: xr.DataArray = -1 / magnitude_of_vector(dtheta["dfdx"], dtheta["dfdy"])
+        # If potential field has no changes, then there will be a division by zero
+        inverse_mag_grad_theta = inverse_mag_grad_theta.fillna(0)
+
+        return inverse_mag_grad_theta * (
+            dtheta["dfdx"] * dtheta["dfdx"] * self._du_dx
+            + dtheta["dfdy"] * dtheta["dfdy"] * self._dv_dy
+            + dtheta["dfdx"] * dtheta["dfdy"] * self._dv_dy
+            + dtheta["dfdx"] * dtheta["dfdy"] * self._du_dy
         )
