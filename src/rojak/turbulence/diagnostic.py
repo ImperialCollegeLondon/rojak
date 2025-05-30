@@ -20,10 +20,12 @@ class Diagnostic(ABC):
     def _compute(self) -> xr.DataArray:
         pass
 
+    # TODO: TEEST
     @property
     def name(self) -> DiagnosticName:
         return self._name
 
+    # TODO: TEEST
     @property
     def computed_value(self) -> xr.DataArray:
         if self._computed_value is None:
@@ -49,7 +51,7 @@ class Frontogenesis3D(Diagnostic):
         potential_temperature: xr.DataArray,
         geopotential: xr.DataArray,
         divergence: xr.DataArray,
-        velocity_derivatives: dict[VelocityDerivative, xr.DataArray],
+        vector_derivatives: dict[VelocityDerivative, xr.DataArray],
     ) -> None:
         super().__init__("F3D")
         self._u_wind = u_wind
@@ -57,10 +59,10 @@ class Frontogenesis3D(Diagnostic):
         self._potential_temperature = potential_temperature
         self._geopotential = geopotential
         self._divergence = divergence
-        self._du_dx = velocity_derivatives[VelocityDerivative.DU_DX]
-        self._dv_dx = velocity_derivatives[VelocityDerivative.DV_DX]
-        self._du_dy = velocity_derivatives[VelocityDerivative.DU_DY]
-        self._dv_dy = velocity_derivatives[VelocityDerivative.DV_DY]
+        self._du_dx = vector_derivatives[VelocityDerivative.DU_DX]
+        self._dv_dx = vector_derivatives[VelocityDerivative.DV_DX]
+        self._du_dy = vector_derivatives[VelocityDerivative.DU_DY]
+        self._dv_dy = vector_derivatives[VelocityDerivative.DV_DY]
 
     def x_component(self, dtheta_dx: xr.DataArray, dtheta_dy: xr.DataArray) -> xr.DataArray:
         return dtheta_dx * (self._du_dx * dtheta_dx + self._dv_dx * dtheta_dy)
@@ -73,7 +75,19 @@ class Frontogenesis3D(Diagnostic):
         dv_dz: xr.DataArray = altitude_derivative_on_pressure_level(self._v_wind, self._geopotential)
         return dtheta_dz * (du_dz * dtheta_dx + dv_dz * dtheta_dy - self._divergence * dtheta_dz)
 
+    # TODO: TEEST
     def _compute(self) -> xr.DataArray:
+        r"""
+        .. math:: \mathbf{F} = - \frac{1}{|\nabla\theta|} &\left[\frac{ \partial \theta }{ \partial x }
+        \left(  \frac{ \partial u }{ \partial x } \frac{ \partial \theta }{ \partial x } +
+        \frac{ \partial v }{ \partial x } \frac{ \partial \theta }{ \partial y } \right) \right.
+        + \left.  \frac{ \partial \theta }{ \partial y } \left(  \frac{ \partial u }{ \partial y }
+        \frac{ \partial \theta }{ \partial x } + \frac{ \partial v }{ \partial y }
+        \frac{ \partial \theta }{ \partial y } \right) \right. \\
+        &+ \left. \frac{ \partial \theta }{ \partial z } \left(  \frac{ \partial u }{ \partial z }
+        \frac{ \partial \theta }{ \partial x } + \frac{ \partial v }{ \partial z } \frac{ \partial \theta }{ \partial y}
+        - \delta \frac{ \partial \theta }{ \partial z }\right) \right]
+        """
         theta_horz_gradient = spatial_gradient(self._potential_temperature, "deg", GradientMode.GEOSPATIAL)
         dtheta_dx = theta_horz_gradient["dfdx"]
         dtheta_dy = theta_horz_gradient["dfdy"]
