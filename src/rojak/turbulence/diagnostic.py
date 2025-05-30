@@ -215,9 +215,7 @@ class Endlich(Diagnostic):
             )
             d_direction_d_p: xr.DataArray = self._wind_direction.copy(data=d_direction_d_p_values)
 
-        d_direction_d_z: xr.DataArray = GRAVITATIONAL_ACCELERATION * (
-            d_direction_d_p / self._geopotential.differentiate("pressure_level")
-        )
+        d_direction_d_z: xr.DataArray = altitude_derivative_on_pressure_level(d_direction_d_p, self._geopotential)
         speed: xr.DataArray = wind_speed(self._u_wind, self._v_wind)
         return speed * np.abs(d_direction_d_z)
 
@@ -499,3 +497,30 @@ class VerticalVorticitySquared(Diagnostic):
 
     def _compute(self) -> xr.DataArray:
         return self._vorticity * self._vorticity
+
+
+class DirectionalShear(Diagnostic):
+    _u_wind: xr.DataArray
+    _v_wind: xr.DataArray
+    _geopotential: xr.DataArray
+
+    def __init__(self, u_wind: xr.DataArray, v_wind: xr.DataArray, geopotential: xr.DataArray) -> None:
+        super().__init__("Directional Shear")
+        self._u_wind = u_wind
+        self._v_wind = v_wind
+        self._geopotential = geopotential
+
+    def _compute(self) -> xr.DataArray:
+        direction: xr.DataArray = wind_direction(self._u_wind, self._v_wind)
+        z_axis: int = self._u_wind.get_axis_num("pressure_level")
+        values_in_z_axis: np.ndarray = self._u_wind["pressure_level"].data
+        if is_dask_collection(self._u_wind):
+            directional_shear: xr.DataArray = xr.apply_ufunc(
+                angles_gradient,
+                direction,
+                kwargs={"coord_values": values_in_z_axis, "target_axis": z_axis},
+                dask="parallelized",
+                output_dtypes=[np.float32],
+            ).compute()
+            return np.abs(altitude_derivative_on_pressure_level(directional_shear, self._geopotential))  # pyright: ignore[reportReturnType]
+        return np.abs(altitude_derivative_on_pressure_level(direction, self._geopotential))  # pyright: ignore[reportReturnType]
