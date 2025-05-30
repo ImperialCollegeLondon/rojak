@@ -36,7 +36,6 @@ def magnitude_of_vector(
     return (x_component * x_component + y_component * y_component) if is_squared else np.hypot(x_component, y_component)  # pyright: ignore[reportReturnType]
 
 
-# TODO: TEST
 def vertical_component_vorticity(dvdx: xr.DataArray, dudy: xr.DataArray) -> xr.DataArray:
     return dvdx - dudy
 
@@ -145,8 +144,7 @@ def vertical_wind_shear(
     return magnitude_of_vector(du_dz, dv_dz, is_abs=is_abs_velocities, is_squared=is_vws_squared)
 
 
-# TODO: TEST
 def wind_speed(
-    u_wind: xr.DataArray, v_wind: xr.DataArray, is_abs_velocities: bool = False, is_speed_squared: bool = False
+    u_wind: xr.DataArray, v_wind: xr.DataArray, is_abs: bool = False, is_squared: bool = False
 ) -> xr.DataArray:
-    return magnitude_of_vector(u_wind, v_wind, is_abs=is_abs_velocities, is_squared=is_speed_squared)
+    return magnitude_of_vector(u_wind, v_wind, is_abs=is_abs, is_squared=is_squared)
