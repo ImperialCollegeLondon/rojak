@@ -265,3 +265,40 @@ def test_divergence(create_random_lat_lon_dataarray) -> None:
     du_dx = create_random_lat_lon_dataarray
     dv_dy = create_random_lat_lon_dataarray
     xr.testing.assert_allclose(du_dx + dv_dy, derivatives.divergence(du_dx, dv_dy))
+
+
+@pytest.mark.parametrize(
+    "lat, lon",
+    [
+        (xr.DataArray(np.arange(6).reshape((2, 3))), xr.DataArray(np.arange(6))),
+        (xr.DataArray(np.arange(6).reshape((2, 3))), xr.DataArray(np.arange(6).reshape((2, 3)))),
+    ],
+)
+def test_get_projection_correction_factors_error(lat, lon):
+    with pytest.raises(ValueError) as excinfo:
+        derivatives.get_projection_correction_factors(lat, lon)
+    assert excinfo.type is ValueError
+
+
+def test_get_projection_correction_factos():
+    parallel = np.asarray(
+        [
+            [1.15373388, 1.15373388, 1.15373388, 1.15373388],
+            [1.19569521, 1.19569521, 1.19569521, 1.19569521],
+            [1.24520235, 1.24520235, 1.24520235, 1.24520235],
+            [1.30360069, 1.30360069, 1.30360069, 1.30360069],
+        ]
+    )
+    meridional = np.asarray(
+        [
+            [1.00421324, 1.00421324, 1.00421324, 1.00421324],
+            [1.00368845, 1.00368845, 1.00368845, 1.00368845],
+            [1.00313671, 1.00313671, 1.00313671, 1.00313671],
+            [1.00256549, 1.00256549, 1.00256549, 1.00256549],
+        ]
+    )
+    factors = derivatives.get_projection_correction_factors(
+        xr.DataArray(np.linspace(30, 40, 4)), xr.DataArray(np.linspace(260, 270, 4))
+    )
+    npt.assert_array_almost_equal(factors.parallel_scale.data, parallel)
+    npt.assert_array_almost_equal(factors.meridional_scale.data, meridional)
