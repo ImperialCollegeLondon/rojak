@@ -131,6 +131,23 @@ def test_coriolis_param_and_derivative():
     xrt.assert_allclose(param / EARTH_AVG_RADIUS, latitudinal_derivative(coriolis_parameter(multiple_vals)))
 
 
+def test_coriolis_param_and_derivative_ncl_rossby_values():
+    # Values from https://www.ncl.ucar.edu/Document/Functions/Contributed/beta_dfdy_rossby.shtml
+    latitudes = xr.DataArray(np.arange(-90, 95, 5))
+    coriolis = xr.DataArray([-1.46E-04, -1.45E-04, -1.44E-04, -1.41E-04, -1.37E-04, -1.32E-04, -1.26E-04, -1.19E-04,
+                             -1.12E-04, -1.03E-04, -9.37E-05, -8.37E-05, -7.29E-05, -6.16E-05, -4.99E-05, -3.77E-05,
+                             -2.53E-05, -1.27E-05, 0.00E+00, 1.27E-05, 2.53E-05, 3.77E-05, 4.99E-05, 6.16E-05,
+                             7.29E-05, 8.37E-05, 9.37E-05, 1.03E-04, 1.12E-04, 1.19E-04, 1.26E-04, 1.32E-04, 1.37E-04,
+                             1.41E-04, 1.44E-04, 1.45E-04, 1.46E-04])  # fmt: skip
+    beta = xr.DataArray([-1.00E-18, 2.00E-12, 3.97E-12, 5.92E-12, 7.83E-12, 9.67E-12, 1.14E-11, 1.31E-11, 1.47E-11,
+                         1.62E-11, 1.75E-11, 1.88E-11, 1.98E-11, 2.07E-11, 2.15E-11, 2.21E-11, 2.25E-11, 2.28E-11,
+                         2.29E-11, 2.28E-11, 2.25E-11, 2.21E-11, 2.15E-11, 2.07E-11, 1.98E-11, 1.88E-11, 1.75E-11,
+                         1.62E-11, 1.47E-11, 1.31E-11, 1.14E-11, 9.67E-12, 7.83E-12, 5.92E-12, 3.97E-12, 2.00E-12,
+                         -1.00E-18])  # fmt: skip
+    xrt.assert_allclose(coriolis, coriolis_parameter(latitudes), rtol=1e-2)
+    xrt.assert_allclose(beta, latitudinal_derivative(coriolis_parameter(latitudes)))
+
+
 def test_direction_class_type(generate_random_array_pair):
     arr, _ = generate_random_array_pair
     assert issubclass(WrapAroundAngleArray, np.ndarray)
