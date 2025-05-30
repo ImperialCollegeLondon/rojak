@@ -7,6 +7,8 @@ import xarray.testing as xrt
 
 from rojak.turbulence.calculations import (
     EARTH_AVG_RADIUS,
+    WrapAroundAngleArray,
+    angles_gradient,
     coriolis_parameter,
     latitudinal_derivative,
     magnitude_of_vector,
@@ -125,3 +127,98 @@ def test_coriolis_param_and_derivative():
                           0.0001031244, 0.0001299444, 0.0001440445])  # fmt: skip
     xrt.assert_allclose(param, coriolis_parameter(multiple_vals), atol=1e-4)
     xrt.assert_allclose(param / EARTH_AVG_RADIUS, latitudinal_derivative(coriolis_parameter(multiple_vals)))
+
+
+def test_direction_class_type(generate_random_array_pair):
+    arr, _ = generate_random_array_pair
+    assert issubclass(WrapAroundAngleArray, np.ndarray)
+    direction: np.ndarray = WrapAroundAngleArray(arr)
+    assert isinstance(direction, WrapAroundAngleArray)
+    # See https://numpy.org/doc/stable/reference/generated/numpy.asarray.html#numpy-asarray
+    assert np.shares_memory(np.asarray(direction), arr)
+    # np.asarray() does not pass through ndarray subclasses
+    assert np.asarray(direction) is not direction
+    # np.asanyarray() passes through ndarray subclasses
+    assert np.asanyarray(direction) is direction
+
+
+def test_direction_cross_zero_single_value():
+    np.testing.assert_array_equal(
+        np.array([np.pi / 2]),
+        WrapAroundAngleArray(np.array([np.pi / 4])) - WrapAroundAngleArray(np.array([7.0 * np.pi / 4])),
+    )
+    np.testing.assert_array_equal(
+        np.array([np.pi / 2]),
+        WrapAroundAngleArray(np.array([7.0 * np.pi / 4])) - WrapAroundAngleArray(np.array(np.pi / 4)),
+    )
+
+
+def test_direction_cross_zero_array():
+    initial: np.ndarray = np.array([np.pi / 4, 1.0, np.pi / 2])
+    other: np.ndarray = initial + (5 * np.pi / 4)
+
+    initial_direction: np.ndarray = WrapAroundAngleArray(initial)
+    other_direction: np.ndarray = initial_direction + (5 * np.pi / 4)
+
+    assert isinstance(initial_direction - other_direction, WrapAroundAngleArray)
+    assert isinstance(initial - other, np.ndarray)
+    np.testing.assert_raises(
+        AssertionError, np.testing.assert_array_equal, np.abs(initial - other), initial_direction - other_direction
+    )
+
+
+@pytest.fixture()
+def angles_data():
+    return [np.pi / 4, 1.0, np.pi / 2, 7.0 * np.pi / 4, 0, 0, 5.0 * np.pi / 4]
+
+
+def test_angle_array_gradient(angles_data):
+    # Values in angle_gradient = WrapAroundAngleArray([0.21460184, 0.39269908, 0.89269908, 0.78539816,
+    #                                                  0.39269908, 1.17809725, 3.92699082])
+    desired_gradient: WrapAroundAngleArray = np.gradient(WrapAroundAngleArray(np.array(angles_data)))
+    # Values in normal_gradient = array([ 0.21460184,  0.39269908,  2.24889357, -0.78539816, -2.74889357,
+    #                                     1.96349541,  3.92699082])
+    normal_gradient: np.ndarray = np.gradient(np.array(angles_data))
+
+    assert np.all(desired_gradient > 0)
+    assert np.any(normal_gradient < 0)
+    assert isinstance(desired_gradient, WrapAroundAngleArray)
+
+
+# Add tests which show which cases of nesting WrapAroundAngleArray don't work
+
+
+def test_angle_array_gradient_ufunc_simple(angles_data):
+    import xarray as xr
+
+    target_array: np.ndarray = np.array(
+        [
+            angles_data,
+            angles_data,
+            angles_data,
+            angles_data,
+            angles_data,
+            angles_data,
+            angles_data,
+            angles_data,
+            angles_data,
+            angles_data,
+            angles_data,
+            angles_data,
+        ]
+    )
+    data_array: xr.DataArray = xr.DataArray(data=target_array)
+    chunked: xr.DataArray = data_array.chunk({"dim_0": 3, "dim_1": 7})
+    axis_which_varies: int = chunked.get_axis_num("dim_1")
+
+    parallelised_ufunc: xr.DataArray = xr.apply_ufunc(
+        angles_gradient,
+        chunked,
+        dask="parallelized",
+        output_dtypes=[np.float32],
+        kwargs={"target_axis": axis_which_varies},
+    ).compute()
+
+    single_thread: xr.DataArray = np.gradient(WrapAroundAngleArray(target_array), axis=1)
+    np.testing.assert_array_equal(angles_gradient(target_array, target_axis=axis_which_varies), single_thread)
+    np.testing.assert_array_equal(single_thread, parallelised_ufunc.data)
