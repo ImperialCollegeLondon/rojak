@@ -10,6 +10,7 @@ from rojak.turbulence.calculations import (
     GRAVITATIONAL_ACCELERATION,
     altitude_derivative_on_pressure_level,
     angles_gradient,
+    magnitude_of_geospatial_gradient,
     magnitude_of_vector,
     vertical_wind_shear,
     wind_direction,
@@ -259,3 +260,35 @@ class TurbulenceIndex2(Diagnostic):
         vws: xr.DataArray = vertical_wind_shear(self._u_wind, self._v_wind, geopotential=self._geopotential)
         convergence: xr.DataArray = -self._divergence
         return vws * (self._total_deformation + convergence)
+
+
+class Ncsu1(Diagnostic):
+    RI_THRESHOLD: float = 1e-5
+    _u_wind: xr.DataArray
+    _v_wind: xr.DataArray
+    _du_dx: xr.DataArray
+    _dv_dy: xr.DataArray
+    _ri: xr.DataArray
+    _vorticity: xr.DataArray
+
+    def __init__(
+        self,
+        u_wind: xr.DataArray,
+        v_wind: xr.DataArray,
+        ri: xr.DataArray,
+        vector_derivatives: dict[VelocityDerivative, xr.DataArray],
+        vorticity: xr.DataArray,
+    ) -> None:
+        super().__init__("NCSU1")
+        self._u_wind = u_wind
+        self._v_wind = v_wind
+        self._du_dx = vector_derivatives[VelocityDerivative.DU_DX]
+        self._dv_dy = vector_derivatives[VelocityDerivative.DV_DY]
+        self._ri = xr.where(ri > self.RI_THRESHOLD, ri, self.RI_THRESHOLD)
+        self._vorticity = vorticity
+
+    def _compute(self) -> xr.DataArray:
+        vorticity_term: xr.DataArray = magnitude_of_geospatial_gradient(self._vorticity)
+        advection_term: xr.DataArray = self._u_wind * self._du_dx + self._v_wind * self._dv_dy
+        advection_term = xr.where(advection_term > 0, advection_term, 0)
+        return (vorticity_term * advection_term) / self._ri
