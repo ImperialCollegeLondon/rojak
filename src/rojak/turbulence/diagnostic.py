@@ -5,11 +5,13 @@ import numpy as np
 import xarray as xr
 from dask.base import is_dask_collection
 
-from rojak.core.derivatives import GradientMode, VelocityDerivative, spatial_gradient
+from rojak.core.derivatives import GradientMode, VelocityDerivative, spatial_gradient, spatial_laplacian
 from rojak.turbulence.calculations import (
     GRAVITATIONAL_ACCELERATION,
     altitude_derivative_on_pressure_level,
     angles_gradient,
+    coriolis_parameter,
+    latitudinal_derivative,
     magnitude_of_geospatial_gradient,
     magnitude_of_vector,
     vertical_wind_shear,
@@ -292,3 +294,71 @@ class Ncsu1(Diagnostic):
         advection_term: xr.DataArray = self._u_wind * self._du_dx + self._v_wind * self._dv_dy
         advection_term = xr.where(advection_term > 0, advection_term, 0)
         return (vorticity_term * advection_term) / self._ri
+
+
+class ColsonPanofsky(Diagnostic):
+    _RI_CRIT: float = 0.5
+    _length_scale: xr.DataArray
+    _richardson_term: xr.DataArray
+    _u_wind: xr.DataArray
+    _v_wind: xr.DataArray
+    _geopotential: xr.DataArray
+
+    def __init__(
+        self,
+        u_wind: xr.DataArray,
+        v_wind: xr.DataArray,
+        altitude: xr.DataArray,
+        richardson_number: xr.DataArray,
+        geopotential: xr.DataArray,
+    ) -> None:
+        super().__init__("Colson Panofsky")
+        # !!! IMPT: Reduces dimension by 1
+        # Want the minuend (i.e. label=upper) as we're looking at the distance between grid points (delta z)
+        self._length_scale = altitude.diff("pressure_level", label="upper")
+        new_pressure_level_coord = self._length_scale["pressure_level"]
+        self._richardson_term = 1 - (richardson_number.sel(pressure_level=new_pressure_level_coord) / self._RI_CRIT)
+        self._u_wind = u_wind.sel(pressure_level=new_pressure_level_coord)
+        self._v_wind = v_wind.sel(pressure_level=new_pressure_level_coord)
+        self._geopotential = geopotential.sel(pressure_level=new_pressure_level_coord)
+
+    def _compute(self) -> xr.DataArray:
+        vws: xr.DataArray = vertical_wind_shear(
+            self._u_wind, self._v_wind, geopotential=self._geopotential, is_abs_velocities=True, is_vws_squared=True
+        )
+        return (self._length_scale * self._length_scale) * vws * self._richardson_term
+
+
+class UBF(Diagnostic):
+    _u_wind: xr.DataArray
+    _v_wind: xr.DataArray
+    _geopotential: xr.DataArray
+    _coriolis_parameter: xr.DataArray
+    _vorticity: xr.DataArray
+    _jacobian: xr.DataArray
+
+    def __init__(
+        self,
+        u_wind: xr.DataArray,
+        v_wind: xr.DataArray,
+        geopotential: xr.DataArray,
+        vorticity: xr.DataArray,
+        jacobian: xr.DataArray,
+    ) -> None:
+        super().__init__("UBF")
+        self._u_wind = u_wind
+        self._v_wind = v_wind
+        self._geopotential = geopotential
+        self._coriolis_parameter = coriolis_parameter(u_wind["latitude"])
+        # https://en.wikipedia.org/wiki/Rossby_parameter
+        self._vorticity = vorticity
+        self._jacobian = jacobian
+
+    # Appears to work IF AND ONLY IF processes=False
+    def _compute(self) -> xr.DataArray:
+        coriolis_vorticity_term: xr.DataArray = self._coriolis_parameter * self._vorticity.metpy.dequantify()
+        coriolis_deriv: xr.DataArray = latitudinal_derivative(self._coriolis_parameter)
+        inertial_terms: xr.DataArray = coriolis_vorticity_term + 2 * self._jacobian
+        mass_term: xr.DataArray = spatial_laplacian(self._geopotential, "deg", GradientMode.GEOSPATIAL)  # pyright: ignore[reportAssignmentType]
+
+        return np.abs(mass_term + inertial_terms - coriolis_deriv * self._u_wind)  # pyright: ignore[reportReturnType]
