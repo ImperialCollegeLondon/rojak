@@ -5,9 +5,16 @@ import numpy as np
 import xarray as xr
 from dask.base import is_dask_collection
 
-from rojak.core.derivatives import GradientMode, VelocityDerivative, spatial_gradient, spatial_laplacian
+from rojak.core.derivatives import (
+    CartesianDimension,
+    GradientMode,
+    VelocityDerivative,
+    spatial_gradient,
+    spatial_laplacian,
+)
 from rojak.turbulence.calculations import (
     GRAVITATIONAL_ACCELERATION,
+    absolute_vorticity,
     altitude_derivative_on_pressure_level,
     angles_gradient,
     coriolis_parameter,
@@ -524,3 +531,152 @@ class DirectionalShear(Diagnostic):
             ).compute()
             return np.abs(altitude_derivative_on_pressure_level(directional_shear, self._geopotential))  # pyright: ignore[reportReturnType]
         return np.abs(altitude_derivative_on_pressure_level(direction, self._geopotential))  # pyright: ignore[reportReturnType]
+
+
+class NestedGridModel1(Diagnostic):
+    _u_wind: xr.DataArray
+    _v_wind: xr.DataArray
+    _total_deformation: xr.DataArray
+
+    def __init__(self, u_wind: xr.DataArray, v_wind: xr.DataArray, total_deformation: xr.DataArray) -> None:
+        super().__init__("NGM1")
+        self._u_wind = u_wind
+        self._v_wind = v_wind
+        self._total_deformation = total_deformation
+
+    def _compute(self) -> xr.DataArray:
+        return wind_speed(self._u_wind, self._v_wind) * self._total_deformation
+
+
+class NestedGridModel2(Diagnostic):
+    _temperature: xr.DataArray
+    _geopotential: xr.DataArray
+    _total_deformation: xr.DataArray
+
+    def __init__(self, temperature: xr.DataArray, geopotential: xr.DataArray, total_deformation: xr.DataArray) -> None:
+        super().__init__("NGM2")
+        self._temperature = temperature
+        self._geopotential = geopotential
+        self._total_deformation = total_deformation
+
+    def _compute(self) -> xr.DataArray:
+        vertical_temperature_gradient: xr.DataArray = np.abs(
+            altitude_derivative_on_pressure_level(self._temperature, self._geopotential)
+        )  # pyright: ignore[reportAssignmentType]
+        return vertical_temperature_gradient * self._total_deformation
+
+
+class BrownIndex1(Diagnostic):
+    _vorticity: xr.DataArray
+    _total_deformation: xr.DataArray
+
+    def __init__(self, total_deformation: xr.DataArray, vorticity: xr.DataArray) -> None:
+        super().__init__("Brown1")
+        self._total_deformation = total_deformation.metpy.dequantify()
+        self._vorticity = vorticity
+
+    def _compute(self) -> xr.DataArray:
+        abs_vorticity: xr.DataArray = absolute_vorticity(self._vorticity)
+        return np.sqrt(0.3 * abs_vorticity + self._total_deformation)  # pyright: ignore[reportReturnType]
+
+
+class BrownIndex2(Diagnostic):
+    _u_wind: xr.DataArray
+    _v_wind: xr.DataArray
+    _brown_index1: xr.DataArray
+    _geopotential: xr.DataArray
+
+    def __init__(
+        self, u_wind: xr.DataArray, v_wind: xr.DataArray, geopotential: xr.DataArray, brown_index_1: xr.DataArray
+    ) -> None:
+        super().__init__("Brown2")
+        self._u_wind = u_wind
+        self._v_wind = v_wind
+        self._geopotential = geopotential
+        self._brown_index_1 = brown_index_1
+
+    def _compute(self) -> xr.DataArray:
+        vws: xr.DataArray = vertical_wind_shear(self._u_wind, self._v_wind, geopotential=self._geopotential)
+        return (1 / 24) * self._brown_index_1 * vws * vws
+
+
+class NegativeVorticityAdvection(Diagnostic):
+    _u_wind: xr.DataArray
+    _v_wind: xr.DataArray
+    _vorticity: xr.DataArray
+
+    def __init__(self, u_wind: xr.DataArray, v_wind: xr.DataArray, vorticity: xr.DataArray) -> None:
+        super().__init__("NVA")
+        self._u_wind = u_wind
+        self._v_wind = v_wind
+        self._vorticity = vorticity
+
+    def _compute(self) -> xr.DataArray:
+        abs_vorticity: xr.DataArray = absolute_vorticity(self._vorticity)
+        x_component: xr.DataArray = (
+            self._u_wind
+            * spatial_gradient(abs_vorticity, "deg", GradientMode.GEOSPATIAL, dimension=CartesianDimension.X)["dfdx"]
+        )
+        y_component: xr.DataArray = (
+            self._v_wind
+            * spatial_gradient(abs_vorticity, "deg", GradientMode.GEOSPATIAL, dimension=CartesianDimension.Y)["dfdy"]
+        )
+        nva: xr.DataArray = -x_component - y_component
+        return xr.where(nva < 0, 0, nva)
+
+
+class DuttonIndex(Diagnostic):
+    _u_wind: xr.DataArray
+    _v_wind: xr.DataArray
+    _geopotential: xr.DataArray
+
+    def __init__(self, u_wind: xr.DataArray, v_wind: xr.DataArray, geopotential: xr.DataArray) -> None:
+        super().__init__("Dutton Index")
+        self._u_wind = u_wind
+        self._v_wind = v_wind
+        self._geopotential = geopotential
+
+    def horizontal_wind_shear(self, speed: xr.DataArray) -> xr.DataArray:
+        x_component: xr.DataArray = (self._u_wind / speed) * spatial_gradient(
+            speed, "deg", GradientMode.GEOSPATIAL, dimension=CartesianDimension.Y
+        )["dfdy"]
+        y_component: xr.DataArray = (self._v_wind / speed) * spatial_gradient(
+            speed, "deg", GradientMode.GEOSPATIAL, dimension=CartesianDimension.X
+        )["dfdx"]
+        # Follows Sharman definition of horizontal wind shear
+        # return x_component - y_component
+        # Follows Dutton definition of horizontal wind shear
+        return -x_component + y_component
+
+    def _compute(self) -> xr.DataArray:
+        speed: xr.DataArray = wind_speed(self._u_wind, self._v_wind)
+        horizontal_wind_shear: xr.DataArray = self.horizontal_wind_shear(speed)
+        vws: xr.DataArray = vertical_wind_shear(self._u_wind, self._v_wind, geopotential=self._geopotential)
+        return 10.5 + 1.25 * horizontal_wind_shear + 0.25 * vws
+
+
+class EDRLunnon(Diagnostic):
+    _u_wind: xr.DataArray
+    _v_wind: xr.DataArray
+    _shear_deformation: xr.DataArray
+    _stretching_deformation: xr.DataArray
+
+    def __init__(
+        self,
+        u_wind: xr.DataArray,
+        v_wind: xr.DataArray,
+        shear_deformation: xr.DataArray,
+        stretching_deformation: xr.DataArray,
+    ) -> None:
+        super().__init__("EDR Lunnon")
+        self._u_wind = u_wind
+        self._v_wind = v_wind
+        self._shear_deformation = shear_deformation
+        self._stretching_deformation = stretching_deformation
+
+    def _compute(self) -> xr.DataArray:
+        du_dp: xr.DataArray = self._u_wind.differentiate("pressure_level")
+        dv_dp: xr.DataArray = self._v_wind.differentiate("pressure_level")
+        return (
+            (dv_dp * dv_dp) - (du_dp * du_dp)
+        ) * self._stretching_deformation - 2 * du_dp * dv_dp * self._shear_deformation
