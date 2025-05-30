@@ -149,7 +149,6 @@ class ProjectionCorrectionFactors(NamedTuple):
     meridional_scale: xr.DataArray
 
 
-# TODO: TEST
 # Modified from https://github.com/Unidata/MetPy/blob/6df0cde7893c0f55e44946137263cb322d59aae4/src/metpy/calc/tools.py#L1124
 def get_projection_correction_factors(
     latitude: "xr.DataArray",
