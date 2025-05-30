@@ -24,7 +24,9 @@ from rojak.turbulence.calculations import (
 
 @pytest.fixture()
 def generate_random_array_pair() -> Tuple[xr.DataArray, xr.DataArray]:
-    return xr.DataArray(np.random.default_rng().random((3, 3))), xr.DataArray(np.random.default_rng().random((3, 3)))
+    return xr.DataArray(np.random.default_rng().random((50, 50))), xr.DataArray(
+        np.random.default_rng().random((50, 50))
+    )
 
 
 def test_shear_deformation(generate_random_array_pair):
@@ -222,3 +224,44 @@ def test_angle_array_gradient_ufunc_simple(angles_data):
     single_thread: xr.DataArray = np.gradient(WrapAroundAngleArray(target_array), axis=1)
     np.testing.assert_array_equal(angles_gradient(target_array, target_axis=axis_which_varies), single_thread)
     np.testing.assert_array_equal(single_thread, parallelised_ufunc.data)
+
+
+def test_direction_behaves_like_normal_abs_sub(generate_random_array_pair):
+    initial_angles, subsequent_angles = generate_random_array_pair
+    initial_angles = initial_angles * np.pi
+    subsequent_angles = subsequent_angles * np.pi
+    initial_as_direction: np.ndarray = WrapAroundAngleArray(initial_angles)
+    subsequent_as_direction: np.ndarray = WrapAroundAngleArray(subsequent_angles)
+
+    np.testing.assert_array_equal(
+        np.abs(initial_angles - subsequent_angles), initial_as_direction - subsequent_as_direction
+    )
+    np.testing.assert_array_equal(
+        np.zeros_like(initial_angles) - subsequent_angles, np.zeros_like(initial_angles) - subsequent_as_direction
+    )
+    np.testing.assert_array_equal(
+        np.abs(initial_angles - np.zeros_like(subsequent_angles)),
+        initial_as_direction - np.zeros_like(subsequent_as_direction),
+    )
+    np.testing.assert_array_equal(
+        np.ones_like(initial_angles) - subsequent_angles, np.ones_like(initial_angles) - subsequent_as_direction
+    )
+    np.testing.assert_array_equal(
+        np.abs(initial_angles - np.ones_like(subsequent_angles)),
+        initial_as_direction - np.ones_like(subsequent_as_direction),
+    )
+
+
+def test_direction_not_behave_like_normal_sub(generate_random_array_pair):
+    initial_angles, subsequent_angles = generate_random_array_pair
+    initial_angles = initial_angles * (np.pi / 2)
+    subsequent_angles = subsequent_angles * (3 * np.pi / 2)
+    initial_as_direction = WrapAroundAngleArray(initial_angles)
+    subsequent_as_direction = WrapAroundAngleArray(subsequent_angles)
+
+    np.testing.assert_raises(
+        AssertionError,
+        np.testing.assert_array_equal,
+        np.abs(initial_angles - subsequent_angles),
+        initial_as_direction - subsequent_as_direction,
+    )

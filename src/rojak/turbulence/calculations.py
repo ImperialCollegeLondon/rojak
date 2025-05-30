@@ -63,7 +63,6 @@ class WrapAroundAngleArray(np.ndarray):
         raise TypeError(f"unsupported operand types(s) for: '{self.__class__} and '{other.__class__}'")
 
 
-# TODO: TEST
 def angles_gradient(array: np.ndarray, target_axis: int, coord_values: np.ndarray | None = None) -> np.ndarray:
     if coord_values is None:
         return np.gradient(WrapAroundAngleArray(array), axis=target_axis)
