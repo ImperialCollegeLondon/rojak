@@ -73,7 +73,9 @@ class CATPrognosticData:
             "vorticity",
         ]
     )
-    required_coords: ClassVar[frozenset[str]] = frozenset(["pressure_level", "latitude", "longitude", "time"])
+    required_coords: ClassVar[frozenset[str]] = frozenset(
+        ["pressure_level", "latitude", "longitude", "time", "altitude"]
+    )
 
     # TODO: TEST
     def __init__(self, dataset: xr.Dataset) -> None:
@@ -118,6 +120,10 @@ class CATPrognosticData:
     # TODO: TEST
     def vorticity(self) -> xr.DataArray:
         return self._dataset["vorticity"]
+
+    # TODO: TEST
+    def altitude(self) -> xr.DataArray:
+        return self._dataset["altitude"]
 
 
 class CATData(CATPrognosticData):

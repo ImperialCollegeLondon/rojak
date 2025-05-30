@@ -49,6 +49,7 @@ class TurbulenceDiagnostics(StrEnum):
     ENDLICH = "endlich"
     COLSON_PANOFSKY = "colson_panofsky"
     WIND_SPEED = "wind_speed"
+    WIND_DIRECTION = "wind_direction"
     BRUNT_VAISALA = "bunt_vaisala"
     VWS = "vertical_wind_shear"
     DEF = "deformation"

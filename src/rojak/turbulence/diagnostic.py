@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, assert_never
 
 import numpy as np
 import xarray as xr
@@ -12,6 +12,7 @@ from rojak.core.derivatives import (
     spatial_gradient,
     spatial_laplacian,
 )
+from rojak.orchestrator.configuration import TurbulenceDiagnostics
 from rojak.turbulence.calculations import (
     GRAVITATIONAL_ACCELERATION,
     absolute_vorticity,
@@ -27,6 +28,7 @@ from rojak.turbulence.calculations import (
 )
 
 if TYPE_CHECKING:
+    from rojak.core.data import CATData
     from rojak.core.derivatives import SpatialGradientKeys
 
 type DiagnosticName = str
@@ -680,3 +682,128 @@ class EDRLunnon(Diagnostic):
         return (
             (dv_dp * dv_dp) - (du_dp * du_dp)
         ) * self._stretching_deformation - 2 * du_dp * dv_dp * self._shear_deformation
+
+
+class DiagnosticBuilder:
+    _data: "CATData"
+    _richardson: xr.DataArray | None = None
+
+    def __init__(self, data: "CATData") -> None:
+        self._data = data
+
+    @property
+    def richardson(self) -> xr.DataArray:
+        if self._richardson is None:
+            self._richardson = self.create(TurbulenceDiagnostics.RICHARDSON).computed_value
+        return self._richardson
+
+    def create(self, diagnostic: TurbulenceDiagnostics) -> Diagnostic:
+        match diagnostic:
+            case TurbulenceDiagnostics.F2D:
+                return Frontogenesis2D(
+                    self._data.u_wind(),
+                    self._data.v_wind(),
+                    self._data.potential_temperature(),
+                    self._data.geopotential(),
+                    self._data.velocity_derivatives(),
+                )
+            case TurbulenceDiagnostics.F3D:
+                return Frontogenesis3D(
+                    self._data.u_wind(),
+                    self._data.v_wind(),
+                    self._data.potential_temperature(),
+                    self._data.geopotential(),
+                    self._data.divergence(),
+                    self._data.velocity_derivatives(),
+                )
+            case TurbulenceDiagnostics.TEMPERATURE_GRADIENT:
+                return HorizontalTemperatureGradient(self._data.temperature())
+            case TurbulenceDiagnostics.ENDLICH:
+                return Endlich(self._data.u_wind(), self._data.v_wind(), self._data.geopotential())
+            case TurbulenceDiagnostics.TI1:
+                return TurbulenceIndex1(
+                    self._data.u_wind(), self._data.v_wind(), self._data.geopotential(), self._data.total_deformation()
+                )
+            case TurbulenceDiagnostics.TI2:
+                return TurbulenceIndex2(
+                    self._data.u_wind(),
+                    self._data.v_wind(),
+                    self._data.velocity_derivatives(),
+                    self._data.geopotential(),
+                    self._data.total_deformation(),
+                    self._data.divergence(),
+                )
+            case TurbulenceDiagnostics.NCSU1:
+                return Ncsu1(
+                    self._data.u_wind(),
+                    self._data.v_wind(),
+                    self.richardson,
+                    self._data.velocity_derivatives(),
+                    self._data.vorticity(),
+                )
+            case TurbulenceDiagnostics.COLSON_PANOFSKY:
+                return ColsonPanofsky(
+                    self._data.u_wind(),
+                    self._data.v_wind(),
+                    self._data.altitude(),
+                    self.richardson,
+                    self._data.geopotential(),
+                )
+            case TurbulenceDiagnostics.UBF:
+                return UBF(
+                    self._data.u_wind(),
+                    self._data.v_wind(),
+                    self._data.geopotential(),
+                    self._data.vorticity(),
+                    self._data.jacobian_horizontal_velocity(),
+                )
+            case TurbulenceDiagnostics.BRUNT_VAISALA:
+                return BruntVaisalaFrequency(self._data.potential_temperature(), self._data.geopotential())
+            case TurbulenceDiagnostics.VWS:
+                return VerticalWindShear(self._data.u_wind(), self._data.v_wind(), self._data.geopotential())
+            case TurbulenceDiagnostics.RICHARDSON:
+                vws: Diagnostic = self.create(TurbulenceDiagnostics.VWS)
+                brunt_vaisala: Diagnostic = self.create(TurbulenceDiagnostics.BRUNT_VAISALA)
+                return GradientRichardson(vws.computed_value, brunt_vaisala.computed_value)
+            case TurbulenceDiagnostics.WIND_SPEED:
+                return WindSpeed(self._data.u_wind(), self._data.v_wind())
+            case TurbulenceDiagnostics.DEF:
+                return DeformationSquared(self._data.total_deformation())
+            case TurbulenceDiagnostics.WIND_DIRECTION:
+                return WindDirection(self._data.u_wind(), self._data.v_wind())
+            case TurbulenceDiagnostics.HORIZONTAL_DIVERGENCE:
+                return HorizontalDivergence(self._data.divergence())
+            case TurbulenceDiagnostics.MAGNITUDE_PV:
+                return MagnitudePotentialVorticity(self._data.potential_vorticity())
+            case TurbulenceDiagnostics.PV_GRADIENT:
+                return GradientPotentialVorticity(self._data.potential_vorticity())
+            case TurbulenceDiagnostics.VORTICITY_SQUARED:
+                return VerticalVorticitySquared(self._data.vorticity())
+            case TurbulenceDiagnostics.DIRECTIONAL_SHEAR:
+                return DirectionalShear(self._data.u_wind(), self._data.v_wind(), self._data.geopotential())
+            case TurbulenceDiagnostics.NGM1:
+                return NestedGridModel1(self._data.u_wind(), self._data.v_wind(), self._data.total_deformation())
+            case TurbulenceDiagnostics.NGM2:
+                return NestedGridModel2(
+                    self._data.temperature(), self._data.geopotential(), self._data.total_deformation()
+                )
+            case TurbulenceDiagnostics.BROWN1:
+                return BrownIndex1(self._data.vorticity(), self._data.total_deformation())
+            case TurbulenceDiagnostics.BROWN2:
+                brown1: Diagnostic = self.create(TurbulenceDiagnostics.BROWN1)
+                return BrownIndex2(
+                    self._data.u_wind(), self._data.v_wind(), self._data.geopotential(), brown1.computed_value
+                )
+            case TurbulenceDiagnostics.NVA:
+                return NegativeVorticityAdvection(self._data.u_wind(), self._data.v_wind(), self._data.vorticity())
+            case TurbulenceDiagnostics.DUTTON:
+                return DuttonIndex(self._data.u_wind(), self._data.v_wind(), self._data.geopotential())
+            case TurbulenceDiagnostics.EDR_LUNNON:
+                return EDRLunnon(
+                    self._data.u_wind(),
+                    self._data.v_wind(),
+                    self._data.shear_deformation(),
+                    self._data.stretching_deformation(),
+                )
+            case _ as unreachable:
+                assert_never(unreachable)
