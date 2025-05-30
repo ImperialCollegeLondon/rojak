@@ -10,6 +10,8 @@ from rojak.turbulence.calculations import (
     shearing_deformation,
     stretching_deformation,
     total_deformation,
+    vertical_component_vorticity,
+    wind_speed,
 )
 
 
@@ -28,26 +30,29 @@ def test_shearing_deformation(generate_random_array_pair):
     xrt.assert_equal(x - y, stretching_deformation(x, y))
 
 
-def test_magnitude_of_vector_squared(generate_random_array_pair):
+@pytest.mark.parametrize("function_to_test", [magnitude_of_vector, wind_speed])
+def test_magnitude_of_vector_squared(generate_random_array_pair, function_to_test):
     x, y = generate_random_array_pair
-    xrt.assert_equal(x * x + y * y, magnitude_of_vector(x, y, is_squared=True))
+    xrt.assert_equal(x * x + y * y, function_to_test(x, y, is_squared=True))
 
 
-def test_magnitude_of_vector_default(generate_random_array_pair):
+@pytest.mark.parametrize("function_to_test", [magnitude_of_vector, wind_speed])
+def test_magnitude_of_vector_default(generate_random_array_pair, function_to_test):
     x, y = generate_random_array_pair
-    xrt.assert_equal(np.hypot(x, y), magnitude_of_vector(x, y))
-    xrt.assert_equal(np.hypot(x, y), magnitude_of_vector(x, y, is_abs=True))
-    xrt.assert_equal(np.hypot(-x, y), magnitude_of_vector(-x, y, is_abs=True))
-    xrt.assert_equal(np.hypot(x, -y), magnitude_of_vector(x, -y, is_abs=True))
-    xrt.assert_equal(np.hypot(-x, -y), magnitude_of_vector(-x, -y, is_abs=True))
-    xrt.assert_equal(np.hypot(x, -y), magnitude_of_vector(-x, y, is_abs=True))
-    xrt.assert_equal(np.hypot(-x, y), magnitude_of_vector(x, -y, is_abs=True))
+    xrt.assert_equal(np.hypot(x, y), function_to_test(x, y))
+    xrt.assert_equal(np.hypot(x, y), function_to_test(x, y, is_abs=True))
+    xrt.assert_equal(np.hypot(-x, y), function_to_test(-x, y, is_abs=True))
+    xrt.assert_equal(np.hypot(x, -y), function_to_test(x, -y, is_abs=True))
+    xrt.assert_equal(np.hypot(-x, -y), function_to_test(-x, -y, is_abs=True))
+    xrt.assert_equal(np.hypot(x, -y), function_to_test(-x, y, is_abs=True))
+    xrt.assert_equal(np.hypot(-x, y), function_to_test(x, -y, is_abs=True))
 
 
-def test_magnitude_of_vector_abs_squared(generate_random_array_pair):
+@pytest.mark.parametrize("function_to_test", [magnitude_of_vector, wind_speed])
+def test_magnitude_of_vector_abs_squared(generate_random_array_pair, function_to_test):
     x, y = generate_random_array_pair
-    xrt.assert_equal(np.abs(x * x) + np.abs(y * y), magnitude_of_vector(x, y, is_abs=True, is_squared=True))
-    xrt.assert_equal(np.abs(x * x) + np.abs(y * y), magnitude_of_vector(x, y, is_squared=True))
+    xrt.assert_equal(np.abs(x * x) + np.abs(y * y), function_to_test(x, y, is_abs=True, is_squared=True))
+    xrt.assert_equal(np.abs(x * x) + np.abs(y * y), function_to_test(x, y, is_squared=True))
 
 
 def test_total_deformation(generate_random_array_pair):
@@ -63,3 +68,9 @@ def test_total_deformation(generate_random_array_pair):
     xrt.assert_equal((x - y) ** 2 + (x + y) ** 2, total_deformation(x, x, y, y, True))
     xrt.assert_equal((x - x) ** 2 + (x + x) ** 2, total_deformation(x, x, x, x, True))
     xrt.assert_equal((y - y) ** 2 + (y + y) ** 2, total_deformation(y, y, y, y, True))
+
+
+def test_vorticity(generate_random_array_pair):
+    x, y = generate_random_array_pair
+    xrt.assert_equal(x - y, vertical_component_vorticity(x, y))
+    xrt.assert_equal(x - y, stretching_deformation(x, y))
