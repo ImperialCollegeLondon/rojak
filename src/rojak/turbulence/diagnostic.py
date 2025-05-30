@@ -362,3 +362,48 @@ class UBF(Diagnostic):
         mass_term: xr.DataArray = spatial_laplacian(self._geopotential, "deg", GradientMode.GEOSPATIAL)  # pyright: ignore[reportAssignmentType]
 
         return np.abs(mass_term + inertial_terms - coriolis_deriv * self._u_wind)  # pyright: ignore[reportReturnType]
+
+
+class BruntVaisalaFrequency(Diagnostic):
+    _potential_temperature: xr.DataArray
+    _geopotential: xr.DataArray
+
+    def __init__(self, potential_temperature: xr.DataArray, geopotential: xr.DataArray) -> None:
+        super().__init__("Brunt Vaisala Frequency")
+        self._potential_temperature = potential_temperature
+        self._geopotential = geopotential
+
+    def _compute(self) -> xr.DataArray:
+        d_potential_temperature_dz: xr.DataArray = altitude_derivative_on_pressure_level(
+            self._potential_temperature, self._geopotential
+        )
+        # Negative value is to ensure percentile picks up the unstable values
+        return -((GRAVITATIONAL_ACCELERATION / self._potential_temperature) * d_potential_temperature_dz)
+
+
+class VerticalWindShear(Diagnostic):
+    _u_wind: xr.DataArray
+    _v_wind: xr.DataArray
+    _geopotential: xr.DataArray
+
+    def __init__(self, u_wind: xr.DataArray, v_wind: xr.DataArray, geopotential: xr.DataArray) -> None:
+        super().__init__("Vertical Wind Shear")
+        self._u_wind = u_wind
+        self._v_wind = v_wind
+        self._geopotential = geopotential
+
+    def _compute(self) -> xr.DataArray:
+        return vertical_wind_shear(self._u_wind, self._v_wind, geopotential=self._geopotential)
+
+
+class GradientRichardson(Diagnostic):
+    _vws: xr.DataArray
+    _brunt_vaisala: xr.DataArray
+
+    def __init__(self, vws: xr.DataArray, brunt_vaisala: xr.DataArray) -> None:
+        super().__init__("Richardson")
+        self._vws = vws
+        self._brunt_vaisala = brunt_vaisala
+
+    def _compute(self) -> xr.DataArray:
+        return self._brunt_vaisala / self._vws
