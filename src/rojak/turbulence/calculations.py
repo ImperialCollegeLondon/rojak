@@ -70,7 +70,6 @@ def angles_gradient(array: np.ndarray, target_axis: int, coord_values: np.ndarra
     return np.gradient(WrapAroundAngleArray(array), coord_values, axis=target_axis)
 
 
-# TODO: TEST
 def wind_direction(u_wind: xr.DataArray, v_wind: xr.DataArray) -> xr.DataArray:
     # See https://github.com/Unidata/MetPy/blob/34bfda1deaead3fed9070f3a766f7d842373c6d9/src/metpy/calc/basic.py#L106
     # np.arctan2 returns angle between hypotenuse and x-axis but wind direction is w.r.t y-axis
@@ -84,8 +83,10 @@ def wind_direction(u_wind: xr.DataArray, v_wind: xr.DataArray) -> xr.DataArray:
     return xr.where((u_wind == 0) & (v_wind == 0), 0, met_wind_direction)
 
 
-# TODO: TEST
 def potential_temperature(temperature: xr.DataArray, pressure: xr.DataArray) -> xr.DataArray:
+    r"""
+    .. math:: \Theta = T (P_0 / P)^\kappa
+    """
     reference_pressure: int = 1000  # hPa
     kappa: float = 0.28571428571428564  # R / cp (dimensionless)
     if "units" in pressure.attrs and pressure.attrs["units"] != "hPa":
@@ -93,16 +94,12 @@ def potential_temperature(temperature: xr.DataArray, pressure: xr.DataArray) -> 
     return temperature / ((pressure / reference_pressure) ** kappa)
 
 
-# TODO: TEST
 def coriolis_parameter(latitude: xr.DataArray) -> xr.DataArray:
     if latitude.max() > np.pi:
         latitude = np.deg2rad(latitude)  # pyright: ignore[reportAssignmentType]
-    # return calc.coriolis_parameter(latitude) if not is_parallel else xr.apply_ufunc(
-    #     calc.coriolis_parameter, latitude, dask='parallelized', output_dtypes=[np.float32]).metpy.dequantify()
     return 2 * EARTH_ANGULAR_VELOCITY * np.sin(latitude)  # pyright: ignore[reportReturnType]
 
 
-# TODO: TEST
 def latitudinal_derivative(coriolis_param: xr.DataArray) -> xr.DataArray:
     return coriolis_param / EARTH_AVG_RADIUS
 
