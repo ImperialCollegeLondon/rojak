@@ -226,3 +226,36 @@ class TurbulenceIndex1(Diagnostic):
     def _compute(self) -> xr.DataArray:
         vws: xr.DataArray = vertical_wind_shear(self._u_wind, self._v_wind, geopotential=self._geopotential)
         return vws * self._total_deformation
+
+
+class TurbulenceIndex2(Diagnostic):
+    _u_wind: xr.DataArray
+    _v_wind: xr.DataArray
+    _du_dx: xr.DataArray
+    _dv_dy: xr.DataArray
+    _geopotential: xr.DataArray
+    _total_deformation: xr.DataArray
+    _divergence: xr.DataArray
+
+    def __init__(
+        self,
+        u_wind: xr.DataArray,
+        v_wind: xr.DataArray,
+        vector_derivatives: dict[VelocityDerivative, xr.DataArray],
+        geopotential: xr.DataArray,
+        total_deformation: xr.DataArray,
+        divergence: xr.DataArray,
+    ) -> None:
+        super().__init__("TI2")
+        self._u_wind = u_wind
+        self._v_wind = v_wind
+        self._du_dx = vector_derivatives[VelocityDerivative.DU_DX]
+        self._dv_dy = vector_derivatives[VelocityDerivative.DV_DY]
+        self._geopotential = geopotential
+        self._total_deformation = total_deformation
+        self._divergence = divergence
+
+    def _compute(self) -> xr.DataArray:
+        vws: xr.DataArray = vertical_wind_shear(self._u_wind, self._v_wind, geopotential=self._geopotential)
+        convergence: xr.DataArray = -self._divergence
+        return vws * (self._total_deformation + convergence)
