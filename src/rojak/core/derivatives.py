@@ -1,6 +1,6 @@
 import warnings
 from enum import Enum, StrEnum, auto
-from typing import Literal, NamedTuple, Tuple
+from typing import Literal, NamedTuple, Tuple, assert_never
 
 import dask.array as da
 import numpy as np
@@ -197,6 +197,8 @@ class CartesianDimension(StrEnum):
                 return "longitude"
             case CartesianDimension.Y:
                 return "latitude"
+            case _ as unreachable:
+                assert_never(unreachable)
         return None
 
     def get_grid_spacing(self, grid_deltas: GridSpacing) -> ArrayLike:
@@ -205,6 +207,8 @@ class CartesianDimension(StrEnum):
                 grid_delta = grid_deltas.dx
             case CartesianDimension.Y:
                 grid_delta = grid_deltas.dy
+            case _ as unreachable:
+                assert_never(unreachable)
         return grid_delta
 
     def get_correction_factor(self, factors: ProjectionCorrectionFactors | None) -> xr.DataArray:
@@ -216,6 +220,8 @@ class CartesianDimension(StrEnum):
                 factor = factors.parallel_scale
             case CartesianDimension.Y:
                 factor = factors.meridional_scale
+            case _ as unreachable:
+                assert_never(unreachable)
         return factor
 
 
@@ -275,6 +281,8 @@ def spatial_gradient(
                 gradients["dfdx"] = computed_gradient
             case CartesianDimension.Y:
                 gradients["dfdy"] = computed_gradient
+            case _ as unreachable:
+                assert_never(unreachable)
 
     return gradients
 
@@ -400,5 +408,7 @@ def vector_derivatives(
                     )["dfdy"]
                     - u * dy_correction
                 )
+            case _ as unreachable:
+                assert_never(unreachable)
 
     return derivatives
