@@ -11,6 +11,7 @@ from rojak.turbulence.calculations import (
     altitude_derivative_on_pressure_level,
     angles_gradient,
     magnitude_of_vector,
+    vertical_wind_shear,
     wind_direction,
     wind_speed,
 )
@@ -205,3 +206,23 @@ class Endlich(Diagnostic):
         )
         speed: xr.DataArray = wind_speed(self._u_wind, self._v_wind)
         return speed * np.abs(d_direction_d_z)
+
+
+class TurbulenceIndex1(Diagnostic):
+    _u_wind: xr.DataArray
+    _v_wind: xr.DataArray
+    _geopotential: xr.DataArray
+    _total_deformation: xr.DataArray
+
+    def __init__(
+        self, u_wind: xr.DataArray, v_wind: xr.DataArray, geopotential: xr.DataArray, total_deformation: xr.DataArray
+    ) -> None:
+        super().__init__("TI1")
+        self._u_wind = u_wind
+        self._v_wind = v_wind
+        self._geopotential = geopotential
+        self._total_deformation = total_deformation
+
+    def _compute(self) -> xr.DataArray:
+        vws: xr.DataArray = vertical_wind_shear(self._u_wind, self._v_wind, geopotential=self._geopotential)
+        return vws * self._total_deformation
