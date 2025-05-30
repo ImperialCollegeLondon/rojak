@@ -280,7 +280,7 @@ def test_get_projection_correction_factors_error(lat, lon):
     assert excinfo.type is ValueError
 
 
-def test_get_projection_correction_factos():
+def test_get_projection_correction_factos() -> None:
     parallel = np.asarray(
         [
             [1.15373388, 1.15373388, 1.15373388, 1.15373388],
@@ -302,3 +302,23 @@ def test_get_projection_correction_factos():
     )
     npt.assert_array_almost_equal(factors.parallel_scale.data, parallel)
     npt.assert_array_almost_equal(factors.meridional_scale.data, meridional)
+
+
+@pytest.mark.parametrize("package", [np, da])
+def test_first_derivative_x_squared_equal_spacing(package) -> None:
+    x_squared = package.arange(10) * package.arange(10)
+    npt.assert_array_equal(
+        package.gradient(x_squared, axis=0), derivatives.first_derivative(xr.DataArray(x_squared), np.ones(9), 0)
+    )
+    two_x = package.arange(10) * 2
+    npt.assert_array_equal(derivatives.first_derivative(xr.DataArray(x_squared), np.ones(9), 0)[1:-1], two_x[1:-1])
+
+    y = package.arange(15).reshape(3, 5)
+    npt.assert_array_equal(
+        derivatives.first_derivative(xr.DataArray(y), np.ones(2), axis=0), package.gradient(y, axis=0)
+    )
+    npt.assert_array_equal(derivatives.first_derivative(xr.DataArray(y), np.ones(2), axis=0), np.ones_like(y) * 5)
+    npt.assert_array_equal(
+        derivatives.first_derivative(xr.DataArray(y), np.ones(4), axis=1), package.gradient(y, axis=1)
+    )
+    npt.assert_array_equal(derivatives.first_derivative(xr.DataArray(y), np.ones(4), axis=1), np.ones_like(y))

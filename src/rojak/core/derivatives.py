@@ -176,7 +176,6 @@ def get_dimension_number(name: str, data_array: "xr.DataArray") -> int:
     return data_array.dims.index(name)
 
 
-# TODO: TEST
 def first_derivative(array: "xr.DataArray", grid_spacing_in_meters: ArrayLike, axis: int) -> "xr.DataArray":
     coordinate_of_values: np.ndarray = np.cumsum(np.insert(grid_spacing_in_meters, 0, [0]))
     if is_dask_collection(array):
