@@ -173,6 +173,17 @@ class Frontogenesis2D(Diagnostic):
         )
 
 
+class HorizontalTemperatureGradient(Diagnostic):
+    _temperature: xr.DataArray
+
+    def __init__(self, temperature: xr.DataArray) -> None:
+        super().__init__("Horizontal Temperature Gradient")
+        self._temperature = temperature
+
+    def _compute(self) -> xr.DataArray:
+        return magnitude_of_geospatial_gradient(self._temperature)
+
+
 class Endlich(Diagnostic):
     _u_wind: xr.DataArray
     _v_wind: xr.DataArray
@@ -407,3 +418,84 @@ class GradientRichardson(Diagnostic):
 
     def _compute(self) -> xr.DataArray:
         return self._brunt_vaisala / self._vws
+
+
+class WindSpeed(Diagnostic):
+    _u_wind: xr.DataArray
+    _v_wind: xr.DataArray
+
+    def __init__(self, u_wind: xr.DataArray, v_wind: xr.DataArray) -> None:
+        super().__init__("Wind Speed")
+        self._u_wind = u_wind
+        self._v_wind = v_wind
+
+    def _compute(self) -> xr.DataArray:
+        return np.hypot(self._u_wind, self._v_wind)  # pyright: ignore[reportReturnType]
+
+
+class DeformationSquared(Diagnostic):
+    _total_deformation: xr.DataArray
+
+    def __init__(self, total_deformation: xr.DataArray) -> None:
+        super().__init__("DEF Squared")
+        self._total_deformation = total_deformation
+
+    def _compute(self) -> xr.DataArray:
+        return self._total_deformation * self._total_deformation
+
+
+class WindDirection(Diagnostic):
+    _u_wind: xr.DataArray
+    _v_wind: xr.DataArray
+
+    def __init__(self, u_wind: xr.DataArray, v_wind: xr.DataArray) -> None:
+        super().__init__("Wind Direction")
+        self._u_wind = u_wind
+        self._v_wind = v_wind
+
+    def _compute(self) -> xr.DataArray:
+        return wind_direction(self._u_wind, self._v_wind)
+
+
+class HorizontalDivergence(Diagnostic):
+    _divergence: xr.DataArray
+
+    def __init__(self, divergence: xr.DataArray) -> None:
+        super().__init__("Divergence")
+        self._divergence = divergence
+
+    def _compute(self) -> xr.DataArray:
+        return np.abs(self._divergence)  # pyright: ignore[reportReturnType]
+
+
+class MagnitudePotentialVorticity(Diagnostic):
+    _potential_vorticity: xr.DataArray
+
+    def __init__(self, potential_vorticity: xr.DataArray) -> None:
+        super().__init__("|PV|")
+        self._potential_vorticity = potential_vorticity
+
+    def _compute(self) -> xr.DataArray:
+        return np.abs(self._potential_vorticity)  # pyright: ignore[reportReturnType]
+
+
+class GradientPotentialVorticity(Diagnostic):
+    _potential_vorticity: xr.DataArray
+
+    def __init__(self, potential_vorticity: xr.DataArray) -> None:
+        super().__init__("|\\nabla PV|")
+        self._potential_vorticity = potential_vorticity
+
+    def _compute(self) -> xr.DataArray:
+        return magnitude_of_geospatial_gradient(self._potential_vorticity)
+
+
+class VerticalVorticitySquared(Diagnostic):
+    _vorticity: xr.DataArray
+
+    def __init__(self, vorticity: xr.DataArray) -> None:
+        super().__init__("Vorticity Squared")
+        self._vorticity = vorticity
+
+    def _compute(self) -> xr.DataArray:
+        return self._vorticity * self._vorticity
