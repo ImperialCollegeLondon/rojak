@@ -3,9 +3,17 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import xarray as xr
+from dask.base import is_dask_collection
 
 from rojak.core.derivatives import GradientMode, VelocityDerivative, spatial_gradient
-from rojak.turbulence.calculations import altitude_derivative_on_pressure_level, magnitude_of_vector
+from rojak.turbulence.calculations import (
+    GRAVITATIONAL_ACCELERATION,
+    altitude_derivative_on_pressure_level,
+    angles_gradient,
+    magnitude_of_vector,
+    wind_direction,
+    wind_speed,
+)
 
 if TYPE_CHECKING:
     from rojak.core.derivatives import SpatialGradientKeys
@@ -159,3 +167,41 @@ class Frontogenesis2D(Diagnostic):
             + dtheta["dfdx"] * dtheta["dfdy"] * self._dv_dy
             + dtheta["dfdx"] * dtheta["dfdy"] * self._du_dy
         )
+
+
+class Endlich(Diagnostic):
+    _u_wind: xr.DataArray
+    _v_wind: xr.DataArray
+    _wind_direction: xr.DataArray
+    _geopotential: xr.DataArray
+
+    def __init__(self, u_wind: xr.DataArray, v_wind: xr.DataArray, geopotential: xr.DataArray) -> None:
+        super().__init__("Endlich")
+        self._u_wind = u_wind
+        self._v_wind = v_wind
+        self._wind_direction = wind_direction(u_wind, v_wind)
+        self._geopotential = geopotential
+
+    def _compute(self) -> xr.DataArray:
+        values_in_z_axis: np.ndarray = self._u_wind["pressure_level"].data
+        z_axis: int = self._u_wind.get_axis_num("pressure_level")
+
+        if is_dask_collection(self._u_wind):
+            d_direction_d_p: xr.DataArray = xr.apply_ufunc(
+                angles_gradient,
+                self._wind_direction,
+                kwargs={"coord_values": values_in_z_axis, "target_axis": z_axis},
+                dask="parallelized",
+                output_dtypes=[np.float32],
+            ).compute()
+        else:
+            d_direction_d_p_values: np.ndarray = angles_gradient(
+                self._wind_direction.values, z_axis, coord_values=values_in_z_axis
+            )
+            d_direction_d_p: xr.DataArray = self._wind_direction.copy(data=d_direction_d_p_values)
+
+        d_direction_d_z: xr.DataArray = GRAVITATIONAL_ACCELERATION * (
+            d_direction_d_p / self._geopotential.differentiate("pressure_level")
+        )
+        speed: xr.DataArray = wind_speed(self._u_wind, self._v_wind)
+        return speed * np.abs(d_direction_d_z)
