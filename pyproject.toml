@@ -25,7 +25,7 @@ build-backend = "hatchling.build"
 rojak = "rojak.cli.main:app"
 
 [dependency-groups]
-complete = ["rojak[ecmwf,amdar]"]
+#complete = ["rojak[ecmwf,amdar]"]
 dev = [
     "pre-commit>=4.2.0",
     "pyright>=1.1.400",
@@ -35,7 +35,10 @@ test = [
     "pytest>=8.3.5",
     "pytest-cov>=6.1.1",
 ]
-docs = []
+docs = [
+    "myst-parser>=4.0.1",
+    "sphinx>=8.2.3",
+]
 ecmwf = [
     "cdsapi>=0.7.5",
 ]
