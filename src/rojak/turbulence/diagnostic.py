@@ -684,7 +684,7 @@ class EDRLunnon(Diagnostic):
         ) * self._stretching_deformation - 2 * du_dp * dv_dp * self._shear_deformation
 
 
-class DiagnosticBuilder:
+class DiagnosticFactory:
     _data: "CATData"
     _richardson: xr.DataArray | None = None
 
