@@ -1,9 +1,10 @@
-from typing import TYPE_CHECKING, List, Literal
+from typing import TYPE_CHECKING, ClassVar, List, Literal
 
 import cdsapi
+from dask.base import is_dask_collection
 from rich.progress import track
 
-from rojak.core.data import DataRetriever
+from rojak.core.data import CATData, DataRetriever, DataVarSchema, MetData
 from rojak.datalib.ecmwf.constants import (
     blank_default,
     data_defaults,
@@ -13,6 +14,8 @@ from rojak.datalib.ecmwf.constants import (
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    import xarray as xr
 
     from rojak.core.data import Date
 
@@ -88,3 +91,48 @@ class Era5Retriever(DataRetriever):
             this_request,
             target=(base_output_dir / self.folder_name / f"{date.year}-{date.month}-{date.day}.nc"),
         )
+
+
+class Era5Data(MetData):
+    # Instance variables
+    _on_pressure_level: "xr.Dataset"
+
+    # Class variables which are not set on an instance
+    temperature: ClassVar[DataVarSchema] = DataVarSchema("t", "temperature")
+    divergence: ClassVar[DataVarSchema] = DataVarSchema("d", "divergence_of_wind")
+    geopotential: ClassVar[DataVarSchema] = DataVarSchema("z", "geopotential")
+    specific_humidity: ClassVar[DataVarSchema] = DataVarSchema("q", "specific_humidity")
+    eastward_wind: ClassVar[DataVarSchema] = DataVarSchema("u", "eastward_wind")
+    northward_wind: ClassVar[DataVarSchema] = DataVarSchema("v", "northward_wind")
+    potential_vorticity: ClassVar[DataVarSchema] = DataVarSchema("pv", "potential_vorticity")
+    vorticity: ClassVar[DataVarSchema] = DataVarSchema("vo", "vorticity")
+    vertical_velocity: ClassVar[DataVarSchema] = DataVarSchema("w", "vertical_velocity")
+
+    def __init__(self, on_pressure_level: "xr.Dataset") -> None:
+        super().__init__()
+        self._on_pressure_level = on_pressure_level
+
+    def to_clear_air_turbulence_data(self) -> CATData:
+        target_variables: list[DataVarSchema] = [
+            Era5Data.temperature,
+            Era5Data.divergence,
+            Era5Data.geopotential,
+            Era5Data.specific_humidity,
+            Era5Data.eastward_wind,
+            Era5Data.northward_wind,
+            Era5Data.potential_vorticity,
+            Era5Data.vorticity,
+        ]
+        target_var_names: list[str] = [var.database_name for var in target_variables]
+        target_data: "xr.Dataset" = self._on_pressure_level[target_var_names]
+        target_data = target_data.rename_vars({var.database_name: var.cf_name for var in target_variables})
+        target_data.assign_coords(
+            altitude=(
+                "pressure_level",
+                self.pressure_to_altitude_std_atm(target_data["pressure_level"]),
+            )
+        )
+        target_data.rename({"valid_time": "time"})
+        if is_dask_collection(target_data):
+            target_data = target_data.drop_vars("expver")
+        return CATData(target_data)

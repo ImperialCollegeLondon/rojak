@@ -49,6 +49,7 @@ class TurbulenceDiagnostics(StrEnum):
     ENDLICH = "endlich"
     COLSON_PANOFSKY = "colson_panofsky"
     WIND_SPEED = "wind_speed"
+    WIND_DIRECTION = "wind_direction"
     BRUNT_VAISALA = "bunt_vaisala"
     VWS = "vertical_wind_shear"
     DEF = "deformation"
@@ -81,6 +82,9 @@ class BaseConfigModel(BaseModel):
                 raise InvalidConfigurationError(str(e)) from e
             return instance
         raise InvalidConfigurationError("Configuration file not found or is not a file.")
+
+
+# Make threshold values something that is passed in
 
 
 class TurbulenceConfig(BaseConfigModel):

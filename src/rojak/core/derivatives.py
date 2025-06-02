@@ -1,6 +1,6 @@
 import warnings
 from enum import Enum, StrEnum, auto
-from typing import Literal, NamedTuple, Tuple
+from typing import Literal, NamedTuple, Tuple, assert_never
 
 import dask.array as da
 import numpy as np
@@ -47,10 +47,7 @@ def is_in_degrees(
     )
 
 
-def is_lat_lon_in_degrees(
-    latitude: ArrayLike,
-    longitude: ArrayLike,
-) -> bool:
+def is_lat_lon_in_degrees(latitude: ArrayLike, longitude: ArrayLike) -> bool:
     is_lat_in_degrees: bool = is_in_degrees(latitude, coordinate="latitude")
     is_lon_in_degrees: bool = is_in_degrees(longitude, coordinate="longitude")
 
@@ -152,7 +149,6 @@ class ProjectionCorrectionFactors(NamedTuple):
     meridional_scale: xr.DataArray
 
 
-# TODO: TEST
 # Modified from https://github.com/Unidata/MetPy/blob/6df0cde7893c0f55e44946137263cb322d59aae4/src/metpy/calc/tools.py#L1124
 def get_projection_correction_factors(
     latitude: "xr.DataArray",
@@ -180,7 +176,6 @@ def get_dimension_number(name: str, data_array: "xr.DataArray") -> int:
     return data_array.dims.index(name)
 
 
-# TODO: TEST
 def first_derivative(array: "xr.DataArray", grid_spacing_in_meters: ArrayLike, axis: int) -> "xr.DataArray":
     coordinate_of_values: np.ndarray = np.cumsum(np.insert(grid_spacing_in_meters, 0, [0]))
     if is_dask_collection(array):
@@ -200,6 +195,8 @@ class CartesianDimension(StrEnum):
                 return "longitude"
             case CartesianDimension.Y:
                 return "latitude"
+            case _ as unreachable:
+                assert_never(unreachable)
         return None
 
     def get_grid_spacing(self, grid_deltas: GridSpacing) -> ArrayLike:
@@ -208,6 +205,8 @@ class CartesianDimension(StrEnum):
                 grid_delta = grid_deltas.dx
             case CartesianDimension.Y:
                 grid_delta = grid_deltas.dy
+            case _ as unreachable:
+                assert_never(unreachable)
         return grid_delta
 
     def get_correction_factor(self, factors: ProjectionCorrectionFactors | None) -> xr.DataArray:
@@ -219,6 +218,8 @@ class CartesianDimension(StrEnum):
                 factor = factors.parallel_scale
             case CartesianDimension.Y:
                 factor = factors.meridional_scale
+            case _ as unreachable:
+                assert_never(unreachable)
         return factor
 
 
@@ -278,6 +279,8 @@ def spatial_gradient(
                 gradients["dfdx"] = computed_gradient
             case CartesianDimension.Y:
                 gradients["dfdy"] = computed_gradient
+            case _ as unreachable:
+                assert_never(unreachable)
 
     return gradients
 
@@ -403,5 +406,7 @@ def vector_derivatives(
                     )["dfdy"]
                     - u * dy_correction
                 )
+            case _ as unreachable:
+                assert_never(unreachable)
 
     return derivatives
