@@ -4,7 +4,7 @@ import xarray as xr
 from dask.base import is_dask_collection
 from numpy.typing import NDArray
 
-from rojak.orchestrator.configuration import TurbulenceSeverityPercentileConfig
+from rojak.orchestrator.configuration import TurbulenceThresholds
 from rojak.turbulence.analysis import DiagnosticHistogramDistribution, HistogramData, TurbulenceIntensityThresholds
 
 
@@ -12,8 +12,12 @@ def dummy_data_for_percentiles_flattened() -> NDArray:
     return np.arange(101)
 
 
-def dummy_turbulence_percentile_configs() -> list[TurbulenceSeverityPercentileConfig]:
-    return [TurbulenceSeverityPercentileConfig(name="light", lower_bound=97, upper_bound=99)]
+def dummy_turbulence_percentile_configs() -> TurbulenceThresholds:
+    return TurbulenceThresholds(light=90, light_to_moderate=93, moderate=95, moderate_to_severe=97, severe=99)
+
+
+def dummy_turbulence_percentile_configs_with_none() -> TurbulenceThresholds:
+    return TurbulenceThresholds(light=90, moderate=95, severe=99)
 
 
 def test_turbulence_intensity_threshold_post_processor():
@@ -21,13 +25,18 @@ def test_turbulence_intensity_threshold_post_processor():
         dummy_turbulence_percentile_configs(), xr.DataArray(dummy_data_for_percentiles_flattened())
     )
     output = processor.execute()
-    assert output["light"] == 97
+    assert output == dummy_turbulence_percentile_configs()
 
-    processor: TurbulenceIntensityThresholds = TurbulenceIntensityThresholds(
+    processor_dask: TurbulenceIntensityThresholds = TurbulenceIntensityThresholds(
         dummy_turbulence_percentile_configs(), xr.DataArray(da.asarray(dummy_data_for_percentiles_flattened()))
     )
-    output = processor.execute()
-    assert output["light"] == 97
+    output_dask = processor_dask.execute()
+    assert output_dask == dummy_turbulence_percentile_configs()
+
+    processor_with_none = TurbulenceIntensityThresholds(
+        dummy_turbulence_percentile_configs_with_none(), xr.DataArray(dummy_data_for_percentiles_flattened())
+    )
+    assert processor_with_none.execute() == dummy_turbulence_percentile_configs_with_none()
 
 
 def test_histogram_distribution_serial_and_parallel_match():

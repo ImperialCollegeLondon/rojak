@@ -3,10 +3,8 @@ from contextlib import nullcontext
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-import numpy as np
 import pytest
 import yaml
-from pydantic import ValidationError
 
 from rojak.orchestrator import configuration
 from rojak.orchestrator.configuration import (
@@ -379,22 +377,30 @@ def test_meteorology_config(dict_to_file, expectation) -> None:
     assert e.type is InvalidConfigurationError
 
 
-@pytest.mark.parametrize(
-    "upper, lower, expectation",
-    [
-        pytest.param(np.inf, 0.0, nullcontext(0), id="inf_upper"),
-        pytest.param(99.0, 0.0, nullcontext(0), id="zero_lower"),
-        pytest.param(99.9, 99.8, nullcontext(0), id="close_to_hundred"),
-        pytest.param(90.0, 95.0, pytest.raises(InvalidConfigurationError), id="lower_greater_than_upper"),
-        pytest.param(101.0, 90.0, pytest.raises(InvalidConfigurationError), id="upper_greater_than_100"),
-        pytest.param(99.0, -1.0, pytest.raises(ValidationError), id="negative_lower"),
-    ],
-)
-def test_turbulence_severity_percentile_config(upper: float, lower: float, expectation):
-    with expectation as e:
-        config = configuration.TurbulenceSeverityPercentileConfig(name="test", lower_bound=lower, upper_bound=upper)
-        assert config.lower_bound == lower
-        assert config.upper_bound == upper
+# @pytest.mark.parametrize(
+#     "upper, lower, expectation",
+#     [
+#         pytest.param(np.inf, 0.0, nullcontext(0), id="inf_upper"),
+#         pytest.param(99.0, 0.0, nullcontext(0), id="zero_lower"),
+#         pytest.param(99.9, 99.8, nullcontext(0), id="close_to_hundred"),
+#         pytest.param(90.0, 95.0, pytest.raises(InvalidConfigurationError), id="lower_greater_than_upper"),
+#         pytest.param(101.0, 90.0, pytest.raises(InvalidConfigurationError), id="upper_greater_than_100"),
+#         pytest.param(99.0, -1.0, pytest.raises(ValidationError), id="negative_lower"),
+#     ],
+# )
+# def test_turbulence_severity_percentile_config(upper: float, lower: float, expectation):
+#     with expectation as e:
+#         config = configuration.TurbulenceSeverityPercentileConfig(name="test", lower_bound=lower, upper_bound=upper)
+#         assert config.lower_bound == lower
+#         assert config.upper_bound == upper
+#
+#     if e != 0:
+#         assert e.type is expectation.expected_exception
 
-    if e != 0:
-        assert e.type is expectation.expected_exception
+
+def test_turbulence_thresholds_all_none():
+    with pytest.raises(InvalidConfigurationError) as e:
+        configuration.TurbulenceThresholds(
+            light=None, light_to_moderate=None, moderate=None, moderate_to_severe=None, severe=None
+        )
+    assert e.type is InvalidConfigurationError

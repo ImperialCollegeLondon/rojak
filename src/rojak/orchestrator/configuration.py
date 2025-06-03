@@ -1,8 +1,7 @@
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Self
+from typing import Annotated, Any, Self
 
-import numpy as np
 import yaml
 from pydantic import AfterValidator, BaseModel, Field, ValidationError, model_validator
 
@@ -32,6 +31,16 @@ class TurbulenceSeverity(StrEnum):
     MODERATE_TO_SEVERE = "moderate_to_severe"
     SEVERE = "severe"
     MODERATE_OR_GREATER = "moderate_or_greater"
+
+    @classmethod
+    def get_in_ascending_order(cls) -> list["TurbulenceSeverity"]:
+        return [
+            TurbulenceSeverity.LIGHT,
+            TurbulenceSeverity.LIGHT_TO_MODERATE,
+            TurbulenceSeverity.MODERATE,
+            TurbulenceSeverity.MODERATE_TO_SEVERE,
+            TurbulenceSeverity.SEVERE,
+        ]
 
 
 class TurbulenceThresholdMode(StrEnum):
@@ -85,27 +94,73 @@ class BaseConfigModel(BaseModel):
         raise InvalidConfigurationError("Configuration file not found or is not a file.")
 
 
-class TurbulenceSeverityPercentileConfig(BaseConfigModel):
-    name: Annotated[str, Field(min_length=1, description="Name of intensity", repr=True, frozen=True, strict=True)]
-    lower_bound: Annotated[
-        float, Field(ge=0, lt=100.0, description="Lower bound of percentile", repr=True, frozen=True)
-    ]
-    upper_bound: Annotated[float, Field(ge=0, description="Upper bound of percentile", repr=True, frozen=True)]
+# class TurbulenceSeverityPercentileConfig(BaseConfigModel):
+#     name: Annotated[str, Field(min_length=1, description="Name of intensity", repr=True, frozen=True, strict=True)]
+#     lower_bound: Annotated[
+#         float, Field(ge=0, lt=100.0, description="Lower bound of percentile", repr=True, frozen=True)
+#     ]
+#     upper_bound: Annotated[float, Field(ge=0, description="Upper bound of percentile", repr=True, frozen=True)]
+#
+#     @model_validator(mode="after")
+#     def check_reasonable_bounds(self) -> Self:
+#         if self.lower_bound > self.upper_bound:
+#             raise InvalidConfigurationError(
+#                 f"Lower bound ({self.lower_bound}) must be greater than upper bound ({self.upper_bound})"
+#             )
+#         if np.inf > self.upper_bound > 100:
+#             raise InvalidConfigurationError(
+#                 f"Upper bound ({self.upper_bound}) must be infinite or less than or equal to 100"
+#             )
+#         return self
+
+
+class TurbulenceThresholds(BaseConfigModel):
+    light: Annotated[
+        float | None,
+        Field(description="Light turbulence intensity (percentile or diagnostic value)", repr=True, frozen=True),
+    ] = None
+    light_to_moderate: Annotated[
+        float | None,
+        Field(
+            description="Light to moderate turbulence intensity (percentile or diagnostic value)",
+            repr=True,
+            frozen=True,
+        ),
+    ] = None
+    moderate: Annotated[
+        float | None,
+        Field(description="Moderate turbulence intensity (percentile or diagnostic value)", repr=True, frozen=True),
+    ] = None
+    moderate_to_severe: Annotated[
+        float | None,
+        Field(
+            description="Moderate to severe turbulence intensity (percentile or diagnostic value)",
+            repr=True,
+            frozen=True,
+        ),
+    ] = None
+    severe: Annotated[
+        float | None,
+        Field(description="Severe turbulence intensity (percentile or diagnostic value)", repr=True, frozen=True),
+    ] = None
+    _all_severities: list[float | None] = []
 
     @model_validator(mode="after")
-    def check_reasonable_bounds(self) -> Self:
-        if self.lower_bound > self.upper_bound:
-            raise InvalidConfigurationError(
-                f"Lower bound ({self.lower_bound}) must be greater than upper bound ({self.upper_bound})"
-            )
-        if np.inf > self.upper_bound > 100:
-            raise InvalidConfigurationError(
-                f"Upper bound ({self.upper_bound}) must be infinite or less than or equal to 100"
-            )
+    def check_values_increasing(self) -> Self:
+        if all(severity is None for severity in self._all_severities):
+            raise InvalidConfigurationError("Threshold values cannot all be None")
+        without_nones = [item for item in self._all_severities if item is not None]
+        sorted_severities = sorted(without_nones)
+        if without_nones != sorted_severities:
+            raise InvalidConfigurationError("Values must be in ascending order")
         return self
 
+    def model_post_init(self, context: Any) -> None:  # noqa: ANN401
+        self._all_severities = [self.light, self.light_to_moderate, self.moderate, self.moderate_to_severe, self.severe]
 
-# Make threshold values something that is passed in
+    @property
+    def all_severities(self) -> list[float | None]:
+        return self._all_severities
 
 
 class TurbulenceConfig(BaseConfigModel):
@@ -118,7 +173,7 @@ class TurbulenceConfig(BaseConfigModel):
             frozen=True,
         ),
         AfterValidator(dir_must_exist),
-    ]
+    ]  # Remove this?????
     chunks: Annotated[
         dict,
         Field(
@@ -165,10 +220,13 @@ class TurbulenceConfig(BaseConfigModel):
         list[TurbulenceSeverity],
         Field(description="Target turbulence severity", repr=True),
     ] = [TurbulenceSeverity.LIGHT]
-    threshold_config: Annotated[
-        list[TurbulenceSeverityPercentileConfig] | None,
-        Field(description="Configuration for threshold computation", frozen=True, repr=True),
+    percentile_thresholds: Annotated[
+        TurbulenceThresholds | None, Field(description="Percentile thresholds", frozen=True, repr=True)
     ] = None
+    # threshold_config: Annotated[
+    #     list[TurbulenceSeverityPercentileConfig] | None,
+    #     Field(description="Configuration for threshold computation", frozen=True, repr=True),
+    # ] = None
 
     @model_validator(mode="after")
     def check_either_calibration_data_or_thresholds_present(self) -> Self:
@@ -184,34 +242,34 @@ class TurbulenceConfig(BaseConfigModel):
             raise InvalidConfigurationError("Thresholds file provided is not a file.")
         return self
 
-    # TODO: Add comprehensive tests
-    @model_validator(mode="after")
-    def check_calibration_fully_configured(self) -> Self:
-        if self.calibration_data_dir is not None and self.threshold_config is None:
-            raise InvalidConfigurationError(
-                "If calibration data directory is provided, threshold configuration must be provided."
-            )
-        if (
-            self.threshold_config is not None
-            and self.threshold_mode == TurbulenceThresholdMode.GEQ
-            and any(config.upper_bound != np.inf for config in self.threshold_config)
-        ):
-            raise InvalidConfigurationError("If thresholding is GEQ, upper bound must be infinite")
-        if self.threshold_config is not None and len(self.threshold_config) > 1:
-            previous_lower: float = 0.0
-            previous_upper: float = 0.0
-            for config in self.threshold_config:
-                if config.lower_bound < previous_lower:
-                    raise InvalidConfigurationError(
-                        "Threshold config must be specified in ascending order of lower bound"
-                    )
-                if config.upper_bound != np.inf and previous_upper != 0.0 and config.lower_bound != previous_upper:
-                    raise InvalidConfigurationError(
-                        "If multiple thresholds are specified and are bounded, they must be consecutive"
-                    )
-                previous_lower = config.lower_bound
-
-        return self
+    # # TODO: Add comprehensive tests
+    # @model_validator(mode="after")
+    # def check_calibration_fully_configured(self) -> Self:
+    #     if self.calibration_data_dir is not None and self.threshold_config is None:
+    #         raise InvalidConfigurationError(
+    #             "If calibration data directory is provided, threshold configuration must be provided."
+    #         )
+    #     if (
+    #         self.threshold_config is not None
+    #         and self.threshold_mode == TurbulenceThresholdMode.GEQ
+    #         and any(config.upper_bound != np.inf for config in self.threshold_config)
+    #     ):
+    #         raise InvalidConfigurationError("If thresholding is GEQ, upper bound must be infinite")
+    #     if self.threshold_config is not None and len(self.threshold_config) > 1:
+    #         previous_lower: float = 0.0
+    #         previous_upper: float = 0.0
+    #         for config in self.threshold_config:
+    #             if config.lower_bound < previous_lower:
+    #                 raise InvalidConfigurationError(
+    #                     "Threshold config must be specified in ascending order of lower bound"
+    #                 )
+    #             if config.upper_bound != np.inf and previous_upper != 0.0 and config.lower_bound != previous_upper:
+    #                 raise InvalidConfigurationError(
+    #                     "If multiple thresholds are specified and are bounded, they must be consecutive"
+    #                 )
+    #             previous_lower = config.lower_bound
+    #
+    #     return self
 
 
 class ContrailModel(StrEnum):
