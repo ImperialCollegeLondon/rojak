@@ -2,7 +2,7 @@ import calendar
 import itertools
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar, List, NamedTuple
+from typing import TYPE_CHECKING, ClassVar, List, Mapping, NamedTuple
 
 import xarray as xr
 
@@ -184,6 +184,24 @@ class CATData(CATPrognosticData):
             vec_derivs[VelocityDerivative.DU_DX] * vec_derivs[VelocityDerivative.DV_DY]
             - vec_derivs[VelocityDerivative.DU_DY] * vec_derivs[VelocityDerivative.DV_DX]
         )
+
+
+def load_from_folder(
+    path_to_folder: "Path",
+    glob_pattern: str = "*.nc",
+    chunks: Mapping | None = None,
+    is_decoded: bool = True,
+) -> "xr.Dataset":
+    if chunks is None:
+        raise ValueError("Chunks for ERA5 multi-file load cannot be None")
+    return xr.open_mfdataset(
+        str(path_to_folder / glob_pattern),
+        chunks=chunks,
+        parallel=True,
+        decode_coords=is_decoded,
+        decode_cf=is_decoded,
+        decode_timedelta=True,
+    )
 
 
 class MetData(ABC):
