@@ -3,8 +3,10 @@ from contextlib import nullcontext
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+import numpy as np
 import pytest
 import yaml
+from pydantic import ValidationError
 
 from rojak.orchestrator import configuration
 from rojak.orchestrator.configuration import (
@@ -224,10 +226,15 @@ def test_turbulence_config_invalid_config_default(dict_to_file) -> None:
     assert excinfo.type is InvalidConfigurationError
 
 
+def dummy_threshold_config():
+    return [{"name": "test", "lower_bound": 97, "upper_bound": 100}]
+
+
 @pytest.fixture
 def make_turbulence_config_with_calibration_dir(make_empty_temp_dir, tmp_path_factory, request) -> "Path":
     content = copy.deepcopy(request.param)
     content["calibration_data_dir"] = str(make_empty_temp_dir)
+    content["threshold_config"] = dummy_threshold_config()
     content["evaluation_data_dir"] = str(tmp_path_factory.mktemp("data"))
     return dump_dict_to_file(tmp_path_factory.getbasetemp(), content)
 
@@ -240,7 +247,7 @@ turbulence_config_field_permutations = [
             configuration.TurbulenceDiagnostics.DEF,
             configuration.TurbulenceDiagnostics.BROWN1,
         ],
-        "threshold_mode": configuration.TurbulenceThresholdMode.GEQ,
+        "threshold_mode": configuration.TurbulenceThresholdMode.BOUNDED,
     },
     {
         "chunks": {"something": 1},
@@ -248,7 +255,7 @@ turbulence_config_field_permutations = [
             configuration.TurbulenceDiagnostics.DEF,
             configuration.TurbulenceDiagnostics.BROWN1,
         ],
-        "threshold_mode": configuration.TurbulenceThresholdMode.GEQ,
+        "threshold_mode": configuration.TurbulenceThresholdMode.BOUNDED,
         "severities": [
             configuration.TurbulenceSeverity.LIGHT,
             configuration.TurbulenceSeverity.SEVERE,
@@ -370,3 +377,24 @@ def test_meteorology_config(dict_to_file, expectation) -> None:
     with expectation as e:
         configuration.MeteorologyConfig.from_yaml(dict_to_file)
     assert e.type is InvalidConfigurationError
+
+
+@pytest.mark.parametrize(
+    "upper, lower, expectation",
+    [
+        pytest.param(np.inf, 0.0, nullcontext(0), id="inf_upper"),
+        pytest.param(99.0, 0.0, nullcontext(0), id="zero_lower"),
+        pytest.param(99.9, 99.8, nullcontext(0), id="close_to_hundred"),
+        pytest.param(90.0, 95.0, pytest.raises(InvalidConfigurationError), id="lower_greater_than_upper"),
+        pytest.param(101.0, 90.0, pytest.raises(InvalidConfigurationError), id="upper_greater_than_100"),
+        pytest.param(99.0, -1.0, pytest.raises(ValidationError), id="negative_lower"),
+    ],
+)
+def test_turbulence_severity_percentile_config(upper: float, lower: float, expectation):
+    with expectation as e:
+        config = configuration.TurbulenceSeverityPercentileConfig(name="test", lower_bound=lower, upper_bound=upper)
+        assert config.lower_bound == lower
+        assert config.upper_bound == upper
+
+    if e != 0:
+        assert e.type is expectation.expected_exception
