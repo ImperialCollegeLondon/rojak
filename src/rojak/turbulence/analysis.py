@@ -105,7 +105,7 @@ class HistogramData:
         return False
 
 
-class DiagnosticDistribution(PostProcessor):
+class DiagnosticHistogramDistribution(PostProcessor):
     _computed_diagnostic: xr.DataArray
     _NUM_HIST_BINS: int = 50
 
