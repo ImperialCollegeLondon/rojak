@@ -242,34 +242,34 @@ class TurbulenceConfig(BaseConfigModel):
             raise InvalidConfigurationError("Thresholds file provided is not a file.")
         return self
 
-    # # TODO: Add comprehensive tests
-    # @model_validator(mode="after")
-    # def check_calibration_fully_configured(self) -> Self:
-    #     if self.calibration_data_dir is not None and self.threshold_config is None:
-    #         raise InvalidConfigurationError(
-    #             "If calibration data directory is provided, threshold configuration must be provided."
-    #         )
-    #     if (
-    #         self.threshold_config is not None
-    #         and self.threshold_mode == TurbulenceThresholdMode.GEQ
-    #         and any(config.upper_bound != np.inf for config in self.threshold_config)
-    #     ):
-    #         raise InvalidConfigurationError("If thresholding is GEQ, upper bound must be infinite")
-    #     if self.threshold_config is not None and len(self.threshold_config) > 1:
-    #         previous_lower: float = 0.0
-    #         previous_upper: float = 0.0
-    #         for config in self.threshold_config:
-    #             if config.lower_bound < previous_lower:
-    #                 raise InvalidConfigurationError(
-    #                     "Threshold config must be specified in ascending order of lower bound"
-    #                 )
-    #             if config.upper_bound != np.inf and previous_upper != 0.0 and config.lower_bound != previous_upper:
-    #                 raise InvalidConfigurationError(
-    #                     "If multiple thresholds are specified and are bounded, they must be consecutive"
-    #                 )
-    #             previous_lower = config.lower_bound
-    #
-    #     return self
+    # TODO: Add comprehensive tests
+    @model_validator(mode="after")
+    def check_calibration_fully_configured(self) -> Self:
+        if self.calibration_data_dir is not None and self.percentile_thresholds is None:
+            raise InvalidConfigurationError(
+                "If calibration data directory is provided, threshold configuration must be provided."
+            )
+        # if (
+        #     self.threshold_config is not None
+        #     and self.threshold_mode == TurbulenceThresholdMode.GEQ
+        #     and any(config.upper_bound != np.inf for config in self.threshold_config)
+        # ):
+        #     raise InvalidConfigurationError("If thresholding is GEQ, upper bound must be infinite")
+        # if self.threshold_config is not None and len(self.threshold_config) > 1:
+        #     previous_lower: float = 0.0
+        #     previous_upper: float = 0.0
+        #     for config in self.threshold_config:
+        #         if config.lower_bound < previous_lower:
+        #             raise InvalidConfigurationError(
+        #                 "Threshold config must be specified in ascending order of lower bound"
+        #             )
+        #         if config.upper_bound != np.inf and previous_upper != 0.0 and config.lower_bound != previous_upper:
+        #             raise InvalidConfigurationError(
+        #                 "If multiple thresholds are specified and are bounded, they must be consecutive"
+        #             )
+        #         previous_lower = config.lower_bound
+
+        return self
 
 
 class ContrailModel(StrEnum):

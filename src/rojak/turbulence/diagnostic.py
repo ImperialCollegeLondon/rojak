@@ -1,9 +1,10 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, assert_never
+from typing import TYPE_CHECKING, Generator, assert_never
 
 import numpy as np
 import xarray as xr
 from dask.base import is_dask_collection
+from xarray import DataArray
 
 from rojak.core.derivatives import (
     CartesianDimension,
@@ -807,3 +808,17 @@ class DiagnosticFactory:
                 )
             case _ as unreachable:
                 assert_never(unreachable)
+
+
+class DiagnosticSuite:
+    _diagnostics: dict[DiagnosticName, Diagnostic]
+
+    def __init__(self, factory: DiagnosticFactory, diagnostics: list[TurbulenceDiagnostics]) -> None:
+        self._diagnostics: dict[DiagnosticName, Diagnostic] = {
+            str(diagnostics): factory.create(diagnostic)
+            for diagnostic in diagnostics  # TurbulenceDiagnostic
+        }
+
+    def computed_values(self) -> Generator[tuple[DiagnosticName, DataArray]]:
+        for name, diagnostic in self._diagnostics.items():  # DiagnosticName, Diagnostic
+            yield name, diagnostic.computed_value
