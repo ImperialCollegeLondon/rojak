@@ -231,6 +231,9 @@ class LatitudinalCorrelationBetweenDiagnostics(PostProcessor):
         entire_tropics: Limits = Limits(lower=-25, upper=25)
         half_tropics: Limits = Limits(lower=0, upper=25)
         assert "latitude" in array.coords
+        assert min(array["latitude"]) <= entire_tropics.lower
+        assert max(array["latitude"]) >= extratropic_latitudes.upper
+        # TODO: Make this pattern matching less clunky
         match hemisphere:
             case Hemisphere.GLOBAL:
                 match region:
