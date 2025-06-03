@@ -1,7 +1,7 @@
 import itertools
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Hashable, Mapping
+from typing import Any, Hashable, Mapping, assert_never
 
 import dask.array as da
 import numpy as np
@@ -231,44 +231,68 @@ class LatitudinalCorrelationBetweenDiagnostics(PostProcessor):
         entire_tropics: Limits = Limits(lower=-25, upper=25)
         half_tropics: Limits = Limits(lower=0, upper=25)
         assert "latitude" in array.coords
-        if hemisphere == "global":
-            if region == "full":
-                return array
-            if region == "tropics":
-                return array.where(
-                    ((array["latitude"] > entire_tropics.lower) & (array["latitude"] < entire_tropics.upper)), drop=True
-                )
-            # extratropics
-            return array.where(
-                (
-                    (
-                        (array["latitude"] > extratropic_latitudes.lower)
-                        & (array["latitude"] < extratropic_latitudes.upper)
-                    )
-                    | (
-                        (array["latitude"] > -extratropic_latitudes.upper)
-                        & (array["latitude"] < -extratropic_latitudes.lower)
-                    )
-                ),
-                drop=True,
-            )
-        if hemisphere == "north":
-            if region == "full":
-                return array.where(array["latitude"] > 0, drop=True)
-
-            target_latitudes: Limits = half_tropics if region == "tropics" else extratropic_latitudes
-            return array.where(
-                ((array["latitude"] > target_latitudes.lower) & (array["latitude"] < target_latitudes.upper)), drop=True
-            )
-        # south
-        if region == "full":
-            return array.where(array["latitude"] < 0, drop=True)
-
-        target_latitudes: Limits = half_tropics if region == "tropics" else extratropic_latitudes
-        return array.where(
-            ((array["latitude"] > -target_latitudes.upper) & (array["latitude"] < -target_latitudes.lower)),
-            drop=True,
-        )
+        match hemisphere:
+            case Hemisphere.GLOBAL:
+                match region:
+                    case LatitudinalRegion.FULL:
+                        return array
+                    case LatitudinalRegion.TROPICS:
+                        return array.where(
+                            ((array["latitude"] > entire_tropics.lower) & (array["latitude"] < entire_tropics.upper)),
+                            drop=True,
+                        )
+                    case LatitudinalRegion.EXTRATROPICS:
+                        return array.where(
+                            (
+                                (
+                                    (array["latitude"] > extratropic_latitudes.lower)
+                                    & (array["latitude"] < extratropic_latitudes.upper)
+                                )
+                                | (
+                                    (array["latitude"] > -extratropic_latitudes.upper)
+                                    & (array["latitude"] < -extratropic_latitudes.lower)
+                                )
+                            ),
+                            drop=True,
+                        )
+                    case _ as unreachable:
+                        assert_never(unreachable)
+            case Hemisphere.NORTH:
+                match region:
+                    case LatitudinalRegion.FULL:
+                        return array.where(array["latitude"] > 0, drop=True)
+                    case LatitudinalRegion.TROPICS | LatitudinalRegion.EXTRATROPICS:
+                        target_latitudes: Limits = (
+                            half_tropics if region == LatitudinalRegion.TROPICS else extratropic_latitudes
+                        )
+                        return array.where(
+                            (
+                                (array["latitude"] > target_latitudes.lower)
+                                & (array["latitude"] < target_latitudes.upper)
+                            ),
+                            drop=True,
+                        )
+                    case _ as unreachable:
+                        assert_never(unreachable)
+            case Hemisphere.SOUTH:
+                match region:
+                    case LatitudinalRegion.FULL:
+                        return array.where(array["latitude"] < 0, drop=True)
+                    case LatitudinalRegion.TROPICS | LatitudinalRegion.EXTRATROPICS:
+                        target_latitudes: Limits = (
+                            half_tropics if region == LatitudinalRegion.TROPICS else extratropic_latitudes
+                        )
+                        return array.where(
+                            (
+                                (array["latitude"] > -target_latitudes.upper)
+                                & (array["latitude"] < -target_latitudes.lower)
+                            ),
+                            drop=True,
+                        )
+                    case _ as unreachable:
+                        assert_never(unreachable)
+            case _ as unreachable:
+                assert_never(unreachable)
 
     def execute(self) -> xr.DataArray:
         possible_coordinates: set[str] = {"latitude", "longitude", "valid_time"}
