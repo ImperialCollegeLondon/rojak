@@ -1,4 +1,7 @@
+import itertools
 from dataclasses import dataclass
+from enum import StrEnum
+from typing import Any, Hashable, Mapping
 
 import dask.array as da
 import numpy as np
@@ -8,6 +11,8 @@ from numpy.typing import NDArray
 
 from rojak.core.analysis import PostProcessor
 from rojak.orchestrator.configuration import TurbulenceSeverityPercentileConfig
+from rojak.turbulence.diagnostic import DiagnosticName
+from rojak.utilities.types import Limits
 
 type IntensityName = str
 type IntensityValues = dict[IntensityName, float]
@@ -146,3 +151,169 @@ class DiagnosticHistogramDistribution(PostProcessor):
         if is_dask_collection(self._computed_diagnostic):
             return self._parallel_execution()
         return self._serial_execution()
+
+
+class CorrelationBetweenDiagnostics(PostProcessor):
+    _diagnostic_names: list[DiagnosticName]
+    _computed_indices: dict[DiagnosticName, xr.DataArray]
+    _sel_condition: Mapping[str, Any]
+
+    def __init__(self, computed_indices: dict[DiagnosticName, xr.DataArray], sel_condition: Mapping[str, Any]) -> None:
+        self._computed_indices = computed_indices
+        self._diagnostic_names = list(self._computed_indices.keys())
+        self._sel_condition = sel_condition
+
+    def execute(self) -> xr.DataArray:
+        num_diagnostics: int = len(self._diagnostic_names)
+        corr_btw_diagnostics: xr.DataArray = xr.DataArray(
+            data=np.ones((num_diagnostics, num_diagnostics)),
+            dims=("diagnostic1", "diagnostic2"),
+            coords={"diagnostic1": self._diagnostic_names, "diagnostic2": self._diagnostic_names},
+        )
+        for first_diagnostic, second_diagnostic in itertools.combinations(self._diagnostic_names, 2):
+            this_corr: xr.DataArray = (
+                xr.corr(
+                    self._computed_indices[first_diagnostic].sel(self._sel_condition),
+                    self._computed_indices[second_diagnostic].sel(self._sel_condition),
+                )
+                .stack(flat=[...])
+                .compute()
+            )
+            corr_btw_diagnostics.loc[{"diagnostic1": first_diagnostic, "diagnostic2": second_diagnostic}] = this_corr
+            corr_btw_diagnostics.loc[{"diagnostic1": second_diagnostic, "diagnostic2": first_diagnostic}] = this_corr
+
+        return corr_btw_diagnostics
+
+
+class Hemisphere(StrEnum):
+    GLOBAL = "global"
+    NORTH = "north"
+    SOUTH = "south"
+
+
+class LatitudinalRegion(StrEnum):
+    FULL = "full"
+    EXTRATROPICS = "extratropics"
+    TROPICS = "tropics"
+
+
+class LatitudinalCorrelationBetweenDiagnostics(PostProcessor):
+    _computed_indices: Mapping[DiagnosticName, xr.DataArray]
+    _hemispheres: list[Hemisphere]
+    _latitudinal_regions: list[LatitudinalRegion]
+    _diagnostic_names: list[DiagnosticName]
+    _sel_condition: Mapping[str, Any]
+
+    def __init__(
+        self,
+        computed_indices: Mapping[DiagnosticName, xr.DataArray],
+        sel_condition: Mapping[str, Any],
+        hemispheres: list[Hemisphere] | None = None,
+        regions: list[LatitudinalRegion] | None = None,
+    ) -> None:
+        self._computed_indices = computed_indices
+        self._diagnostic_names = list(computed_indices.keys())
+        if hemispheres is None:
+            self._hemispheres = [Hemisphere.GLOBAL, Hemisphere.NORTH, Hemisphere.SOUTH]
+        else:
+            assert 1 <= len(hemispheres) <= 3
+            self._hemispheres = hemispheres
+        if regions is None:
+            self._regions = [LatitudinalRegion.FULL, LatitudinalRegion.EXTRATROPICS, LatitudinalRegion.TROPICS]
+        else:
+            assert 1 <= len(regions) <= 3
+            self._regions = regions
+        self._sel_condition = sel_condition
+
+    @staticmethod
+    def _apply_region_filter(array: xr.DataArray, hemisphere: Hemisphere, region: LatitudinalRegion) -> xr.DataArray:
+        extratropic_latitudes: Limits = Limits(lower=25, upper=65)
+        entire_tropics: Limits = Limits(lower=-25, upper=25)
+        half_tropics: Limits = Limits(lower=0, upper=25)
+        assert "latitude" in array.coords
+        if hemisphere == "global":
+            if region == "full":
+                return array
+            if region == "tropics":
+                return array.where(
+                    ((array["latitude"] > entire_tropics.lower) & (array["latitude"] < entire_tropics.upper)), drop=True
+                )
+            # extratropics
+            return array.where(
+                (
+                    (
+                        (array["latitude"] > extratropic_latitudes.lower)
+                        & (array["latitude"] < extratropic_latitudes.upper)
+                    )
+                    | (
+                        (array["latitude"] > -extratropic_latitudes.upper)
+                        & (array["latitude"] < -extratropic_latitudes.lower)
+                    )
+                ),
+                drop=True,
+            )
+        if hemisphere == "north":
+            if region == "full":
+                return array.where(array["latitude"] > 0, drop=True)
+
+            target_latitudes: Limits = half_tropics if region == "tropics" else extratropic_latitudes
+            return array.where(
+                ((array["latitude"] > target_latitudes.lower) & (array["latitude"] < target_latitudes.upper)), drop=True
+            )
+        # south
+        if region == "full":
+            return array.where(array["latitude"] < 0, drop=True)
+
+        target_latitudes: Limits = half_tropics if region == "tropics" else extratropic_latitudes
+        return array.where(
+            ((array["latitude"] > -target_latitudes.upper) & (array["latitude"] < -target_latitudes.lower)),
+            drop=True,
+        )
+
+    def execute(self) -> xr.DataArray:
+        possible_coordinates: set[str] = {"latitude", "longitude", "valid_time"}
+        remaining_coordinates: list[Hashable] = [
+            coord for coord in list(self._computed_indices.values())[0].dims if coord in possible_coordinates
+        ]
+        num_diagnostics: int = len(self._diagnostic_names)
+        correlations: xr.DataArray = xr.DataArray(
+            data=np.ones((num_diagnostics, num_diagnostics, len(self._hemispheres), len(self._regions))),
+            dims=("diagnostic1", "diagnostic2", "hemisphere", "region"),
+            coords={
+                "diagnostic1": self._diagnostic_names,
+                "diagnostic2": self._diagnostic_names,
+                "hemisphere": self._hemispheres,
+                "region": self._regions,
+            },
+        )
+        for first_diagnostic, second_diagnostic in itertools.combinations(self._diagnostic_names, 2):
+            for hemisphere, region in itertools.product(
+                self._hemispheres, self._regions
+            ):  # Hemisphere, LatitudinalRegion
+                this_correlation: xr.DataArray = xr.corr(
+                    self._apply_region_filter(self._computed_indices[first_diagnostic], hemisphere, region)
+                    .sel(self._sel_condition)
+                    .stack(flat=remaining_coordinates)
+                    .reset_coords(drop=True),
+                    self._apply_region_filter(self._computed_indices[second_diagnostic], hemisphere, region)
+                    .sel(self._sel_condition)
+                    .stack(flat=remaining_coordinates)
+                    .reset_coords(drop=True),
+                ).compute()
+                correlations.loc[
+                    {
+                        "diagnostic1": first_diagnostic,
+                        "diagnostic2": second_diagnostic,
+                        "hemisphere": hemisphere,
+                        "region": region,
+                    }
+                ] = this_correlation
+                correlations.loc[
+                    {
+                        "diagnostic1": second_diagnostic,
+                        "diagnostic2": first_diagnostic,
+                        "hemisphere": hemisphere,
+                        "region": region,
+                    }
+                ] = this_correlation
+        return correlations
