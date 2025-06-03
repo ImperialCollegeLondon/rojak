@@ -5,7 +5,7 @@ from dask.base import is_dask_collection
 from numpy.typing import NDArray
 
 from rojak.orchestrator.configuration import TurbulenceSeverityPercentileConfig
-from rojak.turbulence.analysis import DiagnosticDistribution, HistogramData, TurbulenceIntensityThresholds
+from rojak.turbulence.analysis import DiagnosticHistogramDistribution, HistogramData, TurbulenceIntensityThresholds
 
 
 def dummy_data_for_percentiles_flattened() -> NDArray:
@@ -34,8 +34,8 @@ def test_histogram_distribution_serial_and_parallel_match():
     serial_data_array = xr.DataArray(np.arange(10001))
     parallel_data_array = xr.DataArray(da.asarray(np.arange(10001), chunks=100))
     assert is_dask_collection(parallel_data_array)
-    parallel_result: HistogramData = DiagnosticDistribution(parallel_data_array).execute()
-    serial_result: HistogramData = DiagnosticDistribution(serial_data_array).execute()
+    parallel_result: HistogramData = DiagnosticHistogramDistribution(parallel_data_array).execute()
+    serial_result: HistogramData = DiagnosticHistogramDistribution(serial_data_array).execute()
 
     assert parallel_result.hist_values == serial_result.hist_values
     assert parallel_result.bins == serial_result.bins
