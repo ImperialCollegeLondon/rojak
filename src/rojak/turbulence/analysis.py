@@ -10,7 +10,7 @@ from dask.base import is_dask_collection
 from numpy.typing import NDArray
 
 from rojak.core.analysis import PostProcessor
-from rojak.orchestrator.configuration import TurbulenceSeverityPercentileConfig
+from rojak.orchestrator.configuration import TurbulenceSeverity, TurbulenceThresholds
 from rojak.turbulence.diagnostic import DiagnosticName
 from rojak.utilities.types import Limits
 
@@ -19,29 +19,44 @@ type IntensityValues = dict[IntensityName, float]
 
 
 class TurbulenceIntensityThresholds(PostProcessor):
-    _threshold_configs: list[TurbulenceSeverityPercentileConfig]
+    _percentile_config: TurbulenceThresholds
     _computed_diagnostic: xr.DataArray
 
-    def __init__(
-        self, threshold_config: list[TurbulenceSeverityPercentileConfig], computed_diagnostic: xr.DataArray
-    ) -> None:
-        self._threshold_configs = threshold_config
+    def __init__(self, threshold_config: TurbulenceThresholds, computed_diagnostic: xr.DataArray) -> None:
+        self._percentile_config = threshold_config
         self._computed_diagnostic = computed_diagnostic
 
-    def _compute_percentiles(self, target_percentiles: list[float]) -> NDArray:
+    def _compute_percentiles(self, target_percentiles: NDArray) -> NDArray:
         if is_dask_collection(self._computed_diagnostic):
             # flattened_array = da.asarray(self._computed_diagnostic.data, chunks="auto").flatten()
             flattened_array = da.asarray(self._computed_diagnostic, chunks="auto").flatten()
             return da.percentile(flattened_array, target_percentiles, internal_method="dask").compute()
         return np.percentile(self._computed_diagnostic.stack(all=[...]), target_percentiles)
 
-    def _compute_lower_bounds(self) -> NDArray:
-        lower_bounds = [config.lower_bound for config in self._threshold_configs]
-        return self._compute_percentiles(lower_bounds)
+    def _find_index_without_nones(self) -> list[int | None]:
+        new_index: int = 0
+        new_list: list[int | None] = []
+        for item in self._percentile_config.all_severities:
+            if item is None:
+                new_list.append(None)
+            else:
+                new_list.append(new_index)
+                new_index += 1
+        return new_list
 
-    def execute(self) -> IntensityValues:
-        percentiles = self._compute_lower_bounds()
-        return {str(config.name): float(percentile) for config, percentile in zip(self._threshold_configs, percentiles)}
+    def execute(self) -> TurbulenceThresholds:
+        not_none_mask = [index for index, item in enumerate(self._percentile_config.all_severities) if item is not None]
+        not_none_percentiles = self._compute_percentiles(
+            np.asarray(self._percentile_config.all_severities)[not_none_mask]
+        )
+        mapping_to_severity = self._find_index_without_nones()
+        return TurbulenceThresholds(
+            **{
+                str(severity): index_map if index_map is None else not_none_percentiles[index_map]
+                for index_map, severity in zip(mapping_to_severity, TurbulenceSeverity.get_in_ascending_order())
+            },
+            _all_severities=[],
+        )
 
 
 @dataclass
