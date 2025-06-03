@@ -1,10 +1,11 @@
 import dask.array as da
 import numpy as np
 import xarray as xr
+from dask.base import is_dask_collection
 from numpy.typing import NDArray
 
 from rojak.orchestrator.configuration import TurbulenceSeverityPercentileConfig
-from rojak.turbulence.analysis import TurbulenceIntensityThresholds
+from rojak.turbulence.analysis import DiagnosticDistribution, HistogramData, TurbulenceIntensityThresholds
 
 
 def dummy_data_for_percentiles_flattened() -> NDArray:
@@ -27,3 +28,16 @@ def test_turbulence_intensity_threshold_post_processor():
     )
     output = processor.execute()
     assert output["light"] == 97
+
+
+def test_histogram_distribution_serial_and_parallel_match():
+    serial_data_array = xr.DataArray(np.arange(10001))
+    parallel_data_array = xr.DataArray(da.asarray(np.arange(10001), chunks=100))
+    assert is_dask_collection(parallel_data_array)
+    parallel_result: HistogramData = DiagnosticDistribution(parallel_data_array).execute()
+    serial_result: HistogramData = DiagnosticDistribution(serial_data_array).execute()
+
+    assert parallel_result.hist_values == serial_result.hist_values
+    assert parallel_result.bins == serial_result.bins
+    assert parallel_result.mean == serial_result.mean
+    assert np.abs(parallel_result.variance - serial_result.variance) < 1e-8
