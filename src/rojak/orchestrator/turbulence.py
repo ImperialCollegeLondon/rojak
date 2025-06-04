@@ -6,6 +6,7 @@ from pydantic import TypeAdapter
 from rojak.core import data
 from rojak.datalib.ecmwf.era5 import Era5Data
 from rojak.orchestrator.configuration import TurbulenceCalibrationPhaseOption, TurbulenceThresholds
+from rojak.turbulence.analysis import HistogramData
 from rojak.turbulence.diagnostic import CalibrationDiagnosticSuite, DiagnosticFactory
 
 if TYPE_CHECKING:
@@ -20,7 +21,6 @@ if TYPE_CHECKING:
         TurbulenceConfig,
         TurbulenceDiagnostics,
     )
-    from rojak.turbulence.analysis import HistogramData
     from rojak.utilities.types import DiagnosticName
 
 type RunName = str
@@ -92,11 +92,13 @@ class CalibrationStage:
 
     @staticmethod
     def thresholds_type_adapter() -> TypeAdapter:
+        # str is DiagnosticName
         return TypeAdapter(dict[str, TurbulenceThresholds])
 
     @staticmethod
     def distribution_parameters_type_adapter() -> TypeAdapter:
-        return TypeAdapter(dict["DiagnosticName", "HistogramData"])
+        # str is DiagnosticName
+        return TypeAdapter(dict[str, HistogramData])
 
     def load_thresholds_from_file(self) -> Result[Mapping["DiagnosticName", "TurbulenceThresholds"]]:
         assert self._config.thresholds_file_path is not None
