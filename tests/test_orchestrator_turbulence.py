@@ -69,6 +69,11 @@ def threshold_phases_calibration(calibration_config: TurbulenceCalibrationConfig
     )
 
 
+@pytest.fixture()
+def output_thresholds():
+    return {"def": TurbulenceThresholds(light=1, moderate=2, severe=3)}
+
+
 def test_calibration_stage_launch_no_calibration_data(
     mocker: "MockerFixture", tmp_path, calibration_config_thresholds_only
 ) -> None:
@@ -99,7 +104,8 @@ def test_calibration_stage_launch_calibration_data(
     mock_suite_creation.assert_called_with([TurbulenceDiagnostics.DEF])
 
 
-def test_calibration_stage_perform_calibration(mocker: "MockerFixture", tmp_path_factory, calibration_config_data_dir):
+@pytest.fixture()
+def dump_to_file(tmp_path_factory, calibration_config_data_dir, mocker: "MockerFixture", output_thresholds):
     start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
     calibration = CalibrationStage(
         threshold_phases_calibration(calibration_config_data_dir),
@@ -110,9 +116,32 @@ def test_calibration_stage_perform_calibration(mocker: "MockerFixture", tmp_path
     )
 
     # Mock the CalibrationDiagnosticSuite.compute_thresholds method
-    output_threshold = {"def": TurbulenceThresholds(light=1, moderate=2, severe=3)}
     suite_mock = mocker.Mock()
-    compute_threshold_mock = mocker.patch.object(suite_mock, "compute_thresholds", return_value=output_threshold)
+    mocker.patch.object(suite_mock, "compute_thresholds", return_value=output_thresholds)
+    mock_suite_creation = mocker.patch.object(calibration, "create_diagnostic_suite", return_value=suite_mock)
+
+    # Call will test the logic in perform_calibration method - includes exporting of data
+    calibration.launch([TurbulenceDiagnostics.DEF])
+    mock_suite_creation.assert_called_with([TurbulenceDiagnostics.DEF])
+
+    return tmp_path_factory.getbasetemp() / "output" / "test" / f"thresholds_{start_time}.json"
+
+
+def test_calibration_stage_perform_calibration(
+    mocker: "MockerFixture", tmp_path_factory, calibration_config_data_dir, output_thresholds
+):
+    start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
+    calibration = CalibrationStage(
+        threshold_phases_calibration(calibration_config_data_dir),
+        SpatialDomain(maximum_latitude=90, maximum_longitude=90, minimum_longitude=0, minimum_latitude=0),
+        tmp_path_factory.getbasetemp() / "output",
+        "test",
+        start_time,
+    )
+
+    # Mock the CalibrationDiagnosticSuite.compute_thresholds method
+    suite_mock = mocker.Mock()
+    compute_threshold_mock = mocker.patch.object(suite_mock, "compute_thresholds", return_value=output_thresholds)
     mock_suite_creation = mocker.patch.object(calibration, "create_diagnostic_suite", return_value=suite_mock)
 
     # Call will test the logic in perform_calibration method - includes exporting of data
@@ -130,4 +159,18 @@ def test_calibration_stage_perform_calibration(mocker: "MockerFixture", tmp_path
     instantiated_from_generated = calibration.thresholds_type_adapter().validate_json(
         generated_threshold_file.read_text()
     )
-    assert instantiated_from_generated == output_threshold
+    assert instantiated_from_generated == output_thresholds
+
+
+def test_calibration_stage_load_thresholds_from_file(tmp_path_factory, dump_to_file, output_thresholds):
+    start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
+    calibration = CalibrationStage(
+        threshold_phases_calibration(
+            TurbulenceCalibrationConfig(thresholds_file_path=dump_to_file),
+        ),
+        SpatialDomain(maximum_latitude=90, maximum_longitude=90, minimum_longitude=0, minimum_latitude=0),
+        tmp_path_factory.getbasetemp() / "output",
+        "test",
+        start_time,
+    )
+    assert calibration.load_thresholds_from_file().result == output_thresholds
