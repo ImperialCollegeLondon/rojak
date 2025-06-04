@@ -155,9 +155,10 @@ class TurbulenceLauncher:
     _config: "TurbulenceConfig"
     _context: "ConfigContext"
 
-    def __init__(self, config: "TurbulenceConfig", context: "ConfigContext") -> None:
-        self._config = config
+    def __init__(self, context: "ConfigContext") -> None:
         self._context = context
+        assert context.turbulence_config is not None
+        self._config = context.turbulence_config
         self._start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
 
     def launch(self) -> None:
