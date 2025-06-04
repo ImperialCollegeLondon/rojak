@@ -13,6 +13,8 @@ from rojak.turbulence import calculations as turb_calc
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from rojak.orchestrator.configuration import SpatialDomain
+
 
 class Date(NamedTuple):
     year: int
@@ -204,9 +206,34 @@ def load_from_folder(
     )
 
 
+type XArrayDataTypes = xr.Dataset | xr.DataArray
+
+
 class MetData(ABC):
+    longitude_coord_name: str
+    latitude_coord_name: str
+
+    def __init__(self, longitude_name: str = "longitude", latitude_name: str = "latitude") -> None:
+        self.longitude_coord_name = longitude_name
+        self.latitude_coord_name = latitude_name
+
     @abstractmethod
-    def to_clear_air_turbulence_data(self) -> CATData: ...
+    def select_domain(self, domain: "SpatialDomain") -> "MetData": ...
+
+    @abstractmethod
+    def to_clear_air_turbulence_data(self, domain: "SpatialDomain") -> CATData: ...
+
+    # Modified from pycontrails
+    # https://github.com/contrailcirrus/pycontrails/blob/8a25266bcf5ead003a6b344395462ab56943e668/pycontrails/core/met.py#L2430
+    def shift_longitude(
+        self, data: XArrayDataTypes, domain_bound: float = -180, sort_data: bool = True
+    ) -> XArrayDataTypes:
+        # Utility function to shift data to have longitude in the range of [domain_bound, 360 + domain_bound]
+        # This also sorts it so that the data is then ascending from domain_bound
+        shifted_data: XArrayDataTypes = data.assign_coords(
+            longitude=((data[self.longitude_coord_name] - domain_bound) % 360) + domain_bound
+        )
+        return shifted_data.sortby(self.longitude_coord_name, ascending=True) if sort_data else shifted_data
 
     # TODO: TEST
     @staticmethod
