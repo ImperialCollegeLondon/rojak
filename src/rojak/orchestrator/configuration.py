@@ -163,8 +163,104 @@ class TurbulenceThresholds(BaseConfigModel):
         return self._all_severities
 
 
-class TurbulenceConfig(BaseConfigModel):
-    # Remove this and have it only in data config?????
+class TurbulenceCalibrationPhaseOption(StrEnum):
+    THRESHOLDS = "thresholds"
+    HISTOGRAM = "histogram"
+
+
+class TurbulenceCalibrationConfig(BaseConfigModel):
+    calibration_data_dir: Annotated[
+        Path | None,
+        Field(
+            description="Path to directory containing calibration data",
+            repr=True,
+            frozen=True,
+        ),
+    ] = None
+    percentile_thresholds: Annotated[
+        TurbulenceThresholds | None, Field(description="Percentile thresholds", frozen=True, repr=True)
+    ] = None
+    thresholds_file_path: Annotated[
+        Path | None,
+        Field(
+            description="Path to directory containing thresholds data",
+            repr=True,
+            frozen=True,
+        ),
+    ] = None
+    diagnostic_index_distribution_file_path: Annotated[
+        Path | None, Field(description="Path to directory containing distribution of diagnostic indices")
+    ] = None
+
+
+class TurbulenceCalibrationPhases(BaseConfigModel):
+    phases: Annotated[
+        list[TurbulenceCalibrationPhaseOption],
+        Field(description="Turbulence calibration phases", repr=True, frozen=True),
+    ]
+    calibration_config: TurbulenceCalibrationConfig
+
+    @model_validator(mode="after")
+    def check_necessary_config_for_phases(self) -> Self:
+        for phase in self.phases:
+            match phase:
+                case TurbulenceCalibrationPhaseOption.THRESHOLDS:
+                    # Check that either calibration or thresholds file specified
+                    if (
+                        self.calibration_config.calibration_data_dir is None
+                        and self.calibration_config.thresholds_file_path is None
+                    ):
+                        raise InvalidConfigurationError(
+                            "Either calibration data directory or thresholds file must be provided."
+                        )
+                    if (
+                        self.calibration_config.calibration_data_dir is not None
+                        and self.calibration_config.thresholds_file_path is not None
+                    ):
+                        raise InvalidConfigurationError(
+                            "Either calibration data directory or thresholds file must be provided, NOT both"
+                        )
+
+                    # Check that the paths are to the correct type of file system object
+                    if (
+                        self.calibration_config.calibration_data_dir is not None
+                        and not self.calibration_config.calibration_data_dir.is_dir()
+                    ):
+                        raise InvalidConfigurationError("Calibration data directory is not a directory.")
+                    if (
+                        self.calibration_config.thresholds_file_path is not None
+                        and not self.calibration_config.thresholds_file_path.is_file()
+                    ):
+                        raise InvalidConfigurationError("Thresholds file provided is not a file.")
+
+                    # If performing calibration, percentiles must be specified
+                    if (
+                        self.calibration_config.calibration_data_dir is not None
+                        and self.calibration_config.percentile_thresholds is None
+                    ):
+                        raise InvalidConfigurationError(
+                            "If calibration data directory is provided, threshold configuration must be provided."
+                        )
+                case TurbulenceCalibrationPhaseOption.HISTOGRAM:
+                    if (
+                        self.calibration_config.diagnostic_index_distribution_file_path is not None
+                        and not self.calibration_config.diagnostic_index_distribution_file_path.is_file()
+                    ):
+                        raise InvalidConfigurationError("Diagnostic index distribution file provided is not a file.")
+
+        return self
+
+
+class TurbulenceEvaluationPhaseOption(StrEnum):
+    PROBABILITIES = "probabilities"
+    EDR = "edr"
+    CORRELATION_BTW_PROBABILITIES = "correlation_between_probabilities"
+    CORRELATION_BTW_EDR = "correlation_between_edr"
+    REGIONAL_CORRELATION_PROBABILITIES = "regional_correlation_between_probabilities"
+    REGIONAL_CORRELATION_EDR = "regional_correlation_between_edr"
+
+
+class TurbulenceEvaluationConfig(BaseConfigModel):
     evaluation_data_dir: Annotated[
         Path,
         Field(
@@ -174,6 +270,79 @@ class TurbulenceConfig(BaseConfigModel):
         ),
         AfterValidator(dir_must_exist),
     ]  # Remove this?????
+    threshold_mode: Annotated[
+        TurbulenceThresholdMode,
+        Field(
+            default=TurbulenceThresholdMode.BOUNDED,
+            description="How thresholds are used to determine if turbulent",
+            repr=True,
+            frozen=True,
+        ),
+    ] = TurbulenceThresholdMode.BOUNDED
+    severities: Annotated[
+        list[TurbulenceSeverity],
+        Field(description="Target turbulence severity", repr=True),
+    ] = [TurbulenceSeverity.LIGHT]
+
+
+class TurbulenceEvaluationPhases(BaseConfigModel):
+    phases: Annotated[
+        list[TurbulenceEvaluationPhaseOption], Field(description="Turbulence evaluation phases", repr=True, frozen=True)
+    ]
+    evaluation_config: TurbulenceEvaluationConfig
+
+    @model_validator(mode="after")
+    def check_dependent_phase_is_present(self) -> Self:
+        for index, phase in enumerate(self.phases):
+            match phase:
+                case (
+                    TurbulenceEvaluationPhaseOption.CORRELATION_BTW_PROBABILITIES
+                    | TurbulenceEvaluationPhaseOption.REGIONAL_CORRELATION_PROBABILITIES
+                ):
+                    if TurbulenceEvaluationPhaseOption.PROBABILITIES not in self.phases[:index]:
+                        raise InvalidConfigurationError(
+                            "To compute correlation between probabilities, probabilities phase must be occur before "
+                            "correlations phase"
+                        )
+                case (
+                    TurbulenceEvaluationPhaseOption.CORRELATION_BTW_EDR
+                    | TurbulenceEvaluationPhaseOption.CORRELATION_BTW_EDR
+                ):
+                    if TurbulenceEvaluationPhaseOption.EDR not in self.phases[:index]:
+                        raise InvalidConfigurationError(
+                            "To compute correlation between edr probabilities, edr phase must be occur before "
+                            "correlations phase"
+                        )
+        return self
+
+
+class TurbulencePhases(BaseConfigModel):
+    calibration_phases: TurbulenceCalibrationPhases
+    evaluation_phases: TurbulenceEvaluationPhases | None = None  # Makes it possible to just run calibration
+
+    @model_validator(mode="after")
+    def check_dependent_phase_is_present(self) -> Self:
+        if self.evaluation_phases is not None:
+            eval_set: set[TurbulenceEvaluationPhaseOption] = set(self.evaluation_phases.phases)
+            calibration_set: set[TurbulenceCalibrationPhaseOption] = set(self.calibration_phases.phases)
+
+            if (
+                TurbulenceEvaluationPhaseOption.PROBABILITIES in eval_set
+                and TurbulenceCalibrationPhaseOption.THRESHOLDS not in calibration_set
+            ):
+                raise InvalidConfigurationError(
+                    "To evaluate probabilities, thresholding phase must occur at calibration stage"
+                )
+            if (
+                TurbulenceEvaluationPhaseOption.EDR in eval_set
+                and TurbulenceCalibrationPhaseOption.HISTOGRAM not in calibration_set
+            ):
+                raise InvalidConfigurationError("To evaluate EDR, histogram phase must occur at calibration stage")
+
+        return self
+
+
+class TurbulenceConfig(BaseConfigModel):
     chunks: Annotated[
         dict,
         Field(
@@ -191,85 +360,7 @@ class TurbulenceConfig(BaseConfigModel):
             frozen=True,
         ),
     ]
-    threshold_mode: Annotated[
-        TurbulenceThresholdMode,
-        Field(
-            default=TurbulenceThresholdMode.BOUNDED,
-            description="How thresholds are used to determine if turbulent",
-            repr=True,
-            frozen=True,
-        ),
-    ] = TurbulenceThresholdMode.BOUNDED
-    calibration_data_dir: Annotated[
-        Path | None,
-        Field(
-            description="Path to directory containing calibration data",
-            repr=True,
-            frozen=True,
-        ),
-    ] = None
-    thresholds_file_path: Annotated[
-        Path | None,
-        Field(
-            description="Path to directory containing thresholds data",
-            repr=True,
-            frozen=True,
-        ),
-    ] = None
-    severities: Annotated[
-        list[TurbulenceSeverity],
-        Field(description="Target turbulence severity", repr=True),
-    ] = [TurbulenceSeverity.LIGHT]
-    percentile_thresholds: Annotated[
-        TurbulenceThresholds | None, Field(description="Percentile thresholds", frozen=True, repr=True)
-    ] = None
-    # threshold_config: Annotated[
-    #     list[TurbulenceSeverityPercentileConfig] | None,
-    #     Field(description="Configuration for threshold computation", frozen=True, repr=True),
-    # ] = None
-
-    @model_validator(mode="after")
-    def check_either_calibration_data_or_thresholds_present(self) -> Self:
-        if self.calibration_data_dir is None and self.thresholds_file_path is None:
-            raise InvalidConfigurationError("Either calibration data directory or thresholds file must be provided.")
-        if self.calibration_data_dir is not None and self.thresholds_file_path is not None:
-            raise InvalidConfigurationError(
-                "Either calibration data directory or thresholds file must be provided, NOT both"
-            )
-        if self.calibration_data_dir is not None and not self.calibration_data_dir.is_dir():
-            raise InvalidConfigurationError("Calibration data directory is not a directory.")
-        if self.thresholds_file_path is not None and not self.thresholds_file_path.is_file():
-            raise InvalidConfigurationError("Thresholds file provided is not a file.")
-        return self
-
-    # TODO: Add comprehensive tests
-    @model_validator(mode="after")
-    def check_calibration_fully_configured(self) -> Self:
-        if self.calibration_data_dir is not None and self.percentile_thresholds is None:
-            raise InvalidConfigurationError(
-                "If calibration data directory is provided, threshold configuration must be provided."
-            )
-        # if (
-        #     self.threshold_config is not None
-        #     and self.threshold_mode == TurbulenceThresholdMode.GEQ
-        #     and any(config.upper_bound != np.inf for config in self.threshold_config)
-        # ):
-        #     raise InvalidConfigurationError("If thresholding is GEQ, upper bound must be infinite")
-        # if self.threshold_config is not None and len(self.threshold_config) > 1:
-        #     previous_lower: float = 0.0
-        #     previous_upper: float = 0.0
-        #     for config in self.threshold_config:
-        #         if config.lower_bound < previous_lower:
-        #             raise InvalidConfigurationError(
-        #                 "Threshold config must be specified in ascending order of lower bound"
-        #             )
-        #         if config.upper_bound != np.inf and previous_upper != 0.0 and config.lower_bound != previous_upper:
-        #             raise InvalidConfigurationError(
-        #                 "If multiple thresholds are specified and are bounded, they must be consecutive"
-        #             )
-        #         previous_lower = config.lower_bound
-
-        return self
+    phases: TurbulencePhases
 
 
 class ContrailModel(StrEnum):
