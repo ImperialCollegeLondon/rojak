@@ -55,7 +55,9 @@ class TurbulenceIntensityThresholds(PostProcessor):
         return TurbulenceThresholds(
             **{
                 str(severity): index_map if index_map is None else not_none_percentiles[index_map]
-                for index_map, severity in zip(mapping_to_severity, TurbulenceSeverity.get_in_ascending_order())
+                for index_map, severity in zip(
+                    mapping_to_severity, TurbulenceSeverity.get_in_ascending_order(), strict=False
+                )
             },
             _all_severities=[],
         )

@@ -45,14 +45,14 @@ def build(fields) -> TurbulenceCalibrationConfig:
     return TurbulenceCalibrationConfig(**fields)
 
 
-@pytest.fixture()
+@pytest.fixture
 def calibration_config_thresholds_only(tmp_path) -> TurbulenceCalibrationConfig:
     base = {}
     base = with_dummy_thresholds_file_path(tmp_path, base)
     return build(base)
 
 
-@pytest.fixture()
+@pytest.fixture
 def calibration_config_data_dir(tmp_path_factory):
     data_dir = tmp_path_factory.mktemp("data")
     base = {}
@@ -77,12 +77,12 @@ def dist_param_phases_calibration(calibration_config: TurbulenceCalibrationConfi
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def output_thresholds() -> dict:
     return {"def": TurbulenceThresholds(light=1, moderate=2, severe=3)}
 
 
-@pytest.fixture()
+@pytest.fixture
 def output_dist_params() -> dict:
     return {
         "def": HistogramData(
@@ -121,7 +121,7 @@ def test_calibration_stage_launch_calibration_data(
     mock_suite_creation.assert_called_once_with([TurbulenceDiagnostics.DEF])
 
 
-@pytest.fixture()
+@pytest.fixture
 def dump_to_file(tmp_path_factory, calibration_config_data_dir, mocker: "MockerFixture", output_thresholds):
     start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
     calibration = CalibrationStage(
@@ -170,7 +170,8 @@ def test_calibration_stage_perform_calibration(
 
     # Verify that exported threshold file exists
     generated_threshold_file = tmp_path_factory.getbasetemp() / "output" / "test" / f"thresholds_{start_time}.json"
-    assert generated_threshold_file.exists() and generated_threshold_file.is_file()
+    assert generated_threshold_file.exists()
+    assert generated_threshold_file.is_file()
 
     # Verify the serialisation and deserialisation of the thresholds worked
     instantiated_from_generated = calibration.thresholds_type_adapter().validate_json(
@@ -220,7 +221,8 @@ def test_calibration_stage_compute_distribution_params(
     generated_dist_params_file = (
         tmp_path_factory.getbasetemp() / "output" / "test" / f"distribution_params_{start_time}.json"
     )
-    assert generated_dist_params_file.exists() and generated_dist_params_file.is_file()
+    assert generated_dist_params_file.exists()
+    assert generated_dist_params_file.is_file()
     instantiated_from_generated = calibration.distribution_parameters_type_adapter().validate_json(
         generated_dist_params_file.read_text()
     )

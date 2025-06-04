@@ -72,8 +72,10 @@ def test_context_from_yaml_basic(
     assert isinstance(context.data_config, DataConfig)
     assert context.turbulence_config is None
     assert context.contrails_config is None
-    assert context.plots_dir.exists() and context.plots_dir.is_dir()
-    assert context.output_dir.exists() and context.output_dir.is_dir()
+    assert context.plots_dir.exists()
+    assert context.plots_dir.is_dir()
+    assert context.output_dir.exists()
+    assert context.output_dir.is_dir()
     assert context.image_format == "png"
 
     if is_created:
@@ -190,12 +192,6 @@ def test_spatial_domain_invalid_config(dict_to_file) -> None:
             "minimum_latitude": 0,
             "maximum_latitude": 90,
             "minimum_longitude": 0,
-            "maximum_longitude": 90,
-        },
-        {
-            "minimum_latitude": 0,
-            "maximum_latitude": 90,
-            "minimum_longitude": 0,
             "maximum_longitude": 180,
         },
     ],
@@ -206,12 +202,12 @@ def test_spatial_domain_valid_config(dict_to_file) -> None:
     assert spatial_domain.minimum_longitude == 0
 
 
-@pytest.fixture()
+@pytest.fixture
 def make_empty_temp_dir(tmp_path_factory) -> "Path":
     return tmp_path_factory.mktemp("temp")
 
 
-@pytest.fixture()
+@pytest.fixture
 def make_empty_temp_text_file(tmp_path_factory) -> "Path":
     output_file = tmp_path_factory.getbasetemp() / "file.txt"
     output_file.touch()
@@ -409,7 +405,7 @@ def test_turbulence_config_with_threshold_file(make_turbulence_config_with_thres
 
 
 @pytest.mark.parametrize(
-    "dict_to_file, expectation",
+    ("dict_to_file", "expectation"),
     [
         pytest.param({}, pytest.raises(InvalidConfigurationError)),
         pytest.param({"contrail_model": "invalid_option"}, pytest.raises(InvalidConfigurationError)),
@@ -428,7 +424,7 @@ def test_contrails_config(dict_to_file, expectation) -> None:
 
 
 @pytest.mark.parametrize(
-    "dict_to_file, expectation",
+    ("dict_to_file", "expectation"),
     [
         pytest.param({}, pytest.raises(InvalidConfigurationError), id="empty_config"),
         pytest.param(
@@ -475,7 +471,7 @@ def test_turbulence_thresholds_all_none():
 
 
 @pytest.mark.parametrize(
-    "phases, expectation",
+    ("phases", "expectation"),
     [
         pytest.param([], nullcontext(), id="empty_list_phases"),
         pytest.param(None, pytest.raises(ValidationError), id="fail as phases is none"),

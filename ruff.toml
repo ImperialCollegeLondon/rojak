@@ -4,6 +4,7 @@ line-length = 120
 [lint]
 extend-select = [
     "A", # builtins
+    "B", # bug bear - likely bugs and design problems
     "PTH", # use pathlib instead of os.path
     "NPY", # NumPy-specific rules
     "N", # PEP 8 Naming
@@ -14,10 +15,12 @@ extend-select = [
     "ISC", # Implicit string concatenation
     "ICN", # Import conventions
     "LOG", # Logging
+    "G", # Log format
     "RET", # Good return practices
     "SIM", # Simplifications
     "TID", # Tidy imports
     "TC", # Type checking
+    "PT", # Pytest style
 ]
 
 [lint.extend-per-file-ignores]
