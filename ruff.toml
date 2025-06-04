@@ -9,7 +9,8 @@ extend-select = [
     "NPY", # NumPy-specific rules
     "N", # PEP 8 Naming
     "E", "W", # pycodestyle, error and warning
-    "I",
+    "I", # isort - checks imports
+    "N", # Follow PEP8 naming
     "ANN", # Type annotations
     "C4", # Comprehensions
     "ISC", # Implicit string concatenation
@@ -21,6 +22,10 @@ extend-select = [
     "TID", # Tidy imports
     "TC", # Type checking
     "PT", # Pytest style
+    #    "ARG", # Checks for unused arguments
+    "PERF", # Linter for performance anti-patterns
+#    "PL", # pylint - static code analyser
+#    "UP", # 
 ]
 
 [lint.extend-per-file-ignores]
