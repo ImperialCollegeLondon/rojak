@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Generator, assert_never
+from typing import TYPE_CHECKING, Generator, Mapping, assert_never
 
 import numpy as np
 import xarray as xr
@@ -14,6 +14,7 @@ from rojak.core.derivatives import (
     spatial_laplacian,
 )
 from rojak.orchestrator.configuration import TurbulenceDiagnostics
+from rojak.turbulence.analysis import DiagnosticHistogramDistribution, TurbulenceIntensityThresholds
 from rojak.turbulence.calculations import (
     GRAVITATIONAL_ACCELERATION,
     absolute_vorticity,
@@ -31,6 +32,8 @@ from rojak.turbulence.calculations import (
 if TYPE_CHECKING:
     from rojak.core.data import CATData
     from rojak.core.derivatives import SpatialGradientKeys
+    from rojak.orchestrator.configuration import TurbulenceThresholds
+    from rojak.turbulence.analysis import HistogramData
 
 type DiagnosticName = str
 
@@ -822,3 +825,22 @@ class DiagnosticSuite:
     def computed_values(self) -> Generator[tuple[DiagnosticName, DataArray]]:
         for name, diagnostic in self._diagnostics.items():  # DiagnosticName, Diagnostic
             yield name, diagnostic.computed_value
+
+
+class CalibrationDiagnosticSuite(DiagnosticSuite):
+    def __init__(self, factory: DiagnosticFactory, diagnostics: list[TurbulenceDiagnostics]) -> None:
+        super().__init__(factory, diagnostics)
+
+    def compute_thresholds(
+        self, percentile_config: "TurbulenceThresholds"
+    ) -> Mapping[DiagnosticName, "TurbulenceThresholds"]:
+        return {
+            name: TurbulenceIntensityThresholds(percentile_config, diagnostic).execute()
+            for name, diagnostic in self.computed_values()  # DiagnosticName, xr.DataArray
+        }
+
+    def compute_distribution_parameters(self) -> Mapping[DiagnosticName, "HistogramData"]:
+        return {
+            name: DiagnosticHistogramDistribution(diagnostic).execute()
+            for name, diagnostic in self.computed_values()  # DiagnosticName, xr.DataArray
+        }
