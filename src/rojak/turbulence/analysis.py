@@ -1,5 +1,4 @@
 import itertools
-from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Hashable, Mapping, assert_never
 
@@ -8,6 +7,7 @@ import numpy as np
 import xarray as xr
 from dask.base import is_dask_collection
 from numpy.typing import NDArray
+from pydantic.dataclasses import dataclass as pydantic_dataclass
 
 from rojak.core.analysis import PostProcessor
 from rojak.orchestrator.configuration import TurbulenceSeverity, TurbulenceThresholds
@@ -59,7 +59,7 @@ class TurbulenceIntensityThresholds(PostProcessor):
         )
 
 
-@dataclass
+@pydantic_dataclass
 class HistogramData:
     hist_values: list[float]
     bins: list[float]
@@ -103,7 +103,12 @@ class HistogramData:
     def filter_insignificant_bins(self, minimum_value: float = 1e-6) -> "HistogramData":
         values: np.ndarray = np.asarray(self.hist_values)
         mask: np.ndarray = values >= minimum_value
-        return HistogramData(values[mask], np.asarray(self.bins)[np.append(mask, [True])], self.mean, self.variance)
+        return HistogramData(
+            hist_values=values[mask],
+            bins=np.asarray(self.bins)[np.append(mask, [True])],
+            mean=self.mean,
+            variance=self.variance,
+        )
 
     def __str__(self) -> str:
         return (
