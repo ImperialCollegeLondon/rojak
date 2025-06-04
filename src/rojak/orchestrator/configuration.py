@@ -250,6 +250,12 @@ class TurbulenceCalibrationPhases(BaseConfigModel):
 
         return self
 
+    @model_validator(mode="after")
+    def check_no_repeated_phases(self) -> Self:
+        if self.phases and len(set(self.phases)) != len(self.phases):
+            raise InvalidConfigurationError("Duplicate phases detected.")
+        return self
+
 
 class TurbulenceEvaluationPhaseOption(StrEnum):
     PROBABILITIES = "probabilities"

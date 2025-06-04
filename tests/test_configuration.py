@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
 from rojak.orchestrator import configuration
 from rojak.orchestrator.configuration import (
@@ -471,3 +472,46 @@ def test_turbulence_thresholds_all_none():
             light=None, light_to_moderate=None, moderate=None, moderate_to_severe=None, severe=None
         )
     assert e.type is InvalidConfigurationError
+
+
+@pytest.mark.parametrize(
+    "phases, expectation",
+    [
+        pytest.param([], nullcontext(), id="empty_list_phases"),
+        pytest.param(None, pytest.raises(ValidationError), id="fail as phases is none"),
+        pytest.param(
+            [configuration.TurbulenceCalibrationPhaseOption.THRESHOLDS], nullcontext(), id="single value thresholds"
+        ),
+        pytest.param(
+            [configuration.TurbulenceCalibrationPhaseOption.HISTOGRAM], nullcontext(), id="single value histogram"
+        ),
+        pytest.param(
+            [
+                configuration.TurbulenceCalibrationPhaseOption.HISTOGRAM,
+                configuration.TurbulenceCalibrationPhaseOption.THRESHOLDS,
+            ],
+            nullcontext(),
+            id="both values",
+        ),
+        pytest.param(
+            [
+                configuration.TurbulenceCalibrationPhaseOption.HISTOGRAM,
+                configuration.TurbulenceCalibrationPhaseOption.THRESHOLDS,
+                configuration.TurbulenceCalibrationPhaseOption.THRESHOLDS,
+            ],
+            pytest.raises(InvalidConfigurationError),
+            id="fail duplicate values",
+        ),
+    ],
+)
+def test_turbulence_calibration_phases(phases, expectation, tmp_path) -> None:
+    tmp_threshold_file = tmp_path / "test.json"
+    tmp_threshold_file.touch()
+    with expectation as e:
+        config = configuration.TurbulenceCalibrationPhases(
+            phases=phases,
+            calibration_config=configuration.TurbulenceCalibrationConfig(thresholds_file_path=tmp_threshold_file),
+        )
+        assert config.phases == phases
+    if phases is None:
+        assert e.type is expectation.expected_exception
