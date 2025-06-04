@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+import numpy as np
 import pytest
 
 from rojak.orchestrator.configuration import (
@@ -12,6 +13,7 @@ from rojak.orchestrator.configuration import (
     TurbulenceThresholds,
 )
 from rojak.orchestrator.turbulence import CalibrationStage
+from rojak.turbulence.analysis import HistogramData
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
@@ -69,9 +71,24 @@ def threshold_phases_calibration(calibration_config: TurbulenceCalibrationConfig
     )
 
 
+def dist_param_phases_calibration(calibration_config: TurbulenceCalibrationConfig):
+    return TurbulenceCalibrationPhases(
+        phases=[TurbulenceCalibrationPhaseOption.HISTOGRAM], calibration_config=calibration_config
+    )
+
+
 @pytest.fixture()
-def output_thresholds():
+def output_thresholds() -> dict:
     return {"def": TurbulenceThresholds(light=1, moderate=2, severe=3)}
+
+
+@pytest.fixture()
+def output_dist_params() -> dict:
+    return {
+        "def": HistogramData(
+            hist_values=np.asarray([1.0, 2.0, 3.0, 4.0]), bins=np.asarray([4.0, 5.0, 6.0, 7.0]), mean=99.0, variance=0.4
+        )
+    }
 
 
 def test_calibration_stage_launch_no_calibration_data(
@@ -101,7 +118,7 @@ def test_calibration_stage_launch_calibration_data(
     )
     mock_suite_creation = mocker.patch.object(calibration, "create_diagnostic_suite", return_value=None)
     calibration.launch([TurbulenceDiagnostics.DEF])
-    mock_suite_creation.assert_called_with([TurbulenceDiagnostics.DEF])
+    mock_suite_creation.assert_called_once_with([TurbulenceDiagnostics.DEF])
 
 
 @pytest.fixture()
@@ -122,7 +139,7 @@ def dump_to_file(tmp_path_factory, calibration_config_data_dir, mocker: "MockerF
 
     # Call will test the logic in perform_calibration method - includes exporting of data
     calibration.launch([TurbulenceDiagnostics.DEF])
-    mock_suite_creation.assert_called_with([TurbulenceDiagnostics.DEF])
+    mock_suite_creation.assert_called_once_with([TurbulenceDiagnostics.DEF])
 
     return tmp_path_factory.getbasetemp() / "output" / "test" / f"thresholds_{start_time}.json"
 
@@ -146,7 +163,7 @@ def test_calibration_stage_perform_calibration(
 
     # Call will test the logic in perform_calibration method - includes exporting of data
     calibration.launch([TurbulenceDiagnostics.DEF])
-    mock_suite_creation.assert_called_with([TurbulenceDiagnostics.DEF])
+    mock_suite_creation.assert_called_once_with([TurbulenceDiagnostics.DEF])
     # Verify that mocked method was called with correct values
     compute_threshold_mock.assert_called()
     compute_threshold_mock.assert_called_with(TurbulenceThresholds(light=90, moderate=95, severe=99))
@@ -174,3 +191,37 @@ def test_calibration_stage_load_thresholds_from_file(tmp_path_factory, dump_to_f
         start_time,
     )
     assert calibration.load_thresholds_from_file().result == output_thresholds
+
+
+def test_calibration_stage_compute_distribution_params(
+    mocker: "MockerFixture", tmp_path_factory, calibration_config_data_dir, output_dist_params
+):
+    start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
+    calibration = CalibrationStage(
+        dist_param_phases_calibration(calibration_config_data_dir),
+        SpatialDomain(maximum_latitude=90, maximum_longitude=90, minimum_longitude=0, minimum_latitude=0),
+        tmp_path_factory.getbasetemp() / "output",
+        "test",
+        start_time,
+    )
+
+    suite_mock = mocker.Mock()
+    compute_dist_params_mock = mocker.patch.object(
+        suite_mock, "compute_distribution_parameters", return_value=output_dist_params
+    )
+    mock_suite_creation = mocker.patch.object(calibration, "create_diagnostic_suite", return_value=suite_mock)
+
+    # Call will test the logic in perform_calibration method - includes exporting of data
+    calibration.launch([TurbulenceDiagnostics.DEF])
+    mock_suite_creation.assert_called_once_with([TurbulenceDiagnostics.DEF])
+
+    compute_dist_params_mock.assert_called_once()
+
+    generated_dist_params_file = (
+        tmp_path_factory.getbasetemp() / "output" / "test" / f"distribution_params_{start_time}.json"
+    )
+    assert generated_dist_params_file.exists() and generated_dist_params_file.is_file()
+    instantiated_from_generated = calibration.distribution_parameters_type_adapter().validate_json(
+        generated_dist_params_file.read_text()
+    )
+    assert instantiated_from_generated == output_dist_params
