@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     import xarray as xr
 
     from rojak.core.data import Date
+    from rojak.orchestrator.configuration import SpatialDomain
 
 
 class InvalidEra5RequestConfigurationError(Exception):
@@ -112,7 +113,10 @@ class Era5Data(MetData):
         super().__init__()
         self._on_pressure_level = on_pressure_level
 
-    def to_clear_air_turbulence_data(self) -> CATData:
+    def select_domain(self, domain: "SpatialDomain") -> "MetData":
+        raise NotImplementedError("Era5 data not yet implemented.")
+
+    def to_clear_air_turbulence_data(self, domain: "SpatialDomain") -> CATData:
         target_variables: list[DataVarSchema] = [
             Era5Data.temperature,
             Era5Data.divergence,
