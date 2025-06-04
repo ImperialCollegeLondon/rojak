@@ -188,7 +188,7 @@ class TurbulenceCalibrationConfig(BaseConfigModel):
             frozen=True,
         ),
     ] = None
-    diagnostic_index_distribution_file_path: Annotated[
+    diagnostic_distribution_file_path: Annotated[
         Path | None, Field(description="Path to directory containing distribution of diagnostic indices")
     ] = None
 
@@ -243,8 +243,8 @@ class TurbulenceCalibrationPhases(BaseConfigModel):
                         )
                 case TurbulenceCalibrationPhaseOption.HISTOGRAM:
                     if (
-                        self.calibration_config.diagnostic_index_distribution_file_path is not None
-                        and not self.calibration_config.diagnostic_index_distribution_file_path.is_file()
+                        self.calibration_config.diagnostic_distribution_file_path is not None
+                        and not self.calibration_config.diagnostic_distribution_file_path.is_file()
                     ):
                         raise InvalidConfigurationError("Diagnostic index distribution file provided is not a file.")
 

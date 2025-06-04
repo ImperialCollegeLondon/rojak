@@ -62,16 +62,18 @@ class CalibrationStage:
         self._start_time = start_time
 
     def launch(self, diagnostics: list["TurbulenceDiagnostics"]) -> Mapping[TurbulenceCalibrationPhaseOption, Result]:
-        suite: CalibrationDiagnosticSuite | None
-        if self._config.calibration_data_dir is not None:
-            calibration_data: "CATData" = Era5Data(
-                data.load_from_folder(self._config.calibration_data_dir),
-            ).to_clear_air_turbulence_data(self._spatial_domain)
-            suite = CalibrationDiagnosticSuite(DiagnosticFactory(calibration_data), diagnostics)
-        else:
-            suite = None
+        suite: CalibrationDiagnosticSuite | None = (
+            self.create_diagnostic_suite(diagnostics) if self._config.calibration_data_dir is not None else None
+        )
 
         return {phase: self.run_phase(phase, suite) for phase in self._phases.phases}
+
+    def create_diagnostic_suite(self, diagnostics: list["TurbulenceDiagnostics"]) -> "CalibrationDiagnosticSuite":
+        assert self._config.calibration_data_dir is not None
+        calibration_data: "CATData" = Era5Data(
+            data.load_from_folder(self._config.calibration_data_dir),
+        ).to_clear_air_turbulence_data(self._spatial_domain)
+        return CalibrationDiagnosticSuite(DiagnosticFactory(calibration_data), diagnostics)
 
     def run_phase(
         self, current_phase: TurbulenceCalibrationPhaseOption, suite: CalibrationDiagnosticSuite | None
@@ -82,7 +84,7 @@ class CalibrationStage:
                     return self.load_thresholds_from_file()
                 return self.perform_calibration(suite)
             case TurbulenceCalibrationPhaseOption.HISTOGRAM:
-                if self._config.diagnostic_index_distribution_file_path is not None:
+                if self._config.diagnostic_distribution_file_path is not None:
                     return self.load_distribution_parameters_from_file()
                 return self.compute_distribution_parameters(suite)
             case _ as unreachable:
@@ -90,7 +92,7 @@ class CalibrationStage:
 
     @staticmethod
     def thresholds_type_adapter() -> TypeAdapter:
-        return TypeAdapter(dict["DiagnosticName", TurbulenceThresholds])
+        return TypeAdapter(dict[str, TurbulenceThresholds])
 
     @staticmethod
     def distribution_parameters_type_adapter() -> TypeAdapter:
@@ -120,8 +122,8 @@ class CalibrationStage:
             output_json.write(self.thresholds_type_adapter().dump_json(diagnostic_thresholds, indent=4))
 
     def load_distribution_parameters_from_file(self) -> Result:
-        assert self._config.diagnostic_index_distribution_file_path is not None
-        json_str: str = self._config.diagnostic_index_distribution_file_path.read_text()
+        assert self._config.diagnostic_distribution_file_path is not None
+        json_str: str = self._config.diagnostic_distribution_file_path.read_text()
         distribution_parameters = self.distribution_parameters_type_adapter().validate_json(json_str)
         return Result(distribution_parameters)
 
