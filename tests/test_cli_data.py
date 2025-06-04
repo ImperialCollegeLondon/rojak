@@ -153,7 +153,7 @@ def test_preprocess_data_madis_single_file(retrieve_madis_data_single_file) -> N
 
 
 @pytest.mark.parametrize(
-    "data_set_name, default_name, matches",
+    ("data_set_name", "default_name", "matches"),
     [
         pytest.param("nonsense", None, "Invalid dataset name", id="invalid_dataset_name"),
         pytest.param(

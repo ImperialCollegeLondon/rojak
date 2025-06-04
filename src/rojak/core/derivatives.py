@@ -73,7 +73,7 @@ def ensure_lat_lon_in_deg(
     """
     are_in_degrees: bool = is_lat_lon_in_degrees(latitude, longitude)
     if units == "deg" and not are_in_degrees:
-        warnings.warn("Latitude and longitude specified to be in degrees, but are smaller than pi values")
+        warnings.warn("Latitude and longitude specified to be in degrees, but are smaller than pi values", stacklevel=2)
     elif units == "rad" and are_in_degrees:
         raise ValueError("Latitude and longitude specified to be in radians, but are too large to be in radians")
     elif units == "rad" and not are_in_degrees:

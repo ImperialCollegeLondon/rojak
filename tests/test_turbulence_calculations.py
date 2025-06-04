@@ -22,7 +22,7 @@ from rojak.turbulence.calculations import (
 )
 
 
-@pytest.fixture()
+@pytest.fixture
 def generate_random_array_pair() -> Tuple[xr.DataArray, xr.DataArray]:
     return xr.DataArray(np.random.default_rng().random((50, 50))), xr.DataArray(
         np.random.default_rng().random((50, 50))
@@ -186,7 +186,7 @@ def test_direction_cross_zero_array():
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def angles_data():
     return [np.pi / 4, 1.0, np.pi / 2, 7.0 * np.pi / 4, 0, 0, 5.0 * np.pi / 4]
 

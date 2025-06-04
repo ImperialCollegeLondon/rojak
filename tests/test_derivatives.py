@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 @pytest.mark.parametrize(
-    "values, coordinate, expected",
+    ("values", "coordinate", "expected"),
     [
         pytest.param([8], None, True, id="No coordinate in degrees"),
         pytest.param([np.pi * 2, -np.pi * 2], None, False, id="No coordinate on boundary"),
@@ -53,7 +53,7 @@ def test_is_in_degrees(values, coordinate, expected):
 
 
 @pytest.mark.parametrize(
-    "expected, lat, lon",
+    ("expected", "lat", "lon"),
     [
         (True, np.asarray([1, 2, 3]), np.asarray([3, 4, 5])),
         (True, xr.DataArray([1, 2, 3]), xr.DataArray([3, 4, 5])),
@@ -69,16 +69,16 @@ def test_is_lat_lon_in_degrees(expected: bool, mocker: "MockerFixture", lat, lon
 
 
 @pytest.mark.parametrize(
-    "lat, lon",
+    ("lat", "lon", "matches"),
     [
-        (np.asarray([0.0, np.pi / 2]), np.asarray([180.0, 360.0])),
-        (np.asarray([0.0, 90.0]), np.asarray([0, np.pi])),
-        (xr.DataArray([0.0, np.pi / 2]), xr.DataArray([180.0, 360.0])),
-        (xr.DataArray([0.0, 90.0]), xr.DataArray([0, np.pi])),
+        (np.asarray([0.0, np.pi / 2]), np.asarray([180.0, 360.0]), "Longitude is in degrees, but latitude is not"),
+        (np.asarray([0.0, 90.0]), np.asarray([0, np.pi]), "Latitude is in degrees, but longitude is not"),
+        (xr.DataArray([0.0, np.pi / 2]), xr.DataArray([180.0, 360.0]), "Longitude is in degrees, but latitude is not"),
+        (xr.DataArray([0.0, 90.0]), xr.DataArray([0, np.pi]), "Latitude is in degrees, but longitude is not"),
     ],
 )
-def test_is_lat_lon_in_degrees_error(lat: "ArrayLike", lon: "ArrayLike") -> None:
-    with pytest.raises(ValueError) as excinfo:
+def test_is_lat_lon_in_degrees_error(lat: "ArrayLike", lon: "ArrayLike", matches: str) -> None:
+    with pytest.raises(ValueError, match=matches) as excinfo:
         derivatives.is_lat_lon_in_degrees(lat, lon)
     assert excinfo.type is ValueError
 
@@ -98,7 +98,9 @@ def test_check_lat_lon_units_warning(mocker: "MockerFixture") -> None:
 
 def test_check_lat_lon_units_error(mocker: "MockerFixture") -> None:
     is_in_deg_mock = mocker.patch("rojak.core.derivatives.is_lat_lon_in_degrees", return_value=True)
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(
+        ValueError, match="Latitude and longitude specified to be in radians, but are too large to be in radians"
+    ) as excinfo:
         derivatives.ensure_lat_lon_in_deg(np.asarray([0, 90]), np.asarray([180, 360]), "rad")
 
     assert excinfo.type is ValueError
@@ -112,7 +114,7 @@ longitude_in_rad: np.ndarray = np.deg2rad(longitude_in_deg)
 
 
 @pytest.mark.parametrize(
-    "lat, lon, is_deg",
+    ("lat", "lon", "is_deg"),
     [
         pytest.param(
             xr.DataArray(latitude_in_deg),
@@ -163,34 +165,38 @@ def test_nominal_grid_spacing(mocker: "MockerFixture") -> None:
     assert ensure_is_deg_mock.call_count == 2
 
 
-def test_nominal_grid_spacing_error(mocker: "MockerFixture") -> None:
+def test_nominal_grid_spacing_error() -> None:
     lat = np.arange(-10, 10, 0.5)
     lon = np.arange(-30, 30, 2)
 
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(ValueError, match="Latitude and longitude must have 1 dimension") as excinfo:
         derivatives.nominal_grid_spacing(lat.reshape((2, -1)), lon, "deg")
 
     assert excinfo.type is ValueError
     assert excinfo.match("Latitude and longitude must have 1 dimension")
 
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(ValueError, match="Latitude and longitude must have 1 dimension") as excinfo:
         derivatives.nominal_grid_spacing(lat, lon.reshape((2, -1)), "deg")
 
     assert excinfo.type is ValueError
     assert excinfo.match("Latitude and longitude must have 1 dimension")
 
 
-@pytest.fixture()
+@pytest.fixture
 def create_random_lat_lon_dataarray():
     return xr.DataArray(np.random.default_rng().random((20, 30, 4)), dims=["latitude", "time", "longitude"])
 
 
 @pytest.mark.parametrize(
-    "dim_name, expectation",
+    ("dim_name", "expectation"),
     [
         pytest.param("latitude", nullcontext(0), id="latitude"),
         pytest.param("longitude", nullcontext(2), id="longitude"),
-        pytest.param("lol", pytest.raises(ValueError), id="inexistent dim"),
+        pytest.param(
+            "lol",
+            pytest.raises(ValueError, match="Attempting to retrieve inexistent dimension (lol) from data array"),
+            id="inexistent dim",
+        ),
     ],
 )
 def test_get_dimension_number(create_random_lat_lon_dataarray, dim_name, expectation):
@@ -202,7 +208,7 @@ def test_get_dimension_number(create_random_lat_lon_dataarray, dim_name, expecta
 
 
 @pytest.mark.parametrize(
-    "dimension, expected_name",
+    ("dimension", "expected_name"),
     [
         (derivatives.CartesianDimension.X, "longitude"),
         (derivatives.CartesianDimension.Y, "latitude"),
@@ -216,7 +222,7 @@ def test_cartesian_dimension_get_geographic_coord_name(
 
 
 @pytest.mark.parametrize(
-    "dim, grid_deltas, expected",
+    ("dim", "grid_deltas", "expected"),
     [
         (
             derivatives.CartesianDimension.X,
@@ -238,7 +244,7 @@ def test_cartesian_dimension_get_grid_spacing(
 
 
 @pytest.mark.parametrize(
-    "dim, factors, expected",
+    ("dim", "factors", "expected"),
     [
         (
             derivatives.CartesianDimension.X,
@@ -268,19 +274,19 @@ def test_divergence(create_random_lat_lon_dataarray) -> None:
 
 
 @pytest.mark.parametrize(
-    "lat, lon",
+    ("lat", "lon", "matches"),
     [
         (xr.DataArray(np.arange(6).reshape((2, 3))), xr.DataArray(np.arange(6))),
         (xr.DataArray(np.arange(6).reshape((2, 3))), xr.DataArray(np.arange(6).reshape((2, 3)))),
     ],
 )
-def test_get_projection_correction_factors_error(lat, lon):
-    with pytest.raises(ValueError) as excinfo:
+def test_get_projection_correction_factors_error(lat, lon, matches):
+    with pytest.raises(ValueError, match=matches) as excinfo:
         derivatives.get_projection_correction_factors(lat, lon)
     assert excinfo.type is ValueError
 
 
-def test_get_projection_correction_factos() -> None:
+def test_get_projection_correction_factors() -> None:
     parallel = np.asarray(
         [
             [1.15373388, 1.15373388, 1.15373388, 1.15373388],
