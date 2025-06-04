@@ -4,6 +4,8 @@ from typing import Annotated
 import typer
 
 from rojak.cli import data_interface
+from rojak.orchestrator.configuration import Context as ConfigContext
+from rojak.orchestrator.turbulence import TurbulenceLauncher
 
 app = typer.Typer()
 app.add_typer(data_interface.data_app, name="data")
@@ -27,7 +29,10 @@ def run(
             resolve_path=True,
         ),
     ],
-) -> None: ...
+) -> None:
+    context = ConfigContext.from_yaml(config_file)
+    if context.turbulence_config is not None:
+        TurbulenceLauncher(context).launch()
 
 
 @app.command()
