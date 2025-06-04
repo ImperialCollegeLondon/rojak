@@ -47,8 +47,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
         "vertAccel", "vertGust", "windDir", "windDirDD", "windDirError", "windSpeed", "windSpeedDD", "windSpeedError",
     }  # fmt: skip
     quality_control_vars: set[str] = {"altitudeDD", "windSpeedDD", "timeObsDD", "latitudeDD", "longitudeDD",
-        "maxEDRDD", "medEDRDD", "temperatureDD", "trueAirSpeedDD", "turbIndexDD", "windDirDD",
-        "windSpeedDD"}  # fmt: skip
+        "maxEDRDD", "medEDRDD", "temperatureDD", "trueAirSpeedDD", "turbIndexDD", "windDirDD"}  # fmt: skip
     error_vars: set[str] = {"bounceError", "speedError", "turbulenceError",
         ## Including the ones below ends up making a lot of data nan. Leave that data in and let the user decide
         ## what to do with it later
