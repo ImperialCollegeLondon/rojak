@@ -6,8 +6,7 @@ from pydantic import TypeAdapter
 from rojak.core import data
 from rojak.datalib.ecmwf.era5 import Era5Data
 from rojak.orchestrator.configuration import TurbulenceCalibrationPhaseOption, TurbulenceThresholds
-from rojak.turbulence.analysis import HistogramData
-from rojak.turbulence.diagnostic import CalibrationDiagnosticSuite, DiagnosticFactory, DiagnosticName
+from rojak.turbulence.diagnostic import CalibrationDiagnosticSuite, DiagnosticFactory
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -21,6 +20,8 @@ if TYPE_CHECKING:
         TurbulenceConfig,
         TurbulenceDiagnostics,
     )
+    from rojak.turbulence.analysis import HistogramData
+    from rojak.utilities.types import DiagnosticName
 
 type RunName = str
 type TimeStr = str
@@ -89,13 +90,13 @@ class CalibrationStage:
 
     @staticmethod
     def thresholds_type_adapter() -> TypeAdapter:
-        return TypeAdapter(dict[DiagnosticName, TurbulenceThresholds])
+        return TypeAdapter(dict["DiagnosticName", TurbulenceThresholds])
 
     @staticmethod
     def distribution_parameters_type_adapter() -> TypeAdapter:
-        return TypeAdapter(dict[DiagnosticName, HistogramData])
+        return TypeAdapter(dict["DiagnosticName", "HistogramData"])
 
-    def load_thresholds_from_file(self) -> Result[Mapping[DiagnosticName, "TurbulenceThresholds"]]:
+    def load_thresholds_from_file(self) -> Result[Mapping["DiagnosticName", "TurbulenceThresholds"]]:
         assert self._config.thresholds_file_path is not None
         json_str: str = self._config.thresholds_file_path.read_text()
         thresholds = self.thresholds_type_adapter().validate_json(json_str)
@@ -103,14 +104,14 @@ class CalibrationStage:
 
     def perform_calibration(
         self, suite: CalibrationDiagnosticSuite | None
-    ) -> Result[Mapping[DiagnosticName, "TurbulenceThresholds"]]:
+    ) -> Result[Mapping["DiagnosticName", "TurbulenceThresholds"]]:
         assert suite is not None
         assert self._config.percentile_thresholds is not None
         thresholds = suite.compute_thresholds(self._config.percentile_thresholds)
         self.export_thresholds(thresholds)
         return Result(thresholds)
 
-    def export_thresholds(self, diagnostic_thresholds: Mapping[DiagnosticName, "TurbulenceThresholds"]) -> None:
+    def export_thresholds(self, diagnostic_thresholds: Mapping["DiagnosticName", "TurbulenceThresholds"]) -> None:
         target_dir: "Path" = (self._output_dir / self._name).resolve()
         target_dir.mkdir(parents=True, exist_ok=True)
         output_file: "Path" = target_dir / f"thresholds_{self._start_time}.json"
@@ -124,7 +125,7 @@ class CalibrationStage:
         distribution_parameters = self.distribution_parameters_type_adapter().validate_json(json_str)
         return Result(distribution_parameters)
 
-    def export_distribution_parameters(self, diagnostic_thresholds: Mapping[DiagnosticName, "HistogramData"]) -> None:
+    def export_distribution_parameters(self, diagnostic_thresholds: Mapping["DiagnosticName", "HistogramData"]) -> None:
         target_dir: "Path" = (self._output_dir / self._name).resolve()
         target_dir.mkdir(parents=True, exist_ok=True)
         output_file: "Path" = target_dir / f"distribution_params_{self._start_time}.json"

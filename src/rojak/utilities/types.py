@@ -12,3 +12,4 @@ class GoHomeYouAreDrunkError(Exception):
 
 
 Limits = NamedTuple("Limits", [("lower", float), ("upper", float)])
+type DiagnosticName = str

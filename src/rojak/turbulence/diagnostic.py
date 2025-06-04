@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Generator, Mapping, assert_never
 import numpy as np
 import xarray as xr
 from dask.base import is_dask_collection
-from xarray import DataArray
 
 from rojak.core.derivatives import (
     CartesianDimension,
@@ -34,15 +33,14 @@ if TYPE_CHECKING:
     from rojak.core.derivatives import SpatialGradientKeys
     from rojak.orchestrator.configuration import TurbulenceThresholds
     from rojak.turbulence.analysis import HistogramData
-
-type DiagnosticName = str
+    from rojak.utilities.types import DiagnosticName
 
 
 class Diagnostic(ABC):
-    _name: DiagnosticName
+    _name: "DiagnosticName"
     _computed_value: None | xr.DataArray = None
 
-    def __init__(self, name: DiagnosticName) -> None:
+    def __init__(self, name: "DiagnosticName") -> None:
         self._name = name
 
     @abstractmethod
@@ -51,7 +49,7 @@ class Diagnostic(ABC):
 
     # TODO: TEEST
     @property
-    def name(self) -> DiagnosticName:
+    def name(self) -> "DiagnosticName":
         return self._name
 
     # TODO: TEEST
@@ -814,15 +812,15 @@ class DiagnosticFactory:
 
 
 class DiagnosticSuite:
-    _diagnostics: dict[DiagnosticName, Diagnostic]
+    _diagnostics: dict["DiagnosticName", Diagnostic]
 
     def __init__(self, factory: DiagnosticFactory, diagnostics: list[TurbulenceDiagnostics]) -> None:
-        self._diagnostics: dict[DiagnosticName, Diagnostic] = {
+        self._diagnostics: dict["DiagnosticName", Diagnostic] = {
             str(diagnostics): factory.create(diagnostic)
             for diagnostic in diagnostics  # TurbulenceDiagnostic
         }
 
-    def computed_values(self) -> Generator[tuple[DiagnosticName, DataArray]]:
+    def computed_values(self) -> Generator:
         for name, diagnostic in self._diagnostics.items():  # DiagnosticName, Diagnostic
             yield name, diagnostic.computed_value
 
@@ -833,13 +831,13 @@ class CalibrationDiagnosticSuite(DiagnosticSuite):
 
     def compute_thresholds(
         self, percentile_config: "TurbulenceThresholds"
-    ) -> Mapping[DiagnosticName, "TurbulenceThresholds"]:
+    ) -> Mapping["DiagnosticName", "TurbulenceThresholds"]:
         return {
             name: TurbulenceIntensityThresholds(percentile_config, diagnostic).execute()
             for name, diagnostic in self.computed_values()  # DiagnosticName, xr.DataArray
         }
 
-    def compute_distribution_parameters(self) -> Mapping[DiagnosticName, "HistogramData"]:
+    def compute_distribution_parameters(self) -> Mapping["DiagnosticName", "HistogramData"]:
         return {
             name: DiagnosticHistogramDistribution(diagnostic).execute()
             for name, diagnostic in self.computed_values()  # DiagnosticName, xr.DataArray

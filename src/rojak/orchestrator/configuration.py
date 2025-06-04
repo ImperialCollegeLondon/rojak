@@ -424,7 +424,6 @@ class MeteorologyConfig(BaseConfigModel):
 
 class DataConfig(BaseConfigModel):
     # Config for data, this would cover both observational data and weather data
-    name: str
     spatial_domain: SpatialDomain
     meteorology_config: MeteorologyConfig | None = None
     ...
