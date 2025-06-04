@@ -1,6 +1,6 @@
 import itertools
 from enum import StrEnum
-from typing import Any, Hashable, Mapping, assert_never
+from typing import TYPE_CHECKING, Any, Hashable, Mapping, assert_never
 
 import dask.array as da
 import numpy as np
@@ -11,8 +11,10 @@ from pydantic.dataclasses import dataclass as pydantic_dataclass
 
 from rojak.core.analysis import PostProcessor
 from rojak.orchestrator.configuration import TurbulenceSeverity, TurbulenceThresholds
-from rojak.turbulence.diagnostic import DiagnosticName
 from rojak.utilities.types import Limits
+
+if TYPE_CHECKING:
+    from rojak.turbulence.diagnostic import DiagnosticName
 
 type IntensityName = str
 type IntensityValues = dict[IntensityName, float]
@@ -174,11 +176,13 @@ class DiagnosticHistogramDistribution(PostProcessor):
 
 
 class CorrelationBetweenDiagnostics(PostProcessor):
-    _diagnostic_names: list[DiagnosticName]
-    _computed_indices: dict[DiagnosticName, xr.DataArray]
+    _diagnostic_names: list["DiagnosticName"]
+    _computed_indices: dict["DiagnosticName", xr.DataArray]
     _sel_condition: Mapping[str, Any]
 
-    def __init__(self, computed_indices: dict[DiagnosticName, xr.DataArray], sel_condition: Mapping[str, Any]) -> None:
+    def __init__(
+        self, computed_indices: dict["DiagnosticName", xr.DataArray], sel_condition: Mapping[str, Any]
+    ) -> None:
         self._computed_indices = computed_indices
         self._diagnostic_names = list(self._computed_indices.keys())
         self._sel_condition = sel_condition
@@ -218,15 +222,15 @@ class LatitudinalRegion(StrEnum):
 
 
 class LatitudinalCorrelationBetweenDiagnostics(PostProcessor):
-    _computed_indices: Mapping[DiagnosticName, xr.DataArray]
+    _computed_indices: Mapping["DiagnosticName", xr.DataArray]
     _hemispheres: list[Hemisphere]
     _latitudinal_regions: list[LatitudinalRegion]
-    _diagnostic_names: list[DiagnosticName]
+    _diagnostic_names: list["DiagnosticName"]
     _sel_condition: Mapping[str, Any]
 
     def __init__(
         self,
-        computed_indices: Mapping[DiagnosticName, xr.DataArray],
+        computed_indices: Mapping["DiagnosticName", xr.DataArray],
         sel_condition: Mapping[str, Any],
         hemispheres: list[Hemisphere] | None = None,
         regions: list[LatitudinalRegion] | None = None,
