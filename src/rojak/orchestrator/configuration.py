@@ -306,15 +306,22 @@ class SpatialDomain(BaseConfigModel):
         return self
 
 
+class MetDataSource(StrEnum):
+    ERA5 = "era5"
+
+
 class MeteorologyConfig(BaseConfigModel):
-    evaluation_data_dir: Annotated[
+    data_dir: Annotated[
         Path,
         Field(
-            description="Path to directory containing evaluation data",
+            description="Path to directory containing the data from a NWP/GCM",
             repr=True,
             frozen=True,
         ),
         AfterValidator(dir_must_exist),
+    ]
+    data_source: Annotated[
+        MetDataSource, Field(default=MetDataSource.ERA5, description="Source of Met data", repr=True, frozen=True)
     ]
 
 
