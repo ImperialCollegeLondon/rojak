@@ -1,3 +1,4 @@
+import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Generator, Mapping, assert_never
 
@@ -34,6 +35,8 @@ if TYPE_CHECKING:
     from rojak.orchestrator.configuration import TurbulenceThresholds
     from rojak.turbulence.analysis import HistogramData
     from rojak.utilities.types import DiagnosticName
+
+logger = logging.getLogger(__name__)
 
 
 class Diagnostic(ABC):
