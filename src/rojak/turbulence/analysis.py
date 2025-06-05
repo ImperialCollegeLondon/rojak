@@ -10,7 +10,7 @@ from numpy.typing import NDArray
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 
 from rojak.core.analysis import PostProcessor
-from rojak.orchestrator.configuration import TurbulenceSeverity, TurbulenceThresholds
+from rojak.orchestrator.configuration import TurbulenceSeverity, TurbulenceThresholdMode, TurbulenceThresholds
 from rojak.utilities.types import Limits
 
 if TYPE_CHECKING:
@@ -175,6 +175,61 @@ class DiagnosticHistogramDistribution(PostProcessor):
         if is_dask_collection(self._computed_diagnostic):
             return self._parallel_execution()
         return self._serial_execution()
+
+
+class TurbulentRegionsBySeverity(PostProcessor):
+    _computed_diagnostic: xr.DataArray
+    _severities: list["TurbulenceSeverity"]
+    _thresholds: "TurbulenceThresholds"
+    _threshold_mode: "TurbulenceThresholdMode"
+    _has_child: bool = False
+
+    def __init__(
+        self,
+        computed_diagnostic: xr.DataArray,
+        pressure_levels: list[float],
+        severities: list["TurbulenceSeverity"],
+        thresholds: "TurbulenceThresholds",
+        threshold_mode: "TurbulenceThresholdMode",
+        has_child: bool = False,
+    ) -> None:
+        self._computed_diagnostic = computed_diagnostic.sel(pressure_level=pressure_levels)
+        self._severities = severities
+        self._thresholds = thresholds
+        self._threshold_mode = threshold_mode
+        self._has_child = has_child
+
+    def execute(self) -> xr.DataArray | list[xr.DataArray]:
+        by_severity = []
+        for severity in self._severities:
+            bounds: "Limits" = self._thresholds.get_bounds(severity, self._threshold_mode)
+            this_severity = xr.where(
+                (self._computed_diagnostic >= bounds.lower) & (self._computed_diagnostic < bounds.upper), True, False
+            )
+            by_severity.append(this_severity if self._has_child else this_severity.compute())
+        return by_severity if self._has_child else xr.concat(by_severity, xr.Variable("severity", self._severities))
+
+
+class TurbulenceProbabilityBySeverity(TurbulentRegionsBySeverity):
+    def __init__(
+        self,
+        computed_diagnostic: xr.DataArray,
+        pressure_levels: list[float],
+        severities: list[TurbulenceSeverity],
+        thresholds: "TurbulenceThresholds",
+        threshold_mode: "TurbulenceThresholdMode",
+    ) -> None:
+        super().__init__(computed_diagnostic, pressure_levels, severities, thresholds, threshold_mode, has_child=True)
+
+    def execute(self) -> xr.DataArray | list[xr.DataArray]:
+        num_time_steps: int = self._computed_diagnostic["time"].size
+        by_severity: list[xr.DataArray] | xr.DataArray = super().execute()
+        assert isinstance(by_severity, list)
+        probabilities = [
+            (this_severity.sum(dim="time").compute() / num_time_steps) * 100 for this_severity in by_severity
+        ]
+        # hmmm.... I'm not sure if this will behave the way I expect with the new dimension
+        return xr.concat(probabilities, xr.Variable("severity", self._severities))
 
 
 class CorrelationBetweenDiagnostics(PostProcessor):
