@@ -339,6 +339,9 @@ class TurbulenceEvaluationConfig(BaseConfigModel):
         list[TurbulenceSeverity],
         Field(description="Target turbulence severity", repr=True),
     ] = [TurbulenceSeverity.LIGHT]
+    pressure_levels: Annotated[
+        list[float], Field(description="Pressure levels to evaluate on", repr=True, frozen=True)
+    ] = [200.0]
 
 
 class TurbulenceEvaluationPhases(BaseConfigModel):
@@ -395,6 +398,21 @@ class TurbulencePhases(BaseConfigModel):
             ):
                 raise InvalidConfigurationError("To evaluate EDR, histogram phase must occur at calibration stage")
 
+        return self
+
+    @model_validator(mode="after")
+    def check_valid_severities(self) -> Self:
+        if (
+            self.evaluation_phases is not None
+            and self.calibration_phases.calibration_config.percentile_thresholds is not None
+            and any(
+                self.calibration_phases.calibration_config.percentile_thresholds.get_by_severity(severity) is None
+                for severity in self.evaluation_phases.evaluation_config.severities
+            )
+        ):
+            raise InvalidConfigurationError(
+                "Attempting to evaluate for a severity that has not been computed for int the calibration phase"
+            )
         return self
 
 
