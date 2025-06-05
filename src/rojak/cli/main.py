@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from typing import Annotated
 
@@ -30,6 +31,7 @@ def run(
         ),
     ],
 ) -> None:
+    logging.basicConfig(level=logging.DEBUG)
     context = ConfigContext.from_yaml(config_file)
     if context.turbulence_config is not None:
         TurbulenceLauncher(context).launch()

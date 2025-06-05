@@ -102,7 +102,7 @@ def test_calibration_stage_launch_no_calibration_data(
         datetime.now().strftime("%Y-%m-%d_%H_%M_%S"),
     )
     spy_on_run_phase = mocker.spy(calibration, "run_phase")
-    calibration.launch([TurbulenceDiagnostics.DEF])
+    calibration.launch([TurbulenceDiagnostics.DEF], {})
     spy_on_run_phase.assert_not_called()
 
 
@@ -117,7 +117,7 @@ def test_calibration_stage_launch_calibration_data(
         datetime.now().strftime("%Y-%m-%d_%H_%M_%S"),
     )
     mock_suite_creation = mocker.patch.object(calibration, "create_diagnostic_suite", return_value=None)
-    calibration.launch([TurbulenceDiagnostics.DEF])
+    calibration.launch([TurbulenceDiagnostics.DEF], {})
     mock_suite_creation.assert_called_once_with([TurbulenceDiagnostics.DEF])
 
 
@@ -138,7 +138,7 @@ def dump_to_file(tmp_path_factory, calibration_config_data_dir, mocker: "MockerF
     mock_suite_creation = mocker.patch.object(calibration, "create_diagnostic_suite", return_value=suite_mock)
 
     # Call will test the logic in perform_calibration method - includes exporting of data
-    calibration.launch([TurbulenceDiagnostics.DEF])
+    calibration.launch([TurbulenceDiagnostics.DEF], {})
     mock_suite_creation.assert_called_once_with([TurbulenceDiagnostics.DEF])
 
     return tmp_path_factory.getbasetemp() / "output" / "test" / f"thresholds_{start_time}.json"
@@ -162,7 +162,7 @@ def test_calibration_stage_perform_calibration(
     mock_suite_creation = mocker.patch.object(calibration, "create_diagnostic_suite", return_value=suite_mock)
 
     # Call will test the logic in perform_calibration method - includes exporting of data
-    calibration.launch([TurbulenceDiagnostics.DEF])
+    calibration.launch([TurbulenceDiagnostics.DEF], {})
     mock_suite_creation.assert_called_once_with([TurbulenceDiagnostics.DEF])
     # Verify that mocked method was called with correct values
     compute_threshold_mock.assert_called()
@@ -213,7 +213,7 @@ def test_calibration_stage_compute_distribution_params(
     mock_suite_creation = mocker.patch.object(calibration, "create_diagnostic_suite", return_value=suite_mock)
 
     # Call will test the logic in perform_calibration method - includes exporting of data
-    calibration.launch([TurbulenceDiagnostics.DEF])
+    calibration.launch([TurbulenceDiagnostics.DEF], {})
     mock_suite_creation.assert_called_once_with([TurbulenceDiagnostics.DEF])
 
     compute_dist_params_mock.assert_called_once()

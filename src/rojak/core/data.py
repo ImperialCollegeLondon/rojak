@@ -1,8 +1,9 @@
 import calendar
 import itertools
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar, List, Mapping, NamedTuple
+from typing import TYPE_CHECKING, ClassVar, List, Literal, Mapping, NamedTuple
 
 import xarray as xr
 
@@ -14,6 +15,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from rojak.orchestrator.configuration import SpatialDomain
+
+logger = logging.getLogger(__name__)
 
 
 class Date(NamedTuple):
@@ -192,14 +195,17 @@ def load_from_folder(
     path_to_folder: "Path",
     glob_pattern: str = "*.nc",
     chunks: Mapping | None = None,
+    engine: Literal["netcdf4", "scipy", "pydap", "h5netcdf", "zarr"] = "h5netcdf",
     is_decoded: bool = True,
 ) -> "xr.Dataset":
     if chunks is None:
         raise ValueError("Chunks for ERA5 multi-file load cannot be None")
+    logger.debug("Loading CATData from folder")
     return xr.open_mfdataset(
         str(path_to_folder / glob_pattern),
         chunks=chunks,
         parallel=True,
+        engine=engine,
         decode_coords=is_decoded,
         decode_cf=is_decoded,
         decode_timedelta=True,

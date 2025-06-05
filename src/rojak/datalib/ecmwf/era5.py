@@ -1,3 +1,4 @@
+import logging
 from typing import TYPE_CHECKING, ClassVar, List, Literal
 
 import cdsapi
@@ -19,6 +20,8 @@ if TYPE_CHECKING:
 
     from rojak.core.data import Date
     from rojak.orchestrator.configuration import SpatialDomain
+
+logger = logging.getLogger(__name__)
 
 
 class InvalidEra5RequestConfigurationError(Exception):
@@ -117,6 +120,7 @@ class Era5Data(MetData):
         raise NotImplementedError("Era5 data not yet implemented.")
 
     def to_clear_air_turbulence_data(self, domain: "SpatialDomain") -> CATData:
+        logger.debug("Converting data to CATData")
         target_variables: list[DataVarSchema] = [
             Era5Data.temperature,
             Era5Data.divergence,

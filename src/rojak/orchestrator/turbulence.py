@@ -23,6 +23,10 @@ if TYPE_CHECKING:
     )
     from rojak.utilities.types import DiagnosticName
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 type RunName = str
 type TimeStr = str
 
@@ -61,18 +65,24 @@ class CalibrationStage:
         self._name = name
         self._start_time = start_time
 
-    def launch(self, diagnostics: list["TurbulenceDiagnostics"]) -> Mapping[TurbulenceCalibrationPhaseOption, Result]:
+    def launch(
+        self, diagnostics: list["TurbulenceDiagnostics"], chunks: Mapping
+    ) -> Mapping[TurbulenceCalibrationPhaseOption, Result]:
         suite: CalibrationDiagnosticSuite | None = (
-            self.create_diagnostic_suite(diagnostics) if self._config.calibration_data_dir is not None else None
+            self.create_diagnostic_suite(diagnostics, chunks) if self._config.calibration_data_dir is not None else None
         )
 
         return {phase: self.run_phase(phase, suite) for phase in self._phases.phases}
 
-    def create_diagnostic_suite(self, diagnostics: list["TurbulenceDiagnostics"]) -> "CalibrationDiagnosticSuite":
+    def create_diagnostic_suite(
+        self, diagnostics: list["TurbulenceDiagnostics"], chunks: Mapping
+    ) -> "CalibrationDiagnosticSuite":
         assert self._config.calibration_data_dir is not None
+        logger.debug("Loading CATData")
         calibration_data: "CATData" = Era5Data(
-            data.load_from_folder(self._config.calibration_data_dir),
+            data.load_from_folder(self._config.calibration_data_dir, chunks=chunks),
         ).to_clear_air_turbulence_data(self._spatial_domain)
+        logger.debug("Instantiating CalibrationDiagnosticSuite")
         return CalibrationDiagnosticSuite(DiagnosticFactory(calibration_data), diagnostics)
 
     def run_phase(
@@ -162,12 +172,14 @@ class TurbulenceLauncher:
         self._start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
 
     def launch(self) -> None:
+        logger.info("Launching Turbulence Calibration")
         calibration_result = CalibrationStage(
             self._config.phases.calibration_phases,
             self._context.data_config.spatial_domain,
             self._context.output_dir,
             self._context.name,
             self._start_time,
-        ).launch(self._config.diagnostics)
+        ).launch(self._config.diagnostics, self._config.chunks)
+        logger.info("Finished Turbulence")
         if self._config.phases.evaluation_phases is not None:
             EvaluationStage(calibration_result)
