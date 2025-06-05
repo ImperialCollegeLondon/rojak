@@ -167,7 +167,20 @@ def get_projection_correction_factors(
     lon_grid, lat_grid = np.meshgrid(longitude, latitude)
     factors = Proj(crs).get_factors(lon_grid, lat_grid, radians=is_radians)
 
-    return ProjectionCorrectionFactors(factors.parallel_scale, factors.meridional_scale)  # type: ignore
+    return ProjectionCorrectionFactors(
+        xr.DataArray(
+            factors.parallel_scale,
+            dims=(latitude.dims[0], longitude.dims[-1]),
+            coords={**latitude.coords, **longitude.coords},
+            # coords={"longitude": longitude, "latitude": latitude},
+        ),
+        xr.DataArray(
+            factors.meridional_scale,
+            dims=(latitude.dims[0], longitude.dims[-1]),
+            coords={**latitude.coords, **longitude.coords},
+            # coords={"longitude": longitude, "latitude": latitude},
+        ),
+    )
 
 
 def get_dimension_number(name: str, data_array: "xr.DataArray") -> int:
@@ -182,7 +195,7 @@ def first_derivative(array: "xr.DataArray", grid_spacing_in_meters: ArrayLike, a
         computed_gradient = da.gradient(array, coordinate_of_values, axis=axis)
     else:
         computed_gradient = np.gradient(array, coordinate_of_values, axis=axis)
-    return computed_gradient
+    return array.copy(data=computed_gradient)
 
 
 class CartesianDimension(StrEnum):

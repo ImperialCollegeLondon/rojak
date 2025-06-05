@@ -140,7 +140,8 @@ class Era5Data(MetData):
                 self.pressure_to_altitude_std_atm(target_data["pressure_level"]).data,
             )
         )
-        target_data.rename({"valid_time": "time"})
+        target_data = target_data.rename({"valid_time": "time"})
+        target_data = target_data.transpose("latitude", "longitude", "time", "pressure_level")
         if is_dask_collection(target_data):
             target_data = target_data.drop_vars("expver")
         return CATData(target_data)
