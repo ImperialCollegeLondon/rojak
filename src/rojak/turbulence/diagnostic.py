@@ -819,7 +819,7 @@ class DiagnosticSuite:
 
     def __init__(self, factory: DiagnosticFactory, diagnostics: list[TurbulenceDiagnostics]) -> None:
         self._diagnostics: dict["DiagnosticName", Diagnostic] = {
-            str(diagnostics): factory.create(diagnostic)
+            str(diagnostic): factory.create(diagnostic)
             for diagnostic in diagnostics  # TurbulenceDiagnostic
         }
 
