@@ -75,7 +75,7 @@ class TurbulenceDiagnostics(StrEnum):
     NVA = "nva"
     DUTTON = "dutton"
     EDR_LUNNON = "edr_lunnon"
-    VORTICITY_SQUARED = "vortical_squared"
+    VORTICITY_SQUARED = "vorticity_squared"
 
 
 class BaseConfigModel(BaseModel):
