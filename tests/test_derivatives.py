@@ -194,7 +194,7 @@ def create_random_lat_lon_dataarray():
         pytest.param("longitude", nullcontext(2), id="longitude"),
         pytest.param(
             "lol",
-            pytest.raises(ValueError, match="Attempting to retrieve inexistent dimension (lol) from data array"),
+            pytest.raises(ValueError, match="Attempting to retrieve inexistent dimension"),
             id="inexistent dim",
         ),
     ],
@@ -276,8 +276,16 @@ def test_divergence(create_random_lat_lon_dataarray) -> None:
 @pytest.mark.parametrize(
     ("lat", "lon", "matches"),
     [
-        (xr.DataArray(np.arange(6).reshape((2, 3))), xr.DataArray(np.arange(6))),
-        (xr.DataArray(np.arange(6).reshape((2, 3))), xr.DataArray(np.arange(6).reshape((2, 3)))),
+        (
+            xr.DataArray(np.arange(6).reshape((2, 3))),
+            xr.DataArray(np.arange(6)),
+            "Latitude and longitude must have same number of dimensions",
+        ),
+        (
+            xr.DataArray(np.arange(6).reshape((2, 3))),
+            xr.DataArray(np.arange(6).reshape((2, 3))),
+            "Latitude and longitude must have 1 dimension",
+        ),
     ],
 )
 def test_get_projection_correction_factors_error(lat, lon, matches):

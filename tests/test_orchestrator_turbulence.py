@@ -118,7 +118,7 @@ def test_calibration_stage_launch_calibration_data(
     )
     mock_suite_creation = mocker.patch.object(calibration, "create_diagnostic_suite", return_value=None)
     calibration.launch([TurbulenceDiagnostics.DEF], {})
-    mock_suite_creation.assert_called_once_with([TurbulenceDiagnostics.DEF])
+    mock_suite_creation.assert_called_once_with([TurbulenceDiagnostics.DEF], {})
 
 
 @pytest.fixture
@@ -139,7 +139,7 @@ def dump_to_file(tmp_path_factory, calibration_config_data_dir, mocker: "MockerF
 
     # Call will test the logic in perform_calibration method - includes exporting of data
     calibration.launch([TurbulenceDiagnostics.DEF], {})
-    mock_suite_creation.assert_called_once_with([TurbulenceDiagnostics.DEF])
+    mock_suite_creation.assert_called_once_with([TurbulenceDiagnostics.DEF], {})
 
     return tmp_path_factory.getbasetemp() / "output" / "test" / f"thresholds_{start_time}.json"
 
@@ -163,7 +163,7 @@ def test_calibration_stage_perform_calibration(
 
     # Call will test the logic in perform_calibration method - includes exporting of data
     calibration.launch([TurbulenceDiagnostics.DEF], {})
-    mock_suite_creation.assert_called_once_with([TurbulenceDiagnostics.DEF])
+    mock_suite_creation.assert_called_once_with([TurbulenceDiagnostics.DEF], {})
     # Verify that mocked method was called with correct values
     compute_threshold_mock.assert_called()
     compute_threshold_mock.assert_called_with(TurbulenceThresholds(light=90, moderate=95, severe=99))
@@ -214,7 +214,7 @@ def test_calibration_stage_compute_distribution_params(
 
     # Call will test the logic in perform_calibration method - includes exporting of data
     calibration.launch([TurbulenceDiagnostics.DEF], {})
-    mock_suite_creation.assert_called_once_with([TurbulenceDiagnostics.DEF])
+    mock_suite_creation.assert_called_once_with([TurbulenceDiagnostics.DEF], {})
 
     compute_dist_params_mock.assert_called_once()
 
