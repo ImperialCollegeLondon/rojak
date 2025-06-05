@@ -49,7 +49,7 @@ class TurbulenceIntensityThresholds(PostProcessor):
     def execute(self) -> TurbulenceThresholds:
         not_none_mask = [index for index, item in enumerate(self._percentile_config.all_severities) if item is not None]
         not_none_percentiles = self._compute_percentiles(
-            np.asarray(self._percentile_config.all_severities)[not_none_mask]
+            np.asarray(self._percentile_config.all_severities, dtype=np.float64)[not_none_mask]
         )
         mapping_to_severity = self._find_index_without_nones()
         return TurbulenceThresholds(
