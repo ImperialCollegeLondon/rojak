@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from rich.logging import RichHandler
 
 from rojak.cli import data_interface
 from rojak.orchestrator.configuration import Context as ConfigContext
@@ -31,7 +32,7 @@ def run(
         ),
     ],
 ) -> None:
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level="NOTSET", handlers=[RichHandler()])
     context = ConfigContext.from_yaml(config_file)
     if context.turbulence_config is not None:
         TurbulenceLauncher(context).launch()
