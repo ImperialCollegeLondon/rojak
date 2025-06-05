@@ -245,19 +245,17 @@ class MetData(ABC):
     @staticmethod
     def pressure_to_altitude_std_atm(pressure: xr.DataArray) -> xr.DataArray:
         """
-        Equation 3.106 on page 106 in Wallace, J. M., and Hobbs, P. V., “Atmospheric Science: An Introductory Survey,”
+        Equation 3.106 on page 104 in Wallace, J. M., and Hobbs, P. V., “Atmospheric Science: An Introductory Survey,”
         Elsevier Science & Technology, San Diego, UNITED STATES, 2006.
-        z = \frac{T_0}{\\Gamma} \\left[ 1 - \\left( \frac{p}{p_0} \right)^{\frac{R\\Gamma}{g}} \right]
+        ..math:: z = \frac{T_0}{\\Gamma} \\left[ 1 - \\left( \frac{p}{p_0} \right)^{\frac{R\\Gamma}{g}} \right]
         """
         reference_temperature: float = 288.0  # kelvin
-        gamma: float = 6.5  # K/km
+        gamma: float = 0.0065  # 6.5 K/km => 0.0065 K/m
         reference_pressure: float = 1013.25  # hPa
-        gas_constant_dry_air: float = 297  # J / (K kg)
+        gas_constant_dry_air: float = 287  # J / (K kg)
         gravitational_acceleration: float = 9.80665  # m / s^2
         return (reference_temperature / gamma) * (
-            1
-            - (pressure / reference_pressure)  # fmt: skip
-            ** ((gas_constant_dry_air * gamma) / gravitational_acceleration)
+            1 - ((pressure / reference_pressure) ** ((gas_constant_dry_air * gamma) / gravitational_acceleration))
         )
 
     # To be added later
