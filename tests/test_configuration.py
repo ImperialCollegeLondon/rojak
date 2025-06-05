@@ -3,6 +3,7 @@ from contextlib import nullcontext
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+import numpy as np
 import pytest
 import yaml
 from pydantic import ValidationError
@@ -12,6 +13,9 @@ from rojak.orchestrator.configuration import (
     DataConfig,
     InvalidConfigurationError,
     SpatialDomain,
+    TurbulenceSeverity,
+    TurbulenceThresholdMode,
+    TurbulenceThresholds,
 )
 
 if TYPE_CHECKING:
@@ -511,3 +515,84 @@ def test_turbulence_calibration_phases(phases, expectation, tmp_path) -> None:
         assert config.phases == phases
     if phases is None:
         assert e.type is expectation.expected_exception
+
+
+@pytest.fixture
+def all_values_turbulence_thresholds() -> TurbulenceThresholds:
+    return TurbulenceThresholds(light=95, light_to_moderate=96, moderate=97, moderate_to_severe=98, severe=99)
+
+
+@pytest.mark.parametrize(
+    ("target_severity", "mode", "lower_bound", "upper_bound"),
+    [
+        (TurbulenceSeverity.LIGHT, TurbulenceThresholdMode.BOUNDED, 95, 96),
+        (TurbulenceSeverity.LIGHT_TO_MODERATE, TurbulenceThresholdMode.BOUNDED, 96, 97),
+        (TurbulenceSeverity.MODERATE, TurbulenceThresholdMode.BOUNDED, 97, 98),
+        (TurbulenceSeverity.MODERATE_TO_SEVERE, TurbulenceThresholdMode.BOUNDED, 98, 99),
+        (TurbulenceSeverity.SEVERE, TurbulenceThresholdMode.BOUNDED, 99, np.inf),
+        (TurbulenceSeverity.LIGHT, TurbulenceThresholdMode.GEQ, 95, np.inf),
+        (TurbulenceSeverity.LIGHT_TO_MODERATE, TurbulenceThresholdMode.GEQ, 96, np.inf),
+        (TurbulenceSeverity.MODERATE, TurbulenceThresholdMode.GEQ, 97, np.inf),
+        (TurbulenceSeverity.MODERATE_TO_SEVERE, TurbulenceThresholdMode.GEQ, 98, np.inf),
+        (TurbulenceSeverity.SEVERE, TurbulenceThresholdMode.GEQ, 99, np.inf),
+    ],
+)
+def test_get_bounds_all_valid(
+    target_severity, mode, lower_bound, upper_bound, all_values_turbulence_thresholds
+) -> None:
+    bounds = all_values_turbulence_thresholds.get_bounds(target_severity, mode)
+    assert bounds.lower == lower_bound
+    assert bounds.upper == upper_bound
+
+
+@pytest.mark.parametrize(
+    ("thresholds", "target_severity"),
+    [
+        (
+            TurbulenceThresholds(light=95, light_to_moderate=96, moderate=97, moderate_to_severe=98, severe=None),
+            TurbulenceSeverity.MODERATE_TO_SEVERE,
+        ),
+        (
+            TurbulenceThresholds(light=95, light_to_moderate=96, moderate=97, moderate_to_severe=None, severe=None),
+            TurbulenceSeverity.MODERATE,
+        ),
+        (
+            TurbulenceThresholds(light=95, light_to_moderate=96, moderate=None, moderate_to_severe=None, severe=None),
+            TurbulenceSeverity.LIGHT_TO_MODERATE,
+        ),
+        (
+            TurbulenceThresholds(light=95, light_to_moderate=None, moderate=None, moderate_to_severe=None, severe=None),
+            TurbulenceSeverity.LIGHT,
+        ),
+    ],
+)
+def test_get_bounds_no_next(thresholds, target_severity):
+    with pytest.raises(StopIteration) as e:
+        thresholds.get_bounds(target_severity, TurbulenceThresholdMode.BOUNDED)
+    assert e.type is StopIteration
+
+
+@pytest.fixture
+def all_none_except_light_turbulence_thresholds() -> TurbulenceThresholds:
+    return TurbulenceThresholds(light=95, light_to_moderate=None, moderate=None, moderate_to_severe=None, severe=None)
+
+
+@pytest.mark.parametrize(
+    "target_severity",
+    [
+        TurbulenceSeverity.LIGHT_TO_MODERATE,
+        TurbulenceSeverity.MODERATE,
+        TurbulenceSeverity.MODERATE_TO_SEVERE,
+        TurbulenceSeverity.SEVERE,
+    ],
+)
+def test_get_bounds_threshold_is_none(target_severity, all_none_except_light_turbulence_thresholds):
+    with pytest.raises(
+        ValueError, match="Attempting to retrieve threshold value for a severity that is None"
+    ) as e_bounded:
+        all_none_except_light_turbulence_thresholds.get_bounds(target_severity, TurbulenceThresholdMode.BOUNDED)
+    assert e_bounded.type is ValueError
+
+    with pytest.raises(ValueError, match="Attempting to retrieve threshold value for a severity that is None") as e_geq:
+        all_none_except_light_turbulence_thresholds.get_bounds(target_severity, TurbulenceThresholdMode.GEQ)
+    assert e_geq.type is ValueError

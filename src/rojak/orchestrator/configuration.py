@@ -1,9 +1,12 @@
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Any, Self
+from typing import Annotated, Any, Self, assert_never
 
+import numpy as np
 import yaml
 from pydantic import AfterValidator, BaseModel, Field, ValidationError, model_validator
+
+from rojak.utilities.types import Limits
 
 
 class InvalidConfigurationError(Exception):
@@ -30,7 +33,7 @@ class TurbulenceSeverity(StrEnum):
     MODERATE = "moderate"
     MODERATE_TO_SEVERE = "moderate_to_severe"
     SEVERE = "severe"
-    MODERATE_OR_GREATER = "moderate_or_greater"
+    # MODERATE_OR_GREATER = "moderate_or_greater"
 
     @classmethod
     def get_in_ascending_order(cls) -> list["TurbulenceSeverity"]:
@@ -41,6 +44,21 @@ class TurbulenceSeverity(StrEnum):
             TurbulenceSeverity.MODERATE_TO_SEVERE,
             TurbulenceSeverity.SEVERE,
         ]
+
+    def get_index(self) -> int:
+        match self:
+            case TurbulenceSeverity.LIGHT:
+                return 0
+            case TurbulenceSeverity.LIGHT_TO_MODERATE:
+                return 1
+            case TurbulenceSeverity.MODERATE:
+                return 2
+            case TurbulenceSeverity.MODERATE_TO_SEVERE:
+                return 3
+            case TurbulenceSeverity.SEVERE:
+                return 4
+            case _ as unreachable:
+                assert_never(unreachable)
 
 
 class TurbulenceThresholdMode(StrEnum):
@@ -161,6 +179,38 @@ class TurbulenceThresholds(BaseConfigModel):
     @property
     def all_severities(self) -> list[float | None]:
         return self._all_severities
+
+    def get_by_severity(self, severity: TurbulenceSeverity) -> float | None:
+        match severity:
+            case TurbulenceSeverity.LIGHT:
+                return self.light
+            case TurbulenceSeverity.LIGHT_TO_MODERATE:
+                return self.light_to_moderate
+            case TurbulenceSeverity.MODERATE:
+                return self.moderate
+            case TurbulenceSeverity.MODERATE_TO_SEVERE:
+                return self.moderate_to_severe
+            case TurbulenceSeverity.SEVERE:
+                return self.severe
+            case _ as unreachable:
+                assert_never(unreachable)
+
+    def get_bounds(self, severity: TurbulenceSeverity, mode: TurbulenceThresholdMode) -> Limits:
+        lower_bound: float | None = self.get_by_severity(severity)
+        if lower_bound is None:
+            raise ValueError("Attempting to retrieve threshold value for a severity that is None")
+
+        if mode == TurbulenceThresholdMode.GEQ or severity == TurbulenceSeverity.SEVERE:
+            return Limits(lower_bound, np.inf)
+
+        next_severity: TurbulenceSeverity = next(
+            higher_severity
+            for higher_severity in TurbulenceSeverity.get_in_ascending_order()[severity.get_index() + 1 :]
+            if self.get_by_severity(higher_severity) is not None
+        )
+        upper_bound = self.get_by_severity(next_severity)
+        assert upper_bound is not None
+        return Limits(lower_bound, upper_bound)
 
 
 class TurbulenceCalibrationPhaseOption(StrEnum):
