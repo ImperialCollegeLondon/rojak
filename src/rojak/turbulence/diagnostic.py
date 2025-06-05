@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Generator, Mapping, assert_never
 import numpy as np
 import xarray as xr
 from dask.base import is_dask_collection
+from rich.progress import track
 
 from rojak.core.derivatives import (
     CartesianDimension,
@@ -823,8 +824,10 @@ class DiagnosticSuite:
             for diagnostic in diagnostics  # TurbulenceDiagnostic
         }
 
-    def computed_values(self) -> Generator:
-        for name, diagnostic in self._diagnostics.items():  # DiagnosticName, Diagnostic
+    def computed_values(self, progress_description: str) -> Generator:
+        for name, diagnostic in track(
+            self._diagnostics.items(), description=progress_description
+        ):  # DiagnosticName, Diagnostic
             yield name, diagnostic.computed_value
 
 
@@ -837,11 +840,13 @@ class CalibrationDiagnosticSuite(DiagnosticSuite):
     ) -> Mapping["DiagnosticName", "TurbulenceThresholds"]:
         return {
             name: TurbulenceIntensityThresholds(percentile_config, diagnostic).execute()
-            for name, diagnostic in self.computed_values()  # DiagnosticName, xr.DataArray
+            for name, diagnostic in self.computed_values("Computing thresholds")  # DiagnosticName, xr.DataArray
         }
 
     def compute_distribution_parameters(self) -> Mapping["DiagnosticName", "HistogramData"]:
         return {
             name: DiagnosticHistogramDistribution(diagnostic).execute()
-            for name, diagnostic in self.computed_values()  # DiagnosticName, xr.DataArray
+            for name, diagnostic in self.computed_values(
+                "Computing distribution parameters"
+            )  # DiagnosticName, xr.DataArray
         }

@@ -32,7 +32,7 @@ def run(
         ),
     ],
 ) -> None:
-    logging.basicConfig(level="NOTSET", handlers=[RichHandler()])
+    logging.basicConfig(level="NOTSET", handlers=[RichHandler(rich_tracebacks=True)])
     context = ConfigContext.from_yaml(config_file)
     if context.turbulence_config is not None:
         TurbulenceLauncher(context).launch()
