@@ -1,9 +1,11 @@
+import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, assert_never
+from typing import TYPE_CHECKING, Generator, Mapping, assert_never
 
 import numpy as np
 import xarray as xr
 from dask.base import is_dask_collection
+from rich.progress import track
 
 from rojak.core.derivatives import (
     CartesianDimension,
@@ -12,7 +14,19 @@ from rojak.core.derivatives import (
     spatial_gradient,
     spatial_laplacian,
 )
-from rojak.orchestrator.configuration import TurbulenceDiagnostics
+from rojak.orchestrator.configuration import (
+    TurbulenceDiagnostics,
+    TurbulenceSeverity,
+    TurbulenceThresholdMode,
+    TurbulenceThresholds,
+)
+from rojak.turbulence.analysis import (
+    DiagnosticHistogramDistribution,
+    TransformToEDR,
+    TurbulenceIntensityThresholds,
+    TurbulenceProbabilityBySeverity,
+    TurbulentRegionsBySeverity,
+)
 from rojak.turbulence.calculations import (
     GRAVITATIONAL_ACCELERATION,
     absolute_vorticity,
@@ -30,15 +44,18 @@ from rojak.turbulence.calculations import (
 if TYPE_CHECKING:
     from rojak.core.data import CATData
     from rojak.core.derivatives import SpatialGradientKeys
+    from rojak.orchestrator.configuration import TurbulenceSeverity
+    from rojak.turbulence.analysis import HistogramData
+    from rojak.utilities.types import DiagnosticName, DistributionParameters
 
-type DiagnosticName = str
+logger = logging.getLogger(__name__)
 
 
 class Diagnostic(ABC):
-    _name: DiagnosticName
+    _name: "DiagnosticName"
     _computed_value: None | xr.DataArray = None
 
-    def __init__(self, name: DiagnosticName) -> None:
+    def __init__(self, name: "DiagnosticName") -> None:
         self._name = name
 
     @abstractmethod
@@ -47,7 +64,7 @@ class Diagnostic(ABC):
 
     # TODO: TEEST
     @property
-    def name(self) -> DiagnosticName:
+    def name(self) -> "DiagnosticName":
         return self._name
 
     # TODO: TEEST
@@ -684,7 +701,7 @@ class EDRLunnon(Diagnostic):
         ) * self._stretching_deformation - 2 * du_dp * dv_dp * self._shear_deformation
 
 
-class DiagnosticBuilder:
+class DiagnosticFactory:
     _data: "CATData"
     _richardson: xr.DataArray | None = None
 
@@ -807,3 +824,140 @@ class DiagnosticBuilder:
                 )
             case _ as unreachable:
                 assert_never(unreachable)
+
+
+class DiagnosticSuite:
+    _diagnostics: dict["DiagnosticName", Diagnostic]
+
+    def __init__(self, factory: DiagnosticFactory, diagnostics: list[TurbulenceDiagnostics]) -> None:
+        self._diagnostics: dict["DiagnosticName", Diagnostic] = {
+            str(diagnostic): factory.create(diagnostic)
+            for diagnostic in diagnostics  # TurbulenceDiagnostic
+        }
+
+    def computed_values(self, progress_description: str) -> Generator:
+        for name, diagnostic in track(
+            self._diagnostics.items(), description=progress_description
+        ):  # DiagnosticName, Diagnostic
+            yield name, diagnostic.computed_value
+
+
+class CalibrationDiagnosticSuite(DiagnosticSuite):
+    def __init__(self, factory: DiagnosticFactory, diagnostics: list[TurbulenceDiagnostics]) -> None:
+        super().__init__(factory, diagnostics)
+
+    def compute_thresholds(
+        self, percentile_config: "TurbulenceThresholds"
+    ) -> Mapping["DiagnosticName", "TurbulenceThresholds"]:
+        return {
+            name: TurbulenceIntensityThresholds(percentile_config, diagnostic).execute()
+            for name, diagnostic in self.computed_values("Computing thresholds")  # DiagnosticName, xr.DataArray
+        }
+
+    def compute_distribution_parameters(self) -> Mapping["DiagnosticName", "HistogramData"]:
+        return {
+            name: DiagnosticHistogramDistribution(diagnostic).execute()
+            for name, diagnostic in self.computed_values(
+                "Computing distribution parameters"
+            )  # DiagnosticName, xr.DataArray
+        }
+
+
+class EvaluationDiagnosticSuite(DiagnosticSuite):
+    _probabilities: Mapping["DiagnosticName", xr.DataArray] | None = None
+    _edr: Mapping["DiagnosticName", xr.DataArray] | None = None
+
+    _severities: list["TurbulenceSeverity"] | None
+    _pressure_levels: list[float] | None
+    _probability_thresholds: Mapping["DiagnosticName", "TurbulenceThresholds"] | None
+    _threshold_mode: TurbulenceThresholdMode | None
+    _distribution_parameters: Mapping["DiagnosticName", "DistributionParameters"] | None
+
+    def __init__(
+        self,
+        factory: DiagnosticFactory,
+        diagnostics: list[TurbulenceDiagnostics],
+        severities: list["TurbulenceSeverity"] | None = None,
+        pressure_levels: list[float] | None = None,
+        probability_thresholds: Mapping["DiagnosticName", "TurbulenceThresholds"] | None = None,
+        threshold_mode: TurbulenceThresholdMode | None = None,
+        distribution_parameters: Mapping["DiagnosticName", "DistributionParameters"] | None = None,
+    ) -> None:
+        super().__init__(factory, diagnostics)
+        self._severities = severities
+        self._pressure_levels = pressure_levels
+        self._threshold_mode = threshold_mode
+        for name in self._diagnostics:
+            if distribution_parameters is not None and name not in distribution_parameters:
+                raise KeyError(f"Diagnostic {name} has no distribution parameter")
+            if probability_thresholds is not None and name not in probability_thresholds:
+                raise KeyError(f"Diagnostic {name} has no probability threshold")
+        self._probability_thresholds = probability_thresholds
+        self._distribution_parameters = distribution_parameters
+
+    @property
+    def probabilities(self) -> Mapping["DiagnosticName", xr.DataArray]:
+        if self._probabilities is None:
+            if (
+                self._severities is None
+                or self._pressure_levels is None
+                or self._probability_thresholds is None
+                or self._threshold_mode is None
+            ):
+                raise ValueError("Probability of encountering turbulence of a given severity needs more inputs")
+            self._probabilities = {
+                name: TurbulenceProbabilityBySeverity(
+                    diagnostic,
+                    self._pressure_levels,
+                    self._severities,
+                    self._probability_thresholds[name],
+                    self._threshold_mode,
+                ).execute()
+                for name, diagnostic in self.computed_values(
+                    "Computing probability of encountering turbulence of a given severity"
+                )
+            }
+            return self._probabilities
+
+        return self._probabilities
+
+    @property
+    def edr(self) -> Mapping["DiagnosticName", xr.DataArray]:
+        if self._edr is None:
+            if self._distribution_parameters is None:
+                raise ValueError("Computing EDR requires distribution parameters to be defined")
+
+            edr = {}
+            for name, diagnostic in self.computed_values("Computing EDR"):
+                if name not in self._distribution_parameters:
+                    raise ValueError(f"Distribution parameter for {name} is not defined")
+                dist_params = self._distribution_parameters[name]
+                edr[name] = TransformToEDR(diagnostic, dist_params.mean, dist_params.variance).execute()
+
+            self._edr = edr
+            return self._edr
+
+        return self._edr
+
+    def compute_turbulent_regions(self) -> Mapping["DiagnosticName", xr.DataArray]:
+        if (
+            self._severities is None
+            or self._pressure_levels is None
+            or self._probability_thresholds is None
+            or self._threshold_mode is None
+        ):
+            raise ValueError("Identifying turbulent regions of a given severity needs more inputs")
+
+        regions = {}
+        for name, diagnostic in self.computed_values("Computing turbulent regions"):
+            regions_for_diagnostic = TurbulentRegionsBySeverity(
+                diagnostic,
+                self._pressure_levels,
+                self._severities,
+                self._probability_thresholds[name],
+                self._threshold_mode,
+            ).execute()
+            assert isinstance(regions_for_diagnostic, xr.DataArray)
+            regions[name] = regions_for_diagnostic
+
+        return regions

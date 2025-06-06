@@ -1,8 +1,9 @@
 import calendar
 import itertools
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar, List, NamedTuple
+from typing import TYPE_CHECKING, ClassVar, List, Literal, Mapping, NamedTuple
 
 import xarray as xr
 
@@ -12,6 +13,10 @@ from rojak.turbulence import calculations as turb_calc
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from rojak.orchestrator.configuration import SpatialDomain
+
+logger = logging.getLogger(__name__)
 
 
 class Date(NamedTuple):
@@ -186,27 +191,71 @@ class CATData(CATPrognosticData):
         )
 
 
+def load_from_folder(
+    path_to_folder: "Path",
+    glob_pattern: str = "*.nc",
+    chunks: Mapping | None = None,
+    engine: Literal["netcdf4", "scipy", "pydap", "h5netcdf", "zarr"] = "h5netcdf",
+    is_decoded: bool = True,
+) -> "xr.Dataset":
+    if chunks is None:
+        raise ValueError("Chunks for ERA5 multi-file load cannot be None")
+    logger.debug("Loading CATData from folder")
+    return xr.open_mfdataset(
+        str(path_to_folder / glob_pattern),
+        chunks=chunks,
+        parallel=True,
+        engine=engine,
+        decode_coords=is_decoded,
+        decode_cf=is_decoded,
+        decode_timedelta=True,
+    )
+
+
+type XArrayDataTypes = xr.Dataset | xr.DataArray
+
+
 class MetData(ABC):
+    longitude_coord_name: str
+    latitude_coord_name: str
+
+    def __init__(self, longitude_name: str = "longitude", latitude_name: str = "latitude") -> None:
+        self.longitude_coord_name = longitude_name
+        self.latitude_coord_name = latitude_name
+
     @abstractmethod
-    def to_clear_air_turbulence_data(self) -> CATData: ...
+    def select_domain(self, domain: "SpatialDomain") -> "MetData": ...
+
+    @abstractmethod
+    def to_clear_air_turbulence_data(self, domain: "SpatialDomain") -> CATData: ...
+
+    # Modified from pycontrails
+    # https://github.com/contrailcirrus/pycontrails/blob/8a25266bcf5ead003a6b344395462ab56943e668/pycontrails/core/met.py#L2430
+    def shift_longitude(
+        self, data: XArrayDataTypes, domain_bound: float = -180, sort_data: bool = True
+    ) -> XArrayDataTypes:
+        # Utility function to shift data to have longitude in the range of [domain_bound, 360 + domain_bound]
+        # This also sorts it so that the data is then ascending from domain_bound
+        shifted_data: XArrayDataTypes = data.assign_coords(
+            longitude=((data[self.longitude_coord_name] - domain_bound) % 360) + domain_bound
+        )
+        return shifted_data.sortby(self.longitude_coord_name, ascending=True) if sort_data else shifted_data
 
     # TODO: TEST
     @staticmethod
     def pressure_to_altitude_std_atm(pressure: xr.DataArray) -> xr.DataArray:
         """
-        Equation 3.106 on page 106 in Wallace, J. M., and Hobbs, P. V., “Atmospheric Science: An Introductory Survey,”
+        Equation 3.106 on page 104 in Wallace, J. M., and Hobbs, P. V., “Atmospheric Science: An Introductory Survey,”
         Elsevier Science & Technology, San Diego, UNITED STATES, 2006.
-        z = \frac{T_0}{\\Gamma} \\left[ 1 - \\left( \frac{p}{p_0} \right)^{\frac{R\\Gamma}{g}} \right]
+        ..math:: z = \frac{T_0}{\\Gamma} \\left[ 1 - \\left( \frac{p}{p_0} \right)^{\frac{R\\Gamma}{g}} \right]
         """
         reference_temperature: float = 288.0  # kelvin
-        gamma: float = 6.5  # K/km
+        gamma: float = 0.0065  # 6.5 K/km => 0.0065 K/m
         reference_pressure: float = 1013.25  # hPa
-        gas_constant_dry_air: float = 297  # J / (K kg)
+        gas_constant_dry_air: float = 287  # J / (K kg)
         gravitational_acceleration: float = 9.80665  # m / s^2
         return (reference_temperature / gamma) * (
-            1
-            - (pressure / reference_pressure)  # fmt: skip
-            ** ((gas_constant_dry_air * gamma) / gravitational_acceleration)
+            1 - ((pressure / reference_pressure) ** ((gas_constant_dry_air * gamma) / gravitational_acceleration))
         )
 
     # To be added later
