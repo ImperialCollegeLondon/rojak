@@ -1,0 +1,32 @@
+# Allow lines to be as long as 120.
+line-length = 120
+
+[lint]
+extend-select = [
+    "A", # builtins
+    "B", # bug bear - likely bugs and design problems
+    "PTH", # use pathlib instead of os.path
+    "NPY", # NumPy-specific rules
+    "N", # PEP 8 Naming
+    "E", "W", # pycodestyle, error and warning
+    "I", # isort - checks imports
+    "N", # Follow PEP8 naming
+    "ANN", # Type annotations
+    "C4", # Comprehensions
+    "ISC", # Implicit string concatenation
+    "ICN", # Import conventions
+    "LOG", # Logging
+    "G", # Log format
+    "RET", # Good return practices
+    "SIM", # Simplifications
+    "TID", # Tidy imports
+    "TC", # Type checking
+    "PT", # Pytest style
+    #    "ARG", # Checks for unused arguments
+    "PERF", # Linter for performance anti-patterns
+#    "PL", # pylint - static code analyser
+#    "UP", # 
+]
+
+[lint.extend-per-file-ignores]
+"tests/*.py" = ["ANN"]

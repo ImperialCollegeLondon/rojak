@@ -3,11 +3,12 @@ from typing import TYPE_CHECKING, Tuple
 import pytest
 
 from rojak.cli.main import app
-from rojak.datalib.ecmwf.era5 import InvalidEra5RequestConfiguration
+from rojak.datalib.ecmwf.era5 import InvalidEra5RequestConfigurationError
 from tests.test_cli import runner
 
 if TYPE_CHECKING:
     from pathlib import Path
+
     from click.testing import Result
 
 
@@ -39,15 +40,7 @@ def test_preprocess_data_ukmo_amdar(tmp_path) -> None:
     with pytest.raises(NotImplementedError) as excinfo:
         runner.invoke(
             app,
-            [
-                "data",
-                "amdar",
-                "preprocess",
-                "-s",
-                "ukmo",
-                "-i",
-                str(tmp_path),
-            ],
+            ["data", "amdar", "preprocess", "-s", "ukmo", "-i", str(tmp_path)],
             catch_exceptions=False,
         )
     assert excinfo.type is NotImplementedError
@@ -160,14 +153,9 @@ def test_preprocess_data_madis_single_file(retrieve_madis_data_single_file) -> N
 
 
 @pytest.mark.parametrize(
-    "data_set_name, default_name, matches",
+    ("data_set_name", "default_name", "matches"),
     [
-        pytest.param(
-            "nonsense",
-            None,
-            "Invalid dataset name",
-            id="invalid_dataset_name",
-        ),
+        pytest.param("nonsense", None, "Invalid dataset name", id="invalid_dataset_name"),
         pytest.param(
             "nonsense",
             "cat",
@@ -198,18 +186,11 @@ def test_preprocess_data_madis_single_file(retrieve_madis_data_single_file) -> N
             "Invalid default name",
             id="invalid_default_name_sl",
         ),
-        pytest.param(
-            "pressure-level",
-            None,
-            "Default not specified",
-            id="default_not_specified",
-        ),
+        pytest.param("pressure-level", None, "Default not specified", id="default_not_specified"),
     ],
 )
-def test_retrieve_meteorology_era5_invalid_config(
-    data_set_name, default_name, matches, tmp_path
-) -> None:
-    with pytest.raises(InvalidEra5RequestConfiguration, match=matches) as excinfo:
+def test_retrieve_meteorology_era5_invalid_config(data_set_name, default_name, matches, tmp_path) -> None:
+    with pytest.raises(InvalidEra5RequestConfigurationError, match=matches) as excinfo:
         runner.invoke(
             app,
             [
@@ -233,4 +214,4 @@ def test_retrieve_meteorology_era5_invalid_config(
             ],
             catch_exceptions=False,
         )
-    assert excinfo.type is InvalidEra5RequestConfiguration
+    assert excinfo.type is InvalidEra5RequestConfigurationError
