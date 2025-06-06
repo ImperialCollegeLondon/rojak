@@ -1,23 +1,31 @@
-from typing import Literal, List, TYPE_CHECKING
+import logging
+from typing import TYPE_CHECKING, ClassVar, List, Literal
 
-from rojak.core.data import DataRetriever
+import cdsapi
+from dask.base import is_dask_collection
+from rich.progress import track
+
+from rojak.core.data import CATData, DataRetriever, DataVarSchema, MetData
 from rojak.datalib.ecmwf.constants import (
     blank_default,
-    reanalysis_dataset_names,
     data_defaults,
+    reanalysis_dataset_names,
     six_hourly,
 )
 
-import cdsapi
-from rich.progress import track
-
 if TYPE_CHECKING:
     from pathlib import Path
+
+    import xarray as xr
+
     from rojak.core.data import Date
+    from rojak.orchestrator.configuration import SpatialDomain
+
+logger = logging.getLogger(__name__)
 
 
-class InvalidEra5RequestConfiguration(Exception):
-    def __init__(self, message):
+class InvalidEra5RequestConfigurationError(Exception):
+    def __init__(self, message: str) -> None:
         super().__init__(message)
 
 
@@ -43,7 +51,7 @@ class Era5Retriever(DataRetriever):
         print(default_name)
         if default_name is None:
             if pressure_levels is None or variables is None:
-                raise InvalidEra5RequestConfiguration(
+                raise InvalidEra5RequestConfigurationError(
                     "Default not specified. As such, which variables and pressure levels must be specified."
                 )
             self.request_body = blank_default
@@ -73,9 +81,7 @@ class Era5Retriever(DataRetriever):
         base_output_dir: "Path",
     ) -> None:
         dates: list["Date"] = self.compute_date_combinations(years, months, days)
-        (base_output_dir / self.folder_name).resolve().mkdir(
-            parents=True, exist_ok=True
-        )
+        (base_output_dir / self.folder_name).resolve().mkdir(parents=True, exist_ok=True)
         for date in track(dates):
             self._download_file(date, base_output_dir)
 
@@ -87,9 +93,55 @@ class Era5Retriever(DataRetriever):
         self.cds_client.retrieve(
             self.request_dataset_name,
             this_request,
-            target=(
-                base_output_dir
-                / self.folder_name
-                / f"{date.year}-{date.month}-{date.day}.nc"
-            ),
+            target=(base_output_dir / self.folder_name / f"{date.year}-{date.month}-{date.day}.nc"),
         )
+
+
+class Era5Data(MetData):
+    # Instance variables
+    _on_pressure_level: "xr.Dataset"
+
+    # Class variables which are not set on an instance
+    temperature: ClassVar[DataVarSchema] = DataVarSchema("t", "temperature")
+    divergence: ClassVar[DataVarSchema] = DataVarSchema("d", "divergence_of_wind")
+    geopotential: ClassVar[DataVarSchema] = DataVarSchema("z", "geopotential")
+    specific_humidity: ClassVar[DataVarSchema] = DataVarSchema("q", "specific_humidity")
+    eastward_wind: ClassVar[DataVarSchema] = DataVarSchema("u", "eastward_wind")
+    northward_wind: ClassVar[DataVarSchema] = DataVarSchema("v", "northward_wind")
+    potential_vorticity: ClassVar[DataVarSchema] = DataVarSchema("pv", "potential_vorticity")
+    vorticity: ClassVar[DataVarSchema] = DataVarSchema("vo", "vorticity")
+    vertical_velocity: ClassVar[DataVarSchema] = DataVarSchema("w", "vertical_velocity")
+
+    def __init__(self, on_pressure_level: "xr.Dataset") -> None:
+        super().__init__()
+        self._on_pressure_level = on_pressure_level
+
+    def select_domain(self, domain: "SpatialDomain") -> "MetData":
+        raise NotImplementedError("Era5 data not yet implemented.")
+
+    def to_clear_air_turbulence_data(self, domain: "SpatialDomain") -> CATData:
+        logger.debug("Converting data to CATData")
+        target_variables: list[DataVarSchema] = [
+            Era5Data.temperature,
+            Era5Data.divergence,
+            Era5Data.geopotential,
+            Era5Data.specific_humidity,
+            Era5Data.eastward_wind,
+            Era5Data.northward_wind,
+            Era5Data.potential_vorticity,
+            Era5Data.vorticity,
+        ]
+        target_var_names: list[str] = [var.database_name for var in target_variables]
+        target_data: "xr.Dataset" = self._on_pressure_level[target_var_names]
+        target_data = target_data.rename_vars({var.database_name: var.cf_name for var in target_variables})
+        target_data.assign_coords(
+            altitude=(
+                "pressure_level",
+                self.pressure_to_altitude_std_atm(target_data["pressure_level"]).data,
+            )
+        )
+        target_data = target_data.rename({"valid_time": "time"})
+        target_data = target_data.transpose("latitude", "longitude", "time", "pressure_level")
+        if is_dask_collection(target_data):
+            target_data = target_data.drop_vars("expver")
+        return CATData(target_data)
