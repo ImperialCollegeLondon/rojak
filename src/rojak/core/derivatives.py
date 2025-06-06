@@ -73,7 +73,7 @@ def ensure_lat_lon_in_deg(
     """
     are_in_degrees: bool = is_lat_lon_in_degrees(latitude, longitude)
     if units == "deg" and not are_in_degrees:
-        warnings.warn("Latitude and longitude specified to be in degrees, but are smaller than pi values")
+        warnings.warn("Latitude and longitude specified to be in degrees, but are smaller than pi values", stacklevel=2)
     elif units == "rad" and are_in_degrees:
         raise ValueError("Latitude and longitude specified to be in radians, but are too large to be in radians")
     elif units == "rad" and not are_in_degrees:
@@ -167,7 +167,20 @@ def get_projection_correction_factors(
     lon_grid, lat_grid = np.meshgrid(longitude, latitude)
     factors = Proj(crs).get_factors(lon_grid, lat_grid, radians=is_radians)
 
-    return ProjectionCorrectionFactors(factors.parallel_scale, factors.meridional_scale)  # type: ignore
+    return ProjectionCorrectionFactors(
+        xr.DataArray(
+            factors.parallel_scale,
+            dims=(latitude.dims[0], longitude.dims[-1]),
+            coords={**latitude.coords, **longitude.coords},
+            # coords={"longitude": longitude, "latitude": latitude},
+        ),
+        xr.DataArray(
+            factors.meridional_scale,
+            dims=(latitude.dims[0], longitude.dims[-1]),
+            coords={**latitude.coords, **longitude.coords},
+            # coords={"longitude": longitude, "latitude": latitude},
+        ),
+    )
 
 
 def get_dimension_number(name: str, data_array: "xr.DataArray") -> int:
@@ -182,7 +195,7 @@ def first_derivative(array: "xr.DataArray", grid_spacing_in_meters: ArrayLike, a
         computed_gradient = da.gradient(array, coordinate_of_values, axis=axis)
     else:
         computed_gradient = np.gradient(array, coordinate_of_values, axis=axis)
-    return computed_gradient
+    return array.copy(data=computed_gradient)
 
 
 class CartesianDimension(StrEnum):

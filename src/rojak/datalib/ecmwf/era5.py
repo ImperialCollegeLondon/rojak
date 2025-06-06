@@ -1,3 +1,4 @@
+import logging
 from typing import TYPE_CHECKING, ClassVar, List, Literal
 
 import cdsapi
@@ -18,6 +19,9 @@ if TYPE_CHECKING:
     import xarray as xr
 
     from rojak.core.data import Date
+    from rojak.orchestrator.configuration import SpatialDomain
+
+logger = logging.getLogger(__name__)
 
 
 class InvalidEra5RequestConfigurationError(Exception):
@@ -112,7 +116,11 @@ class Era5Data(MetData):
         super().__init__()
         self._on_pressure_level = on_pressure_level
 
-    def to_clear_air_turbulence_data(self) -> CATData:
+    def select_domain(self, domain: "SpatialDomain") -> "MetData":
+        raise NotImplementedError("Era5 data not yet implemented.")
+
+    def to_clear_air_turbulence_data(self, domain: "SpatialDomain") -> CATData:
+        logger.debug("Converting data to CATData")
         target_variables: list[DataVarSchema] = [
             Era5Data.temperature,
             Era5Data.divergence,
@@ -129,10 +137,11 @@ class Era5Data(MetData):
         target_data.assign_coords(
             altitude=(
                 "pressure_level",
-                self.pressure_to_altitude_std_atm(target_data["pressure_level"]),
+                self.pressure_to_altitude_std_atm(target_data["pressure_level"]).data,
             )
         )
-        target_data.rename({"valid_time": "time"})
+        target_data = target_data.rename({"valid_time": "time"})
+        target_data = target_data.transpose("latitude", "longitude", "time", "pressure_level")
         if is_dask_collection(target_data):
             target_data = target_data.drop_vars("expver")
         return CATData(target_data)
