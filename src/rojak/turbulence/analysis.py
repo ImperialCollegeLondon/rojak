@@ -1,6 +1,7 @@
 import itertools
+from abc import ABC
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Hashable, Mapping, assert_never
+from typing import TYPE_CHECKING, Any, Hashable, Mapping, NamedTuple, assert_never
 
 import dask.array as da
 import numpy as np
@@ -18,6 +19,10 @@ if TYPE_CHECKING:
 
 type IntensityName = str
 type IntensityValues = dict[IntensityName, float]
+
+ClimatologicalEDRConstants = NamedTuple("ClimatologicalEDRConstants", [("c1", float), ("c2", float)])
+# From Sharman 2017
+OVERALL_CLIMATOLOGICAL_PARAMETER = ClimatologicalEDRConstants(-2.572, 0.5067)
 
 
 class TurbulenceIntensityThresholds(PostProcessor):
@@ -177,12 +182,20 @@ class DiagnosticHistogramDistribution(PostProcessor):
         return self._serial_execution()
 
 
-class TurbulentRegionsBySeverity(PostProcessor):
+# ABSTRACTION MIGHT NOT BE NECESSARY. REMOVE IN FUTURE IF IT ISN'T
+class EvaluationPostProcessor(PostProcessor, ABC):
+    _components: Mapping[str, PostProcessor]
+
+    def __init__(self, components: Mapping[str, PostProcessor] | None = None) -> None:
+        self._components = components if components is not None else {}
+
+
+class TurbulentRegionsBySeverity(EvaluationPostProcessor):
     _computed_diagnostic: xr.DataArray
     _severities: list["TurbulenceSeverity"]
     _thresholds: "TurbulenceThresholds"
     _threshold_mode: "TurbulenceThresholdMode"
-    _has_child: bool = False
+    _has_parent: bool = False
 
     def __init__(
         self,
@@ -191,13 +204,14 @@ class TurbulentRegionsBySeverity(PostProcessor):
         severities: list["TurbulenceSeverity"],
         thresholds: "TurbulenceThresholds",
         threshold_mode: "TurbulenceThresholdMode",
-        has_child: bool = False,
+        has_parent: bool = False,
     ) -> None:
+        super().__init__()
         self._computed_diagnostic = computed_diagnostic.sel(pressure_level=pressure_levels)
         self._severities = severities
         self._thresholds = thresholds
         self._threshold_mode = threshold_mode
-        self._has_child = has_child
+        self._has_parent = has_parent
 
     def execute(self) -> xr.DataArray | list[xr.DataArray]:
         by_severity = []
@@ -206,11 +220,14 @@ class TurbulentRegionsBySeverity(PostProcessor):
             this_severity = xr.where(
                 (self._computed_diagnostic >= bounds.lower) & (self._computed_diagnostic < bounds.upper), True, False
             )
-            by_severity.append(this_severity if self._has_child else this_severity.compute())
-        return by_severity if self._has_child else xr.concat(by_severity, xr.Variable("severity", self._severities))
+            by_severity.append(this_severity if self._has_parent else this_severity.compute())
+        return by_severity if self._has_parent else xr.concat(by_severity, xr.Variable("severity", self._severities))
 
 
-class TurbulenceProbabilityBySeverity(TurbulentRegionsBySeverity):
+class TurbulenceProbabilityBySeverity(EvaluationPostProcessor):
+    _severities: list["TurbulenceSeverity"]
+    _num_time_steps: int
+
     def __init__(
         self,
         computed_diagnostic: xr.DataArray,
@@ -219,17 +236,54 @@ class TurbulenceProbabilityBySeverity(TurbulentRegionsBySeverity):
         thresholds: "TurbulenceThresholds",
         threshold_mode: "TurbulenceThresholdMode",
     ) -> None:
-        super().__init__(computed_diagnostic, pressure_levels, severities, thresholds, threshold_mode, has_child=True)
+        super().__init__(
+            components={
+                "turbulent_regions": TurbulentRegionsBySeverity(
+                    computed_diagnostic, pressure_levels, severities, thresholds, threshold_mode, has_parent=True
+                )
+            }
+        )
+        self._num_time_steps: int = computed_diagnostic["time"].size
+        self._severities = severities
 
     def execute(self) -> xr.DataArray | list[xr.DataArray]:
-        num_time_steps: int = self._computed_diagnostic["time"].size
-        by_severity: list[xr.DataArray] | xr.DataArray = super().execute()
+        by_severity: list[xr.DataArray] | xr.DataArray = self._components["turbulent_regions"].execute()
         assert isinstance(by_severity, list)
         probabilities = [
-            (this_severity.sum(dim="time").compute() / num_time_steps) * 100 for this_severity in by_severity
+            (this_severity.sum(dim="time").compute() / self._num_time_steps) * 100 for this_severity in by_severity
         ]
         # hmmm.... I'm not sure if this will behave the way I expect with the new dimension
         return xr.concat(probabilities, xr.Variable("severity", self._severities))
+
+
+class TransformToEDR(EvaluationPostProcessor):
+    _computed_diagnostic: xr.DataArray
+    _mean: float
+    _variance: float
+    _has_parent: bool
+
+    def __init__(
+        self, computed_diagnostic: xr.DataArray, mean: float, variance: float, has_parent: bool = False
+    ) -> None:
+        super().__init__()
+        self._computed_diagnostic = computed_diagnostic
+        self._mean = mean
+        self._variance = variance
+        self._has_parent = has_parent
+
+    def execute(self) -> xr.DataArray:
+        # See ECMWF document for details
+        # b = c_2 / standard_deviation
+        scaling: float = OVERALL_CLIMATOLOGICAL_PARAMETER.c2 / np.sqrt(self._variance)
+        # a = c_2 - b * mean
+        offset: float = OVERALL_CLIMATOLOGICAL_PARAMETER.c1 - scaling * self._mean
+        unmapped_index = xr.where(self._computed_diagnostic > 0, self._computed_diagnostic, 0)
+        # Numpy doesn't support fractional powers of negative numbers so pull the negative out
+        # https://stackoverflow.com/a/45384691
+        # return exponent_term * (np.sign(self.computed_value()) * (np.abs(self.computed_value()) ** scaling))
+        # e^a x^b
+        mapped_index: xr.DataArray = np.exp(offset) * (unmapped_index**scaling)
+        return mapped_index.compute() if self._has_parent else mapped_index
 
 
 class CorrelationBetweenDiagnostics(PostProcessor):

@@ -310,6 +310,7 @@ class TurbulenceCalibrationPhases(BaseConfigModel):
 class TurbulenceEvaluationPhaseOption(StrEnum):
     PROBABILITIES = "probabilities"
     EDR = "edr"
+    TURBULENT_REGIONS = "turbulent_regions"
     CORRELATION_BTW_PROBABILITIES = "correlation_between_probabilities"
     CORRELATION_BTW_EDR = "correlation_between_edr"
     REGIONAL_CORRELATION_PROBABILITIES = "regional_correlation_between_probabilities"
