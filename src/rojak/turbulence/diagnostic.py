@@ -868,7 +868,7 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
 
     _severities: list["TurbulenceSeverity"] | None
     _pressure_levels: list[float] | None
-    _probability_thresholds: TurbulenceThresholds | None
+    _probability_thresholds: Mapping["DiagnosticName", "TurbulenceThresholds"] | None
     _threshold_mode: TurbulenceThresholdMode | None
     _distribution_parameters: Mapping["DiagnosticName", "DistributionParameters"] | None
 
@@ -878,15 +878,20 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
         diagnostics: list[TurbulenceDiagnostics],
         severities: list["TurbulenceSeverity"] | None = None,
         pressure_levels: list[float] | None = None,
-        probability_thresholds: TurbulenceThresholds | None = None,
+        probability_thresholds: Mapping["DiagnosticName", "TurbulenceThresholds"] | None = None,
         threshold_mode: TurbulenceThresholdMode | None = None,
         distribution_parameters: Mapping["DiagnosticName", "DistributionParameters"] | None = None,
     ) -> None:
         super().__init__(factory, diagnostics)
         self._severities = severities
         self._pressure_levels = pressure_levels
-        self._probability_thresholds = probability_thresholds
         self._threshold_mode = threshold_mode
+        for name in self._diagnostics:
+            if distribution_parameters is not None and name not in distribution_parameters:
+                raise KeyError(f"Diagnostic {name} has no distribution parameter")
+            if probability_thresholds is not None and name not in probability_thresholds:
+                raise KeyError(f"Diagnostic {name} has no probability threshold")
+        self._probability_thresholds = probability_thresholds
         self._distribution_parameters = distribution_parameters
 
     @property
@@ -904,7 +909,7 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
                     diagnostic,
                     self._pressure_levels,
                     self._severities,
-                    self._probability_thresholds,
+                    self._probability_thresholds[name],
                     self._threshold_mode,
                 ).execute()
                 for name, diagnostic in self.computed_values(
