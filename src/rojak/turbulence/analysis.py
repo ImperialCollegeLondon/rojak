@@ -246,7 +246,7 @@ class TurbulenceProbabilityBySeverity(EvaluationPostProcessor):
         self._num_time_steps: int = computed_diagnostic["time"].size
         self._severities = severities
 
-    def execute(self) -> xr.DataArray | list[xr.DataArray]:
+    def execute(self) -> xr.DataArray:
         by_severity: list[xr.DataArray] | xr.DataArray = self._components["turbulent_regions"].execute()
         assert isinstance(by_severity, list)
         probabilities = [

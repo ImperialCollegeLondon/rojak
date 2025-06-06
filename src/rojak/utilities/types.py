@@ -13,3 +13,4 @@ class GoHomeYouAreDrunkError(Exception):
 
 Limits = NamedTuple("Limits", [("lower", float), ("upper", float)])
 type DiagnosticName = str
+DistributionParameters = NamedTuple("DistributionParameters", [("mean", float), ("variance", float)])
