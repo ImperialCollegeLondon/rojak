@@ -172,3 +172,7 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# output directories that are created by CLI tool if not specified in config
+output/
+plots/
