@@ -7,7 +7,7 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = "rojak"
-copyright = "2025, Hui Ling Wong"
+copyright = "2025, Hui Ling Wong"  # noqa: A001
 author = "Hui Ling Wong"
 
 # -- General configuration ---------------------------------------------------
@@ -33,8 +33,9 @@ source_suffix = [".rst", ".md"]
 # Related to sphinx.ext.autodoc
 apidoc_modules = [{"path": "../src/rojak", "destination": "api/"}]
 
+
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = "alabaster"
+html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
