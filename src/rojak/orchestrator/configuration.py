@@ -203,11 +203,14 @@ class TurbulenceThresholds(BaseConfigModel):
         if mode == TurbulenceThresholdMode.GEQ or severity == TurbulenceSeverity.SEVERE:
             return Limits(lower_bound, np.inf)
 
-        next_severity: TurbulenceSeverity = next(
-            higher_severity
-            for higher_severity in TurbulenceSeverity.get_in_ascending_order()[severity.get_index() + 1 :]
-            if self.get_by_severity(higher_severity) is not None
-        )
+        try:
+            next_severity: TurbulenceSeverity = next(
+                higher_severity
+                for higher_severity in TurbulenceSeverity.get_in_ascending_order()[severity.get_index() + 1 :]
+                if self.get_by_severity(higher_severity) is not None
+            )
+        except StopIteration as exception:
+            raise StopIteration("Failed to get upper bound for severity {}".format(severity)) from exception
         upper_bound = self.get_by_severity(next_severity)
         assert upper_bound is not None
         return Limits(lower_bound, upper_bound)
