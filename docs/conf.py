@@ -3,6 +3,13 @@
 # For the full list of built-in configuration values, see the documentation:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html
 
+
+# https://www.sphinx-doc.org/en/master/usage/extensions/autodoc.html
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path("..", "src").resolve()))
+
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
@@ -16,6 +23,7 @@ author = "Hui Ling Wong"
 extensions = [
     "sphinx.ext.autodoc",  # Include documentation from docstrings
     "sphinx.ext.apidoc",  # Generate API documentation from Python packages
+    "sphinx.ext.mathjax",
     "sphinx.ext.autosummary",  # Generate autodoc summaries
     "sphinx.ext.napoleon",  # Support for NumPy and Google style docstrings
     "myst_parser",  # Markdown support
@@ -29,9 +37,6 @@ intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}
 
 # Allow markdown files to be recognised
 source_suffix = [".rst", ".md"]
-
-# Related to sphinx.ext.autodoc
-apidoc_modules = [{"path": "../src/rojak", "destination": "api/"}]
 
 
 # -- Options for HTML output -------------------------------------------------
