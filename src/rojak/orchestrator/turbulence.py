@@ -12,7 +12,11 @@ from rojak.orchestrator.configuration import (
     TurbulenceEvaluationPhases,
     TurbulenceThresholds,
 )
-from rojak.turbulence.analysis import HistogramData
+from rojak.turbulence.analysis import (
+    CorrelationBetweenDiagnostics,
+    HistogramData,
+    LatitudinalCorrelationBetweenDiagnostics,
+)
 from rojak.turbulence.diagnostic import CalibrationDiagnosticSuite, DiagnosticFactory, EvaluationDiagnosticSuite
 from rojak.utilities.types import DistributionParameters
 
@@ -206,7 +210,7 @@ class EvaluationStage:
                 name: DistributionParameters(histogram_data.mean, histogram_data.variance)
                 for name, histogram_data in self._calibration_result[
                     TurbulenceCalibrationPhaseOption.HISTOGRAM
-                ].result  # DiagnosticName, HistogramData
+                ].result.items()  # DiagnosticName, HistogramData
             }
         else:
             dist_params = None
@@ -222,7 +226,44 @@ class EvaluationStage:
         )
 
     def run_phase(self, phase: TurbulenceEvaluationPhaseOption, suite: EvaluationDiagnosticSuite) -> Result:
-        return Result(1)
+        match phase:
+            case TurbulenceEvaluationPhaseOption.PROBABILITIES:
+                return Result(suite.probabilities)
+            case TurbulenceEvaluationPhaseOption.EDR:
+                return Result(suite.edr)
+            case TurbulenceEvaluationPhaseOption.TURBULENT_REGIONS:
+                return Result(suite.compute_turbulent_regions())
+            case TurbulenceEvaluationPhaseOption.CORRELATION_BTW_PROBABILITIES:
+                return Result(
+                    CorrelationBetweenDiagnostics(
+                        dict(suite.probabilities),
+                        {"pressure_level": self._config.pressure_levels, "threshold": self._config.severities},
+                    )
+                )
+            case TurbulenceEvaluationPhaseOption.CORRELATION_BTW_EDR:
+                return Result(
+                    CorrelationBetweenDiagnostics(
+                        dict(suite.edr),
+                        {"pressure_level": self._config.pressure_levels, "threshold": self._config.severities},
+                    )
+                )
+            case TurbulenceEvaluationPhaseOption.REGIONAL_CORRELATION_PROBABILITIES:
+                sel_condition: dict = {"pressure_level": self._config.pressure_levels}
+                if not self._config.severities:  # Add a check that "threshold" is an axis
+                    sel_condition["threshold"] = self._config.severities
+                return Result(
+                    # Add in config to specify hemisphere and regions
+                    LatitudinalCorrelationBetweenDiagnostics(dict(suite.probabilities), sel_condition)
+                )
+            case TurbulenceEvaluationPhaseOption.REGIONAL_CORRELATION_EDR:
+                return Result(
+                    # Add in config to specify hemisphere and regions
+                    LatitudinalCorrelationBetweenDiagnostics(
+                        dict(suite.edr), {"pressure_level": self._config.pressure_levels}
+                    )
+                )
+            case _ as unreachable:
+                assert_never(unreachable)
 
 
 class TurbulenceLauncher:

@@ -25,6 +25,7 @@ from rojak.turbulence.analysis import (
     TransformToEDR,
     TurbulenceIntensityThresholds,
     TurbulenceProbabilityBySeverity,
+    TurbulentRegionsBySeverity,
 )
 from rojak.turbulence.calculations import (
     GRAVITATIONAL_ACCELERATION,
@@ -937,3 +938,26 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
             return self._edr
 
         return self._edr
+
+    def compute_turbulent_regions(self) -> Mapping["DiagnosticName", xr.DataArray]:
+        if (
+            self._severities is None
+            or self._pressure_levels is None
+            or self._probability_thresholds is None
+            or self._threshold_mode is None
+        ):
+            raise ValueError("Identifying turbulent regions of a given severity needs more inputs")
+
+        regions = {}
+        for name, diagnostic in self.computed_values("Computing turbulent regions"):
+            regions_for_diagnostic = TurbulentRegionsBySeverity(
+                diagnostic,
+                self._pressure_levels,
+                self._severities,
+                self._probability_thresholds[name],
+                self._threshold_mode,
+            ).execute()
+            assert isinstance(regions_for_diagnostic, xr.DataArray)
+            regions[name] = regions_for_diagnostic
+
+        return regions
