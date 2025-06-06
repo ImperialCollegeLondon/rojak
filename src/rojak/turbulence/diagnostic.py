@@ -14,8 +14,18 @@ from rojak.core.derivatives import (
     spatial_gradient,
     spatial_laplacian,
 )
-from rojak.orchestrator.configuration import TurbulenceDiagnostics
-from rojak.turbulence.analysis import DiagnosticHistogramDistribution, TurbulenceIntensityThresholds
+from rojak.orchestrator.configuration import (
+    TurbulenceDiagnostics,
+    TurbulenceSeverity,
+    TurbulenceThresholdMode,
+    TurbulenceThresholds,
+)
+from rojak.turbulence.analysis import (
+    DiagnosticHistogramDistribution,
+    TransformToEDR,
+    TurbulenceIntensityThresholds,
+    TurbulenceProbabilityBySeverity,
+)
 from rojak.turbulence.calculations import (
     GRAVITATIONAL_ACCELERATION,
     absolute_vorticity,
@@ -33,9 +43,9 @@ from rojak.turbulence.calculations import (
 if TYPE_CHECKING:
     from rojak.core.data import CATData
     from rojak.core.derivatives import SpatialGradientKeys
-    from rojak.orchestrator.configuration import TurbulenceThresholds
+    from rojak.orchestrator.configuration import TurbulenceSeverity
     from rojak.turbulence.analysis import HistogramData
-    from rojak.utilities.types import DiagnosticName
+    from rojak.utilities.types import DiagnosticName, DistributionParameters
 
 logger = logging.getLogger(__name__)
 
@@ -850,3 +860,75 @@ class CalibrationDiagnosticSuite(DiagnosticSuite):
                 "Computing distribution parameters"
             )  # DiagnosticName, xr.DataArray
         }
+
+
+class EvaluationDiagnosticSuite(DiagnosticSuite):
+    _probabilities: Mapping["DiagnosticName", xr.DataArray] | None = None
+    _edr: Mapping["DiagnosticName", xr.DataArray] | None = None
+
+    _severities: list["TurbulenceSeverity"] | None
+    _pressure_levels: list[float] | None
+    _probability_thresholds: TurbulenceThresholds | None
+    _threshold_mode: TurbulenceThresholdMode | None
+    _distribution_parameters: Mapping["DiagnosticName", "DistributionParameters"] | None
+
+    def __init__(
+        self,
+        factory: DiagnosticFactory,
+        diagnostics: list[TurbulenceDiagnostics],
+        severities: list["TurbulenceSeverity"] | None = None,
+        pressure_levels: list[float] | None = None,
+        probability_thresholds: TurbulenceThresholds | None = None,
+        threshold_mode: TurbulenceThresholdMode | None = None,
+        distribution_parameters: Mapping["DiagnosticName", "DistributionParameters"] | None = None,
+    ) -> None:
+        super().__init__(factory, diagnostics)
+        self._severities = severities
+        self._pressure_levels = pressure_levels
+        self._probability_thresholds = probability_thresholds
+        self._threshold_mode = threshold_mode
+        self._distribution_parameters = distribution_parameters
+
+    @property
+    def probabilities(self) -> Mapping["DiagnosticName", xr.DataArray]:
+        if self._probabilities is None:
+            if (
+                self._severities is None
+                or self._pressure_levels is None
+                or self._probability_thresholds is None
+                or self._threshold_mode is None
+            ):
+                raise ValueError("Probability of encountering turbulence of a given severity needs more inputs")
+            self._probabilities = {
+                name: TurbulenceProbabilityBySeverity(
+                    diagnostic,
+                    self._pressure_levels,
+                    self._severities,
+                    self._probability_thresholds,
+                    self._threshold_mode,
+                ).execute()
+                for name, diagnostic in self.computed_values(
+                    "Computing probability of encountering turbulence of a given severity"
+                )
+            }
+            return self._probabilities
+
+        return self._probabilities
+
+    @property
+    def edr(self) -> Mapping["DiagnosticName", xr.DataArray]:
+        if self._edr is None:
+            if self._distribution_parameters is None:
+                raise ValueError("Computing EDR requires distribution parameters to be defined")
+
+            edr = {}
+            for name, diagnostic in self.computed_values("Computing EDR"):
+                if name not in self._distribution_parameters:
+                    raise ValueError(f"Distribution parameter for {name} is not defined")
+                dist_params = self._distribution_parameters[name]
+                edr[name] = TransformToEDR(diagnostic, dist_params.mean, dist_params.variance).execute()
+
+            self._edr = edr
+            return self._edr
+
+        return self._edr

@@ -5,9 +5,16 @@ from pydantic import TypeAdapter
 
 from rojak.core import data
 from rojak.datalib.ecmwf.era5 import Era5Data
-from rojak.orchestrator.configuration import TurbulenceCalibrationPhaseOption, TurbulenceThresholds
+from rojak.orchestrator.configuration import (
+    TurbulenceCalibrationPhaseOption,
+    TurbulenceEvaluationConfig,
+    TurbulenceEvaluationPhaseOption,
+    TurbulenceEvaluationPhases,
+    TurbulenceThresholds,
+)
 from rojak.turbulence.analysis import HistogramData
-from rojak.turbulence.diagnostic import CalibrationDiagnosticSuite, DiagnosticFactory
+from rojak.turbulence.diagnostic import CalibrationDiagnosticSuite, DiagnosticFactory, EvaluationDiagnosticSuite
+from rojak.utilities.types import DistributionParameters
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -156,9 +163,66 @@ class CalibrationStage:
 
 class EvaluationStage:
     _calibration_result: Mapping[TurbulenceCalibrationPhaseOption, Result]
+    _phases: list[TurbulenceEvaluationPhaseOption]
+    _config: "TurbulenceEvaluationConfig"
+    _spatial_domain: "SpatialDomain"
+    _plots_dir: "Path"
+    _name: RunName
+    _start_time: TimeStr
 
-    def __init__(self, calibration_result: Mapping[TurbulenceCalibrationPhaseOption, Result]) -> None:
+    def __init__(
+        self,
+        calibration_result: Mapping[TurbulenceCalibrationPhaseOption, Result],
+        phases_config: "TurbulenceEvaluationPhases",
+        domain: "SpatialDomain",
+        plots_dir: "Path",
+        name: RunName,
+        start_time: TimeStr,
+    ) -> None:
         self._calibration_result = calibration_result
+        self._phases = phases_config.phases
+        self._config = phases_config.evaluation_config
+        self._spatial_domain = domain
+        self._name = name
+        self._start_time = start_time
+        self._plots_dir = plots_dir
+
+    def launch(
+        self, diagnostics: list["TurbulenceDiagnostics"], chunks: dict
+    ) -> Mapping[TurbulenceEvaluationPhaseOption, Result]:
+        suite: EvaluationDiagnosticSuite = self.create_diagnostic_suite(diagnostics, chunks)
+        return {phase: self.run_phase(phase, suite) for phase in self._phases}
+
+    def create_diagnostic_suite(
+        self, diagnostics: list["TurbulenceDiagnostics"], chunks: Mapping
+    ) -> EvaluationDiagnosticSuite:
+        assert self._config.evaluation_data_dir is not None
+        logger.debug("Loading CATData")
+        evaluation_data: "CATData" = Era5Data(
+            data.load_from_folder(self._config.evaluation_data_dir, chunks=chunks),
+        ).to_clear_air_turbulence_data(self._spatial_domain)
+        if TurbulenceCalibrationPhaseOption.HISTOGRAM in self._calibration_result:
+            dist_params = {
+                name: DistributionParameters(histogram_data.mean, histogram_data.variance)
+                for name, histogram_data in self._calibration_result[
+                    TurbulenceCalibrationPhaseOption.HISTOGRAM
+                ].result  # DiagnosticName, HistogramData
+            }
+        else:
+            dist_params = None
+        logger.debug("Instantiating EvaluationDiagnosticSuite")
+        return EvaluationDiagnosticSuite(
+            DiagnosticFactory(evaluation_data),
+            diagnostics,
+            severities=self._config.severities,
+            pressure_levels=self._config.pressure_levels,
+            probability_thresholds=self._calibration_result[TurbulenceCalibrationPhaseOption.THRESHOLDS].result,
+            threshold_mode=self._config.threshold_mode,
+            distribution_parameters=dist_params,
+        )
+
+    def run_phase(self, phase: TurbulenceEvaluationPhaseOption, suite: EvaluationDiagnosticSuite) -> Result:
+        return Result(1)
 
 
 class TurbulenceLauncher:
@@ -182,4 +246,11 @@ class TurbulenceLauncher:
         ).launch(self._config.diagnostics, self._config.chunks)
         logger.info("Finished Turbulence")
         if self._config.phases.evaluation_phases is not None:
-            EvaluationStage(calibration_result)
+            EvaluationStage(
+                calibration_result,
+                self._config.phases.evaluation_phases,
+                self._context.data_config.spatial_domain,
+                self._context.plots_dir,
+                self._context.name,
+                self._start_time,
+            ).launch(self._config.diagnostics, self._config.chunks)
