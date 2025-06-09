@@ -134,7 +134,7 @@ class Era5Data(MetData):
         target_var_names: list[str] = [var.database_name for var in target_variables]
         target_data: "xr.Dataset" = self._on_pressure_level[target_var_names]
         target_data = target_data.rename_vars({var.database_name: var.cf_name for var in target_variables})
-        target_data.assign_coords(
+        target_data = target_data.assign_coords(
             altitude=(
                 "pressure_level",
                 self.pressure_to_altitude_std_atm(target_data["pressure_level"]).data,
