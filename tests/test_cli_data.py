@@ -129,7 +129,7 @@ def test_preprocess_data_madis(retrieve_madis_data) -> None:
     )
     assert result.exit_code == 0
     for hour in range(24):
-        created_file = input_path / "2024" / "01" / f"20240101_{hour:02d}00.gz"
+        created_file = input_path / "2024" / "01" / f"20240101_{hour:02d}00.parquet"
         assert created_file.exists()
         ddf = dd.read_parquet(str(created_file))
         # Call head to check that it can be computed
