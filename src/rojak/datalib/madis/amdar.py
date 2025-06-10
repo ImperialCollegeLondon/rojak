@@ -37,7 +37,7 @@ ALL_AMDAR_DATA_VARS: FrozenSet[str] = frozenset(
 
 
 class MadisAmdarPreprocessor(DataPreprocessor):
-    filepaths: Iterable[Path]
+    filepaths: list[Path]
     data_vars_for_turbulence: set[str] = {"altitude", "altitudeDD", "bounceError", "correctedFlag", "dataDescriptor",
         "dataSource", "dataType", "dest_airport_id", "en_tailNumber", "heading", "interpolatedLL", "interpolatedTime",
         "latitude", "latitudeDD", "longitude", "longitudeDD", "mach", "maxEDR", "maxEDRDD", "maxTurbulence",
@@ -79,7 +79,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
         else:
             self.relative_to_root_path = None
             if isinstance(filepaths, Iterable):
-                self.filepaths = filepaths
+                self.filepaths = list(filepaths)
             else:
                 if not filepaths.is_file():
                     raise ValueError(
@@ -149,7 +149,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
         # Filters and exports data to parquet
         output_directory.mkdir(parents=True, exist_ok=True)
 
-        for index, filepath in track(enumerate(self.filepaths)):
+        for index, filepath in track(enumerate(self.filepaths), total=len(self.filepaths)):
             temp_netcdf_file: Path = self.decompress_gz(filepath)
             data: xr.Dataset = xr.open_dataset(
                 temp_netcdf_file,
