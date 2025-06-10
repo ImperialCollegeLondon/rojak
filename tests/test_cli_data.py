@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Tuple
 
+import dask.dataframe as dd
 import pytest
 
 from rojak.cli.main import app
@@ -128,7 +129,13 @@ def test_preprocess_data_madis(retrieve_madis_data) -> None:
     )
     assert result.exit_code == 0
     for hour in range(24):
-        assert (input_path / "2024" / "01" / f"20240101_{hour:02d}00.parquet").exists()
+        created_file = input_path / "2024" / "01" / f"20240101_{hour:02d}00.gz"
+        assert created_file.exists()
+        ddf = dd.read_parquet(str(created_file))
+        # Call head to check that it can be computed
+        ddf.head()
+        assert "windSpeed" in ddf.columns
+        assert "maxEDR" in ddf.columns
 
 
 def test_preprocess_data_madis_single_file(retrieve_madis_data_single_file) -> None:
@@ -149,7 +156,12 @@ def test_preprocess_data_madis_single_file(retrieve_madis_data_single_file) -> N
         ],
     )
     assert result.exit_code == 0
-    assert (input_path / "2024" / "01" / "20240101_0000.parquet").exists()
+    created_file = input_path / "2024" / "01" / "20240101_0000.parquet"
+    assert created_file.exists()
+    ddf = dd.read_parquet(str(created_file))
+    # Call head to check that it can be computed
+    ddf.head()
+    assert "windSpeed" in ddf.columns
 
 
 @pytest.mark.parametrize(

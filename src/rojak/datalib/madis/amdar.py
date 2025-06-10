@@ -181,7 +181,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
                 else output_directory / self.relative_to_root_path[index] / f"{filepath.stem}.parquet"
             )  # fmt: skip
             output_file.parent.mkdir(parents=True, exist_ok=True)
-            data[variables_to_keep].to_dataframe().to_parquet(output_file)
+            dd.from_pandas(data[variables_to_keep].to_dataframe()).to_parquet(output_file)
 
             temp_netcdf_file.unlink()
             del data
