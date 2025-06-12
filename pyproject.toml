@@ -43,6 +43,8 @@ ecmwf = [
     "cdsapi>=0.7.5",
 ]
 amdar = [
+    "dask-geopandas>=0.5.0",
+    "geopandas>=1.1.0",
     "netcdf4>=1.7.2",
     "pyarrow>=20.0.0",
 ]
