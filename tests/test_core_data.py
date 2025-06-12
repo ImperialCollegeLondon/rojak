@@ -132,6 +132,26 @@ def test_select_spatial_domain_no_slicing(make_select_domain_dummy_data):
     xrt.assert_equal(dummy_data, down_selected)
 
 
+def test_select_domain_emtpy_slice(make_select_domain_dummy_data):
+    domain = SpatialDomain(
+        minimum_latitude=0,
+        maximum_latitude=90,
+        minimum_longitude=0,
+        maximum_longitude=180,
+        maximum_level=0,
+        minimum_level=-1,
+    )
+    dummy_data = make_select_domain_dummy_data(
+        {"longitude": np.linspace(-90, 0, 10), "latitude": np.linspace(-90, 0, 10)}
+    )
+    down_selected = Era5Data(dummy_data).select_domain(domain, dummy_data)
+    xrt.assert_equal(
+        dummy_data.sel(time=slice(None), longitude=slice(0, 180), latitude=slice(0, 90), level=slice(-1, 0)),
+        down_selected,
+    )
+    assert down_selected["a"].shape == (1, 1, 24, 1)
+
+
 @pytest.mark.parametrize(
     ("domain", "new_longitude_array", "longitude_slice"),
     [
@@ -232,3 +252,109 @@ def test_select_domain_slice_latitude(make_select_domain_dummy_data, domain, new
         down_selected,
     )
     assert down_selected["a"].shape == (10, 5, 24, 4)
+
+
+@pytest.mark.parametrize(
+    ("domain", "new_level", "level_slice"),
+    [
+        pytest.param(
+            SpatialDomain(
+                minimum_latitude=0,
+                maximum_latitude=90,
+                minimum_longitude=0,
+                maximum_longitude=180,
+                minimum_level=5,
+                maximum_level=10,
+            ),
+            np.linspace(0, 9, 4),
+            slice(5, 10),
+            id="slice_above_min",
+        ),
+        pytest.param(
+            SpatialDomain(
+                minimum_latitude=0,
+                maximum_latitude=90,
+                minimum_longitude=0,
+                maximum_longitude=180,
+                minimum_level=5,
+                maximum_level=10,
+            ),
+            np.flip(np.linspace(0, 9, 4)),
+            slice(10, 5),
+            id="slice_above_min_reversed",
+        ),
+        pytest.param(
+            SpatialDomain(
+                minimum_latitude=0,
+                maximum_latitude=90,
+                minimum_longitude=-180,
+                maximum_longitude=180,
+                minimum_level=-10,
+                maximum_level=-5,
+            ),
+            np.linspace(-9, 0, 4),
+            slice(-10, -5),
+            id="slice_below_max_negative",
+        ),
+        pytest.param(
+            SpatialDomain(
+                minimum_latitude=0,
+                maximum_latitude=90,
+                minimum_longitude=-180,
+                maximum_longitude=180,
+                minimum_level=0,
+                maximum_level=5,
+            ),
+            np.linspace(0, 9, 4),
+            slice(0, 5),
+            id="slice_below_max_positive",
+        ),
+        pytest.param(
+            SpatialDomain(
+                minimum_latitude=0,
+                maximum_latitude=90,
+                minimum_longitude=-180,
+                maximum_longitude=180,
+                minimum_level=-10,
+                maximum_level=-5,
+            ),
+            np.flip(np.linspace(-9, 0, 4)),
+            slice(-5, -10),
+            id="slice_below_max_negative_reversed",
+        ),
+        pytest.param(
+            SpatialDomain(
+                minimum_latitude=0,
+                maximum_latitude=90,
+                minimum_longitude=-180,
+                maximum_longitude=180,
+                minimum_level=0,
+                maximum_level=5,
+            ),
+            np.flip(np.linspace(0, 9, 4)),
+            slice(5, 0),
+            id="slice_below_max_positive_reversed",
+        ),
+        pytest.param(
+            SpatialDomain(
+                minimum_latitude=0,
+                maximum_latitude=90,
+                minimum_longitude=-180,
+                maximum_longitude=180,
+                minimum_level=2,
+                maximum_level=7,
+            ),
+            np.linspace(0, 9, 4),
+            slice(2, 7),
+            id="center_of_domain",
+        ),
+    ],
+)
+def test_select_domain_slice_level(make_select_domain_dummy_data, domain, new_level, level_slice):
+    dummy_data = make_select_domain_dummy_data({"level": new_level})
+    down_selected = Era5Data(dummy_data).select_domain(domain, dummy_data)
+    xrt.assert_equal(
+        dummy_data.sel(longitude=slice(None), latitude=slice(None), time=slice(None), level=level_slice),
+        down_selected,
+    )
+    assert down_selected["a"].shape == (10, 10, 24, 2)
