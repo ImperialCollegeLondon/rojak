@@ -24,9 +24,12 @@ extend-select = [
     "PT", # Pytest style
     #    "ARG", # Checks for unused arguments
     "PERF", # Linter for performance anti-patterns
-#    "PL", # pylint - static code analyser
-#    "UP", # 
+    "PL", # pylint - static code analyser
+    #    "UP", #
 ]
 
 [lint.extend-per-file-ignores]
 "tests/*.py" = ["ANN"]
+
+[lint.pylint]
+max-args = 7
