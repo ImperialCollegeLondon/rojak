@@ -277,8 +277,28 @@ def test_spatial_domain_vertical(dict_to_file, expectation) -> None:
         assert spatial_domain.minimum_longitude == 0
         assert spatial_domain.maximum_longitude == MAX_LONGITUDE
 
+        if "minimum_level" in e:
+            assert spatial_domain.minimum_level == e["minimum_level"]
+        if "maximum_level" in e:
+            assert spatial_domain.maximum_level == e["maximum_level"]
+
     if not isinstance(e, dict):
         assert e.type is InvalidConfigurationError
+
+
+@pytest.mark.parametrize(("min_level", "max_level"), [(0, 10), (None, 10), (10, None), (None, None)])
+def test_spatial_domain_get_levels(min_level: float | None, max_level: float | None) -> None:
+    domain = SpatialDomain(
+        minimum_latitude=0,
+        maximum_latitude=10,
+        minimum_longitude=0,
+        maximum_longitude=10,
+        minimum_level=min_level,
+        maximum_level=max_level,
+    )
+    lmin, lmax = domain.get_levels()
+    assert lmin == min_level
+    assert lmax == max_level
 
 
 @pytest.fixture
