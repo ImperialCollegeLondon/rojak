@@ -8,6 +8,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
+from rojak.core.constants import MAX_LATITUDE, MAX_LONGITUDE
 from rojak.orchestrator import configuration
 from rojak.orchestrator.configuration import (
     DataConfig,
@@ -20,9 +21,6 @@ from rojak.orchestrator.configuration import (
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-MAX_LATITUDE: float = 90
-MAX_LONGITUDE: float = 180
 
 
 @pytest.fixture
@@ -207,6 +205,80 @@ def test_spatial_domain_invalid_config(dict_to_file) -> None:
 def test_spatial_domain_valid_config(dict_to_file) -> None:
     spatial_domain = SpatialDomain.from_yaml(dict_to_file)
     assert spatial_domain.minimum_longitude == 0
+
+
+@pytest.mark.parametrize(
+    ("dict_to_file", "expectation"),
+    [
+        (
+            {
+                "minimum_latitude": -90,
+                "maximum_latitude": 90,
+                "minimum_longitude": 0,
+                "maximum_longitude": 180,
+                "minimum_level": 0,
+                "maximum_level": 10,
+            },
+            nullcontext(
+                {
+                    "minimum_level": 0,
+                    "maximum_level": 10,
+                }
+            ),
+        ),
+        (
+            {
+                "minimum_latitude": -90,
+                "maximum_latitude": 90,
+                "minimum_longitude": 0,
+                "maximum_longitude": 180,
+                "minimum_level": 0,
+            },
+            nullcontext(
+                {
+                    "minimum_level": 0,
+                }
+            ),
+        ),
+        (
+            {
+                "minimum_latitude": -90,
+                "maximum_latitude": 90,
+                "minimum_longitude": 0,
+                "maximum_longitude": 180,
+                "maximum_level": 10,
+            },
+            nullcontext(
+                {
+                    "maximum_longitude": 180,
+                    "maximum_level": 10,
+                }
+            ),
+        ),
+        (
+            {
+                "minimum_latitude": -90,
+                "maximum_latitude": 90,
+                "minimum_longitude": 0,
+                "maximum_longitude": 180,
+                "minimum_level": 20,
+                "maximum_level": 10,
+            },
+            pytest.raises(InvalidConfigurationError),
+        ),
+    ],
+    indirect=["dict_to_file"],
+)
+def test_spatial_domain_vertical(dict_to_file, expectation) -> None:
+    with expectation as e:
+        spatial_domain = SpatialDomain.from_yaml(dict_to_file)
+        assert spatial_domain.minimum_latitude == -MAX_LATITUDE
+        assert spatial_domain.maximum_latitude == MAX_LATITUDE
+        assert spatial_domain.minimum_longitude == 0
+        assert spatial_domain.maximum_longitude == MAX_LONGITUDE
+
+    if not isinstance(e, dict):
+        assert e.type is InvalidConfigurationError
 
 
 @pytest.fixture
