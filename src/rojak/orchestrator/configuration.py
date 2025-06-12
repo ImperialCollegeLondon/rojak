@@ -461,6 +461,8 @@ class SpatialDomain(BaseConfigModel):
     maximum_latitude: Annotated[float, Field(default=90, description="Maximum latitude", ge=-90, le=90)]
     minimum_longitude: Annotated[float, Field(default=-180, description="Minimum longitude", ge=-180, le=180)]
     maximum_longitude: Annotated[float, Field(default=180, description="Minimum longitude", ge=-180, le=180)]
+    minimum_level: Annotated[float | None, Field(description="Minimum level", default=None)] = None
+    maximum_level: Annotated[float | None, Field(description="Maximum level", default=None)] = None
 
     @model_validator(mode="after")
     def check_valid_ranges(self) -> Self:
@@ -472,6 +474,12 @@ class SpatialDomain(BaseConfigModel):
             raise ValueError("Minimum latitude must NOT be equal to maximum latitude")
         if self.minimum_longitude == self.maximum_longitude:
             raise ValueError("Minimum longitude must NOT be equal to maximum longitude")
+        if (
+            self.minimum_level is not None
+            and self.maximum_level is not None
+            and self.maximum_level < self.minimum_level
+        ):
+            raise ValueError("Minimum level must be less than maximum level")
         return self
 
 
