@@ -1,6 +1,6 @@
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Any, Self, Tuple, assert_never
+from typing import Annotated, Any, Self, assert_never
 
 import numpy as np
 import yaml
@@ -481,9 +481,6 @@ class SpatialDomain(BaseConfigModel):
         ):
             raise ValueError("Minimum level must be less than maximum level")
         return self
-
-    def get_levels(self) -> Tuple[float | None, float | None]:
-        return self.minimum_level, self.maximum_level
 
 
 class MetDataSource(StrEnum):

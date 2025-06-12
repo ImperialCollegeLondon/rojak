@@ -296,7 +296,9 @@ def test_spatial_domain_get_levels(min_level: float | None, max_level: float | N
         minimum_level=min_level,
         maximum_level=max_level,
     )
-    lmin, lmax = domain.get_levels()
+    # lmin, lmax = domain.get_levels()
+    lmin = domain.minimum_level
+    lmax = domain.maximum_level
     assert lmin == min_level
     assert lmax == max_level
 
