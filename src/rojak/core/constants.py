@@ -1,0 +1,2 @@
+MAX_LATITUDE: float = 90.0
+MAX_LONGITUDE: float = 180.0
