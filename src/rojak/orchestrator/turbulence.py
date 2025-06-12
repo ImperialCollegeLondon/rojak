@@ -225,7 +225,7 @@ class EvaluationStage:
             distribution_parameters=dist_params,
         )
 
-    def run_phase(self, phase: TurbulenceEvaluationPhaseOption, suite: EvaluationDiagnosticSuite) -> Result:
+    def run_phase(self, phase: TurbulenceEvaluationPhaseOption, suite: EvaluationDiagnosticSuite) -> Result:  # noqa: PLR0911
         match phase:
             case TurbulenceEvaluationPhaseOption.PROBABILITIES:
                 return Result(suite.probabilities)
