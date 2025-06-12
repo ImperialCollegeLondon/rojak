@@ -232,23 +232,6 @@ class MetData(ABC):
         min_lon = longitude_coord.min()
         if max_lon > MAX_LONGITUDE or min_lon < -MAX_LONGITUDE:
             data = self.shift_longitude(data)
-            # max_lon = longitude_coord.max()
-            # min_lon = longitude_coord.min()
-
-        # if domain.minimum_longitude < min_lon or domain.maximum_longitude > max_lon:
-        #     raise ValueError(
-        #         f"Longitudinal coordinate ({min_lon}, {max_lon}) must be within the specified "
-        #         f"domain ({domain.minimum_longitude}, {domain.maximum_longitude})"
-        #     )
-
-        # latitude_coord = data[self._latitude_coord_name]
-        # max_lat = latitude_coord.max()
-        # min_lat = latitude_coord.min()
-        # if domain.minimum_latitude < min_lat or domain.maximum_latitude > max_lat:
-        #     raise ValueError(
-        #         f"Latitudinal coordinate ({min_lat}, {max_lat}) must be within the specified "
-        #         f"domain ({domain.minimum_latitude}, {domain.maximum_latitude})"
-        #     )
 
         level_coordinate = data["level"]
         level_slice: slice = (
@@ -256,24 +239,6 @@ class MetData(ABC):
             if domain.minimum_level is not None or domain.maximum_level is not None
             else slice(None)
         )
-        # # max_level = level_coordinate.max()
-        # # min_level = level_coordinate.min()
-        # level_slice: slice
-        # match domain.get_levels():
-        #     case (None, None):
-        #         level_slice = slice(None)
-        #     case (lmin, None):
-        #         # if lmin > max_level:
-        #         #     raise ValueError("Minimum level is larger than maximum level in data")
-        #         level_slice = make_value_based_slice(level_coordinate.data, lmin, None)
-        #     case (None, lmax):
-        #         # if lmax < min_level:
-        #         #     raise ValueError("Maximum level is larger than minimum level in data")
-        #         level_slice = make_value_based_slice(level_coordinate.data, None, lmax)
-        #     case (lmin, lmax):
-        #         level_slice = make_value_based_slice(level_coordinate.data, lmin, lmax)
-        #     case _ as unreachable:
-        #         assert_never(unreachable)
 
         return data.sel(
             {
