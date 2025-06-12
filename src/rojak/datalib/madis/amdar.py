@@ -137,7 +137,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
         # value_p:  pass -> char(p) = 112
         # value_-:  unknown: no tests could be performed -> char(-) = 45
         # Filters out value_f:  fail: flagged suspect or bad upon receipt -> var(f) = 102
-        return dataset.where(((dataset[data_var] == 112) | (dataset[data_var] == 45)))
+        return dataset.where(((dataset[data_var] == ord("p")) | (dataset[data_var] == ord("-"))))
 
     def drop_invalid_error_data(self, dataset: xr.Dataset) -> xr.Dataset:
         error_vars_present: set[str] = dataset.data_vars.keys() & self.error_vars

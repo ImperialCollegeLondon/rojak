@@ -714,7 +714,7 @@ class DiagnosticFactory:
             self._richardson = self.create(TurbulenceDiagnostics.RICHARDSON).computed_value
         return self._richardson
 
-    def create(self, diagnostic: TurbulenceDiagnostics) -> Diagnostic:
+    def create(self, diagnostic: TurbulenceDiagnostics) -> Diagnostic:  # noqa: PLR0911, PLR0912
         match diagnostic:
             case TurbulenceDiagnostics.F2D:
                 return Frontogenesis2D(

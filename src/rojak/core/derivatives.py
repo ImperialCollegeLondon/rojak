@@ -83,6 +83,9 @@ def ensure_lat_lon_in_deg(
     return latitude, longitude
 
 
+MAX_LATITUDE: float = 90.0
+
+
 # TODO: TEST
 # Modified from https://github.com/Unidata/MetPy/blob/b9a9dbd88524e1d9600e353318ee9d9f25b05f57/src/metpy/calc/tools.py#L789
 def grid_spacing(
@@ -103,18 +106,20 @@ def grid_spacing(
     lon_grid: ArrayLike
     if latitude.ndim == 1:
         lon_grid, lat_grid = np.meshgrid(longitude, latitude)
-    elif latitude.ndim == 2:
+    elif latitude.ndim == 2:  # noqa: PLR2004
         # lat_grid = latitude
         # lon_grid = longitude
         raise NotImplementedError("Function doesn't support 2D latitude and longitude inputs")
     else:
         raise GoHomeYouAreDrunkError("What are you doing? How do lat and lon have >2 dimensions?")
 
+    max_longitude: float = 180.0
+
     forward_azimuth, _, dy = geod.inv(lon_grid[:-1, :], lat_grid[:-1, :], lon_grid[1:, :], lat_grid[1:, :])
     # I don't understand why this lines is here... Copied from metpy
-    dy[(forward_azimuth < -90.0) | (forward_azimuth > 90.0)] *= -1
+    dy[(forward_azimuth < -MAX_LATITUDE) | (forward_azimuth > MAX_LATITUDE)] *= -1
     forward_azimuth, _, dx = geod.inv(lon_grid[:, :-1], lat_grid[:, :-1], lon_grid[:, 1:], lat_grid[:, 1:])
-    dx[(forward_azimuth < 0.0) | (forward_azimuth > 180.0)] *= -1
+    dx[(forward_azimuth < 0.0) | (forward_azimuth > max_longitude)] *= -1
 
     return GridSpacing(dx, dy)
 
@@ -138,7 +143,7 @@ def nominal_grid_spacing(
     _, _, dx = geod.inv(longitude[:-1], lat_equator[:-1], longitude[1:], lat_equator[1:])
     lon_meridian = np.zeros_like(latitude)
     forward_azimuth, _, dy = geod.inv(lon_meridian[:-1], latitude[:-1], lon_meridian[1:], latitude[1:])
-    dy[(forward_azimuth < -90.0) | (forward_azimuth > 90.0)] *= -1
+    dy[(forward_azimuth < -MAX_LATITUDE) | (forward_azimuth > MAX_LATITUDE)] *= -1
 
     return GridSpacing(dx, dy)
 
