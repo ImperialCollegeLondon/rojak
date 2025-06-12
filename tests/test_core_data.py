@@ -294,3 +294,14 @@ def test_select_domain_slice_level(make_select_domain_dummy_data, domain, new_le
         down_selected,
     )
     assert down_selected["a"].shape == (10, 10, 24, 2)
+
+
+def test_select_domain_shift_longitude(make_select_domain_dummy_data):
+    dummy_data = make_select_domain_dummy_data({"longitude": np.linspace(0, 350, 10)})
+    assert dummy_data["a"]["longitude"].min() == 0
+    assert dummy_data["a"]["longitude"].max() == 350  # noqa: PLR2004
+    domain = SpatialDomain(minimum_latitude=-90, maximum_latitude=90, minimum_longitude=-180, maximum_longitude=180)
+    down_selected = Era5Data(dummy_data).select_domain(domain, dummy_data)
+    assert down_selected["a"]["longitude"].min() < -165  # noqa: PLR2004
+    assert down_selected["a"]["longitude"].max() > 155  # noqa: PLR2004
+    assert down_selected["a"].shape == (10, 10, 24, 4)
