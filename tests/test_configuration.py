@@ -21,6 +21,9 @@ from rojak.orchestrator.configuration import (
 if TYPE_CHECKING:
     from pathlib import Path
 
+MAX_LATITUDE: float = 90
+MAX_LONGITUDE: float = 180
+
 
 @pytest.fixture
 def basic_context_yaml_file(tmp_path_factory) -> "Path":
@@ -89,10 +92,10 @@ def test_context_from_yaml_basic(
         assert context.plots_dir.name == "plots"
         assert context.output_dir.name == "output"
 
-    assert context.data_config.spatial_domain.minimum_latitude == -90
-    assert context.data_config.spatial_domain.maximum_latitude == 90
-    assert context.data_config.spatial_domain.minimum_longitude == -180
-    assert context.data_config.spatial_domain.maximum_longitude == 180
+    assert context.data_config.spatial_domain.minimum_latitude == -MAX_LATITUDE
+    assert context.data_config.spatial_domain.maximum_latitude == MAX_LATITUDE
+    assert context.data_config.spatial_domain.minimum_longitude == -MAX_LONGITUDE
+    assert context.data_config.spatial_domain.maximum_longitude == MAX_LONGITUDE
 
 
 def dump_dict_to_file(target_path: "Path", content: dict) -> "Path":
