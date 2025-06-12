@@ -65,7 +65,7 @@ def test_is_lat_lon_in_degrees(expected: bool, mocker: "MockerFixture", lat, lon
     is_in_deg_mock = mocker.patch("rojak.core.derivatives.is_in_degrees", return_value=expected)
     outcome = derivatives.is_lat_lon_in_degrees(lon, lon)
     assert outcome == expected
-    assert is_in_deg_mock.call_count == 2
+    assert is_in_deg_mock.call_count == 2  # noqa: PLR2004
 
 
 @pytest.mark.parametrize(
@@ -162,7 +162,7 @@ def test_nominal_grid_spacing(mocker: "MockerFixture") -> None:
         np.asarray([556597.45396637, 556597.45396637, 556597.45396637]),
     )
     npt.assert_array_almost_equal(default_geod_deltas.dy, np.asarray([1108538.7325489155, 1110351.4762828045]))
-    assert ensure_is_deg_mock.call_count == 2
+    assert ensure_is_deg_mock.call_count == 2  # noqa: PLR2004
 
 
 def test_nominal_grid_spacing_error() -> None:

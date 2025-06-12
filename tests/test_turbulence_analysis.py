@@ -49,4 +49,4 @@ def test_histogram_distribution_serial_and_parallel_match():
     assert parallel_result.hist_values == serial_result.hist_values
     assert parallel_result.bins == serial_result.bins
     assert parallel_result.mean == serial_result.mean
-    assert np.abs(parallel_result.variance - serial_result.variance) < 1e-8
+    assert np.abs(parallel_result.variance - serial_result.variance) < 1e-8  # noqa: PLR2004

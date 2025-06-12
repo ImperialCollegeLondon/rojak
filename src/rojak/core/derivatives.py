@@ -8,6 +8,7 @@ import xarray as xr
 from dask.base import is_dask_collection
 from pyproj import CRS, Geod, Proj
 
+from rojak.core.constants import MAX_LATITUDE, MAX_LONGITUDE
 from rojak.utilities.types import ArrayLike, GoHomeYouAreDrunkError
 
 GridSpacing = NamedTuple("GridSpacing", [("dx", ArrayLike), ("dy", ArrayLike)])
@@ -103,7 +104,7 @@ def grid_spacing(
     lon_grid: ArrayLike
     if latitude.ndim == 1:
         lon_grid, lat_grid = np.meshgrid(longitude, latitude)
-    elif latitude.ndim == 2:
+    elif latitude.ndim == 2:  # noqa: PLR2004
         # lat_grid = latitude
         # lon_grid = longitude
         raise NotImplementedError("Function doesn't support 2D latitude and longitude inputs")
@@ -112,9 +113,9 @@ def grid_spacing(
 
     forward_azimuth, _, dy = geod.inv(lon_grid[:-1, :], lat_grid[:-1, :], lon_grid[1:, :], lat_grid[1:, :])
     # I don't understand why this lines is here... Copied from metpy
-    dy[(forward_azimuth < -90.0) | (forward_azimuth > 90.0)] *= -1
+    dy[(forward_azimuth < -MAX_LATITUDE) | (forward_azimuth > MAX_LATITUDE)] *= -1
     forward_azimuth, _, dx = geod.inv(lon_grid[:, :-1], lat_grid[:, :-1], lon_grid[:, 1:], lat_grid[:, 1:])
-    dx[(forward_azimuth < 0.0) | (forward_azimuth > 180.0)] *= -1
+    dx[(forward_azimuth < 0.0) | (forward_azimuth > MAX_LONGITUDE)] *= -1
 
     return GridSpacing(dx, dy)
 
@@ -138,7 +139,7 @@ def nominal_grid_spacing(
     _, _, dx = geod.inv(longitude[:-1], lat_equator[:-1], longitude[1:], lat_equator[1:])
     lon_meridian = np.zeros_like(latitude)
     forward_azimuth, _, dy = geod.inv(lon_meridian[:-1], latitude[:-1], lon_meridian[1:], latitude[1:])
-    dy[(forward_azimuth < -90.0) | (forward_azimuth > 90.0)] *= -1
+    dy[(forward_azimuth < -MAX_LATITUDE) | (forward_azimuth > MAX_LATITUDE)] *= -1
 
     return GridSpacing(dx, dy)
 

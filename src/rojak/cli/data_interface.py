@@ -35,7 +35,7 @@ def create_output_dir(output_dir: Path | None, source: StrEnum, intermediate_fol
 
 
 @amdar_app.command()
-def retrieve(
+def retrieve(  # noqa: PLR0913
     source: Annotated[
         AmdarDataSource,
         typer.Option(
@@ -166,7 +166,7 @@ def validate_era5_dataset_name(dataset_name_input: str) -> Era5DatasetName:
 
 
 @meteorology_app.command("retrieve")
-def retrieve_meteorology(
+def retrieve_meteorology(  # noqa: PLR0913
     source: Annotated[
         MeteorologyDataSource,
         typer.Option(
