@@ -337,17 +337,20 @@ class AmdarData(ABC):
         grid: "dgpd.GeoDataFrame" = create_grid_data_frame(target_region, grid_size)
         geo_dataframe: "dgpd.GeoDataFrame" = as_geo_dataframe(raw_data_frame)
         grid_dataframe: "gpd.GeoDataFrame" = grid.compute()
-        within_region: "dgpd.GeoDataFrame" = geo_dataframe.sjoin(grid)
+        within_region: "dgpd.GeoDataFrame" = geo_dataframe.sjoin(grid).optimize()
         geo_dataframe["grid_box"] = within_region["index_right"].apply(
             lambda row: grid_dataframe.loc[row, "geometry"], meta=("grid_box", object)
         )
-        geo_dataframe.drop(columns=["index_right"])
 
-        return AmdarTurbulenceData(geo_dataframe)
+        return AmdarTurbulenceData(geo_dataframe.optimize(), grid)
 
 
 class AmdarTurbulenceData:
     _data_frame: "dd.DataFrame"
+    _grid: "dgpd.GeoDataFrame"
 
-    def __init__(self, data_frame: "dd.DataFrame") -> None:
+    def __init__(self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame") -> None:
         self._data_frame = data_frame
+        self._grid = grid
+
+    # def _apply_quality_control(self) -> None: ...
