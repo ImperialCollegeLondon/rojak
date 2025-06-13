@@ -240,10 +240,12 @@ class MetData(ABC):
         self._longitude_coord_name = longitude_name
         self._latitude_coord_name = latitude_name
 
-    def select_domain(self, domain: "SpatialDomain", data: xr.Dataset) -> xr.Dataset:
-        assert {self._longitude_coord_name, self._latitude_coord_name, "time", "level"}.issubset(data.dims), (
-            "Dataset must contain longitude, latitude, time and level dimensions"
-        )
+    def select_domain(
+        self, domain: "SpatialDomain", data: xr.Dataset, level_coordinate_name: str = "level"
+    ) -> xr.Dataset:
+        assert {self._longitude_coord_name, self._latitude_coord_name, "time", level_coordinate_name}.issubset(
+            data.dims
+        ), "Dataset must contain longitude, latitude, time and level dimensions"
 
         longitude_coord = data[self._longitude_coord_name]
         max_lon = longitude_coord.max()
@@ -251,7 +253,7 @@ class MetData(ABC):
         if max_lon > MAX_LONGITUDE or min_lon < -MAX_LONGITUDE:
             data = self.shift_longitude(data)
 
-        level_coordinate = data["level"]
+        level_coordinate = data[level_coordinate_name]
         level_slice: slice = (
             make_value_based_slice(level_coordinate.data, domain.minimum_level, domain.maximum_level)
             if domain.minimum_level is not None or domain.maximum_level is not None
@@ -260,7 +262,7 @@ class MetData(ABC):
 
         return data.sel(
             {
-                "level": level_slice,
+                level_coordinate_name: level_slice,
                 "time": slice(None),
                 self._longitude_coord_name: make_value_based_slice(
                     longitude_coord.data, domain.minimum_longitude, domain.maximum_longitude
