@@ -27,7 +27,7 @@ class UkmoAmdarData(AmdarData):
             column_names = UkmoAmdarData.COLUMN_NAMES
 
         col_names = set(column_names)
-        assert col_names > UkmoAmdarData.TIME_COLUMNS, "Columns must contain all the time column names"
+        assert col_names.issuperset(UkmoAmdarData.TIME_COLUMNS), "Columns must contain all the time column names"
         assert "turbulence_degree" in col_names, "Turbulence degree must be in column names"
 
         # 1. skiprows - skips the 183 rows which contain the properties
