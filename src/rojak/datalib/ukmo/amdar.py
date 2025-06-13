@@ -16,7 +16,7 @@ class UkmoAmdarData(AmdarData):
                                            'relative_humidity']  # fmt: skip
 
     def __init__(self, path: str | list) -> None:
-        super().__init__(path)
+        super().__init__(path, "altitude")
 
     def load(
         self, target_columns: Iterable[str | int] | None = None, column_names: List[str] | None = None

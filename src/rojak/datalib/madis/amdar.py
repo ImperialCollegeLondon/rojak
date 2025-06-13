@@ -226,7 +226,7 @@ class AcarsRetriever(DataRetriever):
 
 class AcarsAmdarData(AmdarData):
     def __init__(self, path_to_files: str | list) -> None:
-        super().__init__(path_to_files)
+        super().__init__(path_to_files, "baroAltitude")
 
     def load(self) -> "dd.DataFrame":
         return dd.read_parquet(self._path_to_files)
