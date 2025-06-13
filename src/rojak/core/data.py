@@ -3,13 +3,16 @@ import itertools
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar, List, Literal, Mapping, NamedTuple
+from typing import TYPE_CHECKING, Any, ClassVar, List, Literal, Mapping, NamedTuple, Sequence
 
+import dask_geopandas as dgpd
+import numpy as np
 import xarray as xr
 
 from rojak.core import derivatives
 from rojak.core.constants import MAX_LONGITUDE
 from rojak.core.derivatives import VelocityDerivative
+from rojak.core.geometric import create_grid_data_frame
 from rojak.core.indexing import make_value_based_slice
 from rojak.turbulence import calculations as turb_calc
 
@@ -17,6 +20,9 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     import dask.dataframe as dd
+    import geopandas as gpd
+    from numpy.typing import NDArray
+    from shapely.geometry import Polygon
 
     from rojak.orchestrator.configuration import SpatialDomain
 
@@ -216,7 +222,7 @@ def load_from_folder(
     )
 
 
-def pressure_to_altitude_std_atm(pressure: xr.DataArray) -> xr.DataArray:
+def pressure_to_altitude_std_atm(pressure: xr.DataArray | np.ndarray) -> xr.DataArray | np.ndarray:
     """
     Equation 3.106 on page 104 in Wallace, J. M., and Hobbs, P. V., “Atmospheric Science: An Introductory Survey,”
     Elsevier Science & Technology, San Diego, UNITED STATES, 2006.
@@ -286,33 +292,67 @@ class MetData(ABC):
         )
         return shifted_data.sortby(self._longitude_coord_name, ascending=True) if sort_data else shifted_data
 
-    # TODO: TEST
-    @staticmethod
-    def pressure_to_altitude_std_atm(pressure: xr.DataArray) -> xr.DataArray:
-        """
-        Equation 3.106 on page 104 in Wallace, J. M., and Hobbs, P. V., “Atmospheric Science: An Introductory Survey,”
-        Elsevier Science & Technology, San Diego, UNITED STATES, 2006.
-        ..math:: z = \frac{T_0}{\\Gamma} \\left[ 1 - \\left( \frac{p}{p_0} \right)^{\frac{R\\Gamma}{g}} \right]
-        """
-        reference_temperature: float = 288.0  # kelvin
-        gamma: float = 0.0065  # 6.5 K/km => 0.0065 K/m
-        reference_pressure: float = 1013.25  # hPa
-        gas_constant_dry_air: float = 287  # J / (K kg)
-        gravitational_acceleration: float = 9.80665  # m / s^2
-        return (reference_temperature / gamma) * (
-            1 - ((pressure / reference_pressure) ** ((gas_constant_dry_air * gamma) / gravitational_acceleration))
-        )
-
     # To be added later
     # @abstractmethod
     # def to_contrails_data(self) -> xr.Dataset: ...
 
 
+def as_geo_dataframe(data_frame: "dd.DataFrame") -> dgpd.GeoDataFrame:
+    gddf = data_frame.set_geometry(dgpd.points_from_xy(data_frame, x="longitude", y="latitude"))
+    return gddf.set_crs("epsg:4326")
+
+
 class AmdarData(ABC):
     _path_to_files: str | list
+    _altitude_column_name: str
 
-    def __init__(self, path_to_files: str | list) -> None:
+    def __init__(self, path_to_files: str | list, altitude_column_name: str) -> None:
         self._path_to_files = path_to_files
+        self._altitude_column_name = altitude_column_name
 
     @abstractmethod
     def load(self) -> "dd.DataFrame": ...
+
+    @staticmethod
+    def find_closest_pressure_level(
+        current_altitude: float, altitudes: "NDArray", pressures: "np.ndarray[Any, np.dtype[np.float64]]"
+    ) -> float:
+        index = np.abs(altitudes - current_altitude).argmin()
+        return pressures[index]
+
+    def _compute_closest_pressure_level(
+        self,
+        data_frame: "dd.DataFrame",
+        pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]",
+    ) -> "dd.DataFrame":
+        altitudes = pressure_to_altitude_std_atm(pressure_levels)
+        return data_frame[self._altitude_column_name].apply(
+            self.find_closest_pressure_level, args=(altitudes, pressure_levels), meta=("level", float)
+        )
+
+    def to_amdar_turbulence_data(
+        self, target_region: "SpatialDomain | Polygon", grid_size: float, target_pressure_levels: Sequence[float]
+    ) -> "AmdarTurbulenceData":
+        raw_data_frame: "dd.DataFrame" = self.load()
+
+        raw_data_frame["level"] = self._compute_closest_pressure_level(
+            raw_data_frame, np.asarray(target_pressure_levels, dtype=np.float64)
+        )
+
+        grid: "dgpd.GeoDataFrame" = create_grid_data_frame(target_region, grid_size)
+        geo_dataframe: "dgpd.GeoDataFrame" = as_geo_dataframe(raw_data_frame)
+        grid_dataframe: "gpd.GeoDataFrame" = grid.compute()
+        within_region: "dgpd.GeoDataFrame" = geo_dataframe.sjoin(grid)
+        geo_dataframe["grid_box"] = within_region["index_right"].apply(
+            lambda row: grid_dataframe.loc[row, "geometry"], meta=("grid_box", object)
+        )
+        geo_dataframe.drop(columns=["index_right"])
+
+        return AmdarTurbulenceData(geo_dataframe)
+
+
+class AmdarTurbulenceData:
+    _data_frame: "dd.DataFrame"
+
+    def __init__(self, data_frame: "dd.DataFrame") -> None:
+        self._data_frame = data_frame
