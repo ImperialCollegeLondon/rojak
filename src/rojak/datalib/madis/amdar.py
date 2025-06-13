@@ -10,7 +10,7 @@ import dask.dataframe as dd
 import xarray as xr
 from rich.progress import track
 
-from rojak.core.data import DataPreprocessor, DataRetriever, Date
+from rojak.core.data import AmdarData, DataPreprocessor, DataRetriever, Date
 
 ALL_AMDAR_DATA_VARS: FrozenSet[str] = frozenset(
     {'nStaticIds', 'staticIds', 'lastRecord', 'invTime', 'prevRecord', 'inventory', 'globalInventory', 'firstOverflow',
@@ -222,6 +222,14 @@ class AcarsRetriever(DataRetriever):
         dates: list[Date] = self.compute_date_combinations(years, months, days)
         for date in track(dates):
             self._download_file(date, base_output_dir)
+
+
+class AcarsAmdarData(AmdarData):
+    def __init__(self, path_to_files: str | list) -> None:
+        super().__init__(path_to_files)
+
+    def load(self) -> "dd.DataFrame":
+        return dd.read_parquet(self._path_to_files)
 
 
 def load_acars_amdar_data(path: str | list) -> "dd.DataFrame":

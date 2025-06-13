@@ -16,6 +16,8 @@ from rojak.turbulence import calculations as turb_calc
 if TYPE_CHECKING:
     from pathlib import Path
 
+    import dask.dataframe as dd
+
     from rojak.orchestrator.configuration import SpatialDomain
 
 logger = logging.getLogger(__name__)
@@ -286,3 +288,13 @@ class MetData(ABC):
     # To be added later
     # @abstractmethod
     # def to_contrails_data(self) -> xr.Dataset: ...
+
+
+class AmdarData(ABC):
+    _path_to_files: str | list
+
+    def __init__(self, path_to_files: str | list) -> None:
+        self._path_to_files = path_to_files
+
+    @abstractmethod
+    def load(self) -> "dd.DataFrame": ...
