@@ -20,7 +20,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     import dask.dataframe as dd
-    import geopandas as gpd
     from numpy.typing import NDArray
     from shapely.geometry import Polygon
 
@@ -318,11 +317,20 @@ class AmdarData(ABC):
         index = np.abs(altitudes - current_altitude).argmin()
         return pressures[index]
 
-    @abstractmethod
     def _compute_closest_pressure_level(
         self,
         data_frame: "dd.DataFrame",
         pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]",
+        altitude_column: str,
+    ) -> "dd.DataFrame":
+        altitudes = pressure_to_altitude_std_atm(pressure_levels)
+        return data_frame[altitude_column].apply(
+            self.find_closest_pressure_level, args=(altitudes, pressure_levels), meta=("level", float)
+        )
+
+    @abstractmethod
+    def call_compute_closest_pressure_level(
+        self, data_frame: "dd.DataFrame", pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]"
     ) -> "dd.DataFrame": ...
 
     def to_amdar_turbulence_data(
@@ -330,19 +338,19 @@ class AmdarData(ABC):
     ) -> "AmdarTurbulenceData":
         raw_data_frame: "dd.DataFrame" = self.load()
 
-        raw_data_frame["level"] = self._compute_closest_pressure_level(
+        raw_data_frame["level"] = self.call_compute_closest_pressure_level(
             raw_data_frame, np.asarray(target_pressure_levels, dtype=np.float64)
         )
 
         grid: "dgpd.GeoDataFrame" = create_grid_data_frame(target_region, grid_size)
-        geo_dataframe: "dgpd.GeoDataFrame" = as_geo_dataframe(raw_data_frame)
-        grid_dataframe: "gpd.GeoDataFrame" = grid.compute()
-        within_region: "dgpd.GeoDataFrame" = geo_dataframe.sjoin(grid).optimize()
-        geo_dataframe["grid_box"] = within_region["index_right"].apply(
+        grid_dataframe: "dd.DataFrame" = grid.to_dask_dataframe().compute()
+        within_region: "dgpd.GeoDataFrame" = as_geo_dataframe(raw_data_frame).sjoin(grid).optimize()
+        within_region["grid_box"] = within_region["index_right"].apply(
             lambda row: grid_dataframe.loc[row, "geometry"], meta=("grid_box", object)
         )
+        within_region = within_region.drop(columns=["index_right"])
 
-        return AmdarTurbulenceData(geo_dataframe.optimize(), grid)
+        return AmdarTurbulenceData(within_region.persist(), grid)
 
 
 class AmdarTurbulenceData:

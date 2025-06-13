@@ -10,7 +10,7 @@ import dask.dataframe as dd
 import xarray as xr
 from rich.progress import track
 
-from rojak.core.data import AmdarData, DataPreprocessor, DataRetriever, Date, pressure_to_altitude_std_atm
+from rojak.core.data import AmdarData, DataPreprocessor, DataRetriever, Date
 
 if TYPE_CHECKING:
     import numpy as np
@@ -234,15 +234,10 @@ class AcarsAmdarData(AmdarData):
     def load(self) -> "dd.DataFrame":
         return dd.read_parquet(self._path_to_files)
 
-    def _compute_closest_pressure_level(
-        self,
-        data_frame: "dd.DataFrame",
-        pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]",
+    def call_compute_closest_pressure_level(
+        self, data_frame: "dd.DataFrame", pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]"
     ) -> "dd.DataFrame":
-        altitudes = pressure_to_altitude_std_atm(pressure_levels)
-        return data_frame["baroAltitude"].apply(
-            self.find_closest_pressure_level, args=(altitudes, pressure_levels), meta=("level", float)
-        )
+        return self._compute_closest_pressure_level(data_frame, pressure_levels, "altitude")
 
 
 def load_acars_amdar_data(path: str | list) -> "dd.DataFrame":

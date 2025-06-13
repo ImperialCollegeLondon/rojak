@@ -62,12 +62,7 @@ class UkmoAmdarData(AmdarData):
 
         return data.optimize()
 
-    def _compute_closest_pressure_level(
-        self,
-        data_frame: "dd.DataFrame",
-        pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]",
+    def call_compute_closest_pressure_level(
+        self, data_frame: "dd.DataFrame", pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]"
     ) -> "dd.DataFrame":
-        pressure_in_pascals = pressure_levels * 100  # Pressure levels are defined in hPa
-        return data_frame["pressure"].apply(
-            self.find_closest_pressure_level, args=(pressure_in_pascals, pressure_in_pascals), meta=("level", float)
-        )
+        return self._compute_closest_pressure_level(data_frame, pressure_levels, "altitude")
