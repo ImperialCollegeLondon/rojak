@@ -4,13 +4,16 @@ import shutil
 import tempfile
 from ftplib import FTP
 from pathlib import Path
-from typing import FrozenSet, Iterable
+from typing import TYPE_CHECKING, Any, FrozenSet, Iterable
 
 import dask.dataframe as dd
 import xarray as xr
 from rich.progress import track
 
-from rojak.core.data import AmdarData, DataPreprocessor, DataRetriever, Date
+from rojak.core.data import AmdarData, DataPreprocessor, DataRetriever, Date, pressure_to_altitude_std_atm
+
+if TYPE_CHECKING:
+    import numpy as np
 
 ALL_AMDAR_DATA_VARS: FrozenSet[str] = frozenset(
     {'nStaticIds', 'staticIds', 'lastRecord', 'invTime', 'prevRecord', 'inventory', 'globalInventory', 'firstOverflow',
@@ -226,10 +229,20 @@ class AcarsRetriever(DataRetriever):
 
 class AcarsAmdarData(AmdarData):
     def __init__(self, path_to_files: str | list) -> None:
-        super().__init__(path_to_files, "baroAltitude")
+        super().__init__(path_to_files)
 
     def load(self) -> "dd.DataFrame":
         return dd.read_parquet(self._path_to_files)
+
+    def _compute_closest_pressure_level(
+        self,
+        data_frame: "dd.DataFrame",
+        pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]",
+    ) -> "dd.DataFrame":
+        altitudes = pressure_to_altitude_std_atm(pressure_levels)
+        return data_frame["baroAltitude"].apply(
+            self.find_closest_pressure_level, args=(altitudes, pressure_levels), meta=("level", float)
+        )
 
 
 def load_acars_amdar_data(path: str | list) -> "dd.DataFrame":

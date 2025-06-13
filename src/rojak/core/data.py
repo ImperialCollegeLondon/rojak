@@ -304,11 +304,9 @@ def as_geo_dataframe(data_frame: "dd.DataFrame") -> dgpd.GeoDataFrame:
 
 class AmdarData(ABC):
     _path_to_files: str | list
-    _altitude_column_name: str
 
-    def __init__(self, path_to_files: str | list, altitude_column_name: str) -> None:
+    def __init__(self, path_to_files: str | list) -> None:
         self._path_to_files = path_to_files
-        self._altitude_column_name = altitude_column_name
 
     @abstractmethod
     def load(self) -> "dd.DataFrame": ...
@@ -320,15 +318,12 @@ class AmdarData(ABC):
         index = np.abs(altitudes - current_altitude).argmin()
         return pressures[index]
 
+    @abstractmethod
     def _compute_closest_pressure_level(
         self,
         data_frame: "dd.DataFrame",
         pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]",
-    ) -> "dd.DataFrame":
-        altitudes = pressure_to_altitude_std_atm(pressure_levels)
-        return data_frame[self._altitude_column_name].apply(
-            self.find_closest_pressure_level, args=(altitudes, pressure_levels), meta=("level", float)
-        )
+    ) -> "dd.DataFrame": ...
 
     def to_amdar_turbulence_data(
         self, target_region: "SpatialDomain | Polygon", grid_size: float, target_pressure_levels: Sequence[float]
