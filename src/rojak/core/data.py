@@ -297,6 +297,15 @@ class MetData(ABC):
 
 
 def as_geo_dataframe(data_frame: "dd.DataFrame") -> dgpd.GeoDataFrame:
+    """
+    Method to convert a data frame into a GeoDataFrame.
+
+    Args:
+        data_frame (dd.DataFrame): The data frame to convert.
+
+    Returns:
+        dgpd.GeoDataFrame: The converted data frame.
+    """
     gddf = data_frame.set_geometry(dgpd.points_from_xy(data_frame, x="longitude", y="latitude"))
     return gddf.set_crs("epsg:4326")
 
@@ -308,12 +317,30 @@ class AmdarData(ABC):
         self._path_to_files = path_to_files
 
     @abstractmethod
-    def load(self) -> "dd.DataFrame": ...
+    def load(self) -> "dd.DataFrame":
+        """
+        Method to load data from path into a dask dataframe.
+
+        Returns:
+            dd.DataFrame: The loaded data frame.
+        """
+        ...
 
     @staticmethod
-    def find_closest_pressure_level(
+    def _find_closest_pressure_level(
         current_altitude: float, altitudes: "NDArray", pressures: "np.ndarray[Any, np.dtype[np.float64]]"
     ) -> float:
+        """
+        Method to find the closest pressure level for a given altitude.
+
+        Args:
+            current_altitude (float): Altitude for a given data point in meters
+            pressures (np.ndarray[Any, np.dtype[np.float]]): Pressure levels in hPa
+            altitudes: Pressure levels converted to altitude using standard atmosphere in meters
+
+        Returns:
+            float: Closest pressure level
+        """
         index = np.abs(altitudes - current_altitude).argmin()
         return pressures[index]
 
@@ -322,28 +349,78 @@ class AmdarData(ABC):
         data_frame: "dd.DataFrame",
         pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]",
         altitude_column: str,
-    ) -> "dd.DataFrame":
+    ) -> "dd.Series":
+        """
+        Method to compute closest pressure level for the entire data frame
+
+        Args:
+            data_frame (dd.DataFrame): Dataframe to compute the closest pressure level for
+            pressure_levels (np.ndarray[Any, np.dtype[np.float]]): Pressure levels in hPa
+            altitude_column (str): Name of the altitude column
+
+        Returns:
+            dd.Series: New series with the closest pressure level
+        """
         altitudes = pressure_to_altitude_std_atm(pressure_levels)
         return data_frame[altitude_column].apply(
-            self.find_closest_pressure_level, args=(altitudes, pressure_levels), meta=("level", float)
+            self._find_closest_pressure_level, args=(altitudes, pressure_levels), meta=("level", float)
         )
 
     @abstractmethod
-    def call_compute_closest_pressure_level(
+    def _call_compute_closest_pressure_level(
         self, data_frame: "dd.DataFrame", pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]"
-    ) -> "dd.DataFrame": ...
+    ) -> "dd.Series":
+        """
+        Wrapper method to be implemented by child classes to call _compute_closest_pressure_level with the appropriate
+        altitude column name
+
+        Args:
+            data_frame (dd.DataFrame): Dataframe to compute the closest pressure level for
+            pressure_levels (np.ndarray[Any, np.dtype[np.float]]): Pressure levels in hPa
+
+        Returns:
+            dd.Series: New series with the closest pressure level
+        """
+        ...
 
     @abstractmethod
-    def instantiate_amdar_turbulence_data_class(
+    def _instantiate_amdar_turbulence_data_class(
         self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame"
-    ) -> "AmdarTurbulenceData": ...
+    ) -> "AmdarTurbulenceData":
+        """
+        Method to instantiate a concrete instance of the AmdarTurbulenceData class
+
+        Args:
+            data_frame (dd.DataFrame): Dataframe containing AMDAR data to instantiate a concrete instance with
+            grid (dgpd.GeoDataFrame): Grid used to spatially bucket the data in data_frame
+
+        Returns:
+            AmdarTurbulenceData: Instantiated concrete implementation of abstract AmdarTurbulenceData class
+        """
+        ...
 
     def to_amdar_turbulence_data(
         self, target_region: "SpatialDomain | Polygon", grid_size: float, target_pressure_levels: Sequence[float]
     ) -> "AmdarTurbulenceData":
+        """
+        Public method which coordinates the loading of data from disk and processing it such that it has been spatially
+        bucket in the horizontal domain and has the closest pressure level (vertical domain) stored.
+
+        Args:
+            target_region (SpatialDomain | Polygon):    Region of data to keep. This should be selected to match the
+                                                        met data it will be compared against
+            grid_size (float):  Step size of grid. This controls the discretisation of the target_region and should be
+                                selected to match the met data it will be compared against
+            target_pressure_levels: Pressure levels (vertical coordinate) that the data will be bucketed into. This
+                                    must match the met data it will be compared against
+
+        Returns:
+            AmdarTurbulenceData: Instance containing the data loaded from file with the spatial operations applied.
+
+        """
         raw_data_frame: "dd.DataFrame" = self.load()
 
-        raw_data_frame["level"] = self.call_compute_closest_pressure_level(
+        raw_data_frame["level"] = self._call_compute_closest_pressure_level(
             raw_data_frame, np.asarray(target_pressure_levels, dtype=np.float64)
         )
 
@@ -355,7 +432,7 @@ class AmdarData(ABC):
         )
         within_region = within_region.drop(columns=["index_right"])
 
-        return self.instantiate_amdar_turbulence_data_class(within_region.persist(), grid)
+        return self._instantiate_amdar_turbulence_data_class(within_region.persist(), grid)
 
 
 class AmdarTurbulenceData(ABC):
