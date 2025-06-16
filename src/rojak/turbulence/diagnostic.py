@@ -841,6 +841,9 @@ class DiagnosticSuite:
         ):  # DiagnosticName, Diagnostic
             yield name, diagnostic.computed_value
 
+    def diagnostic_names(self) -> list["DiagnosticName"]:
+        return list(self._diagnostics.keys())
+
 
 class CalibrationDiagnosticSuite(DiagnosticSuite):
     def __init__(self, factory: DiagnosticFactory, diagnostics: list[TurbulenceDiagnostics]) -> None:

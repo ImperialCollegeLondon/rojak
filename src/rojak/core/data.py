@@ -16,6 +16,7 @@ from rojak.core.derivatives import VelocityDerivative
 from rojak.core.geometric import create_grid_data_frame
 from rojak.core.indexing import make_value_based_slice
 from rojak.turbulence import calculations as turb_calc
+from rojak.utilities.types import Limits
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -139,6 +140,9 @@ class CATPrognosticData:
     # TODO: TEST
     def altitude(self) -> xr.DataArray:
         return self._dataset["altitude"]
+
+    def time_window(self) -> Limits[np.datetime64]:
+        return Limits(self._dataset["time"].min().values[0], self._dataset["time"].max().values[0])
 
 
 class CATData(CATPrognosticData):
@@ -461,7 +465,7 @@ class AmdarTurbulenceData(ABC):
     def grid(self) -> "dgpd.GeoDataFrame":
         return self._grid
 
-    def filter_outside_time_window(self, start_time: np.datetime64, end_time: np.datetime64) -> "dd.DataFrame":
+    def clip_to_time_window(self, window: Limits[np.datetime64]) -> "dd.DataFrame":
         return self._data_frame.loc[
-            (self._data_frame["datetime"] >= start_time) & (self._data_frame["datetime"] <= end_time)
+            (self._data_frame["datetime"] >= window.lower) & (self._data_frame["datetime"] <= window.upper)
         ]
