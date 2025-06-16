@@ -46,7 +46,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
         "dataSource", "dataType", "dest_airport_id", "en_tailNumber", "heading", "interpolatedLL", "interpolatedTime",
         "latitude", "latitudeDD", "longitude", "longitudeDD", "mach", "maxEDR", "maxEDRDD", "maxTurbulence",
         "medEDR", "medEDRDD", "medTurbulence", "orig_airport_id", "phaseFlight", "speedError", "tempError",
-        "temperature", "temperatureDD", "timeMaxTurbulence", "timeObs", "timeObsDD",  "trueAirSpeed",
+        "temperature", "temperatureDD", "timeMaxTurbulence", "timeObs", "timeObsDD",  "trueAirSpeed", "rollFlag",
         "trueAirSpeedDD", "trueAirSpeedError", "turbIndex", "turbIndexDD", "turbulenceError", "baroAltitude",
         "vertAccel", "vertGust", "windDir", "windDirDD", "windDirError", "windSpeed", "windSpeedDD", "windSpeedError",
     }  # fmt: skip
@@ -264,4 +264,7 @@ class AcarsAmdarTurbulenceData(AmdarTurbulenceData):
         # value_B:    roll > 5 degrees, OR flagged suspect or bad on receipt
         # value_N:    N/A
         # value_-:    Missing value
-        return data_frame[data_frame["rollFlag"] == ord("G")]
+
+        # All the data gets filetered out
+        # return data_frame[data_frame["rollFlag"] == ord("G")]
+        return data_frame
