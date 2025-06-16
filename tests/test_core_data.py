@@ -5,7 +5,7 @@ import pytest
 import xarray as xr
 import xarray.testing as xrt
 
-from rojak.core.data import MetData, pressure_to_altitude_std_atm
+from rojak.core.data import MetData
 from rojak.datalib.ecmwf.era5 import Era5Data
 from rojak.orchestrator.configuration import SpatialDomain
 
@@ -17,13 +17,6 @@ if TYPE_CHECKING:
 def create_met_data_mock(mocker: "MockerFixture"):
     mocker.patch.multiple(MetData, __abstractmethods__=set())
     return MetData()  # pyright: ignore[reportAbstractUsage]
-
-
-def test_pressure_to_altitude_standard_atmosphere(create_met_data_mock) -> None:
-    # Values from https://github.com/Unidata/MetPy/blob/60c94ebd5f314b85d770118cb7bfbe369a668c8c/tests/calc/test_basic.py#L327
-    pressures = xr.DataArray([975.2, 987.5, 956.0, 943.0])
-    alts = xr.DataArray([321.5, 216.5, 487.6, 601.7])
-    xrt.assert_allclose(alts, pressure_to_altitude_std_atm(pressures), rtol=1e-3)
 
 
 def time_coordinate():
