@@ -3,12 +3,12 @@ from typing import TYPE_CHECKING, NamedTuple, Sequence
 from scipy.interpolate import RegularGridInterpolator
 
 if TYPE_CHECKING:
-    import numpy as np
-    import xarray as xr
     from numpy.typing import NDArray
 
+    from rojak.utilities.types import ArrayLike
 
-def pressure_to_altitude_std_atm(pressure: "xr.DataArray | np.ndarray") -> "xr.DataArray | np.ndarray":
+
+def pressure_to_altitude_std_atm(pressure: "ArrayLike") -> "ArrayLike":
     """
     Equation 3.106 on page 104 in Wallace, J. M., and Hobbs, P. V., “Atmospheric Science: An Introductory Survey,”
     Elsevier Science & Technology, San Diego, UNITED STATES, 2006.
