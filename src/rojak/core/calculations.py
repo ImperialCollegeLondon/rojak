@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, NamedTuple, Sequence
+from typing import TYPE_CHECKING, NamedTuple
 
 from scipy.interpolate import RegularGridInterpolator
 
@@ -28,12 +28,12 @@ Coordinate = NamedTuple("Coordinate", [("latitude", float), ("longitude", float)
 
 
 def bilinear_interpolation(
-    longitude: Sequence[float], latitude: Sequence[float], function_value: "NDArray", target_coordinate: Coordinate
-) -> float:
+    longitude: "NDArray", latitude: "NDArray", function_value: "NDArray", target_coordinate: Coordinate
+) -> "NDArray":
     assert len(longitude) == len(latitude)
     assert len(longitude) > 1
     assert function_value.ndim == 2  # noqa: PLR2004
 
-    return RegularGridInterpolator((longitude, latitude), function_value.T, method="linear")(
+    return RegularGridInterpolator((longitude, latitude), function_value, method="linear")(
         (target_coordinate.longitude, target_coordinate.latitude)
-    )[0]
+    )
