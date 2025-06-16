@@ -333,6 +333,11 @@ class AmdarData(ABC):
         self, data_frame: "dd.DataFrame", pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]"
     ) -> "dd.DataFrame": ...
 
+    @abstractmethod
+    def instantiate_amdar_turbulence_data_class(
+        self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame"
+    ) -> "AmdarTurbulenceData": ...
+
     def to_amdar_turbulence_data(
         self, target_region: "SpatialDomain | Polygon", grid_size: float, target_pressure_levels: Sequence[float]
     ) -> "AmdarTurbulenceData":
@@ -350,15 +355,28 @@ class AmdarData(ABC):
         )
         within_region = within_region.drop(columns=["index_right"])
 
-        return AmdarTurbulenceData(within_region.persist(), grid)
+        return self.instantiate_amdar_turbulence_data_class(within_region.persist(), grid)
 
 
-class AmdarTurbulenceData:
+class AmdarTurbulenceData(ABC):
     _data_frame: "dd.DataFrame"
     _grid: "dgpd.GeoDataFrame"
 
+    MINIMUM_ALTITUDE: ClassVar[float] = 8500  # Approx. 28,000 ft
+
     def __init__(self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame") -> None:
-        self._data_frame = data_frame
+        self._data_frame = self.__apply_quality_control(data_frame)
         self._grid = grid
 
-    # def _apply_quality_control(self) -> None: ...
+    @abstractmethod
+    def _minimum_altitude_qc(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
+        raise NotImplementedError("Method must be implemented by child class")
+
+    @abstractmethod
+    def _drop_manoeuvre_data_qc(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
+        raise NotImplementedError("Method must be implemented by child class")
+
+    def __apply_quality_control(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
+        data_frame = data_frame.drop_duplicates()
+        data_frame = self._minimum_altitude_qc(data_frame)
+        return self._drop_manoeuvre_data_qc(data_frame).optimize()
