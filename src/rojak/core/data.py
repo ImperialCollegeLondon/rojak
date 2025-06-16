@@ -8,7 +8,9 @@ from typing import TYPE_CHECKING, ClassVar, List, Literal, Mapping, NamedTuple
 import xarray as xr
 
 from rojak.core import derivatives
+from rojak.core.constants import MAX_LONGITUDE
 from rojak.core.derivatives import VelocityDerivative
+from rojak.core.indexing import make_value_based_slice
 from rojak.turbulence import calculations as turb_calc
 
 if TYPE_CHECKING:
@@ -212,34 +214,57 @@ def load_from_folder(
     )
 
 
-type XArrayDataTypes = xr.Dataset | xr.DataArray
-
-
 class MetData(ABC):
-    longitude_coord_name: str
-    latitude_coord_name: str
+    _longitude_coord_name: str
+    _latitude_coord_name: str
 
     def __init__(self, longitude_name: str = "longitude", latitude_name: str = "latitude") -> None:
-        self.longitude_coord_name = longitude_name
-        self.latitude_coord_name = latitude_name
+        self._longitude_coord_name = longitude_name
+        self._latitude_coord_name = latitude_name
 
-    @abstractmethod
-    def select_domain(self, domain: "SpatialDomain") -> "MetData": ...
+    def select_domain(self, domain: "SpatialDomain", data: xr.Dataset) -> xr.Dataset:
+        assert {self._longitude_coord_name, self._latitude_coord_name, "time", "level"}.issubset(data.dims), (
+            "Dataset must contain longitude, latitude, time and level dimensions"
+        )
+
+        longitude_coord = data[self._longitude_coord_name]
+        max_lon = longitude_coord.max()
+        min_lon = longitude_coord.min()
+        if max_lon > MAX_LONGITUDE or min_lon < -MAX_LONGITUDE:
+            data = self.shift_longitude(data)
+
+        level_coordinate = data["level"]
+        level_slice: slice = (
+            make_value_based_slice(level_coordinate.data, domain.minimum_level, domain.maximum_level)
+            if domain.minimum_level is not None or domain.maximum_level is not None
+            else slice(None)
+        )
+
+        return data.sel(
+            {
+                "level": level_slice,
+                "time": slice(None),
+                self._longitude_coord_name: make_value_based_slice(
+                    longitude_coord.data, domain.minimum_longitude, domain.maximum_longitude
+                ),
+                self._latitude_coord_name: make_value_based_slice(
+                    data[self._latitude_coord_name].data, domain.minimum_latitude, domain.maximum_latitude
+                ),
+            }
+        )
 
     @abstractmethod
     def to_clear_air_turbulence_data(self, domain: "SpatialDomain") -> CATData: ...
 
     # Modified from pycontrails
     # https://github.com/contrailcirrus/pycontrails/blob/8a25266bcf5ead003a6b344395462ab56943e668/pycontrails/core/met.py#L2430
-    def shift_longitude(
-        self, data: XArrayDataTypes, domain_bound: float = -180, sort_data: bool = True
-    ) -> XArrayDataTypes:
+    def shift_longitude(self, data: xr.Dataset, domain_bound: float = -180, sort_data: bool = True) -> xr.Dataset:
         # Utility function to shift data to have longitude in the range of [domain_bound, 360 + domain_bound]
         # This also sorts it so that the data is then ascending from domain_bound
-        shifted_data: XArrayDataTypes = data.assign_coords(
-            longitude=((data[self.longitude_coord_name] - domain_bound) % 360) + domain_bound
+        shifted_data: xr.Dataset = data.assign_coords(
+            longitude=((data[self._longitude_coord_name] - domain_bound) % 360) + domain_bound
         )
-        return shifted_data.sortby(self.longitude_coord_name, ascending=True) if sort_data else shifted_data
+        return shifted_data.sortby(self._longitude_coord_name, ascending=True) if sort_data else shifted_data
 
     # TODO: TEST
     @staticmethod
