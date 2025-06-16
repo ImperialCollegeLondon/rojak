@@ -73,6 +73,9 @@ class UkmoAmdarRepository(AmdarDataRepository):
     ) -> "AmdarTurbulenceData":
         return UkmoAmdarTurbulenceData(data_frame, grid)
 
+    def _time_column_rename_mapping(self) -> dict[str, str]:
+        return {}
+
 
 class UkmoAmdarTurbulenceData(AmdarTurbulenceData):
     def __init__(self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame") -> None:

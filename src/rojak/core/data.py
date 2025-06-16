@@ -403,6 +403,9 @@ class AmdarDataRepository(ABC):
         """
         ...
 
+    @abstractmethod
+    def _time_column_rename_mapping(self) -> dict[str, str]: ...
+
     def to_amdar_turbulence_data(
         self, target_region: "SpatialDomain | Polygon", grid_size: float, target_pressure_levels: Sequence[float]
     ) -> "AmdarTurbulenceData":
@@ -435,6 +438,8 @@ class AmdarDataRepository(ABC):
             lambda row: grid_dataframe.loc[row, "geometry"], meta=("grid_box", object)
         )
         within_region = within_region.drop(columns=["index_right"])
+        if self._time_column_rename_mapping():
+            within_region = within_region.rename(columns=self._time_column_rename_mapping())
 
         return self._instantiate_amdar_turbulence_data_class(within_region.persist(), grid)
 

@@ -245,6 +245,9 @@ class AcarsAmdarRepository(AmdarDataRepository):
     ) -> "AmdarTurbulenceData":
         return AcarsAmdarTurbulenceData(data_frame, grid)
 
+    def _time_column_rename_mapping(self) -> dict[str, str]:
+        return {"timeObs": "datetime"}
+
 
 class AcarsAmdarTurbulenceData(AmdarTurbulenceData):
     def __init__(self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame") -> None:
