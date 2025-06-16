@@ -451,6 +451,7 @@ class AmdarTurbulenceData(ABC):
     MINIMUM_ALTITUDE: ClassVar[float] = 8500  # Approx. 28,000 ft
 
     def __init__(self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame") -> None:
+        assert {"grid_box", "datetime", "index_right", "level", "geometry"}.issubset(data_frame.columns)
         self._data_frame = self.__apply_quality_control(data_frame)
         self._grid = grid
 
