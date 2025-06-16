@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING, NamedTuple
 
 from scipy.interpolate import RegularGridInterpolator
 
+from rojak.core.constants import GAS_CONSTANT_DRY_AIR, GRAVITATIONAL_ACCELERATION
+
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
@@ -17,10 +19,8 @@ def pressure_to_altitude_std_atm(pressure: "ArrayLike") -> "ArrayLike":
     reference_temperature: float = 288.0  # kelvin
     gamma: float = 0.0065  # 6.5 K/km => 0.0065 K/m
     reference_pressure: float = 1013.25  # hPa
-    gas_constant_dry_air: float = 287  # J / (K kg)
-    gravitational_acceleration: float = 9.80665  # m / s^2
     return (reference_temperature / gamma) * (
-        1 - ((pressure / reference_pressure) ** ((gas_constant_dry_air * gamma) / gravitational_acceleration))
+        1 - ((pressure / reference_pressure) ** ((GAS_CONSTANT_DRY_AIR * gamma) / GRAVITATIONAL_ACCELERATION))
     )
 
 
