@@ -235,12 +235,12 @@ class AcarsAmdarData(AmdarData):
     def load(self) -> "dd.DataFrame":
         return dd.read_parquet(self._path_to_files)
 
-    def call_compute_closest_pressure_level(
+    def _call_compute_closest_pressure_level(
         self, data_frame: "dd.DataFrame", pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]"
-    ) -> "dd.DataFrame":
+    ) -> "dd.Series":
         return self._compute_closest_pressure_level(data_frame, pressure_levels, "altitude")
 
-    def instantiate_amdar_turbulence_data_class(
+    def _instantiate_amdar_turbulence_data_class(
         self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame"
     ) -> "AmdarTurbulenceData":
         return AcarsAmdarTurbulenceData(data_frame, grid)
