@@ -43,10 +43,10 @@ def create_polygon_spatial_grid_buckets(domain: geometry.Polygon, step_size: flo
 def create_grid_data_frame(
     domain: "SpatialDomain | geometry.Polygon", step_size: float, crs: str = "epsg:4326"
 ) -> dgpd.GeoDataFrame:
-    df = gpd.GeoDataFrame(
+    grid = gpd.GeoDataFrame(
         geometry=create_polygon_spatial_grid_buckets(domain, step_size)
         if isinstance(domain, geometry.Polygon)
         else create_rectangular_spatial_grid_buckets(domain, step_size),
         crs=crs,
     )
-    return dgpd.from_geopandas(df)
+    return dgpd.from_geopandas(grid)
