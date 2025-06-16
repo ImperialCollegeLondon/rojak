@@ -10,7 +10,7 @@ import dask.dataframe as dd
 import xarray as xr
 from rich.progress import track
 
-from rojak.core.data import AmdarData, AmdarTurbulenceData, DataPreprocessor, DataRetriever, Date
+from rojak.core.data import AmdarDataRepository, AmdarTurbulenceData, DataPreprocessor, DataRetriever, Date
 
 if TYPE_CHECKING:
     import dask_geopandas as dgpd
@@ -228,7 +228,7 @@ class AcarsRetriever(DataRetriever):
             self._download_file(date, base_output_dir)
 
 
-class AcarsAmdarData(AmdarData):
+class AcarsAmdarRepository(AmdarDataRepository):
     def __init__(self, path_to_files: str | list) -> None:
         super().__init__(path_to_files)
 

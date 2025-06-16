@@ -2,14 +2,14 @@ from typing import TYPE_CHECKING, Any, ClassVar, FrozenSet, Iterable, List
 
 import dask.dataframe as dd
 
-from rojak.core.data import AmdarData, AmdarTurbulenceData
+from rojak.core.data import AmdarDataRepository, AmdarTurbulenceData
 
 if TYPE_CHECKING:
     import dask_geopandas as dgpd
     import numpy as np
 
 
-class UkmoAmdarData(AmdarData):
+class UkmoAmdarRepository(AmdarDataRepository):
     TIME_COLUMNS: ClassVar[FrozenSet[str]] = frozenset({"year", "month", "day", "hour", "minute", "second"})
     TURBULENCE_COL_INDICES: ClassVar[List[int]] = [0, 1, 2, 3, 4, 5, 11, 12, 13, 14, 15, 20, 21, 22, 24, 25, 26, 27, 28,
                                                   30, 32]  # fmt: skip
@@ -26,12 +26,12 @@ class UkmoAmdarData(AmdarData):
         self, target_columns: Iterable[str | int] | None = None, column_names: List[str] | None = None
     ) -> dd.DataFrame:
         if target_columns is None:
-            target_columns = UkmoAmdarData.TURBULENCE_COL_INDICES
+            target_columns = UkmoAmdarRepository.TURBULENCE_COL_INDICES
         if column_names is None:
-            column_names = UkmoAmdarData.COLUMN_NAMES
+            column_names = UkmoAmdarRepository.COLUMN_NAMES
 
         col_names = set(column_names)
-        assert col_names.issuperset(UkmoAmdarData.TIME_COLUMNS), "Columns must contain all the time column names"
+        assert col_names.issuperset(UkmoAmdarRepository.TIME_COLUMNS), "Columns must contain all the time column names"
         assert "turbulence_degree" in col_names, "Turbulence degree must be in column names"
 
         # 1. skiprows - skips the 183 rows which contain the properties
