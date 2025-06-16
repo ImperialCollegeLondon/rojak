@@ -310,7 +310,11 @@ def as_geo_dataframe(data_frame: "dd.DataFrame") -> dgpd.GeoDataFrame:
     return gddf.set_crs("epsg:4326")
 
 
-class AmdarData(ABC):
+class AmdarDataRepository(ABC):
+    """
+    Abstract AMDAR data repository interface.
+    """
+
     _path_to_files: str | list
 
     def __init__(self, path_to_files: str | list) -> None:
