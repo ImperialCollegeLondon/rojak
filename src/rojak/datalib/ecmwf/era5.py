@@ -5,7 +5,8 @@ import cdsapi
 from dask.base import is_dask_collection
 from rich.progress import track
 
-from rojak.core.data import CATData, DataRetriever, DataVarSchema, MetData, pressure_to_altitude_std_atm
+from rojak.core.calculations import pressure_to_altitude_std_atm
+from rojak.core.data import CATData, DataRetriever, DataVarSchema, MetData
 from rojak.datalib.ecmwf.constants import (
     blank_default,
     data_defaults,
