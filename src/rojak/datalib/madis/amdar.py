@@ -10,9 +10,10 @@ import dask.dataframe as dd
 import xarray as xr
 from rich.progress import track
 
-from rojak.core.data import AmdarData, DataPreprocessor, DataRetriever, Date
+from rojak.core.data import AmdarData, AmdarTurbulenceData, DataPreprocessor, DataRetriever, Date
 
 if TYPE_CHECKING:
+    import dask_geopandas as dgpd
     import numpy as np
 
 ALL_AMDAR_DATA_VARS: FrozenSet[str] = frozenset(
@@ -46,7 +47,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
         "latitude", "latitudeDD", "longitude", "longitudeDD", "mach", "maxEDR", "maxEDRDD", "maxTurbulence",
         "medEDR", "medEDRDD", "medTurbulence", "orig_airport_id", "phaseFlight", "speedError", "tempError",
         "temperature", "temperatureDD", "timeMaxTurbulence", "timeObs", "timeObsDD",  "trueAirSpeed",
-        "trueAirSpeedDD", "trueAirSpeedError", "turbIndex", "turbIndexDD", "turbulenceError",
+        "trueAirSpeedDD", "trueAirSpeedError", "turbIndex", "turbIndexDD", "turbulenceError", "baroAltitude",
         "vertAccel", "vertGust", "windDir", "windDirDD", "windDirError", "windSpeed", "windSpeedDD", "windSpeedError",
     }  # fmt: skip
     quality_control_vars: set[str] = {"altitudeDD", "windSpeedDD", "timeObsDD", "latitudeDD", "longitudeDD",
@@ -239,7 +240,25 @@ class AcarsAmdarData(AmdarData):
     ) -> "dd.DataFrame":
         return self._compute_closest_pressure_level(data_frame, pressure_levels, "altitude")
 
+    def instantiate_amdar_turbulence_data_class(
+        self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame"
+    ) -> "AmdarTurbulenceData":
+        return AcarsAmdarTurbulenceData(data_frame, grid)
 
-def load_acars_amdar_data(path: str | list) -> "dd.DataFrame":
-    # ASSUMES FILES ARE IN PARQUET FORMAT
-    return dd.read_parquet(path, filesystem="arrow")
+
+class AcarsAmdarTurbulenceData(AmdarTurbulenceData):
+    def __init__(self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame") -> None:
+        super().__init__(data_frame, grid)
+
+    def _minimum_altitude_qc(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
+        return data_frame[data_frame["altitude"] >= self.MINIMUM_ALTITUDE]
+
+    def _drop_manoeuvre_data_qc(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
+        # Attributes:
+        # long_name:  Aircraft roll angle flag
+        # units:        G = < 5 degrees, B = > 5 degrees
+        # value_G:    roll <= 5 degrees
+        # value_B:    roll > 5 degrees, OR flagged suspect or bad on receipt
+        # value_N:    N/A
+        # value_-:    Missing value
+        return data_frame[data_frame["rollFlag"] == ord("G")]

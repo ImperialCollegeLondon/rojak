@@ -2,9 +2,10 @@ from typing import TYPE_CHECKING, Any, ClassVar, FrozenSet, Iterable, List
 
 import dask.dataframe as dd
 
-from rojak.core.data import AmdarData
+from rojak.core.data import AmdarData, AmdarTurbulenceData
 
 if TYPE_CHECKING:
+    import dask_geopandas as dgpd
     import numpy as np
 
 
@@ -66,3 +67,20 @@ class UkmoAmdarData(AmdarData):
         self, data_frame: "dd.DataFrame", pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]"
     ) -> "dd.DataFrame":
         return self._compute_closest_pressure_level(data_frame, pressure_levels, "altitude")
+
+    def instantiate_amdar_turbulence_data_class(
+        self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame"
+    ) -> "AmdarTurbulenceData":
+        return UkmoAmdarTurbulenceData(data_frame, grid)
+
+
+class UkmoAmdarTurbulenceData(AmdarTurbulenceData):
+    def __init__(self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame") -> None:
+        super().__init__(data_frame, grid)
+
+    def _minimum_altitude_qc(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
+        return data_frame[data_frame["altitude"] >= self.MINIMUM_ALTITUDE]
+
+    def _drop_manoeuvre_data_qc(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
+        # roll_angle is NA in entire month of Jan and May in 2024
+        return data_frame
