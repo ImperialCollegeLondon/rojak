@@ -467,3 +467,16 @@ class AmdarTurbulenceData(ABC):
         data_frame = data_frame.drop_duplicates()
         data_frame = self._minimum_altitude_qc(data_frame)
         return self._drop_manoeuvre_data_qc(data_frame).optimize()
+
+    @property
+    def data_frame(self) -> "dd.DataFrame":
+        return self._data_frame
+
+    @property
+    def grid(self) -> "dgpd.GeoDataFrame":
+        return self._grid
+
+    def filter_outside_time_window(self, start_time: np.datetime64, end_time: np.datetime64) -> "dd.DataFrame":
+        return self._data_frame.loc[
+            (self._data_frame["datetime"] >= start_time) & (self._data_frame["datetime"] <= end_time)
+        ]
