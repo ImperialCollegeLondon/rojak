@@ -30,6 +30,7 @@ rojak = "rojak.cli.main:app"
 [dependency-groups]
 #complete = ["rojak[ecmwf,amdar]"]
 dev = [
+    "doc8>=1.1.2",
     "pre-commit>=4.2.0",
     "pyright>=1.1.400",
     "ruff>=0.11.8",
@@ -39,7 +40,11 @@ test = [
     "pytest-cov>=6.1.1",
     "pytest-mock>=3.14.1",
 ]
-docs = []
+docs = [
+    "myst-parser>=4.0.1",
+    "pydata-sphinx-theme>=0.16.1",
+    "sphinx>=8.2.3",
+]
 ecmwf = [
     "cdsapi>=0.7.5",
 ]
