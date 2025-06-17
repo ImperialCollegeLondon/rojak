@@ -70,6 +70,8 @@ instance/
 
 # Sphinx documentation
 docs/_build/
+# Files generated with autosummary
+docs/api/generated
 
 # PyBuilder
 .pybuilder/
@@ -172,3 +174,7 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# output directories that are created by CLI tool if not specified in config
+output/
+plots/
