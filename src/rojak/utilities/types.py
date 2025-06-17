@@ -19,3 +19,6 @@ DistributionParameters = NamedTuple("DistributionParameters", [("mean", float), 
 class Limits[T](NamedTuple):
     lower: T
     upper: T
+
+
+Coordinate = NamedTuple("Coordinate", [("latitude", float), ("longitude", float)])
