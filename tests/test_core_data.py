@@ -1,12 +1,13 @@
 from typing import TYPE_CHECKING, Tuple
 
 import dask.array as da
+import dask_geopandas
 import numpy as np
 import pytest
 import xarray as xr
 import xarray.testing as xrt
 
-from rojak.core.data import MetData
+from rojak.core.data import MetData, as_geo_dataframe
 from rojak.datalib.ecmwf.era5 import Era5Data
 from rojak.orchestrator.configuration import SpatialDomain
 
@@ -299,3 +300,12 @@ def test_select_domain_shift_longitude(make_select_domain_dummy_data):
     assert down_selected["a"]["longitude"].min() < -165  # noqa: PLR2004
     assert down_selected["a"]["longitude"].max() > 155  # noqa: PLR2004
     assert down_selected["a"].shape == (10, 10, 24, 4)
+
+
+def test_as_geo_dataframe(make_select_domain_dummy_data):
+    dummy_data = make_select_domain_dummy_data({}, use_numpy=False)
+    gdf = as_geo_dataframe(dummy_data.to_dask_dataframe())
+    assert "geometry" in gdf.columns
+    assert isinstance(gdf, dask_geopandas.GeoDataFrame)
+    assert gdf.crs == "epsg:4326"
+    gdf.head()  # Call head() to check it can be computed
