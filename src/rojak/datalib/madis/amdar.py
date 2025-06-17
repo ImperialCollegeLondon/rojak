@@ -268,3 +268,6 @@ class AcarsAmdarTurbulenceData(AmdarTurbulenceData):
         # All the data gets filetered out
         # return data_frame[data_frame["rollFlag"] == ord("G")]
         return data_frame
+
+    def turbulence_column_names(self) -> list[str]:
+        return ["maxEDR", "maxTurbulence", "medEDR", "medTurbulence", "turbIndex", "vertGust"]

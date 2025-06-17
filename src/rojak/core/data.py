@@ -455,6 +455,10 @@ class AmdarTurbulenceData(ABC):
     def _drop_manoeuvre_data_qc(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
         raise NotImplementedError("Method must be implemented by child class")
 
+    @abstractmethod
+    def turbulence_column_names(self) -> list[str]:
+        raise NotImplementedError("Method must be implemented by child class")
+
     def __apply_quality_control(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
         data_frame = data_frame.drop_duplicates()
         data_frame = self._minimum_altitude_qc(data_frame)

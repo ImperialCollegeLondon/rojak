@@ -87,3 +87,6 @@ class UkmoAmdarTurbulenceData(AmdarTurbulenceData):
     def _drop_manoeuvre_data_qc(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
         # roll_angle is NA in entire month of Jan and May in 2024
         return data_frame
+
+    def turbulence_column_names(self) -> list[str]:
+        return ["turbulence_degree"]

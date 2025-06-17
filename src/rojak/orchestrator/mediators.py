@@ -44,6 +44,10 @@ class DiagnosticsAmdarHarmonisationStrategy(ABC):
         self._name_suffix = name_suffix
         self._met_values = met_values
 
+    @property
+    def name_suffix(self) -> str:
+        return self._name_suffix
+
     @staticmethod
     def get_nearest_values(indexer: SpatialTemporalIndex, values_array: "xr.DataArray") -> "xr.DataArray":
         return values_array.sel(longitude=indexer.longitudes, latitude=indexer.latitudes, level=indexer.level).sel(
@@ -173,10 +177,32 @@ class DiagnosticsAmdarHarmonisationStrategyFactory:
             return iter(self._diagnostics_suite.computed_values(""))
         return iter(self._diagnostics_suite.edr.items())
 
-    def get_strategy(
+    def create_strategies(
         self, options: list[DiagnosticsAmdarHarmonisationStrategyOptions]
     ) -> list[DiagnosticsAmdarHarmonisationStrategy]:
-        return []
+        strategies = []
+        for option in options:
+            met_values = self.get_met_values(option)
+            match option:
+                case DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES:
+                    strategies.append(ValuesStrategy(str(option), met_values))
+                case DiagnosticsAmdarHarmonisationStrategyOptions.EDR:
+                    strategies.append(ValuesStrategy(str(option), met_values))
+                case DiagnosticsAmdarHarmonisationStrategyOptions.INDEX_TURBULENCE_INTENSITY:
+                    for severity, threshold_mapping in self._diagnostics_suite.get_limits_for_severities():
+                        strategies.append(
+                            DiagnosticsSeveritiesStrategy(
+                                f"{str(option)}_{str(severity)}",
+                                met_values,
+                                threshold_mapping,
+                            )
+                        )
+                case DiagnosticsAmdarHarmonisationStrategyOptions.EDR_TURBULENCE_INTENSITY:
+                    for severity, edr_limits in self._diagnostics_suite.get_edr_bounds():
+                        strategies.append(
+                            EdrSeveritiesStrategy(f"{str(option)}_{str(severity)}", met_values, edr_limits)
+                        )
+        return strategies
 
 
 class DiagnosticsAmdarDataHarmoniser:
@@ -193,20 +219,31 @@ class DiagnosticsAmdarDataHarmoniser:
         self._diagnostics_suite = diagnostics_suite
 
     def _process_amdar_row(
-        self, row: "dd.Series", comparison_method: DiagnosticsAmdarHarmonisationStrategy, use_edr: bool
+        self, row: "dd.Series", methods: list[DiagnosticsAmdarHarmonisationStrategy], amdar_turblence_columns: list[str]
     ) -> "dd.Series":
         coords = row["grid_box"].exterior.coords
         longitudes = [coord[0] for coord in coords]
         latitudes = [coord[1] for coord in coords]
         level: float = row["level"]
         this_time: np.datetime64 = row["datetime"]
-        target_locations: Coordinate = Coordinate(row["latitude"], row["longitude"])  # noqa: F841
+        target_coord: Coordinate = Coordinate(row["latitude"], row["longitude"])
 
-        for name, diagnostic in self._diagnostics_suite.computed_values(""):  # DiagnosticName, Diagnostic
-            diagnostic.sel(longitude=longitudes, latitude=latitudes, level=level).sel(time=this_time, method="nearest")
-            print(name)
+        new_row = [
+            this_time,
+            row["level"],
+            row["geometry"],
+            row["grid_box"],
+            row["index_right"],
+            row["latitude"],
+            row["longitude"],
+        ]
+        new_row.extend([row[column] for column in amdar_turblence_columns])
 
-        return dd.Series([this_time, row["level"], row["geometry"], row["grid_box"], row["index_right"]])
+        indexer: SpatialTemporalIndex = SpatialTemporalIndex(longitudes, latitudes, level, this_time)
+        for method in methods:
+            new_row.extend(method.harmonise(indexer, target_coord).values())
+
+        return dd.Series(new_row)
 
     def execute_harmonisation(
         self,
@@ -215,15 +252,6 @@ class DiagnosticsAmdarDataHarmoniser:
         use_edr: bool = False,
     ) -> "dd.DataFrame":
         observational_data: "dd.DataFrame" = self._amdar_data.clip_to_time_window(time_window)
-        meta_for_new_dataframe = {
-            "datetime": np.datetime64,
-            "level": float,
-            "geometry": object,
-            "grid_box": object,
-            "index_right": int,
-        }
-        for item in self._diagnostics_suite.diagnostic_names():
-            meta_for_new_dataframe[item] = float
 
         if use_edr:
             try:
@@ -233,9 +261,29 @@ class DiagnosticsAmdarDataHarmoniser:
                     "Attempting to assimilate EDR data when missing values needed to compute EDR"
                 ) from exception
 
+        strategies: list[DiagnosticsAmdarHarmonisationStrategy] = DiagnosticsAmdarHarmonisationStrategyFactory(
+            self._diagnostics_suite
+        ).create_strategies(methods)
+
+        meta_for_new_dataframe = {
+            "datetime": np.datetime64,
+            "level": float,
+            "geometry": object,
+            "grid_box": object,
+            "index_right": int,
+            "latitude": float,
+            "longitude": float,
+        }
+        column_names = self._amdar_data.turbulence_column_names()
+        for name in column_names:
+            meta_for_new_dataframe[name] = float
+        for strategy in strategies:
+            for name in self._diagnostics_suite.diagnostic_names():
+                meta_for_new_dataframe[f"{name}_{strategy.name_suffix}"] = float
+
         return observational_data.apply(
             self._process_amdar_row,
             axis=1,
             meta=meta_for_new_dataframe,
-            args=(methods, use_edr),
+            args=(strategies, self._amdar_data.turbulence_column_names()),
         )
