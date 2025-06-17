@@ -4,7 +4,8 @@ import xarray as xr
 from scipy.interpolate import RegularGridInterpolator
 from xarray import testing as xrt
 
-from rojak.core.calculations import Coordinate, bilinear_interpolation, pressure_to_altitude_std_atm
+from rojak.core.calculations import bilinear_interpolation, pressure_to_altitude_std_atm
+from rojak.utilities.types import Coordinate
 
 
 def test_pressure_to_altitude_standard_atmosphere() -> None:
