@@ -8,4 +8,8 @@ on:
 
 jobs:
   call-sphinx-workflow:
+    permissions:
+      contents: write # To push a branch
+      pages: write # To push to a GitHub Pages site
+      id-token: write # To update the deployment status
     uses: ./.github/workflows/sphinx.yml
