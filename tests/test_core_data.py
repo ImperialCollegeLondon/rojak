@@ -1,5 +1,6 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Tuple
 
+import dask.array as da
 import numpy as np
 import pytest
 import xarray as xr
@@ -23,15 +24,16 @@ def time_coordinate():
     return np.arange("2005-02-01T00", "2005-02-02T00", dtype="datetime64[h]")
 
 
-def generate_array_data(shape):
-    return np.random.default_rng().random(shape)
+def generate_array_data(shape: Tuple, use_numpy: bool):
+    data = np.random.default_rng().random(shape)
+    return data if use_numpy else da.from_array(data)
 
 
 @pytest.fixture
 def make_select_domain_dummy_data():
     # Factory as fixtures
     # https://docs.pytest.org/en/latest/how-to/fixtures.html#factories-as-fixtures
-    def _make_select_domain_dummy_data(to_replace: dict) -> xr.Dataset:
+    def _make_select_domain_dummy_data(to_replace: dict, use_numpy: bool = True) -> xr.Dataset:
         default_coords = {
             "longitude": np.arange(10),
             "latitude": np.arange(10),
@@ -43,7 +45,7 @@ def make_select_domain_dummy_data():
         return xr.Dataset(
             data_vars={
                 "a": xr.DataArray(
-                    data=generate_array_data((10, 10, 24, 4)),
+                    data=generate_array_data((10, 10, 24, 4), use_numpy),
                     dims=["longitude", "latitude", "time", "level"],
                 )
             },
