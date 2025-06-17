@@ -1,11 +1,8 @@
 name: "Sphinx: Render docs"
 
-# Modified from: https://www.sphinx-doc.org/en/master/tutorial/deploying.html#id5
 on:
-  push:
-    branches: [ "master" ]
-  pull_request:
-    branches: [ "master" ]
+  workflow_call:
+
 
 jobs:
   build:
