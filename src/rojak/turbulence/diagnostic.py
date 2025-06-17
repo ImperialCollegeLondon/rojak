@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from rojak.core.derivatives import SpatialGradientKeys
     from rojak.orchestrator.configuration import TurbulenceSeverity
     from rojak.turbulence.analysis import HistogramData
-    from rojak.utilities.types import DiagnosticName, DistributionParameters
+    from rojak.utilities.types import DiagnosticName, DistributionParameters, Limits
 
 logger = logging.getLogger(__name__)
 
@@ -875,16 +875,18 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
     _severities: list["TurbulenceSeverity"] | None
     _pressure_levels: list[float] | None
     _probability_thresholds: Mapping["DiagnosticName", "TurbulenceThresholds"] | None
+    _edr_thresholds: "TurbulenceThresholds | None"
     _threshold_mode: TurbulenceThresholdMode | None
     _distribution_parameters: Mapping["DiagnosticName", "DistributionParameters"] | None
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         factory: DiagnosticFactory,
         diagnostics: list[TurbulenceDiagnostics],
         severities: list["TurbulenceSeverity"] | None = None,
         pressure_levels: list[float] | None = None,
         probability_thresholds: Mapping["DiagnosticName", "TurbulenceThresholds"] | None = None,
+        edr_thresholds: "TurbulenceThresholds | None" = None,
         threshold_mode: TurbulenceThresholdMode | None = None,
         distribution_parameters: Mapping["DiagnosticName", "DistributionParameters"] | None = None,
     ) -> None:
@@ -899,6 +901,7 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
                 raise KeyError(f"Diagnostic {name} has no probability threshold")
         self._probability_thresholds = probability_thresholds
         self._distribution_parameters = distribution_parameters
+        self._edr_thresholds = edr_thresholds
 
     @property
     def probabilities(self) -> Mapping["DiagnosticName", xr.DataArray]:
@@ -943,6 +946,26 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
             return self._edr
 
         return self._edr
+
+    def get_limits_for_severities(self) -> Generator[Tuple["TurbulenceSeverity", Mapping["DiagnosticName", "Limits"]]]:
+        if self._probability_thresholds is None or self._threshold_mode is None or self._severities is None:
+            raise ValueError("Identifying turbulent regions of a given severity needs more inputs")
+
+        for severity in self._severities:
+            yield (
+                severity,
+                {
+                    name: self._probability_thresholds[name].get_bounds(severity, self._threshold_mode)
+                    for name in self._diagnostics  # DiagnosticName
+                },
+            )
+
+    def get_edr_bounds(self) -> Generator[Tuple["TurbulenceSeverity", "Limits"]]:
+        if self._edr_thresholds is None or self._severities is None or self._threshold_mode is None:
+            raise ValueError("Identifying turbulent regions of a given severity needs more inputs")
+
+        for severity in self._severities:
+            yield severity, self._edr_thresholds.get_bounds(severity, self._threshold_mode)
 
     def compute_turbulent_regions(self) -> Mapping["DiagnosticName", xr.DataArray]:
         if (
