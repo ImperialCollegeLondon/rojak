@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING
 
 from scipy.interpolate import RegularGridInterpolator
 
@@ -7,7 +7,7 @@ from rojak.core.constants import GAS_CONSTANT_DRY_AIR, GRAVITATIONAL_ACCELERATIO
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
-    from rojak.utilities.types import ArrayLike
+    from rojak.utilities.types import ArrayLike, Coordinate
 
 
 def pressure_to_altitude_std_atm(pressure: "ArrayLike") -> "ArrayLike":
@@ -24,11 +24,8 @@ def pressure_to_altitude_std_atm(pressure: "ArrayLike") -> "ArrayLike":
     )
 
 
-Coordinate = NamedTuple("Coordinate", [("latitude", float), ("longitude", float)])
-
-
 def bilinear_interpolation(
-    longitude: "NDArray", latitude: "NDArray", function_value: "NDArray", target_coordinate: Coordinate
+    longitude: "NDArray", latitude: "NDArray", function_value: "NDArray", target_coordinate: "Coordinate"
 ) -> "NDArray":
     assert len(longitude) == len(latitude)
     assert len(longitude) > 1
