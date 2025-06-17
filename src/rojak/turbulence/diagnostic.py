@@ -1,6 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Generator, Mapping, assert_never
+from typing import TYPE_CHECKING, Generator, Mapping, Tuple, assert_never
 
 import numpy as np
 import xarray as xr
@@ -835,9 +835,11 @@ class DiagnosticSuite:
             for diagnostic in diagnostics  # TurbulenceDiagnostic
         }
 
-    def computed_values(self, progress_description: str) -> Generator:
-        for name, diagnostic in track(
-            self._diagnostics.items(), description=progress_description
+    def computed_values(self, progress_description: str) -> Generator[Tuple["DiagnosticName", "xr.DataArray"]]:
+        for name, diagnostic in (
+            track(self._diagnostics.items(), description=progress_description)
+            if not progress_description
+            else self._diagnostics.items()
         ):  # DiagnosticName, Diagnostic
             yield name, diagnostic.computed_value
 
