@@ -430,7 +430,7 @@ class AmdarDataRepository(ABC):
         if self._time_column_rename_mapping():
             within_region = within_region.rename(columns=self._time_column_rename_mapping())
 
-        return self._instantiate_amdar_turbulence_data_class(within_region.persist(), grid)
+        return self._instantiate_amdar_turbulence_data_class(within_region.optimize(), grid)
 
 
 class AmdarTurbulenceData(ABC):
