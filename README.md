@@ -1,6 +1,7 @@
 # rojak
 
-[![CI](https://github.com/wong-hl/rojak/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/wong-hl/rojak/actions/workflows/ci.yml)
+[![CI](https://github.com/ImperialCollegeLondon/rojak/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/ImperialCollegeLondon/rojak/actions/workflows/ci.yml)
+[![CD](https://github.com/ImperialCollegeLondon/rojak/actions/workflows/cd.yml/badge.svg?branch=master)](https://github.com/ImperialCollegeLondon/rojak/actions/workflows/cd.yml)
 [![Checked with pyright](https://microsoft.github.io/pyright/img/pyright_badge.svg)](https://microsoft.github.io/pyright/)
 [![Formatted with ruff](https://img.shields.io/badge/code%20style-ruff-d7ff64)](https://github.com/astral-sh/ruff)
 
