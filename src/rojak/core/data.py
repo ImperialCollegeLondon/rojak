@@ -426,7 +426,7 @@ class AmdarDataRepository(ABC):
         within_region["grid_box"] = within_region["index_right"].apply(
             lambda row: grid_dataframe.loc[row, "geometry"], meta=("grid_box", object)
         )
-        within_region = within_region.drop(columns=["index_right"])
+        # within_region = within_region.drop(columns=["index_right"])
         if self._time_column_rename_mapping():
             within_region = within_region.rename(columns=self._time_column_rename_mapping())
 
@@ -440,7 +440,10 @@ class AmdarTurbulenceData(ABC):
     MINIMUM_ALTITUDE: ClassVar[float] = 8500  # Approx. 28,000 ft
 
     def __init__(self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame") -> None:
-        assert {"grid_box", "datetime", "index_right", "level", "geometry"}.issubset(data_frame.columns)
+        required_columns = {"grid_box", "datetime", "index_right", "level", "geometry"}
+        assert required_columns.issubset(data_frame.columns), (
+            f"Columns {required_columns - set(data_frame.columns)} from missing the data frame"
+        )
         self._data_frame = self.__apply_quality_control(data_frame)
         self._grid = grid
 
