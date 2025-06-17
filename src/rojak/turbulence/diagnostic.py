@@ -835,7 +835,9 @@ class DiagnosticSuite:
             for diagnostic in diagnostics  # TurbulenceDiagnostic
         }
 
-    def computed_values(self, progress_description: str) -> Generator[Tuple["DiagnosticName", "xr.DataArray"]]:
+    def computed_values(
+        self, progress_description: str
+    ) -> Generator[Tuple["DiagnosticName", "xr.DataArray"], None, None]:
         for name, diagnostic in (
             track(self._diagnostics.items(), description=progress_description)
             if not progress_description
@@ -947,7 +949,9 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
 
         return self._edr
 
-    def get_limits_for_severities(self) -> Generator[Tuple["TurbulenceSeverity", Mapping["DiagnosticName", "Limits"]]]:
+    def get_limits_for_severities(
+        self,
+    ) -> Generator[Tuple["TurbulenceSeverity", Mapping["DiagnosticName", "Limits"]], None, None]:
         if self._probability_thresholds is None or self._threshold_mode is None or self._severities is None:
             raise ValueError("Identifying turbulent regions of a given severity needs more inputs")
 
@@ -960,7 +964,7 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
                 },
             )
 
-    def get_edr_bounds(self) -> Generator[Tuple["TurbulenceSeverity", "Limits"]]:
+    def get_edr_bounds(self) -> Generator[Tuple["TurbulenceSeverity", "Limits"], None, None]:
         if self._edr_thresholds is None or self._severities is None or self._threshold_mode is None:
             raise ValueError("Identifying turbulent regions of a given severity needs more inputs")
 
