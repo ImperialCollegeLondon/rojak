@@ -235,7 +235,7 @@ class DiagnosticsAmdarDataHarmoniser:
         latitudes = [min_lat, max_lat]
 
         level: float = row["level"]
-        this_time: np.datetime64 = row["datetime"]
+        this_time: np.datetime64 = np.datetime64(row["datetime"])
         target_coord: Coordinate = Coordinate(row["latitude"], row["longitude"])
 
         new_row = [
