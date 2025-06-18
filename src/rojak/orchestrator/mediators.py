@@ -62,21 +62,10 @@ class DiagnosticsAmdarHarmonisationStrategy(ABC):
             closest_values = closest_values.isel(time=closest_time)
         return closest_values
 
-    @staticmethod
-    def check_time_within_window(surrounding_values: "xr.DataArray", observation_time: np.datetime64) -> None:
-        closest_time_stamp = surrounding_values["time"].values[0]
-        if not (
-            closest_time_stamp - np.timedelta64(3, "h")
-            <= observation_time
-            <= closest_time_stamp + np.timedelta64(3, "h")
-        ):
-            raise NotWithinTimeFrameError("Observation time is not within +/- 3 hrs of the closest time stamp")
-
     def harmonise(self, indexer: SpatialTemporalIndex, observation_coord: Coordinate) -> dict:
         output = {}
         for name, diagnostic in self._met_values.items():  # DiagnosticName, xr.DataArray
             surrounding_values: "xr.DataArray" = self.get_nearest_values(indexer, diagnostic)
-            # self.check_time_within_window(surrounding_values, indexer.obs_time)
 
             output[f"{name}_{self._name_suffix}"] = self.interpolate(
                 observation_coord, indexer, surrounding_values.values, name
