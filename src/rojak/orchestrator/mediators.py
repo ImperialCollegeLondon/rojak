@@ -3,6 +3,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar, Mapping, NamedTuple
 
 import numpy as np
+import pandas as pd
 
 from rojak.core.calculations import bilinear_interpolation
 from rojak.utilities.types import Coordinate
@@ -51,14 +52,14 @@ class DiagnosticsAmdarHarmonisationStrategy(ABC):
         return self._name_suffix
 
     def get_nearest_values(self, indexer: SpatialTemporalIndex, values_array: "xr.DataArray") -> "xr.DataArray":
-        closest_values = values_array.sel(
+        closest_values: "xr.DataArray" = values_array.sel(
             longitude=indexer.longitudes, latitude=indexer.latitudes, pressure_level=indexer.level
         ).sel(
             time=[indexer.obs_time - self.TIME_WINDOW_DELTA, indexer.obs_time + self.TIME_WINDOW_DELTA],
             method="nearest",
         )
         if len(closest_values["time"]) != 1:
-            closest_time = np.abs(closest_values["time"].values - indexer.obs_time).argmin()
+            closest_time = np.abs(closest_values["time"].to_numpy() - indexer.obs_time).argmin()
             closest_values = closest_values.isel(time=closest_time)
         return closest_values
 
@@ -215,9 +216,10 @@ class DiagnosticsAmdarDataHarmoniser:
         self._amdar_data = amdar_data
         self._diagnostics_suite = diagnostics_suite
 
+    @staticmethod
     def _process_amdar_row(
-        self, row: "dd.Series", methods: list[DiagnosticsAmdarHarmonisationStrategy], amdar_turblence_columns: list[str]
-    ) -> list:
+        row: "dd.Series", methods: list[DiagnosticsAmdarHarmonisationStrategy], amdar_turblence_columns: list[str]
+    ) -> pd.Series:
         # Use bounds as the DataArray.sel will get the (2, 2) data
         min_lon, min_lat, max_lon, max_lat = row["grid_box"].bounds
         longitudes = [min_lon, max_lon]
@@ -227,22 +229,23 @@ class DiagnosticsAmdarDataHarmoniser:
         this_time: np.datetime64 = np.datetime64(row["datetime"])
         target_coord: Coordinate = Coordinate(row["latitude"], row["longitude"])
 
-        new_row = [
-            this_time,
-            row["level"],
-            row["geometry"],
-            row["grid_box"],
-            row["index_right"],
-            row["latitude"],
-            row["longitude"],
-        ]
-        new_row.extend([row[column] for column in amdar_turblence_columns])
+        new_row = {
+            "datetime": this_time,
+            "level": row["level"],
+            "geometry": row["geometry"],
+            "grid_box": row["grid_box"],
+            "index_right": row["index_right"],
+            "latitude": row["latitude"],
+            "longitude": row["longitude"],
+        }
+        for column in amdar_turblence_columns:
+            new_row[column] = row[column]
 
         indexer: SpatialTemporalIndex = SpatialTemporalIndex(longitudes, latitudes, level, this_time)
         for method in methods:
-            new_row.extend(method.harmonise(indexer, target_coord).values())
+            new_row = new_row | method.harmonise(indexer, target_coord)
 
-        return new_row
+        return pd.Series(new_row)
 
     def _check_time_window_within_met_data(self, time_window: "Limits[np.datetime64]") -> None:
         time_coordinate: "xr.DataArray" = next(iter(self._diagnostics_suite.computed_values_as_dict().values()))["time"]
