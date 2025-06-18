@@ -221,9 +221,11 @@ class DiagnosticsAmdarDataHarmoniser:
     def _process_amdar_row(
         self, row: "dd.Series", methods: list[DiagnosticsAmdarHarmonisationStrategy], amdar_turblence_columns: list[str]
     ) -> "dd.Series":
-        coords = row["grid_box"].exterior.coords
-        longitudes = [coord[0] for coord in coords]
-        latitudes = [coord[1] for coord in coords]
+        # Use bounds as the DataArray.sel will get the (2, 2) data
+        min_lon, min_lat, max_lon, max_lat = row["grid_box"].bounds
+        longitudes = [min_lon, max_lon]
+        latitudes = [min_lat, max_lat]
+
         level: float = row["level"]
         this_time: np.datetime64 = row["datetime"]
         target_coord: Coordinate = Coordinate(row["latitude"], row["longitude"])
