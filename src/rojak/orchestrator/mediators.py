@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar, Mapping, NamedTuple
 
+import dask.dataframe as dd
 import numpy as np
 import pandas as pd
 
@@ -9,9 +10,9 @@ from rojak.core.calculations import bilinear_interpolation
 from rojak.utilities.types import Coordinate
 
 if TYPE_CHECKING:
-    import dask.dataframe as dd
     import xarray as xr
     from numpy.typing import NDArray
+    from shapely.geometry import Polygon
 
     from rojak.core.data import AmdarTurbulenceData
     from rojak.turbulence.diagnostic import EvaluationDiagnosticSuite
@@ -247,24 +248,34 @@ class DiagnosticsAmdarDataHarmoniser:
 
         return pd.Series(new_row)
 
-    def _check_time_window_within_met_data(self, time_window: "Limits[np.datetime64]") -> None:
-        time_coordinate: "xr.DataArray" = next(iter(self._diagnostics_suite.computed_values_as_dict().values()))["time"]
+    @staticmethod
+    def _check_time_window_within_met_data(
+        time_window: "Limits[np.datetime64]", first_diagnostic: "xr.DataArray"
+    ) -> None:
+        time_coordinate: "xr.DataArray" = first_diagnostic["time"]
         if time_window.lower < time_coordinate.min() or time_window.upper > time_coordinate.max():
             raise NotWithinTimeFrameError("Time window is not within time coordinate of met data")
 
-    def execute_harmonisation(
-        self,
-        methods: list[DiagnosticsAmdarHarmonisationStrategyOptions],
-        time_window: "Limits[np.datetime64]",
-    ) -> "dd.DataFrame":
-        self._check_time_window_within_met_data(time_window)
+    def _check_grids_match(self, representative_array: "xr.DataArray") -> None:
+        latitudes = set(representative_array["latitude"].values)
+        longitudes = set(representative_array["longitude"].values)
 
-        observational_data: "dd.DataFrame" = self._amdar_data.clip_to_time_window(time_window)
+        def check_row(geom: "Polygon") -> bool:
+            min_lon, min_lat, max_lon, max_lat = geom.bounds
+            if (
+                min_lon not in longitudes
+                or min_lat not in latitudes
+                or max_lon not in longitudes
+                or max_lat not in latitudes
+            ):
+                raise ValueError("Grid points are not coordinates of met data")
+            return True
 
-        strategies: list[DiagnosticsAmdarHarmonisationStrategy] = DiagnosticsAmdarHarmonisationStrategyFactory(
-            self._diagnostics_suite
-        ).create_strategies(methods)
+        self._amdar_data.grid["geometry"].apply(check_row, meta=("is_valid", bool)).compute()
 
+    def _construct_meta_dataframe(
+        self, strategies: list[DiagnosticsAmdarHarmonisationStrategy], num_partitions: int
+    ) -> dd.DataFrame:
         meta_for_new_dataframe = {
             "datetime": "datetime64[s]",
             "level": float,
@@ -280,10 +291,31 @@ class DiagnosticsAmdarDataHarmoniser:
         for strategy in strategies:
             for name in self._diagnostics_suite.diagnostic_names():
                 meta_for_new_dataframe[f"{name}_{strategy.name_suffix}"] = float
+        return dd.from_pandas(
+            pd.DataFrame(
+                {column_name: pd.Series(dtype=data_type) for column_name, data_type in meta_for_new_dataframe.items()}
+            ),
+            npartitions=num_partitions,
+        )
+
+    def execute_harmonisation(
+        self,
+        methods: list[DiagnosticsAmdarHarmonisationStrategyOptions],
+        time_window: "Limits[np.datetime64]",
+    ) -> "dd.DataFrame":
+        a_computed_diagnostic: "xr.DataArray" = next(iter(self._diagnostics_suite.computed_values_as_dict().values()))
+        self._check_time_window_within_met_data(time_window, a_computed_diagnostic)
+        self._check_grids_match(a_computed_diagnostic)
+
+        observational_data: "dd.DataFrame" = self._amdar_data.clip_to_time_window(time_window)
+
+        strategies: list[DiagnosticsAmdarHarmonisationStrategy] = DiagnosticsAmdarHarmonisationStrategyFactory(
+            self._diagnostics_suite
+        ).create_strategies(methods)
 
         return observational_data.apply(
             self._process_amdar_row,
             axis=1,
-            meta=meta_for_new_dataframe,
+            meta=self._construct_meta_dataframe(strategies, observational_data.npartitions),
             args=(strategies, self._amdar_data.turbulence_column_names()),
         )
