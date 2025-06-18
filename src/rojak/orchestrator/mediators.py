@@ -69,7 +69,7 @@ class DiagnosticsAmdarHarmonisationStrategy(ABC):
             surrounding_values: "xr.DataArray" = self.get_nearest_values(indexer, diagnostic)
 
             output[f"{name}_{self._name_suffix}"] = self.interpolate(
-                observation_coord, indexer, surrounding_values.values, name
+                observation_coord, indexer, surrounding_values.to_numpy(), name
             )
 
         return output

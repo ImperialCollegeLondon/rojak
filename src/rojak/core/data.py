@@ -142,7 +142,7 @@ class CATPrognosticData:
         return self._dataset["altitude"]
 
     def time_window(self) -> Limits[np.datetime64]:
-        return Limits(self._dataset["time"].min().values[0], self._dataset["time"].max().values[0])
+        return Limits(self._dataset["time"].min().to_numpy().item(), self._dataset["time"].max().to_numpy().item())
 
 
 class CATData(CATPrognosticData):
