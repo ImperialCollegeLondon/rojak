@@ -2,13 +2,13 @@ from abc import ABC, abstractmethod
 from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar, Mapping, NamedTuple
 
-import dask.dataframe as dd
 import numpy as np
 
 from rojak.core.calculations import bilinear_interpolation
 from rojak.utilities.types import Coordinate
 
 if TYPE_CHECKING:
+    import dask.dataframe as dd
     import xarray as xr
     from numpy.typing import NDArray
 
@@ -217,7 +217,7 @@ class DiagnosticsAmdarDataHarmoniser:
 
     def _process_amdar_row(
         self, row: "dd.Series", methods: list[DiagnosticsAmdarHarmonisationStrategy], amdar_turblence_columns: list[str]
-    ) -> "dd.Series":
+    ) -> list:
         # Use bounds as the DataArray.sel will get the (2, 2) data
         min_lon, min_lat, max_lon, max_lat = row["grid_box"].bounds
         longitudes = [min_lon, max_lon]
@@ -242,7 +242,7 @@ class DiagnosticsAmdarDataHarmoniser:
         for method in methods:
             new_row.extend(method.harmonise(indexer, target_coord).values())
 
-        return dd.Series(new_row)
+        return new_row
 
     def _check_time_window_within_met_data(self, time_window: "Limits[np.datetime64]") -> None:
         time_coordinate: "xr.DataArray" = next(iter(self._diagnostics_suite.computed_values_as_dict().values()))["time"]
