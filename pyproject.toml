@@ -6,7 +6,18 @@ readme = "README.md"
 authors = [
     { name = "Hui Ling Wong", email = "71387295+wong-hl@users.noreply.github.com " }
 ]
-keywords = ["turbulence", "climate", "contrails", "avaiation", "aerospace", "aeroelasticity"]
+keywords = ["turbulence", "climate", "contrails", "avaiation", "aerospace", "aeroelasticity", "meteorology"]
+classifiers = [
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Atmospheric Science",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed"
+]
 
 requires-python = ">=3.12"
 dependencies = [
