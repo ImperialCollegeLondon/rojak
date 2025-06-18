@@ -840,7 +840,7 @@ class DiagnosticSuite:
     ) -> Generator[Tuple["DiagnosticName", "xr.DataArray"], None, None]:
         for name, diagnostic in (
             track(self._diagnostics.items(), description=progress_description)
-            if not progress_description
+            if progress_description
             else self._diagnostics.items()
         ):  # DiagnosticName, Diagnostic
             yield name, diagnostic.computed_value
