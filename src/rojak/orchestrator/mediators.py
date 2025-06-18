@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from enum import StrEnum
-from typing import TYPE_CHECKING, Iterator, Mapping, NamedTuple, Tuple
+from typing import TYPE_CHECKING, Mapping, NamedTuple
 
 import dask.dataframe as dd
 import numpy as np
@@ -38,9 +38,9 @@ class SpatialTemporalIndex(NamedTuple):
 
 class DiagnosticsAmdarHarmonisationStrategy(ABC):
     _name_suffix: str
-    _met_values: Iterator[Tuple["DiagnosticName", "xr.DataArray"]]
+    _met_values: dict["DiagnosticName", "xr.DataArray"]
 
-    def __init__(self, name_suffix: str, met_values: Iterator[Tuple["DiagnosticName", "xr.DataArray"]]) -> None:
+    def __init__(self, name_suffix: str, met_values: dict["DiagnosticName", "xr.DataArray"]) -> None:
         self._name_suffix = name_suffix
         self._met_values = met_values
 
@@ -66,7 +66,7 @@ class DiagnosticsAmdarHarmonisationStrategy(ABC):
 
     def harmonise(self, indexer: SpatialTemporalIndex, observation_coord: Coordinate) -> dict:
         output = {}
-        for name, diagnostic in self._met_values:  # DiagnosticName, xr.DataArray
+        for name, diagnostic in self._met_values.items():  # DiagnosticName, xr.DataArray
             surrounding_values: "xr.DataArray" = self.get_nearest_values(indexer, diagnostic)
             self.check_time_within_window(surrounding_values, indexer.obs_time)
 
@@ -88,7 +88,7 @@ class DiagnosticsAmdarHarmonisationStrategy(ABC):
 
 
 class ValuesStrategy(DiagnosticsAmdarHarmonisationStrategy):
-    def __init__(self, name_suffix: str, met_values: Iterator[Tuple["DiagnosticName", "xr.DataArray"]]) -> None:
+    def __init__(self, name_suffix: str, met_values: dict["DiagnosticName", "xr.DataArray"]) -> None:
         super().__init__(name_suffix, met_values)
 
     def interpolate(
@@ -112,7 +112,7 @@ class DiagnosticsSeveritiesStrategy(DiagnosticsAmdarHarmonisationStrategy):
     def __init__(
         self,
         name_suffix: str,
-        met_values: Iterator[Tuple["DiagnosticName", "xr.DataArray"]],
+        met_values: dict["DiagnosticName", "xr.DataArray"],
         thresholds: Mapping["DiagnosticName", "Limits"],
     ) -> None:
         super().__init__(name_suffix, met_values)
@@ -140,7 +140,7 @@ class EdrSeveritiesStrategy(DiagnosticsAmdarHarmonisationStrategy):
     _edr_bounds: "Limits"
 
     def __init__(
-        self, name_suffix: str, met_values: Iterator[Tuple["DiagnosticName", "xr.DataArray"]], edr_bounds: "Limits"
+        self, name_suffix: str, met_values: dict["DiagnosticName", "xr.DataArray"], edr_bounds: "Limits"
     ) -> None:
         super().__init__(name_suffix, met_values)
         self._edr_bounds = edr_bounds
@@ -169,13 +169,13 @@ class DiagnosticsAmdarHarmonisationStrategyFactory:
 
     def get_met_values(
         self, option: DiagnosticsAmdarHarmonisationStrategyOptions
-    ) -> Iterator[Tuple["DiagnosticName", "xr.DataArray"]]:
+    ) -> dict["DiagnosticName", "xr.DataArray"]:
         if option in {
             DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES,
             DiagnosticsAmdarHarmonisationStrategyOptions.INDEX_TURBULENCE_INTENSITY,
         }:
-            return iter(self._diagnostics_suite.computed_values(""))
-        return iter(self._diagnostics_suite.edr.items())
+            return self._diagnostics_suite.computed_values_as_dict()
+        return dict(self._diagnostics_suite.edr)
 
     def create_strategies(
         self, options: list[DiagnosticsAmdarHarmonisationStrategyOptions]
@@ -266,7 +266,7 @@ class DiagnosticsAmdarDataHarmoniser:
         ).create_strategies(methods)
 
         meta_for_new_dataframe = {
-            "datetime": np.datetime64,
+            "datetime": "datetime64[s]",
             "level": float,
             "geometry": object,
             "grid_box": object,
