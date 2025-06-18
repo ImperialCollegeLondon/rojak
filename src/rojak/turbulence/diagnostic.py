@@ -845,6 +845,9 @@ class DiagnosticSuite:
         ):  # DiagnosticName, Diagnostic
             yield name, diagnostic.computed_value
 
+    def computed_values_as_dict(self) -> dict[str, "xr.DataArray"]:
+        return dict(self.computed_values(""))
+
     def diagnostic_names(self) -> list["DiagnosticName"]:
         return list(self._diagnostics.keys())
 
