@@ -111,7 +111,7 @@ class ValuesStrategy(DiagnosticsAmdarHarmonisationStrategy):
             np.asarray(indexer.latitudes),
             diagnostic_values,
             observation_coord,
-        )[0]
+        ).item()
 
 
 class DiagnosticsSeveritiesStrategy(DiagnosticsAmdarHarmonisationStrategy):
@@ -139,7 +139,7 @@ class DiagnosticsSeveritiesStrategy(DiagnosticsAmdarHarmonisationStrategy):
             np.asarray(indexer.latitudes),
             diagnostic_values,
             observation_coord,
-        )[0]
+        ).item()
         threshold = self._thresholds[diagnostic_name]
         return threshold.lower <= interpolated_value < threshold.upper
 
@@ -165,7 +165,7 @@ class EdrSeveritiesStrategy(DiagnosticsAmdarHarmonisationStrategy):
             np.asarray(indexer.latitudes),
             diagnostic_values,
             observation_coord,
-        )[0]
+        ).item()
         return self._edr_bounds.lower <= interpolated_value < self._edr_bounds.upper
 
 
