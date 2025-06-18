@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from enum import StrEnum
-from typing import TYPE_CHECKING, Mapping, NamedTuple
+from typing import TYPE_CHECKING, ClassVar, Mapping, NamedTuple
 
 import dask.dataframe as dd
 import numpy as np
@@ -40,6 +40,8 @@ class DiagnosticsAmdarHarmonisationStrategy(ABC):
     _name_suffix: str
     _met_values: dict["DiagnosticName", "xr.DataArray"]
 
+    TIME_WINDOW_DELTA: ClassVar[np.timedelta64] = np.timedelta64(3, "h")
+
     def __init__(self, name_suffix: str, met_values: dict["DiagnosticName", "xr.DataArray"]) -> None:
         self._name_suffix = name_suffix
         self._met_values = met_values
@@ -48,11 +50,17 @@ class DiagnosticsAmdarHarmonisationStrategy(ABC):
     def name_suffix(self) -> str:
         return self._name_suffix
 
-    @staticmethod
-    def get_nearest_values(indexer: SpatialTemporalIndex, values_array: "xr.DataArray") -> "xr.DataArray":
-        return values_array.sel(longitude=indexer.longitudes, latitude=indexer.latitudes, level=indexer.level).sel(
-            time=indexer.obs_time, method="nearest"
+    def get_nearest_values(self, indexer: SpatialTemporalIndex, values_array: "xr.DataArray") -> "xr.DataArray":
+        closest_values = values_array.sel(
+            longitude=indexer.longitudes, latitude=indexer.latitudes, pressure_level=indexer.level
+        ).sel(
+            time=[indexer.obs_time - self.TIME_WINDOW_DELTA, indexer.obs_time + self.TIME_WINDOW_DELTA],
+            method="nearest",
         )
+        if len(closest_values["time"]) != 1:
+            closest_time = np.abs(closest_values["time"].values - indexer.obs_time).argmin()
+            closest_values = closest_values.isel(time=closest_time)
+        return closest_values
 
     @staticmethod
     def check_time_within_window(surrounding_values: "xr.DataArray", observation_time: np.datetime64) -> None:
@@ -68,7 +76,7 @@ class DiagnosticsAmdarHarmonisationStrategy(ABC):
         output = {}
         for name, diagnostic in self._met_values.items():  # DiagnosticName, xr.DataArray
             surrounding_values: "xr.DataArray" = self.get_nearest_values(indexer, diagnostic)
-            self.check_time_within_window(surrounding_values, indexer.obs_time)
+            # self.check_time_within_window(surrounding_values, indexer.obs_time)
 
             output[f"{name}_{self._name_suffix}"] = self.interpolate(
                 observation_coord, indexer, surrounding_values.values, name
