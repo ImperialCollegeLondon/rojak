@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import TYPE_CHECKING, Mapping, assert_never
+from typing import TYPE_CHECKING, Mapping, NamedTuple, assert_never
 
 from pydantic import TypeAdapter
 
@@ -165,6 +165,11 @@ class CalibrationStage:
         return Result(distribution_parameters)
 
 
+class EvaluationStageResult(NamedTuple):
+    suite: EvaluationDiagnosticSuite
+    phase_outcomes: Mapping[TurbulenceEvaluationPhaseOption, Result]
+
+
 class EvaluationStage:
     _calibration_result: Mapping[TurbulenceCalibrationPhaseOption, Result]
     _phases: list[TurbulenceEvaluationPhaseOption]
@@ -191,11 +196,9 @@ class EvaluationStage:
         self._start_time = start_time
         self._plots_dir = plots_dir
 
-    def launch(
-        self, diagnostics: list["TurbulenceDiagnostics"], chunks: dict
-    ) -> Mapping[TurbulenceEvaluationPhaseOption, Result]:
+    def launch(self, diagnostics: list["TurbulenceDiagnostics"], chunks: dict) -> EvaluationStageResult:
         suite: EvaluationDiagnosticSuite = self.create_diagnostic_suite(diagnostics, chunks)
-        return {phase: self.run_phase(phase, suite) for phase in self._phases}
+        return EvaluationStageResult(suite, {phase: self.run_phase(phase, suite) for phase in self._phases})
 
     def create_diagnostic_suite(
         self, diagnostics: list["TurbulenceDiagnostics"], chunks: Mapping
@@ -276,7 +279,7 @@ class TurbulenceLauncher:
         self._config = context.turbulence_config
         self._start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
 
-    def launch(self) -> None:
+    def launch(self) -> None | EvaluationStageResult:
         logger.info("Launching Turbulence Calibration")
         calibration_result = CalibrationStage(
             self._config.phases.calibration_phases,
@@ -287,7 +290,7 @@ class TurbulenceLauncher:
         ).launch(self._config.diagnostics, self._config.chunks)
         logger.info("Finished Turbulence")
         if self._config.phases.evaluation_phases is not None:
-            EvaluationStage(
+            return EvaluationStage(
                 calibration_result,
                 self._config.phases.evaluation_phases,
                 self._context.data_config.spatial_domain,
@@ -295,3 +298,4 @@ class TurbulenceLauncher:
                 self._context.name,
                 self._start_time,
             ).launch(self._config.diagnostics, self._config.chunks)
+        return None
