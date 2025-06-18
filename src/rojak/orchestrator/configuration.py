@@ -112,26 +112,6 @@ class BaseConfigModel(BaseModel):
         raise InvalidConfigurationError("Configuration file not found or is not a file.")
 
 
-# class TurbulenceSeverityPercentileConfig(BaseConfigModel):
-#     name: Annotated[str, Field(min_length=1, description="Name of intensity", repr=True, frozen=True, strict=True)]
-#     lower_bound: Annotated[
-#         float, Field(ge=0, lt=100.0, description="Lower bound of percentile", repr=True, frozen=True)
-#     ]
-#     upper_bound: Annotated[float, Field(ge=0, description="Upper bound of percentile", repr=True, frozen=True)]
-#
-#     @model_validator(mode="after")
-#     def check_reasonable_bounds(self) -> Self:
-#         if self.lower_bound > self.upper_bound:
-#             raise InvalidConfigurationError(
-#                 f"Lower bound ({self.lower_bound}) must be greater than upper bound ({self.upper_bound})"
-#             )
-#         if np.inf > self.upper_bound > 100:
-#             raise InvalidConfigurationError(
-#                 f"Upper bound ({self.upper_bound}) must be infinite or less than or equal to 100"
-#             )
-#         return self
-
-
 class TurbulenceThresholds(BaseConfigModel):
     light: Annotated[
         float | None,
