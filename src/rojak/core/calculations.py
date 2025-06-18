@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING
 
+import numpy as np
 from scipy.interpolate import RegularGridInterpolator
 
 from rojak.core.constants import GAS_CONSTANT_DRY_AIR, GRAVITATIONAL_ACCELERATION
@@ -29,8 +30,12 @@ def bilinear_interpolation(
 ) -> "NDArray":
     assert len(longitude) == len(latitude)
     assert len(longitude) > 1
-    assert function_value.ndim == 2  # noqa: PLR2004
+    squeezed_values = np.squeeze(function_value)
+    assert squeezed_values.ndim == 2, (  # noqa: PLR2004
+        f"Function value ({function_value}, shape={function_value.shape}) must have two dimensions "
+        f"instead of {function_value.ndim}"
+    )
 
-    return RegularGridInterpolator((longitude, latitude), function_value, method="linear")(
+    return RegularGridInterpolator((longitude, latitude), squeezed_values, method="linear")(
         (target_coordinate.longitude, target_coordinate.latitude)
     )
