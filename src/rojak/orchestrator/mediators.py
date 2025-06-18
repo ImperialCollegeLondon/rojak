@@ -255,21 +255,19 @@ class DiagnosticsAmdarDataHarmoniser:
 
         return dd.Series(new_row)
 
+    def _check_time_window_within_met_data(self, time_window: "Limits[np.datetime64]") -> None:
+        time_coordinate: "xr.DataArray" = next(iter(self._diagnostics_suite.computed_values_as_dict().values()))["time"]
+        if time_window.lower < time_coordinate.min() or time_window.upper > time_coordinate.max():
+            raise NotWithinTimeFrameError("Time window is not within time coordinate of met data")
+
     def execute_harmonisation(
         self,
         methods: list[DiagnosticsAmdarHarmonisationStrategyOptions],
         time_window: "Limits[np.datetime64]",
-        use_edr: bool = False,
     ) -> "dd.DataFrame":
-        observational_data: "dd.DataFrame" = self._amdar_data.clip_to_time_window(time_window)
+        self._check_time_window_within_met_data(time_window)
 
-        if use_edr:
-            try:
-                _ = self._diagnostics_suite.edr
-            except ValueError as exception:
-                raise ValueError(
-                    "Attempting to assimilate EDR data when missing values needed to compute EDR"
-                ) from exception
+        observational_data: "dd.DataFrame" = self._amdar_data.clip_to_time_window(time_window)
 
         strategies: list[DiagnosticsAmdarHarmonisationStrategy] = DiagnosticsAmdarHarmonisationStrategyFactory(
             self._diagnostics_suite
