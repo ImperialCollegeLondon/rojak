@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from dask.distributed import Client
 from rich.logging import RichHandler
 
 from rojak.cli import data_interface
@@ -47,9 +48,11 @@ def run(
 ) -> None:
     if log_level is not None:
         logging.basicConfig(level=log_level.upper(), handlers=[RichHandler(rich_tracebacks=True)])
+    client = Client()
     context = ConfigContext.from_yaml(config_file)
     if context.turbulence_config is not None:
         TurbulenceLauncher(context).launch()
+    client.close()
 
 
 @app.command()
