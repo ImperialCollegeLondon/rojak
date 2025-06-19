@@ -424,3 +424,45 @@ def test_cat_data_velocity_derivatives(mocker: "MockerFixture", make_dummy_cat_d
 
     dv_dx = data.specific_velocity_derivative(VelocityDerivative.DV_DX)
     assert dv_dx is None
+
+
+@pytest.mark.parametrize(
+    ("deformation_type", "method_name"),
+    [("shearing_deformation", "shear_deformation"), ("stretching_deformation", "stretching_deformation")],
+)
+def test_shear_and_stretch_deformation(
+    mocker: "MockerFixture", make_dummy_cat_data, deformation_type, method_name
+) -> None:
+    dummy_data = make_dummy_cat_data({})
+    data = CATData(dummy_data)
+
+    vel_deriv_mock = mocker.patch.object(data, "specific_velocity_derivative", return_value=dummy_data["eastward_wind"])
+    deformation = mocker.patch(f"rojak.turbulence.calculations.{deformation_type}")
+    deformation.return_value = dummy_data["northward_wind"]
+
+    computed_deformation = getattr(data, method_name)()
+
+    deformation.assert_called_once()
+    xrt.assert_equal(deformation.call_args.args[0], dummy_data["eastward_wind"])
+    xrt.assert_equal(deformation.call_args.args[1], dummy_data["eastward_wind"])
+    vel_deriv_mock.assert_called()
+    assert vel_deriv_mock.call_count == 2  # noqa: PLR2004
+
+    xrt.assert_equal(computed_deformation, dummy_data["northward_wind"])
+
+    stored_deformation = getattr(data, method_name)()
+    # Verify call count did not increase
+    assert vel_deriv_mock.call_count == 2  # noqa: PLR2004
+    xrt.assert_equal(stored_deformation, dummy_data["northward_wind"])
+
+
+def test_total_deformation(make_dummy_cat_data) -> None:
+    dummy_data = make_dummy_cat_data({})
+    data = CATData(dummy_data)
+
+    deformation_from_class = data.total_deformation()
+    total_deformation = (
+        data.shear_deformation() * data.shear_deformation()
+        + data.stretching_deformation() * data.stretching_deformation()
+    )
+    xrt.assert_allclose(deformation_from_class, total_deformation)
