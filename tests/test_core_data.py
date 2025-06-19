@@ -466,3 +466,24 @@ def test_total_deformation(make_dummy_cat_data) -> None:
         + data.stretching_deformation() * data.stretching_deformation()
     )
     xrt.assert_allclose(deformation_from_class, total_deformation)
+
+
+def test_jacobian_horizontal_velocity(mocker: "MockerFixture", make_dummy_cat_data) -> None:
+    # Analytical Solution for
+    # x = u^2 - v^3 => dx_du = 2u dx_dv = -3v^2
+    # y = u^2 + v^3 => dy_du = 2u dy_dv = 3v^2
+    # determinant = 12 u v^2
+
+    dummy_data = make_dummy_cat_data({})
+    data = CATData(dummy_data)
+    derivatives = {
+        VelocityDerivative.DU_DX: 2 * dummy_data["eastward_wind"],
+        VelocityDerivative.DV_DX: -3 * dummy_data["northward_wind"] * dummy_data["northward_wind"],
+        VelocityDerivative.DU_DY: 2 * dummy_data["eastward_wind"],
+        VelocityDerivative.DV_DY: 3 * dummy_data["northward_wind"] * dummy_data["northward_wind"],
+    }
+    mocker.patch.object(data, "velocity_derivatives", return_value=derivatives)
+    analytical_det_of_jacobian = (
+        12 * dummy_data["eastward_wind"] * dummy_data["northward_wind"] * dummy_data["northward_wind"]
+    )
+    xrt.assert_allclose(analytical_det_of_jacobian, data.jacobian_horizontal_velocity())
