@@ -208,8 +208,6 @@ def test_angle_array_gradient(angles_data):
 
 
 def test_angle_array_gradient_ufunc_simple(angles_data):
-    import xarray as xr
-
     target_array: np.ndarray = np.array(
         [
             angles_data,
