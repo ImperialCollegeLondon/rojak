@@ -161,7 +161,6 @@ class CATData(CATPrognosticData):
             return self.velocity_derivatives()[target_derivative]
         return self._velocity_derivatives[target_derivative]
 
-    # TODO: TEST
     def shear_deformation(self) -> xr.DataArray:
         if self._shear_deformation is None:
             self._shear_deformation = turb_calc.shearing_deformation(
@@ -170,7 +169,6 @@ class CATData(CATPrognosticData):
             )
         return self._shear_deformation
 
-    # TODO: TEST
     def stretching_deformation(self) -> xr.DataArray:
         if self._stretching_deformation is None:
             self._stretching_deformation = turb_calc.stretching_deformation(
@@ -179,7 +177,6 @@ class CATData(CATPrognosticData):
             )
         return self._stretching_deformation
 
-    # TODO: TEST
     def total_deformation(self) -> xr.DataArray:
         return turb_calc.magnitude_of_vector(self.shear_deformation(), self.stretching_deformation(), is_squared=True)
 
