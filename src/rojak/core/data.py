@@ -144,7 +144,6 @@ class CATData(CATPrognosticData):
     def __init__(self, dataset: xr.Dataset) -> None:
         super().__init__(dataset)
 
-    # TODO: TEST
     def potential_temperature(self) -> xr.DataArray:
         if self._potential_temperature is None:
             self._potential_temperature = turb_calc.potential_temperature(
@@ -152,13 +151,11 @@ class CATData(CATPrognosticData):
             )
         return self._potential_temperature
 
-    # TODO: TEST
     def velocity_derivatives(self) -> dict[VelocityDerivative, xr.DataArray]:
         if self._velocity_derivatives is None:
             self._velocity_derivatives = derivatives.vector_derivatives(self.u_wind(), self.v_wind(), "deg")
         return self._velocity_derivatives
 
-    # TODO: TEST
     def specific_velocity_derivative(self, target_derivative: VelocityDerivative) -> xr.DataArray:
         if self._velocity_derivatives is None:
             return self.velocity_derivatives()[target_derivative]
