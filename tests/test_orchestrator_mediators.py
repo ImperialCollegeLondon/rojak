@@ -6,12 +6,19 @@ import xarray as xr
 from shapely import box
 
 from rojak.core.geometric import create_grid_data_frame
+from rojak.orchestrator.configuration import TurbulenceDiagnostics, TurbulenceSeverity
 from rojak.orchestrator.mediators import (
     DiagnosticsAmdarDataHarmoniser,
+    DiagnosticsAmdarHarmonisationStrategy,
+    DiagnosticsAmdarHarmonisationStrategyFactory,
     DiagnosticsAmdarHarmonisationStrategyOptions,
+    DiagnosticsSeveritiesStrategy,
+    EdrSeveritiesStrategy,
     NotWithinTimeFrameError,
+    ValuesStrategy,
 )
 from rojak.utilities.types import Limits
+from tests.conftest import generate_array_data
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
@@ -83,3 +90,133 @@ def test_diagnostic_amdar_data_harmoniser_execute_harmonisation_fail_on_grid(
     assert excinfo.type is ValueError
     time_window_check_mock.assert_called_once()
     computed_vals_mock.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("method_to_mock", "option"),
+    [
+        ("computed_values_as_dict", DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES),
+        ("computed_values_as_dict", DiagnosticsAmdarHarmonisationStrategyOptions.INDEX_TURBULENCE_INTENSITY),
+        ("edr", DiagnosticsAmdarHarmonisationStrategyOptions.EDR),
+        ("edr", DiagnosticsAmdarHarmonisationStrategyOptions.EDR_TURBULENCE_INTENSITY),
+    ],
+)
+def test_diagnostic_amdar_harmonisation_strategy_factory_get_met_values(
+    mocker: "MockerFixture", method_to_mock: str, option: DiagnosticsAmdarHarmonisationStrategyOptions
+) -> None:
+    suite_mock = mocker.Mock()
+    return_val: dict = {
+        "stallion-boat-tingly": xr.DataArray(
+            data=generate_array_data((10, 10), True), coords={"dim0": np.arange(10), "dim1": np.arange(10)}
+        )
+    }
+    method_mock = mocker.patch.object(suite_mock, method_to_mock, return_value=return_val)
+
+    factory = DiagnosticsAmdarHarmonisationStrategyFactory(suite_mock)
+    retrieved_values = factory.get_met_values(option)
+    if method_to_mock == "edr":
+        assert retrieved_values == {}
+    else:
+        method_mock.assert_called_once()
+        xr.testing.assert_equal(retrieved_values["stallion-boat-tingly"], return_val["stallion-boat-tingly"])
+
+
+def test_diagnostic_amdar_harmonisation_strategy_factory_create_strategies_values_strategy(
+    mocker: "MockerFixture",
+) -> None:
+    suite_mock = mocker.Mock()
+    factory = DiagnosticsAmdarHarmonisationStrategyFactory(suite_mock)
+    get_met_mock = mocker.patch.object(factory, "get_met_values", return_value={"key": "value"})
+
+    options = [
+        DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES,
+        DiagnosticsAmdarHarmonisationStrategyOptions.EDR,
+    ]
+    strategies: list[DiagnosticsAmdarHarmonisationStrategy] = factory.create_strategies(options)
+
+    assert len(strategies) == len(options)
+    get_met_mock.assert_called()
+    assert get_met_mock.call_count == len(options)
+    assert get_met_mock.call_args_list[0][0][0] == options[0]
+    assert get_met_mock.call_args_list[1][0][0] == options[1]
+
+    for strategy, option in zip(strategies, options, strict=False):
+        assert isinstance(strategy, DiagnosticsAmdarHarmonisationStrategy)
+        assert isinstance(strategy, ValuesStrategy)
+        assert option == strategy.name_suffix
+
+
+@pytest.mark.parametrize(
+    ("method_to_mock", "option"),
+    [
+        ("get_limits_for_severities", DiagnosticsAmdarHarmonisationStrategyOptions.INDEX_TURBULENCE_INTENSITY),
+        ("get_edr_bounds", DiagnosticsAmdarHarmonisationStrategyOptions.EDR_TURBULENCE_INTENSITY),
+    ],
+)
+def test_diagnostic_amdar_harmonisation_strategy_factory_create_strategies_non_values_trivial(
+    mocker: "MockerFixture", method_to_mock: str, option: DiagnosticsAmdarHarmonisationStrategyOptions
+) -> None:
+    suite_mock = mocker.Mock()
+    factory = DiagnosticsAmdarHarmonisationStrategyFactory(suite_mock)
+    get_met_mock = mocker.patch.object(factory, "get_met_values", return_value={"key": "value"})
+    method_mock = mocker.patch.object(suite_mock, method_to_mock, return_value={})
+
+    strategy = factory.create_strategies([option])
+    assert len(strategy) == 0
+    get_met_mock.assert_called_once_with(option)
+    method_mock.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("limits_data", "suite_method_mock", "option", "child_strategy_class"),
+    [
+        pytest.param(
+            {
+                TurbulenceSeverity.LIGHT: {
+                    TurbulenceDiagnostics.DEF: Limits(5, 10),
+                    TurbulenceDiagnostics.BROWN1: Limits(90, 99),
+                },
+                TurbulenceSeverity.MODERATE: {
+                    TurbulenceDiagnostics.DEF: Limits(10.0, np.inf),
+                    TurbulenceDiagnostics.BROWN1: Limits(99.0, np.inf),
+                },
+            },
+            "get_limits_for_severities",
+            DiagnosticsAmdarHarmonisationStrategyOptions.INDEX_TURBULENCE_INTENSITY,
+            DiagnosticsSeveritiesStrategy,
+            id="diagnostic_severity",
+        ),
+        pytest.param(
+            {TurbulenceSeverity.LIGHT: Limits(5, 10), TurbulenceSeverity.MODERATE: Limits(10.0, np.inf)},
+            "get_edr_bounds",
+            DiagnosticsAmdarHarmonisationStrategyOptions.EDR_TURBULENCE_INTENSITY,
+            EdrSeveritiesStrategy,
+            id="edr_severity",
+        ),
+    ],
+)
+def test_diagnostic_amdar_harmonisation_strategy_factory_create_strategies_non_values_strategy(
+    mocker: "MockerFixture",
+    limits_data: dict,
+    suite_method_mock: str,
+    option: DiagnosticsAmdarHarmonisationStrategyOptions,
+    child_strategy_class: type,
+) -> None:
+    suite_mock = mocker.Mock()
+    factory = DiagnosticsAmdarHarmonisationStrategyFactory(suite_mock)
+    get_met_mock = mocker.patch.object(factory, "get_met_values", return_value={"key": "value"})
+
+    def limits_method():
+        for key, value in limits_data.items():
+            yield key, value
+
+    mocker.patch.object(suite_mock, suite_method_mock, new=limits_method)
+
+    strategies = factory.create_strategies([option])
+    assert len(strategies) == len(limits_data)
+    get_met_mock.assert_called_once_with(option)
+
+    for strategy, severity in zip(strategies, limits_data, strict=False):
+        assert isinstance(strategy, DiagnosticsAmdarHarmonisationStrategy)
+        assert strategy.name_suffix == f"{str(option)}_{str(severity)}"
+        assert isinstance(strategy, child_strategy_class)
