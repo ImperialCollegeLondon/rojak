@@ -24,6 +24,7 @@ classifiers = [
 requires-python = ">=3.12"
 dependencies = [
     "dask>=2025.4.1",
+    "distributed>=2025.5.1",
     "h5netcdf>=1.6.1",
     "pydantic>=2.11.4",
     "pyproj>=3.7.1",

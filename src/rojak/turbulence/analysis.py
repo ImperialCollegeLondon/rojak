@@ -138,6 +138,9 @@ class HistogramData:
             )
         return False
 
+    def __hash__(self) -> int:
+        return hash((self.hist_values, self.bins, self.mean, self.variance))
+
 
 class DiagnosticHistogramDistribution(PostProcessor):
     _computed_diagnostic: xr.DataArray
