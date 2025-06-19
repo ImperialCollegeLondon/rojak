@@ -7,7 +7,8 @@ import pytest
 import xarray as xr
 import xarray.testing as xrt
 
-from rojak.core.data import CATPrognosticData, MetData, as_geo_dataframe
+from rojak.core.data import CATData, CATPrognosticData, MetData, as_geo_dataframe
+from rojak.core.derivatives import VelocityDerivative
 from rojak.datalib.ecmwf.era5 import Era5Data
 from rojak.orchestrator.configuration import SpatialDomain
 
@@ -388,3 +389,38 @@ def test_time_window_on_cat_prognostic_dataset(make_dummy_cat_data):
     window: "Limits" = dataset.time_window()
     assert window.lower == min_time
     assert window.upper == max_time
+
+
+def test_cat_data_potential_temperature(mocker: "MockerFixture", make_dummy_cat_data) -> None:
+    dummy_data = make_dummy_cat_data({})
+    temp_to_potential_temp = mocker.patch("rojak.turbulence.calculations.potential_temperature")
+    temp_to_potential_temp.return_value = dummy_data["temperature"]
+
+    data = CATData(dummy_data)
+    theta = data.potential_temperature()
+    temp_to_potential_temp.assert_called_once()
+    xrt.assert_equal(theta, dummy_data["temperature"])
+    xrt.assert_equal(temp_to_potential_temp.call_args.args[0], data.temperature())
+    xrt.assert_equal(temp_to_potential_temp.call_args.args[0], dummy_data["temperature"])
+    xrt.assert_equal(temp_to_potential_temp.call_args.args[1], data.temperature()["pressure_level"])
+    xrt.assert_equal(temp_to_potential_temp.call_args.args[1], dummy_data["pressure_level"])
+
+
+def test_cat_data_velocity_derivatives(mocker: "MockerFixture", make_dummy_cat_data) -> None:
+    dummy_data = make_dummy_cat_data({})
+    velocity_derivatives = mocker.patch("rojak.core.derivatives.vector_derivatives")
+    ret_val = {VelocityDerivative.DV_DX: None}
+    velocity_derivatives.return_value = ret_val
+
+    data = CATData(dummy_data)
+    computed_derivs = data.velocity_derivatives()
+    velocity_derivatives.assert_called_once()
+    assert computed_derivs == ret_val
+    xrt.assert_equal(velocity_derivatives.call_args.args[0], data.u_wind())
+    xrt.assert_equal(velocity_derivatives.call_args.args[0], dummy_data["eastward_wind"])
+    xrt.assert_equal(velocity_derivatives.call_args.args[1], data.v_wind())
+    xrt.assert_equal(velocity_derivatives.call_args.args[1], dummy_data["northward_wind"])
+    assert velocity_derivatives.call_args.args[2] == "deg"
+
+    dv_dx = data.specific_velocity_derivative(VelocityDerivative.DV_DX)
+    assert dv_dx is None
