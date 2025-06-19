@@ -1,8 +1,10 @@
 from typing import TYPE_CHECKING, Tuple
 
 import dask.array as da
+import dask.dataframe as dd
 import dask_geopandas
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
 import xarray.testing as xrt
@@ -10,6 +12,8 @@ import xarray.testing as xrt
 from rojak.core.data import CATData, CATPrognosticData, as_geo_dataframe
 from rojak.core.derivatives import VelocityDerivative
 from rojak.datalib.ecmwf.era5 import Era5Data
+from rojak.datalib.madis.amdar import AcarsAmdarRepository
+from rojak.datalib.ukmo.amdar import UkmoAmdarRepository
 from rojak.orchestrator.configuration import SpatialDomain
 
 if TYPE_CHECKING:
@@ -481,3 +485,42 @@ def test_jacobian_horizontal_velocity(mocker: "MockerFixture", make_dummy_cat_da
         12 * dummy_data["eastward_wind"] * dummy_data["northward_wind"] * dummy_data["northward_wind"]
     )
     xrt.assert_allclose(analytical_det_of_jacobian, data.jacobian_horizontal_velocity())
+
+
+@pytest.fixture
+def get_standard_atmosphere_pressure_and_altitude():
+    pressure = np.asarray([1013.25, 843.07, 329.32, 238.42, 187.54])
+    # MSL, 5000ft, 28 000ft, 35 000ft, 40 000ft
+    altitude = np.asarray([0, 1524.0, 8534.4, 10668.0, 12192.0])
+    return pressure, altitude
+
+
+@pytest.mark.parametrize(
+    (
+        "test_altitude",
+        "closest_pressure",
+    ),
+    [(500, 1013.25), (1000, 843.07), (2000, 843.07), (9000, 329.32), (15000, 187.54)],
+)
+def test_amdar_data_repository_closest_pressure_level(
+    test_altitude, closest_pressure, get_standard_atmosphere_pressure_and_altitude
+):
+    pressure, altitude = get_standard_atmosphere_pressure_and_altitude
+    instance = AcarsAmdarRepository("")
+    assert instance._find_closest_pressure_level(test_altitude, altitude, pressure) == closest_pressure
+
+
+@pytest.mark.parametrize("concrete_class", [AcarsAmdarRepository, UkmoAmdarRepository])
+def test_compute_closest_pressure_level(
+    mocker: "MockerFixture", get_standard_atmosphere_pressure_and_altitude, concrete_class
+):
+    pressure, altitude = get_standard_atmosphere_pressure_and_altitude
+    converter_mock = mocker.patch("rojak.core.calculations.pressure_to_altitude_std_atm")
+    converter_mock.return_value = altitude
+    ddf = dd.from_pandas(pd.DataFrame({"altitude": [500, 1000, 2000, 9000, 15000]}))
+    closest = pd.Series([1013.24, 843.07, 843.07, 329.32, 187.54], name="level")
+
+    instance = concrete_class("")
+    ddf["level"] = instance._compute_closest_pressure_level(ddf, pressure, "altitude")
+    assert isinstance(ddf["level"], dd.Series)
+    pd.testing.assert_series_equal(ddf["level"].compute(), closest)
