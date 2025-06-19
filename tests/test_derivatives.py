@@ -85,7 +85,9 @@ def test_is_lat_lon_in_degrees_error(lat: "ArrayLike", lon: "ArrayLike", matches
 
 def test_check_lat_lon_units_warning(mocker: "MockerFixture") -> None:
     is_in_deg_mock = mocker.patch("rojak.core.derivatives.is_lat_lon_in_degrees", return_value=False)
-    with pytest.warns(UserWarning) as record:
+    with pytest.warns(
+        UserWarning, match="Latitude and longitude specified to be in degrees, but are smaller than pi values"
+    ) as record:
         derivatives.ensure_lat_lon_in_deg(np.asarray([0, 1]), np.asarray([0, 1]), "deg")
 
     assert len(record) == 1
