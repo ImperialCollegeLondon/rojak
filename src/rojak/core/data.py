@@ -93,14 +93,13 @@ class CATPrognosticData:
         ["pressure_level", "latitude", "longitude", "time", "altitude"]
     )
 
-    # TODO: TEST
     def __init__(self, dataset: xr.Dataset) -> None:
-        if dataset.data_vars.keys() < self.required_variables:
+        if not set(dataset.data_vars.keys()).issuperset(self.required_variables):
             missing_variables = self.required_variables - dataset.data_vars.keys()
             raise ValueError(
                 f"Attempting to instantiate CATPrognosticData with missing data variables: {missing_variables}"
             )
-        if dataset.coords.keys() < self.required_coords:
+        if not set(dataset.coords.keys()).issuperset(self.required_coords):
             missing_coords = self.required_coords - dataset.coords.keys()
             raise ValueError(f"Attempting to instantiate CATPrognosticData with missing coords: {missing_coords}")
         self._dataset = dataset
