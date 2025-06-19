@@ -7,7 +7,7 @@ import pytest
 import xarray as xr
 import xarray.testing as xrt
 
-from rojak.core.data import CATData, CATPrognosticData, MetData, as_geo_dataframe
+from rojak.core.data import CATData, CATPrognosticData, as_geo_dataframe
 from rojak.core.derivatives import VelocityDerivative
 from rojak.datalib.ecmwf.era5 import Era5Data
 from rojak.orchestrator.configuration import SpatialDomain
@@ -16,12 +16,6 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
     from rojak.utilities.types import Limits
-
-
-@pytest.fixture
-def create_met_data_mock(mocker: "MockerFixture"):
-    mocker.patch.multiple(MetData, __abstractmethods__=set())
-    return MetData()  # pyright: ignore[reportAbstractUsage]
 
 
 def time_coordinate():
