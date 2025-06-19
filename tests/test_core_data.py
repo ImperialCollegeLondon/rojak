@@ -14,6 +14,8 @@ from rojak.orchestrator.configuration import SpatialDomain
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
+    from rojak.utilities.types import Limits
+
 
 @pytest.fixture
 def create_met_data_mock(mocker: "MockerFixture"):
@@ -356,3 +358,33 @@ def test_instantiate_cat_prognostic_fail_on_coords(make_dummy_cat_data):
 def test_instantiate_cat_prognostic_successfully(make_dummy_cat_data):
     dummy_data = CATPrognosticData(make_dummy_cat_data({}))
     assert isinstance(dummy_data, CATPrognosticData)
+
+
+@pytest.mark.parametrize(
+    ("attr_name", "dataset_name"),
+    [
+        ("temperature", "temperature"),
+        ("divergence", "divergence_of_wind"),
+        ("geopotential", "geopotential"),
+        ("specific_humidity", "specific_humidity"),
+        ("u_wind", "eastward_wind"),
+        ("v_wind", "northward_wind"),
+        ("potential_vorticity", "potential_vorticity"),
+        ("vorticity", "vorticity"),
+        ("altitude", "altitude"),
+    ],
+)
+def test_getters_on_cat_prognostic_dataset(make_dummy_cat_data, attr_name: str, dataset_name: str):
+    dummy_data = make_dummy_cat_data({})
+    dataset = CATPrognosticData(dummy_data)
+
+    xrt.assert_equal(getattr(dataset, attr_name)(), dummy_data[dataset_name])
+
+
+def test_time_window_on_cat_prognostic_dataset(make_dummy_cat_data):
+    dataset = CATPrognosticData(make_dummy_cat_data({}))
+    min_time = time_coordinate().min()
+    max_time = time_coordinate().max()
+    window: "Limits" = dataset.time_window()
+    assert window.lower == min_time
+    assert window.upper == max_time
