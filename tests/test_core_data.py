@@ -7,7 +7,7 @@ import pytest
 import xarray as xr
 import xarray.testing as xrt
 
-from rojak.core.data import MetData, as_geo_dataframe
+from rojak.core.data import CATPrognosticData, MetData, as_geo_dataframe
 from rojak.datalib.ecmwf.era5 import Era5Data
 from rojak.orchestrator.configuration import SpatialDomain
 
@@ -25,8 +25,8 @@ def time_coordinate():
     return np.arange("2005-02-01T00", "2005-02-02T00", dtype="datetime64[h]")
 
 
-def generate_array_data(shape: Tuple, use_numpy: bool):
-    data = np.random.default_rng().random(shape)
+def generate_array_data(shape: Tuple, use_numpy: bool, rng_seed=None):
+    data = np.random.default_rng(rng_seed).random(shape)
     return data if use_numpy else da.from_array(data)
 
 
@@ -54,6 +54,30 @@ def make_select_domain_dummy_data():
         )
 
     return _make_select_domain_dummy_data
+
+
+@pytest.fixture
+def make_dummy_cat_data():
+    def _make_dummy_cat_data(to_replace: dict, use_numpy: bool = True, rng_seed=None) -> xr.Dataset:
+        default_coords = {
+            "longitude": np.arange(10),
+            "latitude": np.arange(10),
+            "time": time_coordinate(),
+            "pressure_level": np.arange(4),
+        }
+        if to_replace:
+            default_coords.update(to_replace)
+        data_vars = {
+            var: xr.DataArray(
+                data=generate_array_data((10, 10, 24, 4), use_numpy, rng_seed),
+                dims=["longitude", "latitude", "time", "pressure_level"],
+            )
+            for var in CATPrognosticData.required_variables
+        }
+        ds = xr.Dataset(data_vars=data_vars, coords=default_coords)
+        return ds.assign_coords(altitude=("pressure_level", np.arange(4)))
+
+    return _make_dummy_cat_data
 
 
 def test_select_spatial_domain_no_slicing(make_select_domain_dummy_data):
@@ -309,3 +333,26 @@ def test_as_geo_dataframe(make_select_domain_dummy_data):
     assert isinstance(gdf, dask_geopandas.GeoDataFrame)
     assert gdf.crs == "epsg:4326"
     gdf.head()  # Call head() to check it can be computed
+
+
+def test_instantiate_cat_prognostic_fail_on_variables(make_select_domain_dummy_data):
+    with pytest.raises(
+        ValueError, match="Attempting to instantiate CATPrognosticData with missing data variables"
+    ) as excinfo:
+        CATPrognosticData(make_select_domain_dummy_data({}))
+
+    assert excinfo.type is ValueError
+
+
+def test_instantiate_cat_prognostic_fail_on_coords(make_dummy_cat_data):
+    dummy_data = make_dummy_cat_data({})
+    dummy_data = dummy_data.drop_vars("altitude")
+    with pytest.raises(ValueError, match="Attempting to instantiate CATPrognosticData with missing coords") as excinfo:
+        CATPrognosticData(dummy_data)
+
+    assert excinfo.type is ValueError
+
+
+def test_instantiate_cat_prognostic_successfully(make_dummy_cat_data):
+    dummy_data = CATPrognosticData(make_dummy_cat_data({}))
+    assert isinstance(dummy_data, CATPrognosticData)
