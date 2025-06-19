@@ -104,39 +104,30 @@ class CATPrognosticData:
             raise ValueError(f"Attempting to instantiate CATPrognosticData with missing coords: {missing_coords}")
         self._dataset = dataset
 
-    # TODO: TEST
     def temperature(self) -> xr.DataArray:
         return self._dataset["temperature"]
 
-    # TODO: TEST
     def divergence(self) -> xr.DataArray:
         return self._dataset["divergence_of_wind"]
 
-    # TODO: TEST
     def geopotential(self) -> xr.DataArray:
         return self._dataset["geopotential"]
 
-    # TODO: TEST
     def specific_humidity(self) -> xr.DataArray:
         return self._dataset["specific_humidity"]
 
-    # TODO: TEST
     def u_wind(self) -> xr.DataArray:
         return self._dataset["eastward_wind"]
 
-    # TODO: TEST
     def v_wind(self) -> xr.DataArray:
         return self._dataset["northward_wind"]
 
-    # TODO: TEST
     def potential_vorticity(self) -> xr.DataArray:
         return self._dataset["potential_vorticity"]
 
-    # TODO: TEST
     def vorticity(self) -> xr.DataArray:
         return self._dataset["vorticity"]
 
-    # TODO: TEST
     def altitude(self) -> xr.DataArray:
         return self._dataset["altitude"]
 
