@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Callable, Tuple
 
 import dask.array as da
 import numpy as np
@@ -18,7 +18,7 @@ def generate_array_data(shape: Tuple, use_numpy: bool, rng_seed=None):
 
 
 @pytest.fixture
-def make_dummy_cat_data():
+def make_dummy_cat_data() -> Callable:
     def _make_dummy_cat_data(to_replace: dict, use_numpy: bool = True, rng_seed=None) -> xr.Dataset:
         default_coords = {
             "longitude": np.arange(10),
