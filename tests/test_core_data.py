@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING
 
 import dask.dataframe as dd
 import dask_geopandas
+import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pytest
@@ -491,3 +492,27 @@ def test_compute_closest_pressure_level(
     ddf["level"] = instance._compute_closest_pressure_level(ddf, pressure, "altitude")
     assert isinstance(ddf["level"], dd.Series)
     pd.testing.assert_series_equal(ddf["level"].compute(), closest)
+
+
+@pytest.mark.parametrize("concrete_class", [AcarsAmdarRepository, UkmoAmdarRepository])
+def test_convert_to_amdar_turbulence_data(
+    mocker: "MockerFixture", load_flat_data: pd.DataFrame, concrete_class, valid_region_for_flat_data
+):
+    instance = concrete_class("")
+    load_mock = mocker.patch.object(instance, "load", return_value=dd.from_pandas(load_flat_data))
+
+    turbulence_data = instance.to_amdar_turbulence_data(valid_region_for_flat_data, 0.25, [150, 200, 250])
+    load_mock.assert_called_once()
+    computed_df = turbulence_data.data_frame.compute()
+    assert isinstance(computed_df, gpd.GeoDataFrame)
+    assert set(computed_df.columns) == {
+        "recNum",
+        "altitude",
+        "level",
+        "index_right",
+        "grid_box",
+        "datetime",
+        "geometry",
+        "latitude",
+        "longitude",
+    }

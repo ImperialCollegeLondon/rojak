@@ -1,11 +1,17 @@
-from typing import Callable, Tuple
+from typing import TYPE_CHECKING, Callable, Tuple
 
 import dask.array as da
+import geopandas as gpd
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
+from shapely import box
 
 from rojak.core.data import CATPrognosticData
+
+if TYPE_CHECKING:
+    from shapely.geometry.polygon import Polygon
 
 
 def time_coordinate():
@@ -39,3 +45,22 @@ def make_dummy_cat_data() -> Callable:
         return ds.assign_coords(altitude=("pressure_level", np.arange(4)))
 
     return _make_dummy_cat_data
+
+
+@pytest.fixture
+def load_flat_data() -> pd.DataFrame:
+    return pd.read_csv("tests/_static/flat_data.csv")
+
+
+@pytest.fixture
+def load_geo_data(load_flat_data: pd.DataFrame) -> gpd.GeoDataFrame:
+    return gpd.GeoDataFrame(
+        load_flat_data,
+        geometry=gpd.points_from_xy(load_flat_data["longitude"], load_flat_data["latitude"]),
+        crs="EPSG:4326",
+    )
+
+
+@pytest.fixture
+def valid_region_for_flat_data() -> "Polygon":
+    return box(-130, 25, 28, 60)
