@@ -24,7 +24,7 @@ data_app.add_typer(meteorology_app, name="meteorology")
 
 class AmdarDataSource(StrEnum):
     MADIS = "madis"
-    UKMO_AMDAR = "ukmo"
+    UKMO = "ukmo"
 
 
 def create_output_dir(output_dir: Path | None, source: StrEnum, intermediate_folder_name: str) -> Path:
@@ -86,7 +86,7 @@ def retrieve(  # noqa: PLR0913
         case AmdarDataSource.MADIS:
             retriever = AcarsRetriever(glob_pattern)
             retriever.download_files(years, months, days, output_dir)
-        case AmdarDataSource.UKMO_AMDAR:
+        case AmdarDataSource.UKMO:
             raise NotImplementedError("Not implemented UKMO AMDAR data retrieval")
         case _ as unreachable:
             assert_never(unreachable)
@@ -128,7 +128,7 @@ def preprocess(
     match source:
         case AmdarDataSource.MADIS:
             preprocess_madis_amdar_data(input_dir, output_dir, glob_pattern)
-        case AmdarDataSource.UKMO_AMDAR:
+        case AmdarDataSource.UKMO:
             raise NotImplementedError("Not implemented UKMO AMDAR data preprocessing")
         case _ as unreachable:
             assert_never(unreachable)
