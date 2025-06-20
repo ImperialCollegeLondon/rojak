@@ -21,6 +21,7 @@ from rojak.orchestrator.configuration import (
     TurbulenceThresholdMode,
     TurbulenceThresholds,
 )
+from rojak.orchestrator.mediators import DiagnosticsAmdarHarmonisationStrategyOptions
 from rojak.utilities.types import Limits
 
 if TYPE_CHECKING:
@@ -586,6 +587,7 @@ def test_amdar_config(
             data_source=amdar_type,
             glob_pattern=glob_pattern,
             time_window=time_window,
+            harmonisation_strategies=[DiagnosticsAmdarHarmonisationStrategyOptions.EDR],
         )
         assert config.data_source == amdar_type
         assert config.glob_pattern == glob_pattern

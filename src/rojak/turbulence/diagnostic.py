@@ -996,3 +996,7 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
             regions[name] = regions_for_diagnostic
 
         return regions
+
+    @property
+    def pressure_levels(self) -> list[float] | None:
+        return self._pressure_levels

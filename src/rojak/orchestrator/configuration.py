@@ -7,6 +7,7 @@ import numpy as np
 import yaml
 from pydantic import AfterValidator, BaseModel, Field, ValidationError, model_validator
 
+from rojak.orchestrator.mediators import DiagnosticsAmdarHarmonisationStrategyOptions
 from rojak.utilities.types import Limits
 
 
@@ -496,6 +497,11 @@ class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
     ]
     time_window: Annotated[
         Limits[datetime.datetime], Field(description="Time window to extract data for", repr=True, frozen=True)
+    ]
+    # ASSUME FOR NOW ONLY USE FOR THIS IS DATA HARMONISATION
+    harmonisation_strategies: Annotated[
+        list[DiagnosticsAmdarHarmonisationStrategyOptions],
+        Field(description="List of harmonisation strategies", repr=True, frozen=True),
     ]
 
     @model_validator(mode="after")
