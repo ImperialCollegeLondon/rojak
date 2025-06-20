@@ -11,6 +11,8 @@ from pydantic import ValidationError
 from rojak.core.constants import MAX_LATITUDE, MAX_LONGITUDE
 from rojak.orchestrator import configuration
 from rojak.orchestrator.configuration import (
+    AmdarConfig,
+    AmdarDataSource,
     DataConfig,
     InvalidConfigurationError,
     SpatialDomain,
@@ -540,6 +542,27 @@ def test_meteorology_config(dict_to_file, expectation) -> None:
     with expectation as e:
         configuration.MeteorologyConfig.from_yaml(dict_to_file)
     assert e.type is InvalidConfigurationError
+
+
+@pytest.mark.parametrize(
+    ("amdar_type", "glob_pattern", "expectation"),
+    [
+        (AmdarDataSource.MADIS, "**/*.parquet", nullcontext(0)),
+        (AmdarDataSource.UKMO, "*.csv", nullcontext(0)),
+        (AmdarDataSource.MADIS, "blah", pytest.raises(InvalidConfigurationError)),
+        (AmdarDataSource.MADIS, "*.csv", pytest.raises(InvalidConfigurationError)),
+        (AmdarDataSource.UKMO, "*.parquet", pytest.raises(InvalidConfigurationError)),
+    ],
+)
+def test_amdar_config(tmp_path: "Path", amdar_type: AmdarDataSource, glob_pattern: str, expectation) -> None:
+    with expectation as e:
+        config = AmdarConfig(data_dir=tmp_path, data_source=amdar_type, glob_pattern=glob_pattern)
+        assert config.data_source == amdar_type
+        assert config.glob_pattern == glob_pattern
+        assert config.data_dir == tmp_path
+
+    if e != 0:
+        assert e.type is InvalidConfigurationError
 
 
 # @pytest.mark.parametrize(
