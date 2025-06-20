@@ -1,4 +1,9 @@
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
+
+import numpy as np
+
+if TYPE_CHECKING:
+    from numpy.typing import NDArray
 
 
 def make_value_based_slice(coordinate: Sequence, min_value: float | None, max_value: float | None) -> slice:
@@ -20,3 +25,25 @@ def make_value_based_slice(coordinate: Sequence, min_value: float | None, max_va
     """
     is_increasing: bool = coordinate[0] < coordinate[-1]
     return slice(min_value, max_value) if is_increasing else slice(max_value, min_value)
+
+
+def get_regular_grid_spacing[T: np.number | np.inexact | np.datetime64](array: "NDArray[T]") -> None | T:
+    # No need to check for ndim == 0 as np.asarray([]).ndim == 1
+    if array.ndim > 1:
+        raise NotImplementedError("Test to determine regular grid spacing only supported for 1D arrays")
+
+    difference = np.diff(array)
+
+    # See https://numpy.org/doc/stable/reference/generated/numpy.dtype.kind.html for character code
+    match array.dtype.kind:
+        case "f" | "c":  # f => float, c => complex floating-point
+            if np.allclose(difference, difference[0]):
+                return difference.item(0)
+        case "M" | "i" | "u":  # M => datetime, i => signed integer, u => unsigned integer
+            # Use exact comparison for these data types
+            if np.all(difference == difference[0]):
+                return difference.item(0)
+        case _:
+            raise NotImplementedError(f"Other dtypes ({array.dtype}) are not yet supported")
+
+    return None
