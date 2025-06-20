@@ -28,6 +28,20 @@ def make_value_based_slice(coordinate: Sequence, min_value: float | None, max_va
 
 
 def get_regular_grid_spacing[T: np.number | np.inexact | np.datetime64](array: "NDArray[T]") -> None | T:
+    """
+    Determines if array has a regular grid spacing
+    Args:
+        array: Array to be checked
+
+    Returns:
+        Grid spacing if on a regular grid. If not, it returns None
+
+    >>> get_regular_grid_spacing(np.linspace(5, 10, 11))
+    0.5
+    >>> get_regular_grid_spacing(np.arange(np.datetime64("1970-01-01"), np.datetime64("1970-01-02"), \
+    dtype="datetime64[h]"))
+    datetime.timedelta(seconds=3600)
+    """
     # No need to check for ndim == 0 as np.asarray([]).ndim == 1
     if array.ndim > 1:
         raise NotImplementedError("Test to determine regular grid spacing only supported for 1D arrays")
