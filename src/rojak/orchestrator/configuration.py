@@ -472,19 +472,44 @@ class AmdarDataSource(StrEnum):
     UKMO = "ukmo"
 
 
-class MeteorologyConfig(BaseConfigModel):
+class BaseInputDataConfig[T: StrEnum](BaseConfigModel):
     data_dir: Annotated[
         Path,
         Field(
-            description="Path to directory containing the data from a NWP/GCM",
+            description="Path to directory containing the data",
             repr=True,
             frozen=True,
         ),
         AfterValidator(dir_must_exist),
     ]
-    data_source: Annotated[
-        MetDataSource, Field(default=MetDataSource.ERA5, description="Source of Met data", repr=True, frozen=True)
+    data_source: Annotated[T, Field(description="Where data comes from", repr=True, frozen=True)]
+
+
+class MeteorologyConfig(BaseInputDataConfig[MetDataSource]): ...
+
+
+class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
+    glob_pattern: Annotated[
+        str, Field(description="Glob pattern to match to get the data files", repr=True, frozen=True)
     ]
+
+    @model_validator(mode="after")
+    def check_valid_glob_pattern(self) -> Self:
+        if "*" not in self.glob_pattern:
+            raise InvalidConfigurationError("Asterisk not found in glob pattern")
+        match self.data_source:
+            case AmdarDataSource.UKMO:
+                if not self.glob_pattern.endswith("csv"):
+                    raise InvalidConfigurationError("UKMO files must end with .csv")
+            case AmdarDataSource.MADIS:
+                if not (
+                    self.glob_pattern.endswith("parquet")
+                    or self.glob_pattern.endswith("pqt")
+                    or self.glob_pattern.endswith("parq")
+                    or self.glob_pattern.endswith("pq")
+                ):
+                    raise InvalidConfigurationError("Madis AMDAR files must be in parquet format")
+        return self
 
 
 class DataConfig(BaseConfigModel):
