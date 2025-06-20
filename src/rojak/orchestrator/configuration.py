@@ -467,6 +467,11 @@ class MetDataSource(StrEnum):
     ERA5 = "era5"
 
 
+class AmdarDataSource(StrEnum):
+    MADIS = "madis"
+    UKMO = "ukmo"
+
+
 class MeteorologyConfig(BaseConfigModel):
     data_dir: Annotated[
         Path,

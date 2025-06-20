@@ -11,6 +11,7 @@ from rojak.datalib.ecmwf.era5 import (
     InvalidEra5RequestConfigurationError,
 )
 from rojak.datalib.madis.amdar import AcarsRetriever, MadisAmdarPreprocessor
+from rojak.orchestrator.configuration import AmdarDataSource
 
 if TYPE_CHECKING:
     from rojak.core.data import DataPreprocessor
@@ -20,11 +21,6 @@ amdar_app = typer.Typer(help="Operations for AMDAR data")
 meteorology_app = typer.Typer(help="Operations for Meteorology data")
 data_app.add_typer(amdar_app, name="amdar")
 data_app.add_typer(meteorology_app, name="meteorology")
-
-
-class AmdarDataSource(StrEnum):
-    MADIS = "madis"
-    UKMO = "ukmo"
 
 
 def create_output_dir(output_dir: Path | None, source: StrEnum, intermediate_folder_name: str) -> Path:
