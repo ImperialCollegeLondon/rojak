@@ -1,3 +1,4 @@
+import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any, Self, assert_never
@@ -443,6 +444,7 @@ class SpatialDomain(BaseConfigModel):
     maximum_longitude: Annotated[float, Field(default=180, description="Minimum longitude", ge=-180, le=180)]
     minimum_level: Annotated[float | None, Field(description="Minimum level", default=None)] = None
     maximum_level: Annotated[float | None, Field(description="Maximum level", default=None)] = None
+    grid_size: Annotated[float | None, Field(description="Grid size", default=None)] = None
 
     @model_validator(mode="after")
     def check_valid_ranges(self) -> Self:
@@ -492,6 +494,9 @@ class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
     glob_pattern: Annotated[
         str, Field(description="Glob pattern to match to get the data files", repr=True, frozen=True)
     ]
+    time_window: Annotated[
+        Limits[datetime.datetime], Field(description="Time window to extract data for", repr=True, frozen=True)
+    ]
 
     @model_validator(mode="after")
     def check_valid_glob_pattern(self) -> Self:
@@ -511,12 +516,25 @@ class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
                     raise InvalidConfigurationError("Madis AMDAR files must be in parquet format")
         return self
 
+    @model_validator(mode="after")
+    def check_time_window_increasing(self) -> Self:
+        if self.time_window.lower > self.time_window.upper:
+            raise InvalidConfigurationError("Time must be increasing from lower to upp")
+        return self
+
 
 class DataConfig(BaseConfigModel):
     # Config for data, this would cover both observational data and weather data
     spatial_domain: SpatialDomain
     meteorology_config: MeteorologyConfig | None = None
-    ...
+    # FOR NOW! Assume that if amdar data is provided, it is for comparing with the turbulence diagnostics
+    amdar_config: AmdarConfig | None = None
+
+    @model_validator(mode="after")
+    def check_grid_size_specified(self) -> Self:
+        if self.amdar_config is not None and self.spatial_domain.grid_size is None:
+            raise InvalidConfigurationError("Grid size must be specified if processing AMDAR data")
+        return self
 
 
 class Context(BaseConfigModel):
