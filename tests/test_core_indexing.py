@@ -54,3 +54,9 @@ def test_make_value_based_slice(
 def test_get_regular_grid_spacing(array: "NDArray", expected: float | None) -> None:
     spacing = get_regular_grid_spacing(array)
     assert spacing == expected
+
+
+@pytest.mark.parametrize("array", [np.eye(3, 3), np.asarray([True, False])])
+def test_get_regular_grid_spacing_not_implemented(array: "NDArray") -> None:
+    with pytest.raises(NotImplementedError):
+        get_regular_grid_spacing(array)

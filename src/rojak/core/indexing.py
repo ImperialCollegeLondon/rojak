@@ -41,6 +41,7 @@ def get_regular_grid_spacing[T: np.number | np.inexact | np.datetime64](array: "
     >>> get_regular_grid_spacing(np.arange(np.datetime64("1970-01-01"), np.datetime64("1970-01-02"), \
     dtype="datetime64[h]"))
     datetime.timedelta(seconds=3600)
+    >>> get_regular_grid_spacing(np.asarray([9, 3, 7]))
     """
     # No need to check for ndim == 0 as np.asarray([]).ndim == 1
     if array.ndim > 1:
