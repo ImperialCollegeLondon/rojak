@@ -1,37 +1,46 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, Mapping, NamedTuple, assert_never
 
+import numpy as np
 from pydantic import TypeAdapter
 
 from rojak.core import data
 from rojak.datalib.ecmwf.era5 import Era5Data
+from rojak.datalib.madis.amdar import AcarsAmdarRepository
+from rojak.datalib.ukmo.amdar import UkmoAmdarRepository
 from rojak.orchestrator.configuration import (
+    AmdarDataSource,
     TurbulenceCalibrationPhaseOption,
     TurbulenceEvaluationConfig,
     TurbulenceEvaluationPhaseOption,
     TurbulenceEvaluationPhases,
     TurbulenceThresholds,
 )
+from rojak.orchestrator.mediators import DiagnosticsAmdarDataHarmoniser
 from rojak.turbulence.analysis import (
     CorrelationBetweenDiagnostics,
     HistogramData,
     LatitudinalCorrelationBetweenDiagnostics,
 )
 from rojak.turbulence.diagnostic import CalibrationDiagnosticSuite, DiagnosticFactory, EvaluationDiagnosticSuite
-from rojak.utilities.types import DistributionParameters
+from rojak.utilities.types import DistributionParameters, Limits
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from rojak.core.data import CATData
+    import dask.dataframe as dd
+
+    from rojak.core.data import AmdarDataRepository, CATData
     from rojak.orchestrator.configuration import Context as ConfigContext
     from rojak.orchestrator.configuration import (
+        DataConfig,
         SpatialDomain,
         TurbulenceCalibrationConfig,
         TurbulenceCalibrationPhases,
         TurbulenceConfig,
         TurbulenceDiagnostics,
     )
+    from rojak.orchestrator.mediators import DiagnosticsAmdarHarmonisationStrategyOptions
     from rojak.utilities.types import DiagnosticName
 
 import logging
@@ -290,7 +299,7 @@ class TurbulenceLauncher:
         ).launch(self._config.diagnostics, self._config.chunks)
         logger.info("Finished Turbulence")
         if self._config.phases.evaluation_phases is not None:
-            return EvaluationStage(
+            result = EvaluationStage(
                 calibration_result,
                 self._config.phases.evaluation_phases,
                 self._context.data_config.spatial_domain,
@@ -298,4 +307,49 @@ class TurbulenceLauncher:
                 self._context.name,
                 self._start_time,
             ).launch(self._config.diagnostics, self._config.chunks)
+            logger.info("Finished Turbulence Evaluation")
+            return result
         return None
+
+
+# PUT THIS IN THIS FILE FOR NOW
+class DiagnosticsAmdarLauncher:
+    _path_to_files: str
+    _data_source: AmdarDataSource
+    _spatial_domain: "SpatialDomain"
+    _strategies: list["DiagnosticsAmdarHarmonisationStrategyOptions"]
+    _time_window: "Limits[datetime]"
+
+    def __init__(self, data_config: "DataConfig") -> None:
+        assert data_config.amdar_config is not None
+        self._data_source = data_config.amdar_config.data_source
+        self._path_to_files = str(data_config.amdar_config.data_dir.resolve() / data_config.amdar_config.glob_pattern)
+        self._spatial_domain = data_config.spatial_domain
+        self._strategies = data_config.amdar_config.harmonisation_strategies
+        self._time_window = data_config.amdar_config.time_window
+
+    def create_amdar_data_repository(self) -> "AmdarDataRepository":
+        match self._data_source:
+            case AmdarDataSource.MADIS:
+                return AcarsAmdarRepository(self._path_to_files)
+            case AmdarDataSource.UKMO:
+                return UkmoAmdarRepository(self._path_to_files)
+            case _ as unreachable:
+                assert_never(unreachable)
+
+    def launch(self, diagnostic_suite: EvaluationDiagnosticSuite) -> "dd.DataFrame":
+        if self._spatial_domain.grid_size is None:
+            raise ValueError("Grid size for spatial domain must be specified for diagnostics amdar data harmonisation")
+        if diagnostic_suite.pressure_levels is None:
+            raise ValueError("Pressure levels for diagnostic suite must be specified")
+
+        logger.info("Started Turbulence Amdar Harmonisation")
+        amdar_data = self.create_amdar_data_repository().to_amdar_turbulence_data(
+            self._spatial_domain, self._spatial_domain.grid_size, diagnostic_suite.pressure_levels
+        )
+        harmoniser = DiagnosticsAmdarDataHarmoniser(amdar_data, diagnostic_suite)
+        result = harmoniser.execute_harmonisation(
+            self._strategies, Limits(np.datetime64(self._time_window.lower), np.datetime64(self._time_window.upper))
+        ).compute()
+        logger.info("Finished Turbulence Amdar Harmonisation")
+        return result
