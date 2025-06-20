@@ -48,6 +48,12 @@ def test_make_value_based_slice(
             ),
             np.timedelta64(6, "h"),
         ),
+        (
+            np.arange(
+                np.datetime64("1970-01-01"), np.datetime64("1970-01-02"), np.timedelta64(30, "m"), dtype="datetime64[s]"
+            ),
+            np.timedelta64(30, "m"),
+        ),
         (np.asarray([3, 5.6, 6]), None),
     ],
 )
