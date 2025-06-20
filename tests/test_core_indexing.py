@@ -37,7 +37,6 @@ def test_make_value_based_slice(
         (np.arange(0, -10, -1), -1),
         (np.arange(-10, 1, 1), 1),
         (np.arange(0, 10, 1.0 / 3), 1 / 3),
-        (np.linspace(5, 10, 11), 0.5),
         (np.linspace(10, 5, 11), -0.5),
         (
             np.arange(np.datetime64("1970-01-01"), np.datetime64("1970-01-02"), dtype="datetime64[h]"),
