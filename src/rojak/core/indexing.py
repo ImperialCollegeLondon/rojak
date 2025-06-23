@@ -55,10 +55,12 @@ def get_regular_grid_spacing[T: np.number | np.inexact | np.datetime64 | np.time
         Grid spacing if on a regular grid. If not, it returns None
 
     >>> get_regular_grid_spacing(np.linspace(5, 10, 11))
-    0.5
+    np.float64(0.5)
     >>> get_regular_grid_spacing(np.arange(np.datetime64("1970-01-01"), np.datetime64("1970-01-02"), \
     dtype="datetime64[h]"))
-    datetime.timedelta(seconds=3600)
+    np.timedelta64(1,'h')
+
+    None is returned if array does not have a regular grid spacing
     >>> get_regular_grid_spacing(np.asarray([9, 3, 7]))
     """
     # No need to check for ndim == 0 as np.asarray([]).ndim == 1
@@ -71,11 +73,11 @@ def get_regular_grid_spacing[T: np.number | np.inexact | np.datetime64 | np.time
     match array.dtype.kind:
         case "f" | "c":  # f => float, c => complex floating-point
             if np.allclose(difference, difference[0]):
-                return difference.item(0)
+                return difference[0]
         case "M" | "i" | "u":  # M => datetime, i => signed integer, u => unsigned integer
             # Use exact comparison for these data types
             if np.all(difference == difference[0]):
-                return difference.item(0)
+                return difference[0]
         case _:
             raise NotImplementedError(f"Other dtypes ({array.dtype}) are not yet supported")
 
@@ -153,6 +155,6 @@ def map_values_to_coordinate_index[T: np.datetime64 | np.number | np.inexact](
             " And the window must correspond to half of the grid spacing"
         )
 
-    approximate_index = (series - coordinate.item(0)) / spacing  # pyright: ignore[reportOperatorIssue]
+    approximate_index = (series - coordinate[0]) / spacing  # pyright: ignore[reportOperatorIssue]
     # rint - rounds to the closest integer => gives closest index
     return np.rint(approximate_index).astype(int)
