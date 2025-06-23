@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Sequence
 import numpy as np
 
 if TYPE_CHECKING:
+    import dask.dataframe as dd
+    import pandas as pd
     from numpy.typing import NDArray
 
 
@@ -41,7 +43,9 @@ def make_value_based_slice(coordinate: Sequence, min_value: float | None, max_va
     return slice(min_value, max_value) if is_increasing else slice(max_value, min_value)
 
 
-def get_regular_grid_spacing[T: np.number | np.inexact | np.datetime64](array: "NDArray[T]") -> None | T:
+def get_regular_grid_spacing[T: np.number | np.inexact | np.datetime64 | np.timedelta64](
+    array: "NDArray[T]",
+) -> None | T:
     """
     Determines if array has a regular grid spacing
     Args:
@@ -76,3 +80,79 @@ def get_regular_grid_spacing[T: np.number | np.inexact | np.datetime64](array: "
             raise NotImplementedError(f"Other dtypes ({array.dtype}) are not yet supported")
 
     return None
+
+
+def map_values_to_coordinate_index[T: np.datetime64 | np.number | np.inexact](
+    series: "dd.Series | pd.Series",
+    coordinate: "NDArray[T]",
+    valid_window: np.timedelta64 | np.number | np.inexact | None = None,
+) -> "dd.Series | pd.Series[int]":
+    """
+    Assuming the coordinate is a regular grid, compute the closest index that the values in the series correspond to
+
+    Args:
+        series: Data which corresponds to a given value in the coordinate array and needs to be mapped to the closest
+            index in the coordinate array
+        coordinate: Array which is to be indexed into
+        valid_window: Symmetric window (e.g. +- 3 hrs => np.timedelta64(3, "h"))
+
+    Returns:
+        Series which contains the closest index the data maps to
+
+    >>> import pandas as pd
+    >>> time_coordinate = np.arange(np.datetime64("2018-08-01"), np.datetime64("2018-08-03"), np.timedelta64(6, "h"))
+    >>> data_series = pd.Series([np.datetime64("2018-08-02T16:06"), np.datetime64("2018-08-01T07:37"), \
+    np.datetime64("2018-08-02T09:12"), np.datetime64("2018-08-02T07:27"), np.datetime64("2018-08-02T19:09")])
+    >>> map_values_to_coordinate_index(data_series, time_coordinate, valid_window=np.timedelta64(3, "h"))
+        0    7
+        1    1
+        2    6
+        3    5
+        4    7
+        dtype: int64
+    >>> map_values_to_coordinate_index(data_series, time_coordinate, valid_window=np.timedelta64(2, "h"))
+    Traceback (most recent call last):
+    NotImplementedError: Function currently only supports regular grids with a symmetric window specified. \
+    And the window must correspond to half of the grid spacing
+
+    Not specifying the valid window, forces the minimum and maximum of the data in the Series to be strictly within
+    the range of the coordinate
+    >>> map_values_to_coordinate_index(data_series, time_coordinate)
+    Traceback (most recent call last):
+    ValueError: Values in series must be within the range of the coordinate
+
+    By extending the time coordiante to include the last 6 hours on 2018-08-03 places the 2018-08-02T19:09 within
+    the range of the coordinate
+    >>> time_coordinate = np.arange(np.datetime64("2018-08-01"), np.datetime64("2018-08-03T06"), np.timedelta64(6, "h"))
+    >>> map_values_to_coordinate_index(data_series, time_coordinate)
+        0    7
+        1    1
+        2    6
+        3    5
+        4    7
+        dtype: int64
+    """
+    if coordinate.ndim > 1:
+        raise ValueError(f"Coordinate must be 1D not {coordinate.ndim}D")
+
+    if valid_window is None:
+        if series.min() < coordinate.min() or series.max() > coordinate.max():
+            raise ValueError("Values in series must be within the range of the coordinate")
+    elif series.min() < coordinate.min() - valid_window or series.max() > coordinate.max() + valid_window:
+        raise ValueError("Values in series must be within the window of the coordinate")
+
+    # Regular grid => monotonic function (in fact, it should be stricter)
+    spacing = get_regular_grid_spacing(coordinate)
+    if spacing is None:
+        raise NotImplementedError(
+            "Optimisation to map values to index into coordinate is only supported for regular grids"
+        )
+    if valid_window is not None and 2 * valid_window != spacing:
+        raise NotImplementedError(
+            "Function currently only supports regular grids with a symmetric window specified."
+            " And the window must correspond to half of the grid spacing"
+        )
+
+    approximate_index = (series - coordinate.item(0)) / spacing  # pyright: ignore[reportOperatorIssue]
+    # rint - rounds to the closest integer => gives closest index
+    return np.rint(approximate_index).astype(int)
