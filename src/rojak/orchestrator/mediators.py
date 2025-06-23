@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from rojak.core.calculations import bilinear_interpolation
+from rojak.core.indexing import map_values_to_coordinate_index
 from rojak.utilities.types import Coordinate
 
 if TYPE_CHECKING:
@@ -35,7 +36,7 @@ class SpatialTemporalIndex(NamedTuple):
     longitudes: list[float]
     latitudes: list[float]
     level: float
-    obs_time: np.datetime64
+    obs_time_index: int
 
 
 class DiagnosticsAmdarHarmonisationStrategy(ABC):
@@ -53,15 +54,19 @@ class DiagnosticsAmdarHarmonisationStrategy(ABC):
         return self._name_suffix
 
     def get_nearest_values(self, indexer: SpatialTemporalIndex, values_array: "xr.DataArray") -> "xr.DataArray":
+        # closest_values: "xr.DataArray" = values_array.sel(
+        #     longitude=indexer.longitudes, latitude=indexer.latitudes, pressure_level=indexer.level
+        # ).sel(
+        #     time=[indexer.obs_time - self.TIME_WINDOW_DELTA, indexer.obs_time + self.TIME_WINDOW_DELTA],
+        #     method="nearest",
+        # )
+        # if len(closest_values["time"]) != 1:
+        #     closest_time = np.abs(closest_values["time"].to_numpy() - indexer.obs_time).argmin()
+        #     closest_values = closest_values.isel(time=closest_time)
+        # return closest_values
         closest_values: "xr.DataArray" = values_array.sel(
             longitude=indexer.longitudes, latitude=indexer.latitudes, pressure_level=indexer.level
-        ).sel(
-            time=[indexer.obs_time - self.TIME_WINDOW_DELTA, indexer.obs_time + self.TIME_WINDOW_DELTA],
-            method="nearest",
-        )
-        if len(closest_values["time"]) != 1:
-            closest_time = np.abs(closest_values["time"].to_numpy() - indexer.obs_time).argmin()
-            closest_values = closest_values.isel(time=closest_time)
+        ).isel(time=indexer.obs_time_index)
         return closest_values
 
     def harmonise(self, indexer: SpatialTemporalIndex, observation_coord: Coordinate) -> dict:
@@ -213,6 +218,8 @@ class DiagnosticsAmdarDataHarmoniser:
     _amdar_data: "AmdarTurbulenceData"
     _diagnostics_suite: "EvaluationDiagnosticSuite"
 
+    TIME_WINDOW_DELTA: ClassVar[np.timedelta64] = np.timedelta64(3, "h")
+
     def __init__(self, amdar_data: "AmdarTurbulenceData", diagnostics_suite: "EvaluationDiagnosticSuite") -> None:
         self._amdar_data = amdar_data
         self._diagnostics_suite = diagnostics_suite
@@ -242,7 +249,7 @@ class DiagnosticsAmdarDataHarmoniser:
         for column in amdar_turblence_columns:
             new_row[column] = row[column]
 
-        indexer: SpatialTemporalIndex = SpatialTemporalIndex(longitudes, latitudes, level, this_time)
+        indexer: SpatialTemporalIndex = SpatialTemporalIndex(longitudes, latitudes, level, row["time_index"])
         for method in methods:
             new_row = new_row | method.harmonise(indexer, target_coord)
 
@@ -298,6 +305,17 @@ class DiagnosticsAmdarDataHarmoniser:
             npartitions=num_partitions,
         )
 
+    def _add_time_index_column(
+        self, dataframe: "dd.DataFrame", datetime_series: "dd.Series", time_coordinate: "NDArray"
+    ) -> "dd.DataFrame":
+        return dataframe.assign(
+            time_index=map_values_to_coordinate_index(
+                datetime_series,
+                time_coordinate,
+                valid_window=self.TIME_WINDOW_DELTA,
+            )
+        )
+
     def execute_harmonisation(
         self,
         methods: list[DiagnosticsAmdarHarmonisationStrategyOptions],
@@ -308,6 +326,14 @@ class DiagnosticsAmdarDataHarmoniser:
         self._check_grids_match(a_computed_diagnostic)
 
         observational_data: "dd.DataFrame" = self._amdar_data.clip_to_time_window(time_window)
+        current_dtypes = observational_data.dtypes.to_dict()
+        current_dtypes["time_index"] = int
+        observational_data = observational_data.map_partitions(
+            self._add_time_index_column,
+            observational_data["datetime"],
+            a_computed_diagnostic["time"].to_numpy(),
+            meta=current_dtypes,
+        )
 
         strategies: list[DiagnosticsAmdarHarmonisationStrategy] = DiagnosticsAmdarHarmonisationStrategyFactory(
             self._diagnostics_suite
