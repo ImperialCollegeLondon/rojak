@@ -1,3 +1,17 @@
+#  Copyright (c) 2025-present Hui Ling Wong
+#
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#       http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+
 import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Generator, Mapping, assert_never
@@ -52,6 +66,10 @@ logger = logging.getLogger(__name__)
 
 
 class Diagnostic(ABC):
+    """
+    Abstract class for diagnostic classes.
+    """
+
     _name: "DiagnosticName"
     _computed_value: None | xr.DataArray = None
 
@@ -620,6 +638,18 @@ class BrownIndex2(Diagnostic):
 
 
 class NegativeVorticityAdvection(Diagnostic):
+    """
+    Negative vorticity advection diagnostic defined in [Sharman2016]_ as,
+
+    .. math:: \\text{NVA} = \\max \\left\\{ \\left[ -u \\frac{ \\partial  }{ \\partial x } (\\zeta + f) -
+        v \\frac{ \\partial  }{ \\partial y } (\\zeta + f)  \\right] , 0 \\right \\}
+
+    Args:
+        u_wind: Zonal wind speeds in m/s
+        v_wind: Meridional wind speeds in m/s
+        vorticity: Vertical component of vorticity in m/s
+    """
+
     _u_wind: xr.DataArray
     _v_wind: xr.DataArray
     _vorticity: xr.DataArray
