@@ -6,18 +6,32 @@ readme = "README.md"
 authors = [
     { name = "Hui Ling Wong", email = "71387295+wong-hl@users.noreply.github.com " }
 ]
-keywords = ["turbulence", "climate", "contrails", "avaiation", "aerospace", "aeroelasticity"]
+keywords = ["turbulence", "climate", "contrails", "avaiation", "aerospace", "aeroelasticity", "meteorology"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: Console",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Atmospheric Science",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed"
+]
 
 requires-python = ">=3.12"
 dependencies = [
-    "dask>=2025.4.1",
-    "distributed>=2025.5.1",
-    "h5netcdf>=1.6.1",
-    "pydantic>=2.11.4",
-    "pyproj>=3.7.1",
-    "pyyaml>=6.0.2",
-    "typer>=0.15.3",
-    "xarray>=2025.4.0",
+    "dask",
+    "distributed",
+    "h5netcdf",
+    "pydantic",
+    "pyproj",
+    "pyyaml",
+    "scipy",
+    "typer",
+    "xarray",
 ]
 
 [build-system]
@@ -30,28 +44,28 @@ rojak = "rojak.cli.main:app"
 [dependency-groups]
 #complete = ["rojak[ecmwf,amdar]"]
 dev = [
-    "doc8>=1.1.2",
-    "pre-commit>=4.2.0",
-    "pyright>=1.1.400",
-    "ruff>=0.11.8",
+    "doc8",
+    "pre-commit",
+    "pyright",
+    "ruff",
 ]
 test = [
-    "pytest>=8.3.5",
-    "pytest-cov>=6.1.1",
-    "pytest-mock>=3.14.1",
+    "pytest",
+    "pytest-cov",
+    "pytest-mock",
 ]
 docs = [
-    "jupyter-sphinx>=0.5.3",
-    "myst-parser>=4.0.1",
-    "pydata-sphinx-theme>=0.16.1",
-    "sphinx>=8.2.3",
+    "jupyter-sphinx",
+    "myst-parser",
+    "pydata-sphinx-theme",
+    "sphinx",
 ]
 ecmwf = [
     "cdsapi>=0.7.5",
 ]
 amdar = [
-    "netcdf4>=1.7.2",
-    "pyarrow>=20.0.0",
+    "netcdf4",
+    "pyarrow",
 ]
 
 [tool.pyright]
@@ -59,5 +73,5 @@ venvPath = "."
 venv = ".venv"
 
 [tool.doc8]
-max-line-length=120
-ignore-path="docs/_templates"
+max-line-length = 120
+ignore-path = "docs/_templates"
