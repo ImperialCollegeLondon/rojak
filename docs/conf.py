@@ -33,6 +33,8 @@ extensions = [
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
+autoclass_content = "both"
+
 # Mapping to other project documentation
 intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}
 
@@ -44,4 +46,4 @@ source_suffix = [".rst", ".md"]
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 html_theme = "pydata_sphinx_theme"
-html_static_path = ["_static"]
+# html_static_path = ["_static"]
