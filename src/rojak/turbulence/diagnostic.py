@@ -66,6 +66,10 @@ logger = logging.getLogger(__name__)
 
 
 class Diagnostic(ABC):
+    """
+    Abstract class for diagnostic classes.
+    """
+
     _name: "DiagnosticName"
     _computed_value: None | xr.DataArray = None
 
@@ -634,6 +638,18 @@ class BrownIndex2(Diagnostic):
 
 
 class NegativeVorticityAdvection(Diagnostic):
+    """
+    Negative vorticity advection diagnostic defined in [Sharman2016]_ as,
+
+    .. math:: \\text{NVA} = \\max \\left\\{ \\left[ -u \\frac{ \\partial  }{ \\partial x } (\\zeta + f) -
+        v \\frac{ \\partial  }{ \\partial y } (\\zeta + f)  \\right] , 0 \\right \\}
+
+    Args:
+        u_wind: Zonal wind speeds in m/s
+        v_wind: Meridional wind speeds in m/s
+        vorticity: Vertical component of vorticity in m/s
+    """
+
     _u_wind: xr.DataArray
     _v_wind: xr.DataArray
     _vorticity: xr.DataArray
