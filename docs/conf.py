@@ -27,10 +27,15 @@ extensions = [
     "sphinx.ext.autosummary",  # Generate autodoc summaries
     "sphinx.ext.napoleon",  # Support for NumPy and Google style docstrings
     "myst_parser",  # Markdown support
+    "jupyter_sphinx",  # Executes embedded code in a Jupyter kernel
 ]
 
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+
+autoclass_content = "both"
+autodoc_member_order = "groupwise"
+autodoc_typehints = "both"
 
 # Mapping to other project documentation
 intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}
@@ -43,4 +48,4 @@ source_suffix = [".rst", ".md"]
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 html_theme = "pydata_sphinx_theme"
-html_static_path = ["_static"]
+# html_static_path = ["_static"]
