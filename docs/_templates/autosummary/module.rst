@@ -5,7 +5,7 @@
 {% elif name == "datalib" %}
    {% set header_name = "Data Library" %}
 {% else %}
-   {% set header_name = name | title | escape %}
+   {% set header_name = name | title | replace("_", " ") | escape %}
 {% endif %}
 
 {{ (header_name | title | escape ~ " ``(" ~  fullname ~ ")`` ") | underline}}
