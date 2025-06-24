@@ -76,6 +76,13 @@ class Result[T]:
         return self._result
 
 
+# See pydantic docs about only instantiating the type adapter once
+# https://docs.pydantic.dev/latest/concepts/performance/#typeadapter-instantiated-once
+# str is DiagnosticName
+THRESHOLDS_TYPE_ADAPTER: TypeAdapter = TypeAdapter(dict[str, TurbulenceThresholds])
+DISTRIBUTION_PARAMS_TYPE_ADAPTER: TypeAdapter = TypeAdapter(dict[str, HistogramData])
+
+
 class CalibrationStage:
     _phases: "TurbulenceCalibrationPhases"
     _config: "TurbulenceCalibrationConfig"
@@ -134,20 +141,10 @@ class CalibrationStage:
             case _ as unreachable:
                 assert_never(unreachable)
 
-    @staticmethod
-    def thresholds_type_adapter() -> TypeAdapter:
-        # str is DiagnosticName
-        return TypeAdapter(dict[str, TurbulenceThresholds])
-
-    @staticmethod
-    def distribution_parameters_type_adapter() -> TypeAdapter:
-        # str is DiagnosticName
-        return TypeAdapter(dict[str, HistogramData])
-
     def load_thresholds_from_file(self) -> Result[Mapping["DiagnosticName", "TurbulenceThresholds"]]:
         assert self._config.thresholds_file_path is not None
         json_str: str = self._config.thresholds_file_path.read_text()
-        thresholds = self.thresholds_type_adapter().validate_json(json_str)
+        thresholds = THRESHOLDS_TYPE_ADAPTER.validate_json(json_str)
         return Result(thresholds)
 
     def perform_calibration(
@@ -165,12 +162,12 @@ class CalibrationStage:
         output_file: "Path" = target_dir / f"thresholds_{self._start_time}.json"
 
         with output_file.open("wb") as output_json:
-            output_json.write(self.thresholds_type_adapter().dump_json(diagnostic_thresholds, indent=4))
+            output_json.write(THRESHOLDS_TYPE_ADAPTER.dump_json(diagnostic_thresholds, indent=4))
 
     def load_distribution_parameters_from_file(self) -> Result:
         assert self._config.diagnostic_distribution_file_path is not None
         json_str: str = self._config.diagnostic_distribution_file_path.read_text()
-        distribution_parameters = self.distribution_parameters_type_adapter().validate_json(json_str)
+        distribution_parameters = DISTRIBUTION_PARAMS_TYPE_ADAPTER.validate_json(json_str)
         return Result(distribution_parameters)
 
     def export_distribution_parameters(self, diagnostic_thresholds: Mapping["DiagnosticName", "HistogramData"]) -> None:
@@ -179,7 +176,7 @@ class CalibrationStage:
         output_file: "Path" = target_dir / f"distribution_params_{self._start_time}.json"
 
         with output_file.open("wb") as output_json:
-            output_json.write(self.distribution_parameters_type_adapter().dump_json(diagnostic_thresholds, indent=4))
+            output_json.write(DISTRIBUTION_PARAMS_TYPE_ADAPTER.dump_json(diagnostic_thresholds, indent=4))
 
     def compute_distribution_parameters(self, suite: CalibrationDiagnosticSuite | None) -> Result:
         assert suite is not None
