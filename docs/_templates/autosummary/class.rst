@@ -1,10 +1,11 @@
 {# Modified from: https://github.com/sphinx-doc/sphinx/blob/a15c149a607a1dcbc07e0058108194726d382d9f/sphinx/ext/autosummary/templates/autosummary/class.rst #}
 
-{{ fullname | escape | underline}}
+{{ name | escape | underline}}
 
 .. currentmodule:: {{ module }}
 
 .. autoclass:: {{ objname }}
+   :show-inheritance:
 
    {% block methods %}
    .. automethod:: __init__
