@@ -27,6 +27,7 @@ extensions = [
     "sphinx.ext.autosummary",  # Generate autodoc summaries
     "sphinx.ext.napoleon",  # Support for NumPy and Google style docstrings
     "myst_parser",  # Markdown support
+    "jupyter_sphinx",  # Executes embedded code in a Jupyter kernel
 ]
 
 templates_path = ["_templates"]
