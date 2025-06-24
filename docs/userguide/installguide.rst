@@ -6,6 +6,10 @@ Requirements
 
 `rojak` currently only supports Python >=3.12. This is mainly due to the type hinting syntax that has been used
 
+.. literalinclude:: ../../pyproject.toml
+    :start-after: dependencies = [
+    :end-before: ]
+
 Installation
 -------------------
 
