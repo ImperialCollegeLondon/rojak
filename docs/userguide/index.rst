@@ -5,3 +5,4 @@ User Guide
    :maxdepth: 3
 
    installguide
+   getting_started

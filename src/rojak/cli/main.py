@@ -37,7 +37,7 @@ class LogLevel(StrEnum):
     CRITICAL = "critical"
 
 
-@app.command()
+@app.command(help="Performs analysis on data according to configuration file")
 def run(
     config_file: Annotated[
         Path,
