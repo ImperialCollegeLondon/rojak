@@ -56,3 +56,6 @@ amdar = [
 [tool.pyright]
 venvPath = "."
 venv = ".venv"
+
+[tool.doc8]
+max-line-length=120
