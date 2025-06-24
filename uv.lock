@@ -1905,45 +1905,45 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dask", specifier = ">=2025.4.1" },
-    { name = "distributed", specifier = ">=2025.5.1" },
-    { name = "h5netcdf", specifier = ">=1.6.1" },
-    { name = "pydantic", specifier = ">=2.11.4" },
-    { name = "pyproj", specifier = ">=3.7.1" },
-    { name = "pyyaml", specifier = ">=6.0.2" },
-    { name = "scipy", specifier = ">=1.15.3" },
-    { name = "typer", specifier = ">=0.15.3" },
-    { name = "xarray", specifier = ">=2025.4.0" },
+    { name = "dask" },
+    { name = "distributed" },
+    { name = "h5netcdf" },
+    { name = "pydantic" },
+    { name = "pyproj" },
+    { name = "pyyaml" },
+    { name = "scipy" },
+    { name = "typer" },
+    { name = "xarray" },
 ]
 
 [package.metadata.requires-dev]
 amdar = [
-    { name = "dask-geopandas", specifier = ">=0.5.0" },
-    { name = "geopandas", specifier = ">=1.1.0" },
-    { name = "netcdf4", specifier = ">=1.7.2" },
-    { name = "pyarrow", specifier = ">=20.0.0" },
+    { name = "dask-geopandas" },
+    { name = "geopandas" },
+    { name = "netcdf4" },
+    { name = "pyarrow" },
 ]
 dev = [
-    { name = "doc8", specifier = ">=1.1.2" },
-    { name = "pre-commit", specifier = ">=4.2.0" },
-    { name = "pyright", specifier = ">=1.1.400" },
-    { name = "ruff", specifier = ">=0.11.8" },
+    { name = "doc8" },
+    { name = "pre-commit" },
+    { name = "pyright" },
+    { name = "ruff" },
 ]
 docs = [
-    { name = "jupyter-sphinx", specifier = ">=0.5.3" },
-    { name = "myst-parser", specifier = ">=4.0.1" },
-    { name = "pydata-sphinx-theme", specifier = ">=0.16.1" },
-    { name = "sphinx", specifier = ">=8.2.3" },
+    { name = "jupyter-sphinx" },
+    { name = "myst-parser" },
+    { name = "pydata-sphinx-theme" },
+    { name = "sphinx" },
 ]
 ecmwf = [{ name = "cdsapi", specifier = ">=0.7.5" }]
 plot = [
-    { name = "cartopy", specifier = ">=0.24.1" },
-    { name = "matplotlib", specifier = ">=3.10.3" },
+    { name = "cartopy" },
+    { name = "matplotlib" },
 ]
 test = [
-    { name = "pytest", specifier = ">=8.3.5" },
-    { name = "pytest-cov", specifier = ">=6.1.1" },
-    { name = "pytest-mock", specifier = ">=3.14.1" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "pytest-mock" },
 ]
 
 [[package]]

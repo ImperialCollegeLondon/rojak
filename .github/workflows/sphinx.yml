@@ -1,25 +1,21 @@
 name: "Sphinx: Render docs"
 
-# Modified from: https://www.sphinx-doc.org/en/master/tutorial/deploying.html#id5
 on:
-  push:
-    branches: [ "master" ]
-  pull_request:
-    branches: [ "master" ]
+  workflow_call:
+
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pages: write # To push to a GitHub Pages site
-      id-token: write # To update the deployment status
     steps:
       - uses: actions/checkout@v4
       - name: Install uv and set the python version
         uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
       - name: Install the project
-        run: uv sync --locked --group docs
+        run: uv sync --all-groups
       - name: Build docs using makefile
         run: |
           cd docs
