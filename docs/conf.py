@@ -34,6 +34,8 @@ templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
 autoclass_content = "both"
+autodoc_member_order = "groupwise"
+autodoc_typehints = "both"
 
 # Mapping to other project documentation
 intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}
