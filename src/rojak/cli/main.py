@@ -28,11 +28,6 @@ app = typer.Typer()
 app.add_typer(data_interface.data_app, name="data")
 
 
-@app.command()
-def turbulence() -> None:
-    print("HELLO from the other side")
-
-
 class LogLevel(StrEnum):
     INFO = "info"
     DEBUG = "debug"
@@ -41,7 +36,7 @@ class LogLevel(StrEnum):
     CRITICAL = "critical"
 
 
-@app.command()
+@app.command(help="Performs analysis on data according to configuration file")
 def run(
     config_file: Annotated[
         Path,
@@ -75,8 +70,3 @@ def run(
     if turbulence_result is not None and context.data_config.amdar_config is not None:
         DiagnosticsAmdarLauncher(context.data_config).launch(turbulence_result.suite)
     # client.close()
-
-
-@app.command()
-def get_data() -> None:
-    print("potatoes")
