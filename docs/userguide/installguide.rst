@@ -4,7 +4,7 @@ Installation Guide
 Requirements
 -------------------
 
-`rojak` currently only supports Python >=3.12. This is mainly due to the type hinting syntax that has been used
+``rojak`` currently only supports Python >=3.12. This is mainly due to the type hinting syntax that has been used
 
 .. literalinclude:: ../../pyproject.toml
     :start-after: dependencies = [
@@ -13,7 +13,7 @@ Requirements
 Installation
 -------------------
 
-There are a few way which `rojak` can be installed. The easiest is through `pip`
+There are a few way which ``rojak`` can be installed. The easiest is through ``pip``
 
 ..
     update this to whatever name is chosen in the ends as rojak is taken on pip
@@ -29,7 +29,7 @@ Alternatively, it can be installed through Conda_ on the `conda-forge`_ channel
 
     $ conda install -c conda-forge rojak
 
-If you'd like the latest changes, rojak can be installed from source_
+If you'd like the latest changes, ``rojak`` can be installed from source_
 
 .. code-block::
 
