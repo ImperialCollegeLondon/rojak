@@ -94,6 +94,34 @@ class Diagnostic(ABC):
 
 
 class Frontogenesis3D(Diagnostic):
+    """
+    Three dimensional frontogenesis CAT diagnostic
+
+    The 3D frontogenesis equation is defined in [Bluestein1993]_ as,
+
+    .. math:: \\mathbf{F} = \\frac{D}{Dt} | \\nabla \\theta |
+
+    This implementation is based on the ECMWF implementation in the IFS which ignores terms related to diabatic
+    heating, negligible horizontal gradients of the vertical velocity and that
+    :math:`\\frac{ \\partial w }{ \\partial z } = - \\delta`. It is defined in [Bechtold2021]_ as,
+
+    .. math::
+        :no-wrap:
+
+        \\begin{aligned}
+        \\mathbf{F} = - \\frac{1}{|\\nabla\\theta|} &\\left[\\frac{ \\partial \\theta }{ \\partial x }
+        \\left(  \\frac{ \\partial u }{ \\partial x } \\frac{ \\partial \\theta }{ \\partial x } +
+        \\frac{ \\partial v }{ \\partial x } \\frac{ \\partial \\theta }{ \\partial y } \\right) \\right.
+        + \\left.  \\frac{ \\partial \\theta }{ \\partial y } \\left(  \\frac{ \\partial u }{ \\partial y }
+        \\frac{ \\partial \\theta }{ \\partial x } + \\frac{ \\partial v }{ \\partial y }
+        \\frac{ \\partial \\theta }{ \\partial y } \\right) \\right. \\\\
+        &+ \\left. \\frac{ \\partial \\theta }{ \\partial z } \\left(  \\frac{ \\partial u }{ \\partial z }
+        \\frac{ \\partial \\theta }{ \\partial x } + \\frac{ \\partial v }{ \\partial z }
+        \\frac{ \\partial \\theta }{ \\partial y}
+        - \\delta \\frac{ \\partial \\theta }{ \\partial z }\\right) \\right]
+        \\end{aligned}
+    """
+
     _u_wind: xr.DataArray
     _v_wind: xr.DataArray
     _potential_temperature: xr.DataArray
@@ -137,17 +165,6 @@ class Frontogenesis3D(Diagnostic):
 
     # TODO: TEEST
     def _compute(self) -> xr.DataArray:
-        r"""
-        .. math:: \mathbf{F} = - \frac{1}{|\nabla\theta|} &\left[\frac{ \partial \theta }{ \partial x }
-        \left(  \frac{ \partial u }{ \partial x } \frac{ \partial \theta }{ \partial x } +
-        \frac{ \partial v }{ \partial x } \frac{ \partial \theta }{ \partial y } \right) \right.
-        + \left.  \frac{ \partial \theta }{ \partial y } \left(  \frac{ \partial u }{ \partial y }
-        \frac{ \partial \theta }{ \partial x } + \frac{ \partial v }{ \partial y }
-        \frac{ \partial \theta }{ \partial y } \right) \right. \\
-        &+ \left. \frac{ \partial \theta }{ \partial z } \left(  \frac{ \partial u }{ \partial z }
-        \frac{ \partial \theta }{ \partial x } + \frac{ \partial v }{ \partial z } \frac{ \partial \theta }{ \partial y}
-        - \delta \frac{ \partial \theta }{ \partial z }\right) \right]
-        """
         theta_horz_gradient = spatial_gradient(self._potential_temperature, "deg", GradientMode.GEOSPATIAL)
         dtheta_dx = theta_horz_gradient["dfdx"]
         dtheta_dy = theta_horz_gradient["dfdy"]
@@ -318,6 +335,20 @@ class TurbulenceIndex2(Diagnostic):
 
 
 class Ncsu1(Diagnostic):
+    """
+    NCSU1 CAT diagnostic was developed by analysing 44 cases of severe turbulence at the synoptic-scale
+    (in [Kaplan2005a]_ and [Kaplan2005b]_) to develop an index for forecasting severe turbulence.
+    It is defined in [Kaplan2006]_ as,
+
+    .. math:: \\text{NCSU1} = \\left( U \\cdot \\nabla U \\right) \\frac{|\\nabla \\zeta|}{|\\text{Ri}|}
+
+    This implementation is based on the definition in [Sharman2016]_,
+
+    .. math:: \\text{NCSU1} = \\frac{1}{\\max(\\text{Ri}, 10^{-5})} \\max \\left(u \\frac{ \\partial u }{ \\partial x }
+        + v \\frac{ \\partial v }{ \\partial y } \\right) \\left| \\nabla \\zeta \\right|
+
+    """
+
     RI_THRESHOLD: float = 1e-5
     _u_wind: xr.DataArray
     _v_wind: xr.DataArray
