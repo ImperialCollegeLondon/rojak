@@ -418,7 +418,7 @@ class AmdarDataRepository(ABC):
         )
 
         grid: "dgpd.GeoDataFrame" = create_grid_data_frame(target_region, grid_size)
-        grid_dataframe: "dd.DataFrame" = grid.to_dask_dataframe().compute()
+        grid_dataframe: "dd.DataFrame" = grid.compute()
         within_region: "dgpd.GeoDataFrame" = as_geo_dataframe(raw_data_frame).sjoin(grid).optimize()
         within_region["grid_box"] = within_region["index_right"].apply(
             lambda row: grid_dataframe.loc[row, "geometry"], meta=("grid_box", object)
