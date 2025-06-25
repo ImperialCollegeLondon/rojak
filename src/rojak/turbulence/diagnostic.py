@@ -571,6 +571,17 @@ class DirectionalShear(Diagnostic):
 
 
 class NestedGridModel1(Diagnostic):
+    """
+    Nested Grid Model 1 was introduced in [Reap1996]_. The equation implemented here is as defined in [Sharman 2016]_
+
+    .. math:: \\text{NGM1} = \\left| \\mathbf{v} \\right| \\times \\text{DEF}
+
+    Args:
+        u_wind: Zonal wind speeds in m/s
+        v_wind: Meridional wind speeds in m/s
+        total_deformation: Total deformation in m/s
+    """
+
     _u_wind: xr.DataArray
     _v_wind: xr.DataArray
     _total_deformation: xr.DataArray
@@ -586,6 +597,17 @@ class NestedGridModel1(Diagnostic):
 
 
 class NestedGridModel2(Diagnostic):
+    """
+    Nested Grid Model 2 was introduced in [Reap1996]_. The equation implemented here is as defined in [Sharman 2016]_
+
+    .. math:: \\text{NGM2} = \\left| \\frac{ \\partial T }{ \\partial z }  \\right| \\times \\text{DEF}
+
+    Args:
+        temperature: Temperature in kelvin
+        geopotential: Geopotential in m^2/s
+        total_deformation: Total deformation in m/s
+    """
+
     _temperature: xr.DataArray
     _geopotential: xr.DataArray
     _total_deformation: xr.DataArray
@@ -604,6 +626,17 @@ class NestedGridModel2(Diagnostic):
 
 
 class BrownIndex1(Diagnostic):
+    """
+    Brown Index 1 is a simplifaction of [Roach1970]_'s Richardson tendency equation. It was introduced in [Brown1973]_
+    and is defined as,
+
+    .. math:: \\frac{d\\text{Ri}}{dt} = \\sqrt{ 0.3 \\zeta_{a}^{2} + D_{\\text{sh}}^{2} + D_{\\text{st}}^{2} }
+
+    Args:
+        vorticity: Vertical component of vorticity in m/s
+        total_deformation: Total deformation in m/s
+    """
+
     _vorticity: xr.DataArray
     _total_deformation: xr.DataArray
 
@@ -618,6 +651,18 @@ class BrownIndex1(Diagnostic):
 
 
 class BrownIndex2(Diagnostic):
+    """
+    Brown Index 2 estimates the energy dissipation rate (EDR) of turbulence by using [Roach1970]_'s conclusion that
+    when considering the overall conservation of energy in a turbulent layer, the large scale deformation which
+    maintain turbulence dissipate energy at a prescribed rate such that the Richardson number is limited to a constant
+    value. It is defined in [Brown1973]_ as,
+
+    .. math:: \\varepsilon_{\\text{brown}} = \\begin{cases}
+        \\frac{1}{24} \\frac{d\\text{Ri}}{dt} S_{v}^{2} & \\frac{d\\text{Ri}}{dt} > 0 \\\\
+        0 & \\frac{d\\text{Ri}}{dt} \\leq 0
+        \\end{cases}
+    """
+
     _u_wind: xr.DataArray
     _v_wind: xr.DataArray
     _brown_index1: xr.DataArray
@@ -705,6 +750,22 @@ class DuttonIndex(Diagnostic):
 
 
 class EDRLunnon(Diagnostic):
+    """
+    EDR Lunnon is a simplification of Roach's EDR predictor by [GillBuchanan2014]_, it ignores the temperature term in
+    Roach's equation [Roach1970]_ and multiplies it by vertical wind shear squared
+    (expressed in terms of change in pressure instead of altitude). It is defined as,
+
+    .. math::  \\varepsilon_{\\text{Lunnon}} = \\left[ \\left( \\frac{ \\partial v }{ \\partial p }  \\right)^{2} -
+        \\left( \\frac{ \\partial u }{ \\partial p } \\right)^{2}  \\right] D_{\\text{st}} -
+        \\left( 2 \\frac{ \\partial u }{ \\partial p }  \\frac{ \\partial v }{ \\partial p }  \\right)  D_{\\text{sh}}
+
+    Args:
+        u_wind: Zonal wind speeds in m/s
+        v_wind: Meridional wind speeds in m/s
+        shear_deformation: Shear deformation in m/s
+        stretching_deformation: Stretch deformation in m/s
+    """
+
     _u_wind: xr.DataArray
     _v_wind: xr.DataArray
     _shear_deformation: xr.DataArray
