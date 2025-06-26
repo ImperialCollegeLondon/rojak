@@ -300,6 +300,8 @@ def as_geo_dataframe(data_frame: "dd.DataFrame") -> dgpd.GeoDataFrame:
 class AmdarDataRepository(ABC):
     """
     Abstract AMDAR data repository interface.
+
+    This class handles the I/O of the data
     """
 
     _path_to_files: str | list
