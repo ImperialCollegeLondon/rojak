@@ -329,7 +329,7 @@ class DiagnosticsAmdarDataHarmoniser:
         observational_data = observational_data.map_partitions(
             self._add_time_index_column,
             observational_data["datetime"],
-            a_computed_diagnostic["time"].to_numpy(),
+            a_computed_diagnostic["time"].values,
             meta=current_dtypes,
         ).persist()
 
