@@ -219,6 +219,7 @@ class Frontogenesis2D(Diagnostic):
     Args:
         u_wind: Zonal wind speeds in m/s
         v_wind: Meridional wind speeds in m/s
+        potential_temperature: Potential temperature
         geopotential: Geopotential in m^2/s
         vector_derivatives: Dictionary containing all 4 velocity derivatives
     """
@@ -281,6 +282,9 @@ class HorizontalTemperatureGradient(Diagnostic):
         \\left( \\frac{ \\partial T }{ \\partial y } \\right)^{2}   }
 
     where :math:`T` is temperature
+
+    Args:
+        temperature: Temperature in Kelvin
     """
 
     _temperature: xr.DataArray
@@ -294,6 +298,23 @@ class HorizontalTemperatureGradient(Diagnostic):
 
 
 class Endlich(Diagnostic):
+    """
+    Endlich CAT Diagnostic
+
+    This diagnostic is targeted at the dynamic instabilities present on the anticyclonic side of the jet whereby
+    turbulence is most intense and commonly present [Endlich1964]_. It is defined as,
+
+    .. math:: \\left| \\mathbf{v} \\right| \\left| \\frac{ \\partial \\psi }{ \\partial z }  \\right|
+
+    where :math:`\\mathbf{v}` is the horizontal wind vector, :math:`\\left| \\mathbf{v} \\right|` is the wind
+    speed and :math:`\\psi` is the horizontal wind direction.
+
+    Args:
+        u_wind: Zonal wind speeds in m/s
+        v_wind: Meridional wind speeds in m/s
+        geopotential: Geopotential in m^2/s
+    """
+
     _u_wind: xr.DataArray
     _v_wind: xr.DataArray
     _wind_direction: xr.DataArray
@@ -385,8 +406,10 @@ class TurbulenceIndex2(Diagnostic):
     Args:
         u_wind: Zonal wind speeds in m/s
         v_wind: Meridional wind speeds in m/s
+        vector_derivatives: Dictionary containing du/dx and dv/dy derivatives
         geopotential: Geopotential in m^2/s
         total_deformation: Total deformation in m/s
+        divergence: Horizontal divergence of wind in m/s
     """
 
     _u_wind: xr.DataArray
@@ -427,7 +450,7 @@ class TurbulenceIndex2(Diagnostic):
 
 class Ncsu1(Diagnostic):
     """
-    NCSU1 CAT diagnostic as defined in [Sharman2016]_
+    NCSU1 CAT diagnostic as defined in [Sharman2006]_
 
     NCSU1 was developed by analysing 44 cases of severe turbulence at the synoptic-scale
     (in [Kaplan2005a]_ and [Kaplan2005b]_) to develop an index for forecasting severe turbulence.
@@ -435,10 +458,17 @@ class Ncsu1(Diagnostic):
 
     .. math:: \\text{NCSU1} = \\left( U \\cdot \\nabla U \\right) \\frac{|\\nabla \\zeta|}{|\\text{Ri}|}
 
-    This implementation is based on the definition in [Sharman2016]_,
+    This implementation is based on the definition in [Sharman2006]_,
 
     .. math:: \\text{NCSU1} = \\frac{1}{\\max(\\text{Ri}, 10^{-5})} \\max \\left(u \\frac{ \\partial u }{ \\partial x }
         + v \\frac{ \\partial v }{ \\partial y } \\right) \\left| \\nabla \\zeta \\right|
+
+    Args:
+        u_wind: Zonal wind speeds in m/s
+        v_wind: Meridional wind speeds in m/s
+        ri: Computed richardson diagnostic
+        vector_derivatives: Dictionary containing du/dx and dv/dy derivatives
+        vorticity: Vertical component of vorticity in m/s
     """
 
     RI_THRESHOLD: float = 1e-5
@@ -460,6 +490,8 @@ class Ncsu1(Diagnostic):
         super().__init__("NCSU1")
         self._u_wind = u_wind
         self._v_wind = v_wind
+        assert VelocityDerivative.DU_DX in vector_derivatives
+        assert VelocityDerivative.DV_DY in vector_derivatives
         self._du_dx = vector_derivatives[VelocityDerivative.DU_DX]
         self._dv_dy = vector_derivatives[VelocityDerivative.DV_DY]
         self._ri = xr.where(ri > self.RI_THRESHOLD, ri, self.RI_THRESHOLD)
@@ -473,6 +505,28 @@ class Ncsu1(Diagnostic):
 
 
 class ColsonPanofsky(Diagnostic):
+    """
+    Colson-Panofsky CAT diagnostic
+
+    The Colson-Panofsky Index was developed to improve upon the Richardson number, which, as a turbulence index,
+    can only indicate the presence of turbulence without distinguishing its severity. The basis for the derivation
+    of this index is that the vertical kinetic energy is the main contributor to CAT [Colson1965]_.
+    It is defined as,
+
+    .. math:: \\text{CP} = S_{v}^{2} (\\Delta z) ^{2} \\left( 1 - \\frac{\\text{Ri}}{\\text{Ri}_{\\text{crit}}} \\right)
+
+    where :math:`\\Delta z` is the vertical grid spacing, :math:`S_{v}` is the vertical wind shear,
+    :math:`\\text{Ri}` is the Richardson number, and :math:`\\text{Ri}_{\\text{crit}} \\approx 0.5` which is the
+    critical Richardson number.
+
+    Args:
+        u_wind: Zonal wind speeds in m/s
+        v_wind: Meridional wind speeds in m/s
+        altitude: Altitude in meters. This must correspond to the vertical grid spacing which is on pressure levels
+        richardson_number: Computed richardson number diagnostic
+        geopotential: Geopotential in m^2/s
+    """
+
     _RI_CRIT: float = 0.5
     _length_scale: xr.DataArray
     _richardson_term: xr.DataArray
@@ -506,6 +560,26 @@ class ColsonPanofsky(Diagnostic):
 
 
 class UBF(Diagnostic):
+    """
+    Residual of the Unbalance Flow (UBF) Equation CAT diagnostic
+
+    The UBF diagnostic aims to forecast CAT due to gravity waves, it uses the residual of the non-linear divergence
+    equation to identify regions where flow is unbalanced [Knox2016]_. It is defined as,
+
+    .. math:: \\text{UBF} = | - \\nabla^2 \\Phi + 2 J(u,v) + f \\zeta - \\beta u|
+
+    where :math:`\\nabla^{2}` is the Laplacian, :math:`\\Phi` is the geopotential, :math:`J ()` is the determinant of
+    the Jacobian, :math:`f` is the Coriolis parameter and :math:`\\beta` is the latitudinal derivative of the Coriolis
+    parameter.
+
+    Args:
+        u_wind: Zonal wind speeds in m/s
+        v_wind: Meridional wind speeds in m/s
+        geopotential: Geopotential in m^2/s
+        vorticity: Vertical component of vorticity in m/s
+        jacobian: Determinant of the Jacobian of the horizontal velocities
+    """
+
     _u_wind: xr.DataArray
     _v_wind: xr.DataArray
     _geopotential: xr.DataArray
@@ -541,6 +615,19 @@ class UBF(Diagnostic):
 
 
 class BruntVaisalaFrequency(Diagnostic):
+    """
+    Brunt Väisälä frequency CAT diagnostic
+
+    .. math::
+        :label: brunt-vaisala-frequency
+
+        N^{2} = \\frac{g}{\\theta} \\frac{ \\partial \\theta }{ \\partial z }
+
+    Args:
+        potential_temperature: Potential temperature
+        geopotential: Geopotential in m^2/s
+    """
+
     _potential_temperature: xr.DataArray
     _geopotential: xr.DataArray
 
@@ -558,6 +645,22 @@ class BruntVaisalaFrequency(Diagnostic):
 
 
 class VerticalWindShear(Diagnostic):
+    """
+    Vertical wind shear CAT diagnostic
+
+    .. math::
+        :label: vertical-wind-shear
+
+        S_{v} = \\left| \\frac{ \\partial \\mathbf{u} }{ \\partial z }  \\right| =
+        \\sqrt{ \\left| \\frac{ \\partial u }{ \\partial z }  \\right|^{2} +
+        \\left|  \\frac{ \\partial v }{ \\partial z } \\right| ^{2} }
+
+    Args:
+        u_wind: Zonal wind speeds in m/s
+        v_wind: Meridional wind speeds in m/s
+        geopotential: Geopotential in m^2/s
+    """
+
     _u_wind: xr.DataArray
     _v_wind: xr.DataArray
     _geopotential: xr.DataArray
@@ -573,6 +676,24 @@ class VerticalWindShear(Diagnostic):
 
 
 class GradientRichardson(Diagnostic):
+    """
+    Gradient Richardson Number CAT diagnostic
+
+    The Richardson number, Ri, is a dimensionless quantity that is a ratio of the stability to the vertical wind shear
+    [Endlich1964]_. This quantity capture CAT produced by Kelvin-Helmholtz instabilities. In the GTG, it is
+    defined as [Sharman2006]_,
+
+    .. math:: \\text{Ri}_{g} = \\frac{N^{2}}{S_{v}^{2}}
+
+    where :math:`N^{2}` is the Brunt-Väisälä frequency (see Eq. :eq:`brunt-vaisala-frequency` in
+    :py:class:`BruntVaisalaFrequency`) and :math:`S_{v}` is the vertical wind shear (see Eq. :eq:`vertical-wind-shear`
+    in :py:class:`VerticalWindShear`).
+
+    Args:
+        vws: Vertical wind shear
+        brunt_vaisala: Brunt-Vaisala frequency
+    """
+
     _vws: xr.DataArray
     _brunt_vaisala: xr.DataArray
 
@@ -761,6 +882,10 @@ class BrownIndex1(Diagnostic):
 
     .. math:: \\frac{d\\text{Ri}}{dt} = \\sqrt{ 0.3 \\zeta_{a}^{2} + D_{\\text{sh}}^{2} + D_{\\text{st}}^{2} }
 
+    where :math:`\\zeta_{a}` is the vertical component of absolute vorticity, :math:`\\zeta` is the vertical component
+    of vorticity, :math:`f` is the Coriolis parameter, :math:`D_{\\text{sh}}` is the shearing deformation and
+    :math:`D_{\\text{st}}` is the stretching deformation.
+
     Args:
         vorticity: Vertical component of vorticity in m/s
         total_deformation: Total deformation in m/s
@@ -793,6 +918,9 @@ class BrownIndex2(Diagnostic):
         0 & \\frac{d\\text{Ri}}{dt} \\leq 0
         \\end{cases}
 
+    where :math:`\\varepsilon` is the EDR, :math:`\\frac{d\\text{Ri}}{dt}` is the Richardson tendency index, and
+    :math:`S_{v}` is the vertical wind shear.
+
     Args:
         u_wind: Zonal wind speeds in m/s
         v_wind: Meridional wind speeds in m/s
@@ -823,10 +951,12 @@ class NegativeVorticityAdvection(Diagnostic):
     """
     Negative vorticity advection CAT diagnostic
 
-    Negative vorticity advection diagnostic defined in [Sharman2016]_ as,
+    Negative vorticity advection diagnostic defined in [Sharman2006]_ as,
 
     .. math:: \\text{NVA} = \\max \\left\\{ \\left[ -u \\frac{ \\partial  }{ \\partial x } (\\zeta + f) -
         v \\frac{ \\partial  }{ \\partial y } (\\zeta + f)  \\right] , 0 \\right \\}
+
+    where :math:`\\zeta` is the vertical component of vorticity and :math:`f` is the Coriolis parameter
 
     Args:
         u_wind: Zonal wind speeds in m/s
