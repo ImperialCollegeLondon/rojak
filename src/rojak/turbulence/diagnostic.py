@@ -271,6 +271,18 @@ class Frontogenesis2D(Diagnostic):
 
 
 class HorizontalTemperatureGradient(Diagnostic):
+    """
+    Horizontal temperature gradient CAT Diagnostic
+
+    The horizontal temperature gradient is a simple measure of a front [Knox2016]_. It has also been used in the
+    GTG for diagnosing upper and mid-level turbulence. It is defined as,
+
+    .. math:: |\\nabla_{H}T| = \\sqrt{ \\left( \\frac{ \\partial T }{ \\partial x }  \\right)^{2} +
+        \\left( \\frac{ \\partial T }{ \\partial y } \\right)^{2}   }
+
+    where :math:`T` is temperature
+    """
+
     _temperature: xr.DataArray
 
     def __init__(self, temperature: xr.DataArray) -> None:
