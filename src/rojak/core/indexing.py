@@ -54,6 +54,7 @@ def get_regular_grid_spacing[T: np.number | np.inexact | np.datetime64 | np.time
     Returns:
         Grid spacing if on a regular grid. If not, it returns None
 
+    >>> np.set_printoptions(legacy=False)
     >>> get_regular_grid_spacing(np.linspace(5, 10, 11))
     np.float64(0.5)
     >>> get_regular_grid_spacing(np.arange(np.datetime64("1970-01-01"), np.datetime64("1970-01-02"), \
