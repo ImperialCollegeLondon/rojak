@@ -396,7 +396,7 @@ class AmdarDataRepository(ABC):
     def _time_column_rename_mapping(self) -> dict[str, str]: ...
 
     @staticmethod
-    def expand_grid_bounds(grid: "dgpd.GeoDataFrame") -> "dd.DataFrame":
+    def _expand_grid_bounds(grid: "dgpd.GeoDataFrame") -> "dd.DataFrame":
         def expand_bounds(row: "Polygon") -> pd.Series:
             min_lon, min_lat, max_lon, max_lat = row.bounds
             return pd.Series(
@@ -423,7 +423,7 @@ class AmdarDataRepository(ABC):
             dd.DataFrame: Combined data frame with the
 
         """
-        return dataframe.join(self.expand_grid_bounds(grid), on="index_right", how="left")
+        return dataframe.join(self._expand_grid_bounds(grid), on="index_right", how="left")
 
     def to_amdar_turbulence_data(
         self, target_region: "SpatialDomain | Polygon", grid_size: float, target_pressure_levels: Sequence[float]
