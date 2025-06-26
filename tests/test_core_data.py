@@ -510,9 +510,12 @@ def test_convert_to_amdar_turbulence_data(
         "altitude",
         "level",
         "index_right",
-        "grid_box",
         "datetime",
         "geometry",
         "latitude",
         "longitude",
+        "min_lat",
+        "max_lat",
+        "min_lon",
+        "max_lon",
     }

@@ -226,12 +226,12 @@ class DiagnosticsAmdarDataHarmoniser:
 
     @staticmethod
     def _process_amdar_row(
-        row: "dd.Series", methods: list[DiagnosticsAmdarHarmonisationStrategy], amdar_turblence_columns: list[str]
+        row: "dd.Series",
+        methods: list[DiagnosticsAmdarHarmonisationStrategy],
+        amdar_turblence_columns: list[str],
     ) -> pd.Series:
-        # Use bounds as the DataArray.sel will get the (2, 2) data
-        min_lon, min_lat, max_lon, max_lat = row["grid_box"].bounds
-        longitudes = [min_lon, max_lon]
-        latitudes = [min_lat, max_lat]
+        longitudes = [row["min_lon"], row["max_lon"]]
+        latitudes = [row["min_lat"], row["max_lat"]]
 
         level: float = row["level"]
         this_time: np.datetime64 = np.datetime64(row["datetime"])
@@ -241,7 +241,6 @@ class DiagnosticsAmdarDataHarmoniser:
             "datetime": this_time,
             "level": row["level"],
             "geometry": row["geometry"],
-            "grid_box": row["grid_box"],
             "index_right": row["index_right"],
             "latitude": row["latitude"],
             "longitude": row["longitude"],
@@ -287,7 +286,6 @@ class DiagnosticsAmdarDataHarmoniser:
             "datetime": "datetime64[s]",
             "level": float,
             "geometry": object,
-            "grid_box": object,
             "index_right": int,
             "latitude": float,
             "longitude": float,
@@ -333,7 +331,7 @@ class DiagnosticsAmdarDataHarmoniser:
             observational_data["datetime"],
             a_computed_diagnostic["time"].to_numpy(),
             meta=current_dtypes,
-        )
+        ).persist()
 
         strategies: list[DiagnosticsAmdarHarmonisationStrategy] = DiagnosticsAmdarHarmonisationStrategyFactory(
             self._diagnostics_suite
