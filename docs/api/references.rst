@@ -5,7 +5,7 @@ References
     Link to sphinx docs about citation. All citation refs are global so let's put it all in once place
     https://www.sphinx-doc.org/en/master/usage/restructuredtext/basics.html#citations
 
-.. [Sharman2016] Sharman, R. D., Tebaldi, C., Wiener, G., & Wolff, J. (2006). An Integrated Approach to Mid- and Upper-Level Turbulence Forecasting. Weather and Forecasting, 21(3), 268–287. https://doi.org/10.1175/WAF924.1
+.. [Sharman2006] Sharman, R. D., Tebaldi, C., Wiener, G., & Wolff, J. (2006). An Integrated Approach to Mid- and Upper-Level Turbulence Forecasting. Weather and Forecasting, 21(3), 268–287. https://doi.org/10.1175/WAF924.1
 
 .. [Reap1996] Reap, R., M. (1996). Probability Forecasts of Clear-AIr-Turbulence for Contiguous US. National Oceanic and Atmospheric Administration, U.S. Department of Commerce. Retrieved from https://vlab.noaa.gov/documents/6609493/36173388/TPB_430.pdf
 
@@ -32,3 +32,7 @@ References
 .. [Mancuso1966] Mancuso, R. L., & Endlich, R. M. (1966). Clear Air Turbulence Frequency as a Function of Wind Shear and Deformation. Monthly Weather Review, 94(9), 581–585. https://doi.org/10.1175/1520-0493(1966)094<0581:CATFAA>2.3.CO;2
 
 .. [Knox2016] Knox, J. A., Black, A. W., Rackley, J. A., Wilson, E., Grant, J. S., Phelps, S. P., et al. (2016). Automated Turbulence Forecasting Strategies. In Aviation Turbulence: Processes, Detection, Prediction (pp. 243–260). Cham, SWITZERLAND: Springer International Publishing AG. Retrieved from http://ebookcentral.proquest.com/lib/imperial/detail.action?docID=4572260
+
+.. [Endlich1964] Endlich, R. M. (1964). The Mesoscale Structure of Some Regions of Clear-Air Turbulence. Journal of Applied Meteorology and Climatology, 3(3), 261–276. https://doi.org/10.1175/1520-0450(1964)003<0261:TMSOSR>2.0.CO;2
+
+.. [Colson1965] Colson, D., & Panofsky, H. A. (1965). An index of clear air turbulence. Quarterly Journal of the Royal Meteorological Society, 91(390), 507–513. https://doi.org/10.1002/qj.49709139010
