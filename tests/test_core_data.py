@@ -540,3 +540,20 @@ def test_expand_grid_bounds():
                 contains_row = True
                 break
         assert contains_row
+
+
+def test_join_grid_bounds():
+    grid = create_grid_data_frame(box(10, 10, 12, 12), 1)
+    index_right_values = np.random.default_rng().integers(low=0, high=4, size=100)
+    left_df = dd.from_pandas(pd.DataFrame({"some_value": np.arange(100), "index_right": index_right_values}))
+    repository_instance = AcarsAmdarRepository("")
+    joined_df = repository_instance.join_grid_bounds(left_df, grid).compute()
+    expanded_grid = repository_instance.expand_grid_bounds(grid).compute()
+    for row_num, row in joined_df.iterrows():
+        grid_index = int(row["index_right"])
+        assert grid_index == index_right_values[row_num]
+        pd.testing.assert_series_equal(
+            expanded_grid.iloc[grid_index], row[["min_lon", "min_lat", "max_lon", "max_lat"]], check_names=False
+        )
+
+    assert joined_df.shape == (100, 6)
