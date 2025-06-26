@@ -8,9 +8,11 @@ import pandas as pd
 import pytest
 import xarray as xr
 import xarray.testing as xrt
+from shapely.geometry import box
 
 from rojak.core.data import CATData, CATPrognosticData, as_geo_dataframe
 from rojak.core.derivatives import VelocityDerivative
+from rojak.core.geometric import create_grid_data_frame
 from rojak.datalib.ecmwf.era5 import Era5Data
 from rojak.datalib.madis.amdar import AcarsAmdarRepository
 from rojak.datalib.ukmo.amdar import UkmoAmdarRepository
@@ -519,3 +521,22 @@ def test_convert_to_amdar_turbulence_data(
         "min_lon",
         "max_lon",
     }
+
+
+def test_expand_grid_bounds():
+    grid = create_grid_data_frame(box(10, 10, 12, 12), 1)
+    repository_instance = AcarsAmdarRepository("")
+    grid_bounds_df = repository_instance.expand_grid_bounds(grid).compute()
+    bottom_left = {"min_lon": [10], "min_lat": [10], "max_lon": [11], "max_lat": [11]}
+    bottom_right = {"min_lon": [11], "min_lat": [10], "max_lon": [12], "max_lat": [11]}
+    top_left = {"min_lon": [10], "min_lat": [11], "max_lon": [11], "max_lat": [12]}
+    top_right = {"min_lon": [11], "min_lat": [11], "max_lon": [12], "max_lat": [12]}
+    quadrants = [bottom_left, bottom_right, top_left, top_right]
+    for quadrant in quadrants:
+        contains_row: bool = False
+        for row in grid_bounds_df.isin(quadrant).iterrows():
+            # iterrows returns a tuple of [row_number, row]
+            if row[1].all():
+                contains_row = True
+                break
+        assert contains_row
