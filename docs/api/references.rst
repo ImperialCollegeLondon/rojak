@@ -30,3 +30,5 @@ References
 .. [Ellrod1992] Ellrod, G. P., & Knapp, D. I. (1992). An Objective Clear-Air Turbulence Forecasting Technique: Verification and Operational Use. Weather and Forecasting, 7(1), 150–165. https://doi.org/10.1175/1520-0434(1992)007<0150:AOCATF>2.0.CO;2
 
 .. [Mancuso1966] Mancuso, R. L., & Endlich, R. M. (1966). Clear Air Turbulence Frequency as a Function of Wind Shear and Deformation. Monthly Weather Review, 94(9), 581–585. https://doi.org/10.1175/1520-0493(1966)094<0581:CATFAA>2.3.CO;2
+
+.. [Knox2016] Knox, J. A., Black, A. W., Rackley, J. A., Wilson, E., Grant, J. S., Phelps, S. P., et al. (2016). Automated Turbulence Forecasting Strategies. In Aviation Turbulence: Processes, Detection, Prediction (pp. 243–260). Cham, SWITZERLAND: Springer International Publishing AG. Retrieved from http://ebookcentral.proquest.com/lib/imperial/detail.action?docID=4572260
