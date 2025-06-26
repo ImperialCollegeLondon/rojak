@@ -470,6 +470,6 @@ class AmdarTurbulenceData(ABC):
         return self._grid
 
     def clip_to_time_window(self, window: Limits[np.datetime64]) -> "dd.DataFrame":
-        return self._data_frame.loc[
-            (self._data_frame["datetime"] >= window.lower) & (self._data_frame["datetime"] <= window.upper)
+        return self.data_frame.loc[
+            (self.data_frame["datetime"] >= window.lower) & (self.data_frame["datetime"] <= window.upper)
         ]
