@@ -64,9 +64,9 @@ class DiagnosticsAmdarHarmonisationStrategy(ABC):
         #     closest_time = np.abs(closest_values["time"].to_numpy() - indexer.obs_time).argmin()
         #     closest_values = closest_values.isel(time=closest_time)
         # return closest_values
-        closest_values: "xr.DataArray" = values_array.sel(
+        closest_values: "xr.DataArray" = values_array.isel(time=indexer.obs_time_index).sel(
             longitude=indexer.longitudes, latitude=indexer.latitudes, pressure_level=indexer.level
-        ).isel(time=indexer.obs_time_index)
+        )
         return closest_values
 
     def harmonise(self, indexer: SpatialTemporalIndex, observation_coord: Coordinate) -> dict:
