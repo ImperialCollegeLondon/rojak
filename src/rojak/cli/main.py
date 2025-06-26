@@ -56,9 +56,10 @@ def run(
 ) -> None:
     if log_level is not None:
         logging.basicConfig(level=log_level.upper(), handlers=[RichHandler(rich_tracebacks=True)])
-    # from dask.distributed import Client
 
-    # client = Client()
+    from dask.distributed import Client
+
+    client = Client()
     context = ConfigContext.from_yaml(config_file)
 
     turbulence_result = None
@@ -69,4 +70,4 @@ def run(
         raise ValueError("Failed to launch diagnostic amdar harmonisation as evaluation phase was not run")
     if turbulence_result is not None and context.data_config.amdar_config is not None:
         DiagnosticsAmdarLauncher(context.data_config).launch(turbulence_result.suite)
-    # client.close()
+    client.close()
