@@ -989,15 +989,60 @@ class NegativeVorticityAdvection(Diagnostic):
 
 
 class DuttonIndex(Diagnostic):
+    """
+    Dutton's empirical index CAT diagnostic
+
+    Dutton's empirical index [Dutton1980]_ was developed by performing multiple regression analysis on 11
+    synoptic-scale meteorological indices which have been previously identified as being predictors of CAT.
+    It is defined as,
+
+    .. math:: E = 1.25 S_{h} + 0.25 S_{v}^{2} + 10.5
+
+    where :math:`S_{v}` is the vertical wind shear and :math:`S_{h}` is the horizontal wind shear.
+
+    In Dutton's paper, the horizontal wind shear is defined as,
+
+    .. math::
+        :name: horizontal-shear-dutton
+
+        S_{h} = \\frac{1}{s^{2}} \\left( uv \\frac{ \\partial u }{ \\partial x } -
+        u^{2} \\frac{ \\partial u }{ \\partial y } + v^{2} \\frac{ \\partial v }{ \\partial x } -
+        uv \\frac{ \\partial v }{ \\partial y }  \\right)
+
+    where :math:`s = \\sqrt{ u^{2} + v ^{2} } = \\left| \\mathbf{v} \\right|` is the wind speed.
+
+    However, in the oft-cited [Sharman2006]_, it is defined with an additional factor of :math:`-1`,
+
+    .. math::
+        :name: horizontal-shear-sharman
+
+        S_{h} = \\left( \\frac{u}{s} \\right) \\frac{ \\partial s }{ \\partial y } -
+        \\left( \\frac{v}{s} \\right) \\frac{ \\partial s }{ \\partial x }
+
+    The difference between Eq. :eq:`horizontal-shear-dutton` and Eq. :eq:`horizontal-shear-sharman` has resulted
+    in an additional boolean kwarg (``use_dutton``) to control which definition of horizontal wind shear is used.
+
+    Args:
+        u_wind: Zonal wind speeds in m/s
+        v_wind: Meridional wind speeds in m/s
+        geopotential: Geopotential in m^2/s
+        use_dutton: Boolean to control which version of horizontal wind shear equation is used
+
+    """
+
     _u_wind: xr.DataArray
     _v_wind: xr.DataArray
     _geopotential: xr.DataArray
+    _use_dutton: bool
 
-    def __init__(self, u_wind: xr.DataArray, v_wind: xr.DataArray, geopotential: xr.DataArray) -> None:
+    def __init__(
+        self, u_wind: xr.DataArray, v_wind: xr.DataArray, geopotential: xr.DataArray, use_dutton: bool = True
+    ) -> None:
         super().__init__("Dutton Index")
         self._u_wind = u_wind
         self._v_wind = v_wind
         self._geopotential = geopotential
+        self._use_dutton = use_dutton
 
     def horizontal_wind_shear(self, speed: xr.DataArray) -> xr.DataArray:
         x_component: xr.DataArray = (self._u_wind / speed) * spatial_gradient(
@@ -1009,7 +1054,7 @@ class DuttonIndex(Diagnostic):
         # Follows Sharman definition of horizontal wind shear
         # return x_component - y_component
         # Follows Dutton definition of horizontal wind shear
-        return -x_component + y_component
+        return -x_component + y_component if self._use_dutton else x_component - y_component
 
     def _compute(self) -> xr.DataArray:
         speed: xr.DataArray = wind_speed(self._u_wind, self._v_wind)

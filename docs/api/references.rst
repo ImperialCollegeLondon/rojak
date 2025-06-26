@@ -36,3 +36,5 @@ References
 .. [Endlich1964] Endlich, R. M. (1964). The Mesoscale Structure of Some Regions of Clear-Air Turbulence. Journal of Applied Meteorology and Climatology, 3(3), 261–276. https://doi.org/10.1175/1520-0450(1964)003<0261:TMSOSR>2.0.CO;2
 
 .. [Colson1965] Colson, D., & Panofsky, H. A. (1965). An index of clear air turbulence. Quarterly Journal of the Royal Meteorological Society, 91(390), 507–513. https://doi.org/10.1002/qj.49709139010
+
+.. [Dutton1980] Dutton, M. J. O. (1980). Probability forecasts of clear-air turbulence based on numerical model output. Meteorological Magazine (UK), 109(1299), 293–310.
