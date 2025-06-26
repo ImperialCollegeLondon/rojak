@@ -95,11 +95,13 @@ class Diagnostic(ABC):
 
 class Frontogenesis3D(Diagnostic):
     """
-    Three dimensional frontogenesis CAT diagnostic
+    Three-dimensional frontogenesis CAT diagnostic
 
-    The 3D frontogenesis equation is defined in [Bluestein1993]_ as,
+    The 3D frontogenesis equation is defined in [Bluestein1993]_ (p. 253) as,
 
     .. math:: \\mathbf{F} = \\frac{D}{Dt} | \\nabla \\theta |
+
+    where :math:`\\frac{D}{Dt}` is the material derivative and :math:`\\theta` is the potential temperature.
 
     This implementation is based on the ECMWF implementation in the IFS which ignores terms related to diabatic
     heating, negligible horizontal gradients of the vertical velocity and that
@@ -120,6 +122,16 @@ class Frontogenesis3D(Diagnostic):
         \\frac{ \\partial \\theta }{ \\partial y}
         - \\delta \\frac{ \\partial \\theta }{ \\partial z }\\right) \\right]
         \\end{aligned}
+
+    where :math:`\\delta` is the divergence, i.e. :math:`\\delta = \\frac{ \\partial u }{ \\partial x } +
+    \\frac{ \\partial v }{ \\partial y }`
+
+    Args:
+        u_wind: Zonal wind speeds in m/s
+        v_wind: Meridional wind speeds in m/s
+        geopotential: Geopotential in m^2/s
+        divergence: Horizontal divergence of wind in m/s
+        vector_derivatives: Dictionary containing all 4 velocity derivatives
     """
 
     _u_wind: xr.DataArray
@@ -142,6 +154,10 @@ class Frontogenesis3D(Diagnostic):
         vector_derivatives: dict[VelocityDerivative, xr.DataArray],
     ) -> None:
         super().__init__("F3D")
+        assert VelocityDerivative.DU_DX in vector_derivatives
+        assert VelocityDerivative.DV_DX in vector_derivatives
+        assert VelocityDerivative.DU_DY in vector_derivatives
+        assert VelocityDerivative.DV_DY in vector_derivatives
         self._u_wind = u_wind
         self._v_wind = v_wind
         self._potential_temperature = potential_temperature
@@ -184,6 +200,29 @@ class Frontogenesis3D(Diagnostic):
 
 
 class Frontogenesis2D(Diagnostic):
+    """
+    Two-dimensional frontogenesis CAT diagnostic
+
+    Assuming a constant pressure surface and that the atmosphere is adiabatic, the frontogenesis function can be
+    defined in two dimensions. It is defined in [Bluestein1993]_ (p. 242) as,
+
+    .. math:: F = - \\frac{1}{\\left| \\nabla_{p} \\theta \\right|}
+        \\left[\\left( \\frac{ \\partial \\theta }{ \\partial x }  \\right)^{2} \\frac{ \\partial u }{ \\partial x }
+        + \\frac{ \\partial \\theta }{ \\partial y }\\frac{ \\partial \\theta }{ \\partial x }
+        \\frac{ \\partial v }{ \\partial x }
+        +  \\frac{ \\partial \\theta }{ \\partial x }\\frac{ \\partial \\theta }{ \\partial y }
+        \\frac{ \\partial u }{ \\partial y }
+        + \\left( \\frac{ \\partial \\theta }{ \\partial y }  \\right)^{2} \\frac{ \\partial v }{ \\partial y }\\right]
+
+    where the subscript :math:`p` indicates that the gradient is taken on a constant pressure surface.
+
+    Args:
+        u_wind: Zonal wind speeds in m/s
+        v_wind: Meridional wind speeds in m/s
+        geopotential: Geopotential in m^2/s
+        vector_derivatives: Dictionary containing all 4 velocity derivatives
+    """
+
     _u_wind: xr.DataArray
     _v_wind: xr.DataArray
     _potential_temperature: xr.DataArray
@@ -202,6 +241,10 @@ class Frontogenesis2D(Diagnostic):
         vector_derivatives: dict[VelocityDerivative, xr.DataArray],
     ) -> None:
         super().__init__("F2D")
+        assert VelocityDerivative.DU_DX in vector_derivatives
+        assert VelocityDerivative.DV_DX in vector_derivatives
+        assert VelocityDerivative.DU_DY in vector_derivatives
+        assert VelocityDerivative.DV_DY in vector_derivatives
         self._u_wind = u_wind
         self._v_wind = v_wind
         self._potential_temperature = potential_temperature
@@ -212,13 +255,6 @@ class Frontogenesis2D(Diagnostic):
         self._dv_dy = vector_derivatives[VelocityDerivative.DV_DY]
 
     def _compute(self) -> xr.DataArray:
-        r"""
-        .. math:: F = - \frac{1}{\left| \nabla_{p} \theta \right|} \left[\left( \frac{ \partial \theta }{ \partial x }
-        \right)^{2} \frac{ \partial u }{ \partial x } + \frac{ \partial \theta }{ \partial y }
-        \frac{ \partial \theta }{ \partial x }\frac{ \partial v }{ \partial x } + \frac{ \partial \theta }{ \partial x }
-        \frac{ \partial \theta }{ \partial y }\frac{ \partial u }{ \partial y } +
-        \left( \frac{ \partial \theta }{ \partial y }  \right)^{2} \frac{ \partial v }{ \partial y }\right]
-        """
         dtheta: dict[SpatialGradientKeys, xr.DataArray] = spatial_gradient(
             self._potential_temperature, "deg", GradientMode.GEOSPATIAL
         )
@@ -282,6 +318,25 @@ class Endlich(Diagnostic):
 
 
 class TurbulenceIndex1(Diagnostic):
+    """
+    Turbulence Index 1 CAT diagnostic
+
+    Turbulence Index 1 was proposed by [Ellrod1992]_ and is a simplification of the Petterssen's frontogenesis function
+    from [Mancuso1966]_ which relates the rate of change in temperature gradient on a constant pressure surface due
+    to deformation. This is then related to the vertical wind shear through the thermal wind relation. Thus,
+    Turbulence Index 1 is a kinematic expression relating deformation and vertical wind shear defined as,
+
+    .. math:: \\text{TI1} = S_{v} \\times \\text{DEF}
+
+    where :math:`S_{v}` is the vertical wind shear
+
+    Args:
+        u_wind: Zonal wind speeds in m/s
+        v_wind: Meridional wind speeds in m/s
+        geopotential: Geopotential in m^2/s
+        total_deformation: Total deformation in m/s
+    """
+
     _u_wind: xr.DataArray
     _v_wind: xr.DataArray
     _geopotential: xr.DataArray
@@ -302,6 +357,26 @@ class TurbulenceIndex1(Diagnostic):
 
 
 class TurbulenceIndex2(Diagnostic):
+    """
+    Turbulence Index 2 CAT diagnostic
+
+    Turbulence Index 2 was proposed by [Ellrod1992]_ and is a simplification of the Petterssen's frontogenesis function
+    from [Mancuso1966]_ which relates the rate of change in temperature gradient on a constant pressure surface due
+    to deformation. This is then related to the vertical wind shear through the thermal wind relation. Turbulence
+    Index 2 retains the divergence term and is defined as,
+
+    .. math:: \\text{TI2} = S_{v} \\times ( \\text{DEF} - \\delta)
+
+    where :math:`S_{v}` is the vertical wind shear, :math:`\\delta` is the divergence,
+    i.e. :math:`\\delta = \\frac{ \\partial u }{ \\partial x } + \\frac{ \\partial v }{ \\partial y }`
+
+    Args:
+        u_wind: Zonal wind speeds in m/s
+        v_wind: Meridional wind speeds in m/s
+        geopotential: Geopotential in m^2/s
+        total_deformation: Total deformation in m/s
+    """
+
     _u_wind: xr.DataArray
     _v_wind: xr.DataArray
     _du_dx: xr.DataArray
@@ -320,6 +395,10 @@ class TurbulenceIndex2(Diagnostic):
         divergence: xr.DataArray,
     ) -> None:
         super().__init__("TI2")
+        if VelocityDerivative.DU_DX not in vector_derivatives:
+            raise ValueError("Vector derivatives must have DU_DX")
+        if VelocityDerivative.DV_DY not in vector_derivatives:
+            raise ValueError("Vector derivatives must have DV_DY")
         self._u_wind = u_wind
         self._v_wind = v_wind
         self._du_dx = vector_derivatives[VelocityDerivative.DU_DX]
@@ -336,7 +415,9 @@ class TurbulenceIndex2(Diagnostic):
 
 class Ncsu1(Diagnostic):
     """
-    NCSU1 CAT diagnostic was developed by analysing 44 cases of severe turbulence at the synoptic-scale
+    NCSU1 CAT diagnostic as defined in [Sharman2016]_
+
+    NCSU1 was developed by analysing 44 cases of severe turbulence at the synoptic-scale
     (in [Kaplan2005a]_ and [Kaplan2005b]_) to develop an index for forecasting severe turbulence.
     It is defined in [Kaplan2006]_ as,
 
@@ -346,7 +427,6 @@ class Ncsu1(Diagnostic):
 
     .. math:: \\text{NCSU1} = \\frac{1}{\\max(\\text{Ri}, 10^{-5})} \\max \\left(u \\frac{ \\partial u }{ \\partial x }
         + v \\frac{ \\partial v }{ \\partial y } \\right) \\left| \\nabla \\zeta \\right|
-
     """
 
     RI_THRESHOLD: float = 1e-5
@@ -603,6 +683,8 @@ class DirectionalShear(Diagnostic):
 
 class NestedGridModel1(Diagnostic):
     """
+    Nested Grid Model 1 CAT Diagnostic
+
     Nested Grid Model 1 was introduced in [Reap1996]_. The equation implemented here is as defined in [Sharman 2016]_
 
     .. math:: \\text{NGM1} = \\left| \\mathbf{v} \\right| \\times \\text{DEF}
@@ -629,6 +711,8 @@ class NestedGridModel1(Diagnostic):
 
 class NestedGridModel2(Diagnostic):
     """
+    Nested Grid Model 2 CAT Diagnostic
+
     Nested Grid Model 2 was introduced in [Reap1996]_. The equation implemented here is as defined in [Sharman 2016]_
 
     .. math:: \\text{NGM2} = \\left| \\frac{ \\partial T }{ \\partial z }  \\right| \\times \\text{DEF}
@@ -658,6 +742,8 @@ class NestedGridModel2(Diagnostic):
 
 class BrownIndex1(Diagnostic):
     """
+    Brown Index 1 CAT diagnostic
+
     Brown Index 1 is a simplifaction of [Roach1970]_'s Richardson tendency equation. It was introduced in [Brown1973]_
     and is defined as,
 
@@ -683,6 +769,8 @@ class BrownIndex1(Diagnostic):
 
 class BrownIndex2(Diagnostic):
     """
+    Brown Index 2 CAT diagnostic
+
     Brown Index 2 estimates the energy dissipation rate (EDR) of turbulence by using [Roach1970]_'s conclusion that
     when considering the overall conservation of energy in a turbulent layer, the large scale deformation which
     maintain turbulence dissipate energy at a prescribed rate such that the Richardson number is limited to a constant
@@ -692,6 +780,12 @@ class BrownIndex2(Diagnostic):
         \\frac{1}{24} \\frac{d\\text{Ri}}{dt} S_{v}^{2} & \\frac{d\\text{Ri}}{dt} > 0 \\\\
         0 & \\frac{d\\text{Ri}}{dt} \\leq 0
         \\end{cases}
+
+    Args:
+        u_wind: Zonal wind speeds in m/s
+        v_wind: Meridional wind speeds in m/s
+        brown_index_1: Computed value of the BrownIndex1 diagnostic
+        geopotential: Geopotential in m^2/s
     """
 
     _u_wind: xr.DataArray
@@ -715,6 +809,8 @@ class BrownIndex2(Diagnostic):
 
 class NegativeVorticityAdvection(Diagnostic):
     """
+    Negative vorticity advection CAT diagnostic
+
     Negative vorticity advection diagnostic defined in [Sharman2016]_ as,
 
     .. math:: \\text{NVA} = \\max \\left\\{ \\left[ -u \\frac{ \\partial  }{ \\partial x } (\\zeta + f) -
@@ -782,6 +878,8 @@ class DuttonIndex(Diagnostic):
 
 class EDRLunnon(Diagnostic):
     """
+    EDR Lunnon CAT diagnostic
+
     EDR Lunnon is a simplification of Roach's EDR predictor by [GillBuchanan2014]_, it ignores the temperature term in
     Roach's equation [Roach1970]_ and multiplies it by vertical wind shear squared
     (expressed in terms of change in pressure instead of altitude). It is defined as,
@@ -824,6 +922,13 @@ class EDRLunnon(Diagnostic):
 
 
 class DiagnosticFactory:
+    """
+    Factory class for diagnostic calculations.
+
+    Args:
+        data: CATData instance to use to instantiate the various diagnostics
+    """
+
     _data: "CATData"
     _richardson: xr.DataArray | None = None
 
