@@ -67,6 +67,10 @@ amdar = [
     "netcdf4",
     "pyarrow",
 ]
+plot = [
+    "cartopy",
+    "matplotlib",
+]
 
 [tool.pyright]
 venvPath = "."
