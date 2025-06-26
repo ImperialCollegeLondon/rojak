@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, List, Literal, Mapping, NamedTu
 
 import dask_geopandas as dgpd
 import numpy as np
+import pandas as pd
 import xarray as xr
 
 from rojak.core import derivatives
@@ -392,6 +393,36 @@ class AmdarDataRepository(ABC):
     @abstractmethod
     def _time_column_rename_mapping(self) -> dict[str, str]: ...
 
+    @staticmethod
+    def expand_grid_bounds(grid: "dgpd.GeoDataFrame") -> "dd.DataFrame":
+        def expand_bounds(row: "Polygon") -> pd.Series:
+            min_lon, min_lat, max_lon, max_lat = row.bounds
+            return pd.Series(
+                {
+                    "min_lon": np.float64(min_lon),
+                    "min_lat": np.float64(min_lat),
+                    "max_lon": np.float64(max_lon),
+                    "max_lat": np.float64(max_lat),
+                }
+            )
+
+        column_names: list[str] = ["min_lon", "min_lat", "max_lon", "max_lat"]
+        return grid.to_dask_dataframe()["geometry"].apply(
+            expand_bounds,
+            meta=pd.DataFrame({col_name: pd.Series(dtype=np.float64) for col_name in column_names}, dtype=np.float64),
+        )
+
+    def join_grid_bounds(self, dataframe: "dd.DataFrame", grid: "dgpd.GeoDataFrame") -> "dgpd.GeoDataFrame":
+        """
+        Combines data with the grid cell by expanding the Polygon's bounds into 4 columns - min_lon, min_lat,
+        max_lon, max_lat.
+
+        Returns:
+            dd.DataFrame: Combined data frame with the
+
+        """
+        return dataframe.join(self.expand_grid_bounds(grid), on="index_right", how="left")
+
     def to_amdar_turbulence_data(
         self, target_region: "SpatialDomain | Polygon", grid_size: float, target_pressure_levels: Sequence[float]
     ) -> "AmdarTurbulenceData":
@@ -418,12 +449,8 @@ class AmdarDataRepository(ABC):
         )
 
         grid: "dgpd.GeoDataFrame" = create_grid_data_frame(target_region, grid_size)
-        grid_dataframe: "dd.DataFrame" = grid.persist()
         within_region: "dgpd.GeoDataFrame" = as_geo_dataframe(raw_data_frame).sjoin(grid).optimize()
-        within_region["grid_box"] = within_region["index_right"].apply(
-            lambda row: grid_dataframe.loc[row, "geometry"], meta=("grid_box", object)
-        )
-        # within_region = within_region.drop(columns=["index_right"])
+        within_region = self.join_grid_bounds(within_region, grid)
         if self._time_column_rename_mapping():
             within_region = within_region.rename(columns=self._time_column_rename_mapping())
 
@@ -437,7 +464,7 @@ class AmdarTurbulenceData(ABC):
     MINIMUM_ALTITUDE: ClassVar[float] = 8500  # Approx. 28,000 ft
 
     def __init__(self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame") -> None:
-        required_columns = {"grid_box", "datetime", "index_right", "level", "geometry"}
+        required_columns = {"datetime", "index_right", "level", "geometry", "min_lat", "max_lat", "min_lon", "max_lon"}
         assert required_columns.issubset(data_frame.columns), (
             f"Columns {required_columns - set(data_frame.columns)} from missing the data frame"
         )
