@@ -13,7 +13,6 @@ from rojak.utilities.types import Coordinate
 if TYPE_CHECKING:
     import xarray as xr
     from numpy.typing import NDArray
-    from shapely.geometry import Polygon
 
     from rojak.core.data import AmdarTurbulenceData
     from rojak.turbulence.diagnostic import EvaluationDiagnosticSuite
@@ -251,21 +250,26 @@ class DiagnosticsAmdarDataHarmoniser:
             raise NotWithinTimeFrameError("Time window is not within time coordinate of met data")
 
     def _check_grids_match(self, representative_array: "xr.DataArray") -> None:
-        latitudes = set(representative_array["latitude"].values)
-        longitudes = set(representative_array["longitude"].values)
+        """
+        Method checks that grid of dataframe matches that of the representative array. As the coordinates of the
+        array are numpy arrays, this is a potentially expensive as a large dask graph is sent
 
-        def check_row(geom: "Polygon") -> bool:
-            min_lon, min_lat, max_lon, max_lat = geom.bounds
-            if (
-                min_lon not in longitudes
-                or min_lat not in latitudes
-                or max_lon not in longitudes
-                or max_lat not in latitudes
-            ):
-                raise ValueError("Grid points are not coordinates of met data")
-            return True
+        Args:
+            representative_array: A data array that has the coordinates longitude and latitude.
 
-        self._amdar_data.grid["geometry"].apply(check_row, meta=("is_valid", bool)).compute()
+        Returns:
+            None
+        """
+        assert {"min_lon", "max_lon", "min_lat", "max_lat"}.issubset(self._amdar_data.data_frame.columns)
+        assert {"latitude", "longitude"}.issubset(representative_array.coords)
+        latitudes = representative_array["latitude"].to_series()
+        longitudes = representative_array["longitude"].to_series()
+
+        for column in ["min_lon", "max_lon", "min_lat", "max_lat"]:
+            if column.endswith("lon"):
+                assert self._amdar_data.data_frame[column].unique().isin(longitudes).all().compute()
+            else:  # endswith("lat")
+                assert self._amdar_data.data_frame[column].unique().isin(latitudes).all().compute()
 
     def _construct_meta_dataframe(
         self, strategies: list[DiagnosticsAmdarHarmonisationStrategy], num_partitions: int

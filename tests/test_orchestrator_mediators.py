@@ -5,6 +5,7 @@ import pytest
 import xarray as xr
 from shapely import box
 
+from rojak.core.data import expand_grid_bounds
 from rojak.core.geometric import create_grid_data_frame
 from rojak.orchestrator.configuration import TurbulenceDiagnostics, TurbulenceSeverity
 from rojak.orchestrator.mediators import (
@@ -76,18 +77,20 @@ def test_diagnostic_amdar_data_harmoniser_execute_harmonisation_fail_on_grid(
         suite_mock, "computed_values_as_dict", return_value={"unused_key": representative_array}
     )
     amdar_data_mock = mocker.Mock()
-    mocker.patch.object(amdar_data_mock, "grid", new=create_grid_data_frame(box(-130, 25, 28, 60), 0.25))
+    mocker.patch.object(
+        amdar_data_mock, "data_frame", new=expand_grid_bounds(create_grid_data_frame(box(-130, 25, 28, 60), 0.25))
+    )
 
     harmoniser = DiagnosticsAmdarDataHarmoniser(amdar_data_mock, suite_mock)
     time_window_check_mock = mocker.patch.object(harmoniser, "_check_time_window_within_met_data")
 
-    with pytest.raises(ValueError, match="Grid points are not coordinates of met data") as excinfo:
+    with pytest.raises(AssertionError) as excinfo:
         harmoniser.execute_harmonisation(
             [DiagnosticsAmdarHarmonisationStrategyOptions.EDR],
             Limits(np.datetime64("1970-01-01"), np.datetime64("1980-01-01")),
         )
 
-    assert excinfo.type is ValueError
+    assert excinfo.type is AssertionError
     time_window_check_mock.assert_called_once()
     computed_vals_mock.assert_called_once()
 
