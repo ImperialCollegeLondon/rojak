@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from rojak.core.indexing import get_regular_grid_spacing, make_value_based_slice, map_values_to_coordinate_index
+from rojak.core.indexing import get_regular_grid_spacing, make_value_based_slice, map_values_to_nearest_coordinate_index
 
 if TYPE_CHECKING:
     import dask.dataframe as dd
@@ -148,4 +148,4 @@ def test_get_regular_grid_spacing_not_implemented(array: "NDArray") -> None:
 )
 def test_map_value_to_coordinate_index_fails(series: "dd.Series", array: "NDArray", window, expected) -> None:
     with expected:
-        map_values_to_coordinate_index(series, array, valid_window=window)
+        map_values_to_nearest_coordinate_index(series, array, valid_window=window)

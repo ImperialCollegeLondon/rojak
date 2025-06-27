@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from rojak.core.calculations import bilinear_interpolation
-from rojak.core.indexing import map_values_to_coordinate_index
+from rojak.core.indexing import map_values_to_nearest_coordinate_index
 from rojak.utilities.types import Coordinate
 
 if TYPE_CHECKING:
@@ -307,7 +307,7 @@ class DiagnosticsAmdarDataHarmoniser:
         self, dataframe: "dd.DataFrame", datetime_series: "dd.Series", time_coordinate: "NDArray"
     ) -> "dd.DataFrame":
         return dataframe.assign(
-            time_index=map_values_to_coordinate_index(
+            time_index=map_values_to_nearest_coordinate_index(
                 datetime_series,
                 time_coordinate,
                 valid_window=self.TIME_WINDOW_DELTA,
