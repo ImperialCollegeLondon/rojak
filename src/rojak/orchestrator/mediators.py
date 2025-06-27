@@ -53,11 +53,11 @@ class DiagnosticsAmdarHarmonisationStrategy(ABC):
     def name_suffix(self) -> str:
         return self._name_suffix
 
-    def get_nearest_values(self, indexer: SpatialTemporalIndex, values_array: "xr.DataArray") -> "xr.DataArray":
-        closest_values: "xr.DataArray" = values_array.isel(time=indexer.obs_time_index).sel(
+    @staticmethod
+    def get_nearest_values(indexer: SpatialTemporalIndex, values_array: "xr.DataArray") -> "xr.DataArray":
+        return values_array.isel(time=indexer.obs_time_index).sel(
             longitude=indexer.longitudes, latitude=indexer.latitudes, pressure_level=indexer.level
         )
-        return closest_values
 
     def harmonise(self, indexer: SpatialTemporalIndex, observation_coord: Coordinate) -> dict:
         output = {}
