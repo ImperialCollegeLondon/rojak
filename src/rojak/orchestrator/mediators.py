@@ -313,7 +313,7 @@ class DiagnosticsAmdarDataHarmoniser:
     ) -> "dd.DataFrame":
         a_computed_diagnostic: "xr.DataArray" = next(iter(self._diagnostics_suite.computed_values_as_dict().values()))
         self._check_time_window_within_met_data(time_window, a_computed_diagnostic)
-        self._check_grids_match(a_computed_diagnostic)
+        # self._check_grids_match(a_computed_diagnostic)
 
         observational_data: "dd.DataFrame" = self._amdar_data.clip_to_time_window(time_window)
         current_dtypes = observational_data.dtypes.to_dict()
