@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from dask.distributed import Client
 from rich.logging import RichHandler
 
 from rojak.cli import data_interface
@@ -56,8 +57,6 @@ def run(
 ) -> None:
     if log_level is not None:
         logging.basicConfig(level=log_level.upper(), handlers=[RichHandler(rich_tracebacks=True)])
-
-    from dask.distributed import Client
 
     client = Client()
     context = ConfigContext.from_yaml(config_file)
