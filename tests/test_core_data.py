@@ -61,14 +61,14 @@ def make_select_domain_dummy_data():
     return _make_select_domain_dummy_data
 
 
-def test_select_spatial_domain_no_slicing(make_select_domain_dummy_data):
+def test_select_spatial_domain_no_slicing(make_select_domain_dummy_data) -> None:
     domain = SpatialDomain(minimum_latitude=-90, maximum_latitude=90, minimum_longitude=-180, maximum_longitude=180)
     dummy_data = make_select_domain_dummy_data({})
     down_selected = Era5Data(dummy_data).select_domain(domain, dummy_data)
     xrt.assert_equal(dummy_data, down_selected)
 
 
-def test_select_domain_emtpy_slice(make_select_domain_dummy_data):
+def test_select_domain_emtpy_slice(make_select_domain_dummy_data) -> None:
     domain = SpatialDomain(
         minimum_latitude=0,
         maximum_latitude=90,
@@ -123,7 +123,9 @@ def test_select_domain_emtpy_slice(make_select_domain_dummy_data):
         ),
     ],
 )
-def test_select_domain_slice_longitude(make_select_domain_dummy_data, domain, new_longitude_array, longitude_slice):
+def test_select_domain_slice_longitude(
+    make_select_domain_dummy_data, domain, new_longitude_array, longitude_slice
+) -> None:
     dummy_data = make_select_domain_dummy_data({"longitude": new_longitude_array})
     down_selected = Era5Data(dummy_data).select_domain(domain, dummy_data)
     xrt.assert_equal(
@@ -180,7 +182,9 @@ def test_select_domain_slice_longitude(make_select_domain_dummy_data, domain, ne
         ),
     ],
 )
-def test_select_domain_slice_latitude(make_select_domain_dummy_data, domain, new_latitude_array, latitude_slice):
+def test_select_domain_slice_latitude(
+    make_select_domain_dummy_data, domain, new_latitude_array, latitude_slice
+) -> None:
     dummy_data = make_select_domain_dummy_data({"latitude": new_latitude_array})
     down_selected = Era5Data(dummy_data).select_domain(domain, dummy_data)
     xrt.assert_equal(
@@ -286,7 +290,7 @@ def test_select_domain_slice_latitude(make_select_domain_dummy_data, domain, new
         ),
     ],
 )
-def test_select_domain_slice_level(make_select_domain_dummy_data, domain, new_level, level_slice):
+def test_select_domain_slice_level(make_select_domain_dummy_data, domain, new_level, level_slice) -> None:
     dummy_data = make_select_domain_dummy_data({"level": new_level})
     down_selected = Era5Data(dummy_data).select_domain(domain, dummy_data)
     xrt.assert_equal(
@@ -296,7 +300,7 @@ def test_select_domain_slice_level(make_select_domain_dummy_data, domain, new_le
     assert down_selected["a"].shape == (10, 10, 24, 2)
 
 
-def test_select_domain_shift_longitude(make_select_domain_dummy_data):
+def test_select_domain_shift_longitude(make_select_domain_dummy_data) -> None:
     dummy_data = make_select_domain_dummy_data({"longitude": np.linspace(0, 350, 10)})
     assert dummy_data["a"]["longitude"].min() == 0
     assert dummy_data["a"]["longitude"].max() == 350  # noqa: PLR2004

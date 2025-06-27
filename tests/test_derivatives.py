@@ -47,7 +47,7 @@ if TYPE_CHECKING:
         pytest.param(da.asarray([1, 2, 3, 4, 9]), None, True, id="No coord dask"),
     ],
 )
-def test_is_in_degrees(values, coordinate, expected):
+def test_is_in_degrees(values, coordinate, expected) -> None:
     outcome = derivatives.is_in_degrees(np.asarray(values), coordinate)
     assert outcome == expected
 
@@ -201,7 +201,7 @@ def create_random_lat_lon_dataarray():
         ),
     ],
 )
-def test_get_dimension_number(create_random_lat_lon_dataarray, dim_name, expectation):
+def test_get_dimension_number(create_random_lat_lon_dataarray, dim_name, expectation) -> None:
     with expectation as e:
         dim_num: int = derivatives.get_dimension_number(dim_name, create_random_lat_lon_dataarray)
         assert dim_num == e
@@ -290,7 +290,7 @@ def test_divergence(create_random_lat_lon_dataarray) -> None:
         ),
     ],
 )
-def test_get_projection_correction_factors_error(lat, lon, matches):
+def test_get_projection_correction_factors_error(lat, lon, matches) -> None:
     with pytest.raises(ValueError, match=matches) as excinfo:
         derivatives.get_projection_correction_factors(lat, lon)
     assert excinfo.type is ValueError
