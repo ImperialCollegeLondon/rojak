@@ -297,6 +297,25 @@ def as_geo_dataframe(data_frame: "dd.DataFrame") -> dgpd.GeoDataFrame:
     return gddf.set_crs("epsg:4326")
 
 
+def expand_grid_bounds(grid: "dgpd.GeoDataFrame") -> "dd.DataFrame":
+    def expand_bounds(row: "Polygon") -> pd.Series:
+        min_lon, min_lat, max_lon, max_lat = row.bounds
+        return pd.Series(
+            {
+                "min_lon": np.float64(min_lon),
+                "min_lat": np.float64(min_lat),
+                "max_lon": np.float64(max_lon),
+                "max_lat": np.float64(max_lat),
+            }
+        )
+
+    column_names: list[str] = ["min_lon", "min_lat", "max_lon", "max_lat"]
+    return grid.to_dask_dataframe()["geometry"].apply(
+        expand_bounds,
+        meta=pd.DataFrame({col_name: pd.Series(dtype=np.float64) for col_name in column_names}, dtype=np.float64),
+    )
+
+
 class AmdarDataRepository(ABC):
     """
     Abstract AMDAR data repository interface.
@@ -395,25 +414,6 @@ class AmdarDataRepository(ABC):
     @abstractmethod
     def _time_column_rename_mapping(self) -> dict[str, str]: ...
 
-    @staticmethod
-    def _expand_grid_bounds(grid: "dgpd.GeoDataFrame") -> "dd.DataFrame":
-        def expand_bounds(row: "Polygon") -> pd.Series:
-            min_lon, min_lat, max_lon, max_lat = row.bounds
-            return pd.Series(
-                {
-                    "min_lon": np.float64(min_lon),
-                    "min_lat": np.float64(min_lat),
-                    "max_lon": np.float64(max_lon),
-                    "max_lat": np.float64(max_lat),
-                }
-            )
-
-        column_names: list[str] = ["min_lon", "min_lat", "max_lon", "max_lat"]
-        return grid.to_dask_dataframe()["geometry"].apply(
-            expand_bounds,
-            meta=pd.DataFrame({col_name: pd.Series(dtype=np.float64) for col_name in column_names}, dtype=np.float64),
-        )
-
     def join_grid_bounds(self, dataframe: "dd.DataFrame", grid: "dgpd.GeoDataFrame") -> "dgpd.GeoDataFrame":
         """
         Combines data with the grid cell by expanding the Polygon's bounds into 4 columns - min_lon, min_lat,
@@ -423,7 +423,7 @@ class AmdarDataRepository(ABC):
             dd.DataFrame: Combined data frame with the
 
         """
-        return dataframe.join(self._expand_grid_bounds(grid), on="index_right", how="left")
+        return dataframe.join(expand_grid_bounds(grid), on="index_right", how="left")
 
     def to_amdar_turbulence_data(
         self, target_region: "SpatialDomain | Polygon", grid_size: float, target_pressure_levels: Sequence[float]
