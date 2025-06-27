@@ -108,7 +108,7 @@ def test_calibration_stage_launch_no_calibration_data(
 
 def test_calibration_stage_launch_calibration_data(
     mocker: "MockerFixture", tmp_path_factory, calibration_config_data_dir
-):
+) -> None:
     calibration = CalibrationStage(
         no_phases_calibration(calibration_config_data_dir),
         SpatialDomain(maximum_latitude=90, maximum_longitude=90, minimum_longitude=0, minimum_latitude=0),
@@ -146,7 +146,7 @@ def dump_to_file(tmp_path_factory, calibration_config_data_dir, mocker: "MockerF
 
 def test_calibration_stage_perform_calibration(
     mocker: "MockerFixture", tmp_path_factory, calibration_config_data_dir, output_thresholds
-):
+) -> None:
     start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
     calibration = CalibrationStage(
         threshold_phases_calibration(calibration_config_data_dir),
@@ -180,7 +180,7 @@ def test_calibration_stage_perform_calibration(
     assert instantiated_from_generated == output_thresholds
 
 
-def test_calibration_stage_load_thresholds_from_file(tmp_path_factory, dump_to_file, output_thresholds):
+def test_calibration_stage_load_thresholds_from_file(tmp_path_factory, dump_to_file, output_thresholds) -> None:
     start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
     calibration = CalibrationStage(
         threshold_phases_calibration(
@@ -196,7 +196,7 @@ def test_calibration_stage_load_thresholds_from_file(tmp_path_factory, dump_to_f
 
 def test_calibration_stage_compute_distribution_params(
     mocker: "MockerFixture", tmp_path_factory, calibration_config_data_dir, output_dist_params
-):
+) -> None:
     start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
     calibration = CalibrationStage(
         dist_param_phases_calibration(calibration_config_data_dir),

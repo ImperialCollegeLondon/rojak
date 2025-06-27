@@ -20,7 +20,7 @@ def dummy_turbulence_percentile_configs_with_none() -> TurbulenceThresholds:
     return TurbulenceThresholds(light=90, moderate=95, severe=99)
 
 
-def test_turbulence_intensity_threshold_post_processor():
+def test_turbulence_intensity_threshold_post_processor() -> None:
     processor: TurbulenceIntensityThresholds = TurbulenceIntensityThresholds(
         dummy_turbulence_percentile_configs(), xr.DataArray(dummy_data_for_percentiles_flattened())
     )
@@ -39,7 +39,7 @@ def test_turbulence_intensity_threshold_post_processor():
     assert processor_with_none.execute() == dummy_turbulence_percentile_configs_with_none()
 
 
-def test_histogram_distribution_serial_and_parallel_match():
+def test_histogram_distribution_serial_and_parallel_match() -> None:
     serial_data_array = xr.DataArray(np.arange(10001))
     parallel_data_array = xr.DataArray(da.asarray(np.arange(10001), chunks=100))
     assert is_dask_collection(parallel_data_array)

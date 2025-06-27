@@ -66,7 +66,7 @@ def test_context_from_yaml_basic(
     basic_context_yaml_file,
     basic_context_yaml_file_create_output_plots_on_validation,
     is_created,
-):
+) -> None:
     if is_created:
         context = configuration.Context.from_yaml(basic_context_yaml_file)
     else:
@@ -563,7 +563,7 @@ def test_meteorology_config(dict_to_file, expectation) -> None:
 #         assert e.type is expectation.expected_exception
 
 
-def test_turbulence_thresholds_all_none():
+def test_turbulence_thresholds_all_none() -> None:
     with pytest.raises(InvalidConfigurationError) as e:
         configuration.TurbulenceThresholds(
             light=None, light_to_moderate=None, moderate=None, moderate_to_severe=None, severe=None
@@ -663,7 +663,7 @@ def test_get_bounds_all_valid(
         ),
     ],
 )
-def test_get_bounds_no_next(thresholds, target_severity):
+def test_get_bounds_no_next(thresholds, target_severity) -> None:
     with pytest.raises(StopIteration) as e:
         thresholds.get_bounds(target_severity, TurbulenceThresholdMode.BOUNDED)
     assert e.type is StopIteration
@@ -683,7 +683,7 @@ def all_none_except_light_turbulence_thresholds() -> TurbulenceThresholds:
         TurbulenceSeverity.SEVERE,
     ],
 )
-def test_get_bounds_threshold_is_none(target_severity, all_none_except_light_turbulence_thresholds):
+def test_get_bounds_threshold_is_none(target_severity, all_none_except_light_turbulence_thresholds) -> None:
     with pytest.raises(
         ValueError, match="Attempting to retrieve threshold value for a severity that is None"
     ) as e_bounded:

@@ -29,24 +29,24 @@ def generate_random_array_pair() -> Tuple[xr.DataArray, xr.DataArray]:
     )
 
 
-def test_shear_deformation(generate_random_array_pair):
+def test_shear_deformation(generate_random_array_pair) -> None:
     x, y = generate_random_array_pair
     xrt.assert_equal(x + y, shearing_deformation(x, y))
 
 
-def test_shearing_deformation(generate_random_array_pair):
+def test_shearing_deformation(generate_random_array_pair) -> None:
     x, y = generate_random_array_pair
     xrt.assert_equal(x - y, stretching_deformation(x, y))
 
 
 @pytest.mark.parametrize("function_to_test", [magnitude_of_vector, wind_speed])
-def test_magnitude_of_vector_squared(generate_random_array_pair, function_to_test):
+def test_magnitude_of_vector_squared(generate_random_array_pair, function_to_test) -> None:
     x, y = generate_random_array_pair
     xrt.assert_equal(x * x + y * y, function_to_test(x, y, is_squared=True))
 
 
 @pytest.mark.parametrize("function_to_test", [magnitude_of_vector, wind_speed])
-def test_magnitude_of_vector_default(generate_random_array_pair, function_to_test):
+def test_magnitude_of_vector_default(generate_random_array_pair, function_to_test) -> None:
     x, y = generate_random_array_pair
     xrt.assert_equal(np.hypot(x, y), function_to_test(x, y))
     xrt.assert_equal(np.hypot(x, y), function_to_test(x, y, is_abs=True))
@@ -58,13 +58,13 @@ def test_magnitude_of_vector_default(generate_random_array_pair, function_to_tes
 
 
 @pytest.mark.parametrize("function_to_test", [magnitude_of_vector, wind_speed])
-def test_magnitude_of_vector_abs_squared(generate_random_array_pair, function_to_test):
+def test_magnitude_of_vector_abs_squared(generate_random_array_pair, function_to_test) -> None:
     x, y = generate_random_array_pair
     xrt.assert_equal(np.abs(x * x) + np.abs(y * y), function_to_test(x, y, is_abs=True, is_squared=True))
     xrt.assert_equal(np.abs(x * x) + np.abs(y * y), function_to_test(x, y, is_squared=True))
 
 
-def test_total_deformation(generate_random_array_pair):
+def test_total_deformation(generate_random_array_pair) -> None:
     x, y = generate_random_array_pair
     xrt.assert_equal(np.hypot(x - x, y + y), total_deformation(x, y, y, x, False))
     xrt.assert_equal(np.hypot(x - y, x + y), total_deformation(x, y, x, y, False))
@@ -79,13 +79,13 @@ def test_total_deformation(generate_random_array_pair):
     xrt.assert_equal((y - y) ** 2 + (y + y) ** 2, total_deformation(y, y, y, y, True))
 
 
-def test_vorticity(generate_random_array_pair):
+def test_vorticity(generate_random_array_pair) -> None:
     x, y = generate_random_array_pair
     xrt.assert_equal(x - y, vertical_component_vorticity(x, y))
     xrt.assert_equal(x - y, stretching_deformation(x, y))
 
 
-def test_potential_temperature_ncl_values():
+def test_potential_temperature_ncl_values() -> None:
     # Values from https://www.ncl.ucar.edu/Document/Functions/Contributed/pot_temp.shtml
     temperature = xr.DataArray([302.45, 301.25, 296.65, 294.05, 291.55, 289.05, 286.25, 283.25, 279.85, 276.25, 272.65,
                                 268.65, 264.15, 258.35, 251.65, 243.45, 233.15, 220.75, 213.95, 206.65, 199.05, 194.65,
@@ -101,7 +101,7 @@ def test_potential_temperature_ncl_values():
     xrt.assert_allclose(theta, potential_temperature(temperature, pressure), atol=0.8)
 
 
-def test_potential_temperature_metpy_values():
+def test_potential_temperature_metpy_values() -> None:
     # https://github.com/Unidata/MetPy/blob/5a009293896d3fd14fe52718726c29b6c59e941e/tests/calc/test_thermo.py#L122
     temperature = xr.DataArray([278.0, 283.0, 291.0, 298.0])
     pressure = xr.DataArray([900.0, 500.0, 300.0, 100.0])
@@ -109,7 +109,7 @@ def test_potential_temperature_metpy_values():
     xrt.assert_allclose(theta, potential_temperature(temperature, pressure))
 
 
-def test_wind_direction():
+def test_wind_direction() -> None:
     # Values from https://www.ncl.ucar.edu/Document/Functions/Contributed/wind_direction.shtml
     u = xr.DataArray([10, 0, 0, -10, 10, 10, -10, -10, 0])
     v = xr.DataArray([0, 10, -10, 0, 10, -10, 10, -10, 0])
@@ -117,7 +117,7 @@ def test_wind_direction():
     xrt.assert_allclose(direction, np.rad2deg(wind_direction(u, v)))
 
 
-def test_coriolis_param_and_derivative():
+def test_coriolis_param_and_derivative() -> None:
     # Values from https://www.ncl.ucar.edu/Document/Functions/Contributed/coriolis_param.shtml
     single_val = xr.DataArray([35])
     single_param = xr.DataArray([8.365038e-05])
@@ -131,7 +131,7 @@ def test_coriolis_param_and_derivative():
     xrt.assert_allclose(param / EARTH_AVG_RADIUS, latitudinal_derivative(coriolis_parameter(multiple_vals)))
 
 
-def test_coriolis_param_and_derivative_ncl_rossby_values():
+def test_coriolis_param_and_derivative_ncl_rossby_values() -> None:
     # Values from https://www.ncl.ucar.edu/Document/Functions/Contributed/beta_dfdy_rossby.shtml
     latitudes = xr.DataArray(np.arange(-90, 95, 5))
     coriolis = xr.DataArray([-1.46E-04, -1.45E-04, -1.44E-04, -1.41E-04, -1.37E-04, -1.32E-04, -1.26E-04, -1.19E-04,
@@ -148,7 +148,7 @@ def test_coriolis_param_and_derivative_ncl_rossby_values():
     xrt.assert_allclose(beta, latitudinal_derivative(coriolis_parameter(latitudes)))
 
 
-def test_direction_class_type(generate_random_array_pair):
+def test_direction_class_type(generate_random_array_pair) -> None:
     arr, _ = generate_random_array_pair
     assert issubclass(WrapAroundAngleArray, np.ndarray)
     direction: np.ndarray = WrapAroundAngleArray(arr)
@@ -161,7 +161,7 @@ def test_direction_class_type(generate_random_array_pair):
     assert np.asanyarray(direction) is direction
 
 
-def test_direction_cross_zero_single_value():
+def test_direction_cross_zero_single_value() -> None:
     np.testing.assert_array_equal(
         np.array([np.pi / 2]),
         WrapAroundAngleArray(np.array([np.pi / 4])) - WrapAroundAngleArray(np.array([7.0 * np.pi / 4])),
@@ -172,7 +172,7 @@ def test_direction_cross_zero_single_value():
     )
 
 
-def test_direction_cross_zero_array():
+def test_direction_cross_zero_array() -> None:
     initial: np.ndarray = np.array([np.pi / 4, 1.0, np.pi / 2])
     other: np.ndarray = initial + (5 * np.pi / 4)
 
@@ -191,7 +191,7 @@ def angles_data():
     return [np.pi / 4, 1.0, np.pi / 2, 7.0 * np.pi / 4, 0, 0, 5.0 * np.pi / 4]
 
 
-def test_angle_array_gradient(angles_data):
+def test_angle_array_gradient(angles_data) -> None:
     # Values in angle_gradient = WrapAroundAngleArray([0.21460184, 0.39269908, 0.89269908, 0.78539816,
     #                                                  0.39269908, 1.17809725, 3.92699082])
     desired_gradient: WrapAroundAngleArray = np.gradient(WrapAroundAngleArray(np.array(angles_data)))
@@ -207,7 +207,7 @@ def test_angle_array_gradient(angles_data):
 # Add tests which show which cases of nesting WrapAroundAngleArray don't work
 
 
-def test_angle_array_gradient_ufunc_simple(angles_data):
+def test_angle_array_gradient_ufunc_simple(angles_data) -> None:
     target_array: np.ndarray = np.array(
         [
             angles_data,
@@ -241,7 +241,7 @@ def test_angle_array_gradient_ufunc_simple(angles_data):
     np.testing.assert_array_equal(single_thread, parallelised_ufunc.data)
 
 
-def test_direction_behaves_like_normal_abs_sub(generate_random_array_pair):
+def test_direction_behaves_like_normal_abs_sub(generate_random_array_pair) -> None:
     initial_angles, subsequent_angles = generate_random_array_pair
     initial_angles = initial_angles * np.pi
     subsequent_angles = subsequent_angles * np.pi
@@ -267,7 +267,7 @@ def test_direction_behaves_like_normal_abs_sub(generate_random_array_pair):
     )
 
 
-def test_direction_not_behave_like_normal_sub(generate_random_array_pair):
+def test_direction_not_behave_like_normal_sub(generate_random_array_pair) -> None:
     initial_angles, subsequent_angles = generate_random_array_pair
     initial_angles = initial_angles * (np.pi / 2)
     subsequent_angles = subsequent_angles * (3 * np.pi / 2)
