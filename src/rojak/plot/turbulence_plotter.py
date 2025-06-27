@@ -15,6 +15,7 @@
 from typing import TYPE_CHECKING, Tuple
 
 import cartopy.crs as ccrs
+import matplotlib as mpl
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
@@ -134,4 +135,47 @@ def create_turbulence_probability_plot(
     ax.coastlines()
     fig.tight_layout()
     plt.savefig(plot_name)
-    plt.close()
+    plt.close(fig)
+
+
+def create_multi_turbulence_diagnotics_probability_plot(
+    probabilities: "xr.Dataset",
+    diagnostics: list[TurbulenceDiagnostics],
+    plot_name: str,
+    projection: "ccrs.Projection" = _PLATE_CARREE,
+) -> None:
+    names = [str(item) for item in diagnostics]
+    # pyright thinks xr.plot doesn't exists...
+    fg: "xr.plot.FacetGrid" = (  # pyright: ignore [reportAttributeAccessIssue, reportCallIssue]
+        probabilities[names]
+        .to_dataarray("diagnostics")
+        .plot(
+            col="diagnostics",
+            x="longitude",
+            y="latitude",
+            col_wrap=min(3, len(names)),
+            transform=projection,
+            vmin=0,
+            vmax=20,
+            size=4,
+            aspect=1.5,
+            subplot_kws={"projection": projection},
+            cbar_kwargs={
+                "label": "Turbulence Percentage",
+                "orientation": "horizontal",
+                "spacing": "uniform",
+                "pad": 0.02,
+                "shrink": 0.6,
+            },
+            # cmap="Blues",
+            cmap=mpl.colormaps["WhiteBlueGreenYellowRed"].resampled(20),
+            robust=True,
+        )
+    )
+    # fg.set_titles("{value}")
+    for ax, diagnostic in zip(fg.fig.axes, diagnostics, strict=False):  # GeoAxes, TurbulenceDiagnostic
+        ax.set_title(diagnostic_label_mapping[diagnostic])
+        ax.coastlines()
+    # fg.map(lambda: plt.gca().coastlines())
+    fg.fig.savefig(plot_name, bbox_inches="tight")
+    plt.close(fg.fig)
