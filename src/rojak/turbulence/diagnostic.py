@@ -1296,6 +1296,9 @@ class CalibrationDiagnosticSuite(DiagnosticSuite):
         }
 
 
+medium_transport_edr_thresholds: TurbulenceThresholds = TurbulenceThresholds(light=0.1, moderate=0.2, severe=0.45)
+
+
 class EvaluationDiagnosticSuite(DiagnosticSuite):
     _probabilities: Mapping["DiagnosticName", xr.DataArray] | None = None
     _edr: Mapping["DiagnosticName", xr.DataArray] | None = None
@@ -1314,7 +1317,7 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
         severities: list["TurbulenceSeverity"] | None = None,
         pressure_levels: list[float] | None = None,
         probability_thresholds: Mapping["DiagnosticName", "TurbulenceThresholds"] | None = None,
-        edr_thresholds: "TurbulenceThresholds | None" = None,
+        edr_thresholds: TurbulenceThresholds = medium_transport_edr_thresholds,
         threshold_mode: TurbulenceThresholdMode | None = None,
         distribution_parameters: Mapping["DiagnosticName", "DistributionParameters"] | None = None,
     ) -> None:
