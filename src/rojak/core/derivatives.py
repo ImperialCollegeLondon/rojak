@@ -164,10 +164,11 @@ class ProjectionCorrectionFactors(NamedTuple):
     meridional_scale: xr.DataArray
 
 
-# Modified from https://github.com/Unidata/MetPy/blob/6df0cde7893c0f55e44946137263cb322d59aae4/src/metpy/calc/tools.py#L1124
+# Heavily modified from https://github.com/Unidata/MetPy/blob/6df0cde7893c0f55e44946137263cb322d59aae4/src/metpy/calc/tools.py#L1124
 def get_projection_correction_factors(
     latitude: "xr.DataArray",
     longitude: "xr.DataArray",
+    use_dask: bool,
     is_radians: bool = False,
     crs: CRS | None = None,
 ) -> ProjectionCorrectionFactors:
@@ -179,18 +180,30 @@ def get_projection_correction_factors(
     if crs is None:
         crs = CRS("+proj=latlon")
 
-    lon_grid, lat_grid = np.meshgrid(longitude, latitude)
-    factors = Proj(crs).get_factors(lon_grid, lat_grid, radians=is_radians)
+    if use_dask:
+        # pyright is drunk. It thinks that the return type is NoReturn so it is not iterable... ¯\_(ツ)_/¯
+        lon_grid, lat_grid = da.meshgrid(longitude, latitude)  # pyright: ignore[reportGeneralTypeIssues]
+        parallel_scale = da.map_blocks(
+            lambda lon, lat: Proj(crs).get_factors(lon, lat, radians=is_radians).parallel_scale, lon_grid, lat_grid
+        )
+        meridional_scale = da.map_blocks(
+            lambda lon, lat: Proj(crs).get_factors(lon, lat, radians=is_radians).meridional_scale, lon_grid, lat_grid
+        )
+    else:
+        lon_grid, lat_grid = np.meshgrid(longitude, latitude)
+        factors = Proj(crs).get_factors(lon_grid, lat_grid, radians=is_radians)
+        parallel_scale = factors.parallel_scale
+        meridional_scale = factors.meridional_scale
 
     return ProjectionCorrectionFactors(
         xr.DataArray(
-            factors.parallel_scale,
+            parallel_scale,
             dims=(latitude.dims[0], longitude.dims[-1]),
             coords={**latitude.coords, **longitude.coords},
             # coords={"longitude": longitude, "latitude": latitude},
         ),
         xr.DataArray(
-            factors.meridional_scale,
+            meridional_scale,
             dims=(latitude.dims[0], longitude.dims[-1]),
             coords={**latitude.coords, **longitude.coords},
             # coords={"longitude": longitude, "latitude": latitude},
@@ -285,7 +298,7 @@ def spatial_gradient(
     grid_deltas = nominal_grid_spacing(array["latitude"], array["longitude"], units, geod=geod)
     if gradient_mode == GradientMode.GEOSPATIAL:
         correction_factors = get_projection_correction_factors(
-            array["latitude"], array["longitude"], is_radians=(units == "rad"), crs=crs
+            array["latitude"], array["longitude"], is_dask_collection(array), is_radians=(units == "rad"), crs=crs
         )
     else:
         correction_factors = None
@@ -357,7 +370,7 @@ def vector_derivatives(
         ]
 
     correction_factors = get_projection_correction_factors(
-        u["latitude"], u["longitude"], is_radians=(units == "rad"), crs=crs
+        u["latitude"], u["longitude"], is_dask_collection(u), is_radians=(units == "rad"), crs=crs
     )
 
     dp_dy: xr.DataArray = spatial_gradient(

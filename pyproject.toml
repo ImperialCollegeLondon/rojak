@@ -45,6 +45,7 @@ rojak = "rojak.cli.main:app"
 #complete = ["rojak[ecmwf,amdar]"]
 dev = [
     "doc8",
+    "pandas-stubs",
     "pre-commit",
     "pyright",
     "ruff",
