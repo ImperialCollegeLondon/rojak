@@ -10,7 +10,7 @@ import xarray as xr
 import xarray.testing as xrt
 from shapely.geometry import box
 
-from rojak.core.data import CATData, CATPrognosticData, as_geo_dataframe
+from rojak.core.data import CATData, CATPrognosticData, as_geo_dataframe, expand_grid_bounds
 from rojak.core.derivatives import VelocityDerivative
 from rojak.core.geometric import create_grid_data_frame
 from rojak.datalib.ecmwf.era5 import Era5Data
@@ -525,8 +525,7 @@ def test_convert_to_amdar_turbulence_data(
 
 def test_expand_grid_bounds():
     grid = create_grid_data_frame(box(10, 10, 12, 12), 1)
-    repository_instance = AcarsAmdarRepository("")
-    grid_bounds_df = repository_instance._expand_grid_bounds(grid).compute()
+    grid_bounds_df = expand_grid_bounds(grid).compute()
     bottom_left = {"min_lon": [10], "min_lat": [10], "max_lon": [11], "max_lat": [11]}
     bottom_right = {"min_lon": [11], "min_lat": [10], "max_lon": [12], "max_lat": [11]}
     top_left = {"min_lon": [10], "min_lat": [11], "max_lon": [11], "max_lat": [12]}
@@ -548,7 +547,7 @@ def test_join_grid_bounds():
     left_df = dd.from_pandas(pd.DataFrame({"some_value": np.arange(100), "index_right": index_right_values}))
     repository_instance = AcarsAmdarRepository("")
     joined_df = repository_instance.join_grid_bounds(left_df, grid).compute()
-    expanded_grid = repository_instance._expand_grid_bounds(grid).compute()
+    expanded_grid = expand_grid_bounds(grid).compute()
     for row_num, row in joined_df.iterrows():
         grid_index = int(row["index_right"])
         assert grid_index == index_right_values[row_num]
