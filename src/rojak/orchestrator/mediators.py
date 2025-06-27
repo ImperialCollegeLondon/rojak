@@ -43,8 +43,6 @@ class DiagnosticsAmdarHarmonisationStrategy(ABC):
     _name_suffix: str
     _met_values: dict["DiagnosticName", "xr.DataArray"]
 
-    TIME_WINDOW_DELTA: ClassVar[np.timedelta64] = np.timedelta64(3, "h")
-
     def __init__(self, name_suffix: str, met_values: dict["DiagnosticName", "xr.DataArray"]) -> None:
         self._name_suffix = name_suffix
         self._met_values = met_values
