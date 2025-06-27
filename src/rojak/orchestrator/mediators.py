@@ -54,16 +54,6 @@ class DiagnosticsAmdarHarmonisationStrategy(ABC):
         return self._name_suffix
 
     def get_nearest_values(self, indexer: SpatialTemporalIndex, values_array: "xr.DataArray") -> "xr.DataArray":
-        # closest_values: "xr.DataArray" = values_array.sel(
-        #     longitude=indexer.longitudes, latitude=indexer.latitudes, pressure_level=indexer.level
-        # ).sel(
-        #     time=[indexer.obs_time - self.TIME_WINDOW_DELTA, indexer.obs_time + self.TIME_WINDOW_DELTA],
-        #     method="nearest",
-        # )
-        # if len(closest_values["time"]) != 1:
-        #     closest_time = np.abs(closest_values["time"].to_numpy() - indexer.obs_time).argmin()
-        #     closest_values = closest_values.isel(time=closest_time)
-        # return closest_values
         closest_values: "xr.DataArray" = values_array.isel(time=indexer.obs_time_index).sel(
             longitude=indexer.longitudes, latitude=indexer.latitudes, pressure_level=indexer.level
         )
