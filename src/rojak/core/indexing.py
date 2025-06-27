@@ -85,7 +85,7 @@ def get_regular_grid_spacing[T: np.number | np.inexact | np.datetime64 | np.time
     return None
 
 
-def map_values_to_coordinate_index[T: np.datetime64 | np.number | np.inexact](
+def map_values_to_nearest_coordinate_index[T: np.datetime64 | np.number | np.inexact](
     series: "dd.Series | pd.Series",
     coordinate: "NDArray[T]",
     valid_window: np.timedelta64 | np.number | np.inexact | None = None,
@@ -106,28 +106,28 @@ def map_values_to_coordinate_index[T: np.datetime64 | np.number | np.inexact](
     >>> time_coordinate = np.arange(np.datetime64("2018-08-01"), np.datetime64("2018-08-03"), np.timedelta64(6, "h"))
     >>> data_series = pd.Series([np.datetime64("2018-08-02T16:06"), np.datetime64("2018-08-01T07:37"), \
     np.datetime64("2018-08-02T09:12"), np.datetime64("2018-08-02T07:27"), np.datetime64("2018-08-02T19:09")])
-    >>> map_values_to_coordinate_index(data_series, time_coordinate, valid_window=np.timedelta64(3, "h"))
+    >>> map_values_to_nearest_coordinate_index(data_series, time_coordinate, valid_window=np.timedelta64(3, "h"))
         0    7
         1    1
         2    6
         3    5
         4    7
         dtype: int64
-    >>> map_values_to_coordinate_index(data_series, time_coordinate, valid_window=np.timedelta64(2, "h"))
+    >>> map_values_to_nearest_coordinate_index(data_series, time_coordinate, valid_window=np.timedelta64(2, "h"))
     Traceback (most recent call last):
     NotImplementedError: Function currently only supports regular grids with a symmetric window specified. \
     And the window must correspond to half of the grid spacing
 
     Not specifying the valid window, forces the minimum and maximum of the data in the Series to be strictly within
     the range of the coordinate
-    >>> map_values_to_coordinate_index(data_series, time_coordinate)
+    >>> map_values_to_nearest_coordinate_index(data_series, time_coordinate)
     Traceback (most recent call last):
     ValueError: Values in series must be within the range of the coordinate
 
     By extending the time coordiante to include the last 6 hours on 2018-08-03 places the 2018-08-02T19:09 within
     the range of the coordinate
     >>> time_coordinate = np.arange(np.datetime64("2018-08-01"), np.datetime64("2018-08-03T06"), np.timedelta64(6, "h"))
-    >>> map_values_to_coordinate_index(data_series, time_coordinate)
+    >>> map_values_to_nearest_coordinate_index(data_series, time_coordinate)
         0    7
         1    1
         2    6
