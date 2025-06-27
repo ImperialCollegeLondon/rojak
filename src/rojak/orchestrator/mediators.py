@@ -1,3 +1,4 @@
+import logging
 from abc import ABC, abstractmethod
 from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar, Mapping, NamedTuple
@@ -17,6 +18,8 @@ if TYPE_CHECKING:
     from rojak.core.data import AmdarTurbulenceData
     from rojak.turbulence.diagnostic import EvaluationDiagnosticSuite
     from rojak.utilities.types import DiagnosticName, Limits
+
+logger = logging.getLogger(__name__)
 
 
 class NotWithinTimeFrameError(Exception):
@@ -193,6 +196,7 @@ class DiagnosticsAmdarHarmonisationStrategyFactory:
                         strategies.append(
                             EdrSeveritiesStrategy(f"{str(option)}_{str(severity)}", met_values, edr_limits)
                         )
+        logger.debug("Finished instantiating the harmonisation strategies")
         return strategies
 
 
@@ -314,6 +318,7 @@ class DiagnosticsAmdarDataHarmoniser:
         a_computed_diagnostic: "xr.DataArray" = next(iter(self._diagnostics_suite.computed_values_as_dict().values()))
         self._check_time_window_within_met_data(time_window, a_computed_diagnostic)
         # self._check_grids_match(a_computed_diagnostic)
+        logger.debug("Verified met data and AMDAR data can be harmonised")
 
         observational_data: "dd.DataFrame" = self._amdar_data.clip_to_time_window(time_window)
         current_dtypes = observational_data.dtypes.to_dict()
@@ -324,11 +329,13 @@ class DiagnosticsAmdarDataHarmoniser:
             a_computed_diagnostic["time"].values,
             meta=current_dtypes,
         ).persist()
+        logger.debug("Observational data successfully prepared to be harmonised")
 
         strategies: list[DiagnosticsAmdarHarmonisationStrategy] = DiagnosticsAmdarHarmonisationStrategyFactory(
             self._diagnostics_suite
         ).create_strategies(methods)
 
+        logger.info("Starting harmonisation with %s strategies", len(strategies))
         return observational_data.apply(
             self._process_amdar_row,
             axis=1,
