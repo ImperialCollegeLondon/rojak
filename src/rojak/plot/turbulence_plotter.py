@@ -19,15 +19,18 @@ import matplotlib as mpl
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
+import scipy.cluster.hierarchy as sch
+import xarray as xr
 from shapely import Polygon
 
 from rojak.orchestrator.configuration import SpatialDomain, TurbulenceDiagnostics
+from rojak.turbulence.analysis import Hemisphere, LatitudinalRegion
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    import xarray as xr
     from cartopy.mpl.geoaxes import GeoAxes
+    from matplotlib.axes import Axes
     from matplotlib.figure import Figure
     from matplotlib.image import AxesImage
     from numpy.typing import NDArray
@@ -177,5 +180,164 @@ def create_multi_turbulence_diagnotics_probability_plot(
         ax.set_title(diagnostic_label_mapping[diagnostic])
         ax.coastlines()
     # fg.map(lambda: plt.gca().coastlines())
+    fg.fig.savefig(plot_name, bbox_inches="tight")
+    plt.close(fg.fig)
+
+
+def get_clustered_indexing(correlation_array: np.ndarray) -> np.ndarray:
+    pairwise_distances: np.ndarray = sch.distance.pdist(correlation_array)
+    linkage: np.ndarray = sch.linkage(pairwise_distances, method="complete")
+    cluster_distance_threshold: float = pairwise_distances.max() / 2
+    idx_to_cluster_array: np.ndarray = sch.fcluster(linkage, cluster_distance_threshold, criterion="distance")
+    idx: np.ndarray = np.argsort(idx_to_cluster_array)
+    return idx
+
+
+# Modified from https://wil.yegelwel.com/cluster-correlation-matrix/
+def cluster_2d_correlations(corr_array: "xr.DataArray") -> "xr.DataArray":
+    """
+    Rearranges the correlation matrix, corr_array, so that groups of highly
+    correlated variables are next to each other
+
+    Parameters
+    ----------
+    corr_array : xr.DataArray
+        a NxN correlation matrix
+
+    Returns
+    -------
+    xr.DataArray
+        a NxN correlation matrix with the columns and rows rearranged
+    """
+
+    corr_values: np.ndarray = corr_array.values
+    idx: np.ndarray = get_clustered_indexing(corr_values)  # 1D array
+
+    clustered_corr: np.ndarray = corr_values[idx, :][:, idx]
+    new_coords = {
+        corr_array.dims[0]: corr_array[corr_array.dims[0]][idx],
+        corr_array.dims[1]: corr_array[corr_array.dims[1]][idx],
+    }
+
+    return xr.DataArray(clustered_corr, dims=corr_array.dims, coords=new_coords)
+
+
+def cluster_multi_dim_correlations(
+    corr_array: "xr.DataArray",
+    order_by_hemisphere: "Hemisphere",
+    order_by_region: "LatitudinalRegion",
+    in_place: bool = False,
+) -> "xr.DataArray":
+    assert corr_array.dims[0] not in {"hemisphere", "region"} or corr_array.dims[0] not in {"hemisphere", "region"}
+    correlation_to_order_by: np.ndarray = corr_array.sel(hemisphere=order_by_hemisphere, region=order_by_region).values
+    idx: np.ndarray = get_clustered_indexing(correlation_to_order_by)
+
+    if in_place:
+        return corr_array[idx, :][:, idx]
+    clustered: np.ndarray = corr_array.values[idx, :][:, idx]
+    new_coords = {
+        corr_array.dims[0]: corr_array[corr_array.dims[0]][idx],
+        corr_array.dims[1]: corr_array[corr_array.dims[1]][idx],
+        "hemisphere": corr_array["hemisphere"],
+        "region": corr_array["region"],
+    }
+    return xr.DataArray(clustered, dims=corr_array.dims, coords=new_coords)
+
+
+def create_diagnostic_correlation_plot(correlations: xr.DataArray, plot_name: str, x_coord: str, y_coord: str) -> None:
+    assert correlations.ndim == 2, f"Correlations matrix must be two-dimensional not {correlations.ndim}"  # noqa: PLR2004
+
+    # Diagnostic array of correlations will always be square
+    num_diagnostics: int = correlations.shape[0]
+    assert num_diagnostics == correlations.shape[1], "Correlations matrix must be square"
+
+    clustered_correlations: xr.DataArray = cluster_2d_correlations(correlations)
+    fig: "Figure" = plt.figure(figsize=(15, 11))
+    ax: "Axes" = fig.add_subplot(1, 1, 1)
+    clustered_correlations.plot.imshow(ax=ax, center=0.0, cmap="bwr", cbar_kwargs={"label": "Correlation"})
+    ax.set_xticks(
+        np.arange(num_diagnostics),
+        labels=[diagnostic_label_mapping[name] for name in clustered_correlations.coords[x_coord].values],
+        rotation=45,
+        ha="right",
+        rotation_mode="anchor",
+    )
+    ax.set_yticks(
+        np.arange(num_diagnostics),
+        labels=[diagnostic_label_mapping[name] for name in clustered_correlations.coords[y_coord].values],
+    )
+
+    for y_index in range(num_diagnostics):
+        for x_index in range(num_diagnostics):
+            ax.text(
+                x_index,
+                y_index,
+                f"{clustered_correlations[y_index, x_index]:.2f}",
+                ha="center",
+                va="center",
+                color="black",
+            )
+
+    # ax.set_title(f"Clustered Correlation Between CAT Diagnostics")
+    fig.tight_layout()
+    plt.savefig(plot_name)
+    plt.close()
+
+
+def create_multi_correlation_axis_title(hemisphere: "Hemisphere", region: "LatitudinalRegion") -> str:
+    if region == "full":
+        if hemisphere == "global":
+            return "Global"
+        return f"{hemisphere.capitalize()}ern Hemisphere"
+    if hemisphere == "global":
+        return region.capitalize()
+    return f"{hemisphere.capitalize()}ern {region.capitalize()}"
+
+
+def create_multi_region_correlation_plot(
+    correlations: "xr.DataArray", plot_name: str, x_coord: str, y_coord: str
+) -> None:
+    assert correlations.ndim == 4, (  # noqa: PLR2004
+        f"Multi-dimensional correlations matrix must be four-dimensional not {correlations.ndim}"
+    )
+    num_diagnostics: int = correlations.shape[0]
+    assert num_diagnostics == correlations.shape[1], "Correlations matrix must be square"
+
+    clustered_correlations: "xr.DataArray" = cluster_multi_dim_correlations(
+        correlations, Hemisphere.GLOBAL, LatitudinalRegion.FULL, in_place=True
+    )
+    fg: "xr.plot.FacetGrid" = clustered_correlations.plot.imshow(  # pyright: ignore[reportAttributeAccessIssue]
+        x="diagnostic1", y="diagnostic2", col="hemisphere", row="region", center=0.0, cmap="bwr", size=num_diagnostics
+    )
+
+    fg.set_xlabels("")
+
+    x_labels: list[str] = [diagnostic_label_mapping[name] for name in clustered_correlations.coords[x_coord].values]
+    y_labels: list[str] = [diagnostic_label_mapping[name] for name in clustered_correlations.coords[y_coord].values]
+
+    for row_idx, region in enumerate(clustered_correlations.coords["region"].values):  # int, str
+        fg.axs[row_idx, 0].set_ylabel(region.capitalize(), size="large")
+        for col_idx, hemisphere in enumerate(clustered_correlations.coords["hemisphere"].values):
+            current_axis = fg.axs[row_idx, col_idx]
+            current_axis.set_xticks(
+                np.arange(num_diagnostics), labels=x_labels, rotation=45, ha="right", rotation_mode="anchor"
+            )
+            current_axis.set_yticks(np.arange(num_diagnostics), labels=y_labels)
+            # current_axis.set_title(create_multi_correlation_axis_title(hemisphere, region))
+            if row_idx == 0:
+                current_axis.set_title(create_multi_correlation_axis_title(hemisphere, region))
+
+            this_correlation: "xr.DataArray" = clustered_correlations.sel(region=region, hemisphere=hemisphere)
+            for y_index in range(num_diagnostics):
+                for x_index in range(num_diagnostics):
+                    current_axis.text(
+                        x_index,
+                        y_index,
+                        f"{this_correlation[y_index, x_index]:.2f}",
+                        ha="center",
+                        va="center",
+                        color="black",
+                    )
+
     fg.fig.savefig(plot_name, bbox_inches="tight")
     plt.close(fg.fig)
