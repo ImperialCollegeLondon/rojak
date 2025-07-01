@@ -4,6 +4,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar, Mapping, NamedTuple
 
 import dask.dataframe as dd
+import distributed
 import numpy as np
 import pandas as pd
 
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
     from rojak.core.data import AmdarTurbulenceData
     from rojak.turbulence.diagnostic import EvaluationDiagnosticSuite
     from rojak.utilities.types import DiagnosticName, Limits
+
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +67,7 @@ class DiagnosticsAmdarHarmonisationStrategy(ABC):
             surrounding_values: "xr.DataArray" = self.get_nearest_values(indexer, diagnostic)
 
             output[f"{name}_{self._name_suffix}"] = self.interpolate(
-                observation_coord, indexer, surrounding_values.to_numpy(), name
+                observation_coord, indexer, surrounding_values.values, name
             )
 
         return output
@@ -330,6 +332,9 @@ class DiagnosticsAmdarDataHarmoniser:
             meta=current_dtypes,
         ).persist()
         logger.debug("Observational data successfully prepared to be harmonised")
+        # https://docs.dask.org/en/stable/user-interfaces.html#combining-interfaces
+        distributed.wait(distributed.futures_of(observational_data))
+        logger.debug("Futures from persisting observational data have completed successfully")
 
         strategies: list[DiagnosticsAmdarHarmonisationStrategy] = DiagnosticsAmdarHarmonisationStrategyFactory(
             self._diagnostics_suite
