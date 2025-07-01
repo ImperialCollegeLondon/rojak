@@ -15,7 +15,6 @@
 from typing import TYPE_CHECKING, Tuple
 
 import cartopy.crs as ccrs
-import matplotlib as mpl
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
@@ -34,6 +33,8 @@ if TYPE_CHECKING:
     from matplotlib.figure import Figure
     from matplotlib.image import AxesImage
     from numpy.typing import NDArray
+
+    from rojak.utilities.types import DiagnosticName
 
 
 _PLATE_CARREE: "ccrs.Projection" = ccrs.PlateCarree()
@@ -143,7 +144,7 @@ def create_turbulence_probability_plot(
 
 def create_multi_turbulence_diagnotics_probability_plot(
     probabilities: "xr.Dataset",
-    diagnostics: list[TurbulenceDiagnostics],
+    diagnostics: list["DiagnosticName"],
     plot_name: str,
     projection: "ccrs.Projection" = _PLATE_CARREE,
 ) -> None:
@@ -171,13 +172,13 @@ def create_multi_turbulence_diagnotics_probability_plot(
                 "shrink": 0.6,
             },
             # cmap="Blues",
-            cmap=mpl.colormaps["WhiteBlueGreenYellowRed"].resampled(20),
+            # cmap=mpl.colormaps["WhiteBlueGreenYellowRed"].resampled(20),
             robust=True,
         )
     )
     # fg.set_titles("{value}")
     for ax, diagnostic in zip(fg.fig.axes, diagnostics, strict=False):  # GeoAxes, TurbulenceDiagnostic
-        ax.set_title(diagnostic_label_mapping[diagnostic])
+        ax.set_title(diagnostic_label_mapping[TurbulenceDiagnostics(diagnostic)])
         ax.coastlines()
     # fg.map(lambda: plt.gca().coastlines())
     fg.fig.savefig(plot_name, bbox_inches="tight")
