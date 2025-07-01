@@ -15,11 +15,11 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, Mapping, NamedTuple, assert_never
 
-import distributed
 import numpy as np
 from pydantic import TypeAdapter
 
 from rojak.core import data
+from rojak.core.distributed_tools import blocking_wait_futures
 from rojak.datalib.ecmwf.era5 import Era5Data
 from rojak.datalib.madis.amdar import AcarsAmdarRepository
 from rojak.datalib.ukmo.amdar import UkmoAmdarRepository
@@ -363,6 +363,6 @@ class DiagnosticsAmdarLauncher:
         result: "dd.DataFrame" = harmoniser.execute_harmonisation(
             self._strategies, Limits(np.datetime64(self._time_window.lower), np.datetime64(self._time_window.upper))
         ).persist()
-        distributed.wait(distributed.futures_of(result))
+        blocking_wait_futures(result)
         logger.info("Finished Turbulence Amdar Harmonisation")
         return result
