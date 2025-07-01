@@ -606,7 +606,7 @@ class UBF(Diagnostic):
 
     # Appears to work IF AND ONLY IF processes=False
     def _compute(self) -> xr.DataArray:
-        coriolis_vorticity_term: xr.DataArray = self._coriolis_parameter * self._vorticity.metpy.dequantify()
+        coriolis_vorticity_term: xr.DataArray = self._coriolis_parameter * self._vorticity
         coriolis_deriv: xr.DataArray = latitudinal_derivative(self._coriolis_parameter)
         inertial_terms: xr.DataArray = coriolis_vorticity_term + 2 * self._jacobian
         mass_term: xr.DataArray = spatial_laplacian(self._geopotential, "deg", GradientMode.GEOSPATIAL)  # pyright: ignore[reportAssignmentType]
@@ -896,7 +896,7 @@ class BrownIndex1(Diagnostic):
 
     def __init__(self, total_deformation: xr.DataArray, vorticity: xr.DataArray) -> None:
         super().__init__("Brown1")
-        self._total_deformation = total_deformation.metpy.dequantify()
+        self._total_deformation = total_deformation
         self._vorticity = vorticity
 
     def _compute(self) -> xr.DataArray:
