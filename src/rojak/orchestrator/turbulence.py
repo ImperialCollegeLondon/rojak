@@ -35,6 +35,7 @@ from rojak.orchestrator.configuration import (
 from rojak.orchestrator.mediators import DiagnosticsAmdarDataHarmoniser
 from rojak.plot.turbulence_plotter import (
     create_diagnostic_correlation_plot,
+    create_multi_region_correlation_plot,
     create_multi_turbulence_diagnotics_probability_plot,
 )
 from rojak.turbulence.analysis import (
@@ -332,21 +333,34 @@ class EvaluationStage:
                     "diagnostic2",
                 )
                 return Result(correlation)
-            case TurbulenceEvaluationPhaseOption.REGIONAL_CORRELATION_PROBABILITIES:
+            case (
+                TurbulenceEvaluationPhaseOption.REGIONAL_CORRELATION_PROBABILITIES
+                | TurbulenceEvaluationPhaseOption.REGIONAL_CORRELATION_EDR
+            ):
                 sel_condition: dict = {"pressure_level": self._config.pressure_levels}
-                if not self._config.severities:  # Add a check that "threshold" is an axis
-                    sel_condition["threshold"] = self._config.severities
-                return Result(
-                    # Add in config to specify hemisphere and regions
-                    LatitudinalCorrelationBetweenDiagnostics(dict(suite.probabilities), sel_condition)
+                if phase == TurbulenceEvaluationPhaseOption.REGIONAL_CORRELATION_PROBABILITIES:
+                    # Add a check that "threshold" is an axis
+                    if not self._config.severities:
+                        sel_condition["threshold"] = self._config.severities
+                    corr_on_what = "probability"
+                else:
+                    corr_on_what = "edr"
+
+                correlation_on = (
+                    suite.probabilities
+                    if phase == TurbulenceEvaluationPhaseOption.CORRELATION_BTW_PROBABILITIES
+                    else suite.edr
                 )
-            case TurbulenceEvaluationPhaseOption.REGIONAL_CORRELATION_EDR:
-                return Result(
-                    # Add in config to specify hemisphere and regions
-                    LatitudinalCorrelationBetweenDiagnostics(
-                        dict(suite.edr), {"pressure_level": self._config.pressure_levels}
-                    )
+                # TODO: Add in config to specify hemisphere and regions
+                correlation = LatitudinalCorrelationBetweenDiagnostics(dict(correlation_on), sel_condition).execute()
+                chained_names: str = chain_diagnostic_names(correlation_on.keys())
+                create_multi_region_correlation_plot(
+                    correlation,
+                    str(self._plots_dir / f"regional_{corr_on_what}_corr_btw_{chained_names}.{self._image_format}"),
+                    "diagnostic1",
+                    "diagnostic2",
                 )
+                return Result(correlation)
             case _ as unreachable:
                 assert_never(unreachable)
 
