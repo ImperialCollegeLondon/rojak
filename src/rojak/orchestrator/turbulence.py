@@ -11,11 +11,13 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
-
+import itertools
+import sys
 from datetime import datetime
-from typing import TYPE_CHECKING, Mapping, NamedTuple, assert_never
+from typing import TYPE_CHECKING, Final, Iterable, Mapping, NamedTuple, assert_never
 
 import numpy as np
+import xarray as xr
 from pydantic import TypeAdapter
 
 from rojak.core import data
@@ -31,6 +33,7 @@ from rojak.orchestrator.configuration import (
     TurbulenceThresholds,
 )
 from rojak.orchestrator.mediators import DiagnosticsAmdarDataHarmoniser
+from rojak.plot.turbulence_plotter import create_multi_turbulence_diagnotics_probability_plot
 from rojak.turbulence.analysis import (
     CorrelationBetweenDiagnostics,
     HistogramData,
@@ -185,6 +188,32 @@ class CalibrationStage:
         return Result(distribution_parameters)
 
 
+def abbreviate_diagnostic_name(diagnostic_name: str) -> str:
+    if len(diagnostic_name) > 3:  # noqa: PLR2004
+        if diagnostic_name == "ncsu1" or diagnostic_name[:3] == "ngm":
+            return diagnostic_name
+        if "-" in diagnostic_name:
+            return "".join([name[0] for name in diagnostic_name.split("-")])
+        return diagnostic_name[:3]
+    return diagnostic_name
+
+
+def chain_diagnostic_names(diagnostic_names: Iterable[str]) -> str:
+    joined: str = "_".join(diagnostic_names)
+    # max filename length is 255 chars or bytes depending on file system
+    # Remove 55 chars as a safety factor (might stuff before this)
+    max_file_chars: Final[int] = 200
+    if len(joined) >= max_file_chars or sys.getsizeof(joined) >= max_file_chars:
+        abbreviated_names: list[str] = [abbreviate_diagnostic_name(name) for name in diagnostic_names]
+        abbrev_joined: str = "_".join(abbreviated_names)
+        # Did a quick test with all available diagnostics and that totals to 110 so this should always pass
+        assert len(abbrev_joined) < max_file_chars and sys.getsizeof(abbrev_joined) < max_file_chars, (  # noqa: PT018
+            "Name of joined abbreviated diagnostics should be shorter than 255 bytes"
+        )
+        return abbrev_joined
+    return joined
+
+
 class EvaluationStageResult(NamedTuple):
     suite: EvaluationDiagnosticSuite
     phase_outcomes: Mapping[TurbulenceEvaluationPhaseOption, Result]
@@ -196,8 +225,8 @@ class EvaluationStage:
     _config: "TurbulenceEvaluationConfig"
     _spatial_domain: "SpatialDomain"
     _plots_dir: "Path"
-    _name: RunName
     _start_time: TimeStr
+    _image_format: str
 
     def __init__(
         self,
@@ -207,14 +236,16 @@ class EvaluationStage:
         plots_dir: "Path",
         name: RunName,
         start_time: TimeStr,
+        image_format: str,
     ) -> None:
         self._calibration_result = calibration_result
         self._phases = phases_config.phases
         self._config = phases_config.evaluation_config
         self._spatial_domain = domain
-        self._name = name
         self._start_time = start_time
-        self._plots_dir = plots_dir
+        self._plots_dir = plots_dir / name
+        self._plots_dir.mkdir(parents=True, exist_ok=True)
+        self._image_format = image_format
 
     def launch(self, diagnostics: list["TurbulenceDiagnostics"], chunks: dict) -> EvaluationStageResult:
         suite: EvaluationDiagnosticSuite = self.create_diagnostic_suite(diagnostics, chunks)
@@ -251,7 +282,25 @@ class EvaluationStage:
     def run_phase(self, phase: TurbulenceEvaluationPhaseOption, suite: EvaluationDiagnosticSuite) -> Result:  # noqa: PLR0911
         match phase:
             case TurbulenceEvaluationPhaseOption.PROBABILITIES:
-                return Result(suite.probabilities)
+                result = suite.probabilities
+                for pressure_level, severity in itertools.product(
+                    self._config.pressure_levels, self._config.severities
+                ):
+                    chained_names: str = chain_diagnostic_names(result.keys())
+                    create_multi_turbulence_diagnotics_probability_plot(
+                        xr.Dataset(
+                            data_vars={
+                                name: diagnostic.sel(pressure_level=pressure_level, severity=severity)
+                                for name, diagnostic in result.items()
+                            }
+                        ),
+                        suite.diagnostic_names(),
+                        str(
+                            self._plots_dir / f"multi_diagnostic_{chained_names}_on_{pressure_level:.0f}_{severity}"
+                            f".{self._image_format}"
+                        ),
+                    )
+                return Result(result)
             case TurbulenceEvaluationPhaseOption.EDR:
                 return Result(suite.edr)
             case TurbulenceEvaluationPhaseOption.TURBULENT_REGIONS:
@@ -317,6 +366,7 @@ class TurbulenceLauncher:
                 self._context.plots_dir,
                 self._context.name,
                 self._start_time,
+                self._context.image_format,
             ).launch(self._config.diagnostics, self._config.chunks)
             logger.info("Finished Turbulence Evaluation")
             return result
