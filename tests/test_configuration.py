@@ -1,5 +1,6 @@
 import copy
 from contextlib import nullcontext
+from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
@@ -11,6 +12,8 @@ from pydantic import ValidationError
 from rojak.core.constants import MAX_LATITUDE, MAX_LONGITUDE
 from rojak.orchestrator import configuration
 from rojak.orchestrator.configuration import (
+    AmdarConfig,
+    AmdarDataSource,
     DataConfig,
     InvalidConfigurationError,
     SpatialDomain,
@@ -18,6 +21,8 @@ from rojak.orchestrator.configuration import (
     TurbulenceThresholdMode,
     TurbulenceThresholds,
 )
+from rojak.orchestrator.mediators import DiagnosticsAmdarHarmonisationStrategyOptions
+from rojak.utilities.types import Limits
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -540,6 +545,56 @@ def test_meteorology_config(dict_to_file, expectation) -> None:
     with expectation as e:
         configuration.MeteorologyConfig.from_yaml(dict_to_file)
     assert e.type is InvalidConfigurationError
+
+
+@pytest.mark.parametrize(
+    ("amdar_type", "glob_pattern", "time_window", "expectation"),
+    [
+        (AmdarDataSource.MADIS, "**/*.parquet", Limits(datetime(1970, 1, 1), datetime(1980, 1, 1)), nullcontext(0)),
+        (
+            AmdarDataSource.MADIS,
+            "**/*.parquet",
+            Limits(datetime(1970, 1, 1), datetime(1960, 1, 1)),
+            pytest.raises(InvalidConfigurationError),
+        ),
+        (AmdarDataSource.UKMO, "*.csv", Limits(datetime(1970, 1, 1), datetime(1980, 1, 1)), nullcontext(0)),
+        (
+            AmdarDataSource.MADIS,
+            "blah",
+            Limits(datetime(1970, 1, 1), datetime(1980, 1, 1)),
+            pytest.raises(InvalidConfigurationError),
+        ),
+        (
+            AmdarDataSource.MADIS,
+            "*.csv",
+            Limits(datetime(1970, 1, 1), datetime(1980, 1, 1)),
+            pytest.raises(InvalidConfigurationError),
+        ),
+        (
+            AmdarDataSource.UKMO,
+            "*.parquet",
+            Limits(datetime(1970, 1, 1), datetime(1980, 1, 1)),
+            pytest.raises(InvalidConfigurationError),
+        ),
+    ],
+)
+def test_amdar_config(
+    tmp_path: "Path", amdar_type: AmdarDataSource, glob_pattern: str, time_window: Limits[datetime], expectation
+) -> None:
+    with expectation as e:
+        config = AmdarConfig(
+            data_dir=tmp_path,
+            data_source=amdar_type,
+            glob_pattern=glob_pattern,
+            time_window=time_window,
+            harmonisation_strategies=[DiagnosticsAmdarHarmonisationStrategyOptions.EDR],
+        )
+        assert config.data_source == amdar_type
+        assert config.glob_pattern == glob_pattern
+        assert config.data_dir == tmp_path
+
+    if e != 0:
+        assert e.type is InvalidConfigurationError
 
 
 # @pytest.mark.parametrize(

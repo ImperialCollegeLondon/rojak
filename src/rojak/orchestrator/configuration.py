@@ -12,6 +12,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any, Self, assert_never
@@ -20,6 +21,7 @@ import numpy as np
 import yaml
 from pydantic import AfterValidator, BaseModel, Field, ValidationError, model_validator
 
+from rojak.orchestrator.mediators import DiagnosticsAmdarHarmonisationStrategyOptions
 from rojak.utilities.types import Limits
 
 
@@ -124,26 +126,6 @@ class BaseConfigModel(BaseModel):
                 raise InvalidConfigurationError(str(e)) from e
             return instance
         raise InvalidConfigurationError("Configuration file not found or is not a file.")
-
-
-# class TurbulenceSeverityPercentileConfig(BaseConfigModel):
-#     name: Annotated[str, Field(min_length=1, description="Name of intensity", repr=True, frozen=True, strict=True)]
-#     lower_bound: Annotated[
-#         float, Field(ge=0, lt=100.0, description="Lower bound of percentile", repr=True, frozen=True)
-#     ]
-#     upper_bound: Annotated[float, Field(ge=0, description="Upper bound of percentile", repr=True, frozen=True)]
-#
-#     @model_validator(mode="after")
-#     def check_reasonable_bounds(self) -> Self:
-#         if self.lower_bound > self.upper_bound:
-#             raise InvalidConfigurationError(
-#                 f"Lower bound ({self.lower_bound}) must be greater than upper bound ({self.upper_bound})"
-#             )
-#         if np.inf > self.upper_bound > 100:
-#             raise InvalidConfigurationError(
-#                 f"Upper bound ({self.upper_bound}) must be infinite or less than or equal to 100"
-#             )
-#         return self
 
 
 class TurbulenceThresholds(BaseConfigModel):
@@ -477,6 +459,7 @@ class SpatialDomain(BaseConfigModel):
     maximum_longitude: Annotated[float, Field(default=180, description="Minimum longitude", ge=-180, le=180)]
     minimum_level: Annotated[float | None, Field(description="Minimum level", default=None)] = None
     maximum_level: Annotated[float | None, Field(description="Maximum level", default=None)] = None
+    grid_size: Annotated[float | None, Field(description="Grid size", default=None)] = None
 
     @model_validator(mode="after")
     def check_valid_ranges(self) -> Self:
@@ -501,26 +484,77 @@ class MetDataSource(StrEnum):
     ERA5 = "era5"
 
 
-class MeteorologyConfig(BaseConfigModel):
+class AmdarDataSource(StrEnum):
+    MADIS = "madis"
+    UKMO = "ukmo"
+
+
+class BaseInputDataConfig[T: StrEnum](BaseConfigModel):
     data_dir: Annotated[
         Path,
         Field(
-            description="Path to directory containing the data from a NWP/GCM",
+            description="Path to directory containing the data",
             repr=True,
             frozen=True,
         ),
         AfterValidator(dir_must_exist),
     ]
-    data_source: Annotated[
-        MetDataSource, Field(default=MetDataSource.ERA5, description="Source of Met data", repr=True, frozen=True)
+    data_source: Annotated[T, Field(description="Where data comes from", repr=True, frozen=True)]
+
+
+class MeteorologyConfig(BaseInputDataConfig[MetDataSource]): ...
+
+
+class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
+    glob_pattern: Annotated[
+        str, Field(description="Glob pattern to match to get the data files", repr=True, frozen=True)
     ]
+    time_window: Annotated[
+        Limits[datetime.datetime], Field(description="Time window to extract data for", repr=True, frozen=True)
+    ]
+    # ASSUME FOR NOW ONLY USE FOR THIS IS DATA HARMONISATION
+    harmonisation_strategies: Annotated[
+        list[DiagnosticsAmdarHarmonisationStrategyOptions],
+        Field(description="List of harmonisation strategies", repr=True, frozen=True),
+    ]
+
+    @model_validator(mode="after")
+    def check_valid_glob_pattern(self) -> Self:
+        if "*" not in self.glob_pattern:
+            raise InvalidConfigurationError("Asterisk not found in glob pattern")
+        match self.data_source:
+            case AmdarDataSource.UKMO:
+                if not self.glob_pattern.endswith("csv"):
+                    raise InvalidConfigurationError("UKMO files must end with .csv")
+            case AmdarDataSource.MADIS:
+                if not (
+                    self.glob_pattern.endswith("parquet")
+                    or self.glob_pattern.endswith("pqt")
+                    or self.glob_pattern.endswith("parq")
+                    or self.glob_pattern.endswith("pq")
+                ):
+                    raise InvalidConfigurationError("Madis AMDAR files must be in parquet format")
+        return self
+
+    @model_validator(mode="after")
+    def check_time_window_increasing(self) -> Self:
+        if self.time_window.lower > self.time_window.upper:
+            raise InvalidConfigurationError("Time must be increasing from lower to upp")
+        return self
 
 
 class DataConfig(BaseConfigModel):
     # Config for data, this would cover both observational data and weather data
     spatial_domain: SpatialDomain
     meteorology_config: MeteorologyConfig | None = None
-    ...
+    # FOR NOW! Assume that if amdar data is provided, it is for comparing with the turbulence diagnostics
+    amdar_config: AmdarConfig | None = None
+
+    @model_validator(mode="after")
+    def check_grid_size_specified(self) -> Self:
+        if self.amdar_config is not None and self.spatial_domain.grid_size is None:
+            raise InvalidConfigurationError("Grid size must be specified if processing AMDAR data")
+        return self
 
 
 class Context(BaseConfigModel):
