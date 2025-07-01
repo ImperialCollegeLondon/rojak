@@ -33,7 +33,10 @@ from rojak.orchestrator.configuration import (
     TurbulenceThresholds,
 )
 from rojak.orchestrator.mediators import DiagnosticsAmdarDataHarmoniser
-from rojak.plot.turbulence_plotter import create_multi_turbulence_diagnotics_probability_plot
+from rojak.plot.turbulence_plotter import (
+    create_diagnostic_correlation_plot,
+    create_multi_turbulence_diagnotics_probability_plot,
+)
 from rojak.turbulence.analysis import (
     CorrelationBetweenDiagnostics,
     HistogramData,
@@ -305,20 +308,27 @@ class EvaluationStage:
                 return Result(suite.edr)
             case TurbulenceEvaluationPhaseOption.TURBULENT_REGIONS:
                 return Result(suite.compute_turbulent_regions())
-            case TurbulenceEvaluationPhaseOption.CORRELATION_BTW_PROBABILITIES:
-                return Result(
-                    CorrelationBetweenDiagnostics(
-                        dict(suite.probabilities),
-                        {"pressure_level": self._config.pressure_levels, "threshold": self._config.severities},
-                    )
+            case (
+                TurbulenceEvaluationPhaseOption.CORRELATION_BTW_PROBABILITIES
+                | TurbulenceEvaluationPhaseOption.CORRELATION_BTW_EDR
+            ):
+                correlation_on = (
+                    suite.probabilities
+                    if phase == TurbulenceEvaluationPhaseOption.CORRELATION_BTW_PROBABILITIES
+                    else suite.edr
                 )
-            case TurbulenceEvaluationPhaseOption.CORRELATION_BTW_EDR:
-                return Result(
-                    CorrelationBetweenDiagnostics(
-                        dict(suite.edr),
-                        {"pressure_level": self._config.pressure_levels, "threshold": self._config.severities},
-                    )
+                condition: dict[str, list] = {"pressure_level": self._config.pressure_levels}
+                if phase == TurbulenceEvaluationPhaseOption.CORRELATION_BTW_PROBABILITIES:
+                    condition["severity"] = [str(sev) for sev in self._config.severities]
+                correlation = CorrelationBetweenDiagnostics(dict(correlation_on), condition).execute()
+                chained_names: str = chain_diagnostic_names(correlation_on.keys())
+                create_diagnostic_correlation_plot(
+                    correlation,
+                    str(self._plots_dir / f"correlation_btw_{chained_names}.{self._image_format}"),
+                    "diagnostic1",
+                    "diagnostic2",
                 )
+                return Result(correlation)
             case TurbulenceEvaluationPhaseOption.REGIONAL_CORRELATION_PROBABILITIES:
                 sel_condition: dict = {"pressure_level": self._config.pressure_levels}
                 if not self._config.severities:  # Add a check that "threshold" is an axis

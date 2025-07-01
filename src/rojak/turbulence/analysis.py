@@ -328,7 +328,7 @@ class CorrelationBetweenDiagnostics(PostProcessor):
                     self._computed_indices[first_diagnostic].sel(self._sel_condition),
                     self._computed_indices[second_diagnostic].sel(self._sel_condition),
                 )
-                .stack(flat=[...])
+                # .stack(flat=[...])
                 .compute()
             )
             corr_btw_diagnostics.loc[{"diagnostic1": first_diagnostic, "diagnostic2": second_diagnostic}] = this_corr
