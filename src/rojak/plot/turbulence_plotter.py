@@ -161,8 +161,8 @@ def create_multi_turbulence_diagnotics_probability_plot(
             transform=projection,
             vmin=0,
             vmax=20,
-            size=4,
-            aspect=1.5,
+            # size=4,
+            # aspect=1.5,
             subplot_kws={"projection": projection},
             cbar_kwargs={
                 "label": "Turbulence Percentage",
@@ -253,7 +253,8 @@ def create_diagnostic_correlation_plot(correlations: xr.DataArray, plot_name: st
     assert num_diagnostics == correlations.shape[1], "Correlations matrix must be square"
 
     clustered_correlations: xr.DataArray = cluster_2d_correlations(correlations)
-    fig: "Figure" = plt.figure(figsize=(15, 11))
+    # fig: "Figure" = plt.figure(figsize=(15, 11))
+    fig: "Figure" = plt.figure()
     ax: "Axes" = fig.add_subplot(1, 1, 1)
     clustered_correlations.plot.imshow(ax=ax, center=0.0, cmap="bwr", cbar_kwargs={"label": "Correlation"})
     ax.set_xticks(
