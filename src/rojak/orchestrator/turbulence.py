@@ -407,14 +407,22 @@ class DiagnosticsAmdarLauncher:
     _spatial_domain: "SpatialDomain"
     _strategies: list["DiagnosticsAmdarHarmonisationStrategyOptions"]
     _time_window: "Limits[datetime]"
+    _output_filepath: "Path"
 
-    def __init__(self, data_config: "DataConfig") -> None:
+    def __init__(self, data_config: "DataConfig", output_dir: "Path", run_name: "RunName") -> None:
         assert data_config.amdar_config is not None
         self._data_source = data_config.amdar_config.data_source
         self._path_to_files = str(data_config.amdar_config.data_dir.resolve() / data_config.amdar_config.glob_pattern)
         self._spatial_domain = data_config.spatial_domain
         self._strategies = data_config.amdar_config.harmonisation_strategies
         self._time_window = data_config.amdar_config.time_window
+
+        base_dir = output_dir / run_name / "data_harmonisation"
+        base_dir.mkdir(parents=True, exist_ok=True)
+        time_window_as_str = np.datetime_as_string([self._time_window.lower, self._time_window.upper], unit="D")
+        self._output_filepath = (
+            base_dir / f"{self._data_source}_{time_window_as_str[0]}_{time_window_as_str[1]}.parquet"
+        )
 
     def create_amdar_data_repository(self) -> "AmdarDataRepository":
         match self._data_source:
@@ -436,8 +444,9 @@ class DiagnosticsAmdarLauncher:
             self._spatial_domain, self._spatial_domain.grid_size, diagnostic_suite.pressure_levels
         )
         harmoniser = DiagnosticsAmdarDataHarmoniser(amdar_data, diagnostic_suite)
-        result = harmoniser.execute_harmonisation(
+        result: "dd.DataFrame" = harmoniser.execute_harmonisation(
             self._strategies, Limits(np.datetime64(self._time_window.lower), np.datetime64(self._time_window.upper))
         ).compute()
+        result.to_parquet(self._output_filepath)
         logger.info("Finished Turbulence Amdar Harmonisation")
         return result
