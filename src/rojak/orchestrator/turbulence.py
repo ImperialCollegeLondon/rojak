@@ -15,6 +15,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, Mapping, NamedTuple, assert_never
 
+import distributed
 import numpy as np
 from pydantic import TypeAdapter
 
@@ -359,8 +360,9 @@ class DiagnosticsAmdarLauncher:
             self._spatial_domain, self._spatial_domain.grid_size, diagnostic_suite.pressure_levels
         )
         harmoniser = DiagnosticsAmdarDataHarmoniser(amdar_data, diagnostic_suite)
-        result = harmoniser.execute_harmonisation(
+        result: "dd.DataFrame" = harmoniser.execute_harmonisation(
             self._strategies, Limits(np.datetime64(self._time_window.lower), np.datetime64(self._time_window.upper))
-        ).compute()
+        ).persist()
+        distributed.wait(distributed.futures_of(result))
         logger.info("Finished Turbulence Amdar Harmonisation")
         return result
