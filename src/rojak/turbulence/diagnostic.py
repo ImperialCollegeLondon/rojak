@@ -87,18 +87,9 @@ class Diagnostic(ABC):
 
     # TODO: TEEST
     @property
-    def lazy_compute_value(self) -> xr.DataArray:
-        return self._compute()
-
-    @property
-    def eager_compute_value(self) -> xr.DataArray:
+    def computed_value(self) -> xr.DataArray:
         if self._computed_value is None:
-            # persist() triggers computation and keeps it in distributed memory
-            # See xarray API docs:
-            #   https://docs.xarray.dev/en/stable/generated/xarray.DataArray.persist.html#xarray.DataArray.persist
-            # and dask array API docs:
-            #   https://docs.dask.org/en/stable/generated/dask.array.Array.persist.html#dask.array.Array.persist
-            self._computed_value = self._compute().persist()
+            self._computed_value = self._compute()
         return self._computed_value
 
 
@@ -1134,7 +1125,7 @@ class DiagnosticFactory:
     @property
     def richardson(self) -> xr.DataArray:
         if self._richardson is None:
-            self._richardson = self.create(TurbulenceDiagnostics.RICHARDSON).lazy_compute_value
+            self._richardson = self.create(TurbulenceDiagnostics.RICHARDSON).computed_value
         return self._richardson
 
     def create(self, diagnostic: TurbulenceDiagnostics) -> Diagnostic:  # noqa: PLR0911, PLR0912
@@ -1204,7 +1195,7 @@ class DiagnosticFactory:
             case TurbulenceDiagnostics.RICHARDSON:
                 vws: Diagnostic = self.create(TurbulenceDiagnostics.VWS)
                 brunt_vaisala: Diagnostic = self.create(TurbulenceDiagnostics.BRUNT_VAISALA)
-                return GradientRichardson(vws.lazy_compute_value, brunt_vaisala.lazy_compute_value)
+                return GradientRichardson(vws.computed_value, brunt_vaisala.computed_value)
             case TurbulenceDiagnostics.WIND_SPEED:
                 return WindSpeed(self._data.u_wind(), self._data.v_wind())
             case TurbulenceDiagnostics.DEF:
@@ -1232,7 +1223,7 @@ class DiagnosticFactory:
             case TurbulenceDiagnostics.BROWN2:
                 brown1: Diagnostic = self.create(TurbulenceDiagnostics.BROWN1)
                 return BrownIndex2(
-                    self._data.u_wind(), self._data.v_wind(), self._data.geopotential(), brown1.lazy_compute_value
+                    self._data.u_wind(), self._data.v_wind(), self._data.geopotential(), brown1.computed_value
                 )
             case TurbulenceDiagnostics.NVA:
                 return NegativeVorticityAdvection(self._data.u_wind(), self._data.v_wind(), self._data.vorticity())
@@ -1266,7 +1257,7 @@ class DiagnosticSuite:
             if progress_description
             else self._diagnostics.items()
         ):  # DiagnosticName, Diagnostic
-            yield name, diagnostic.eager_compute_value
+            yield name, diagnostic.computed_value
 
     def computed_values_as_dict(self) -> dict[str, "xr.DataArray"]:
         return dict(self.computed_values(""))
