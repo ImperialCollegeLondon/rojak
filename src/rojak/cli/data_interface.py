@@ -25,6 +25,7 @@ from rojak.datalib.ecmwf.era5 import (
     InvalidEra5RequestConfigurationError,
 )
 from rojak.datalib.madis.amdar import AcarsRetriever, MadisAmdarPreprocessor
+from rojak.orchestrator.configuration import AmdarDataSource
 
 if TYPE_CHECKING:
     from rojak.core.data import DataPreprocessor
@@ -34,11 +35,6 @@ amdar_app = typer.Typer(help="Operations for AMDAR data")
 meteorology_app = typer.Typer(help="Operations for Meteorology data")
 data_app.add_typer(amdar_app, name="amdar")
 data_app.add_typer(meteorology_app, name="meteorology")
-
-
-class AmdarDataSource(StrEnum):
-    MADIS = "madis"
-    UKMO_AMDAR = "ukmo"
 
 
 def create_output_dir(output_dir: Path | None, source: StrEnum, intermediate_folder_name: str) -> Path:
@@ -100,7 +96,7 @@ def retrieve(  # noqa: PLR0913
         case AmdarDataSource.MADIS:
             retriever = AcarsRetriever(glob_pattern)
             retriever.download_files(years, months, days, output_dir)
-        case AmdarDataSource.UKMO_AMDAR:
+        case AmdarDataSource.UKMO:
             raise NotImplementedError("Not implemented UKMO AMDAR data retrieval")
         case _ as unreachable:
             assert_never(unreachable)
@@ -142,7 +138,7 @@ def preprocess(
     match source:
         case AmdarDataSource.MADIS:
             preprocess_madis_amdar_data(input_dir, output_dir, glob_pattern)
-        case AmdarDataSource.UKMO_AMDAR:
+        case AmdarDataSource.UKMO:
             raise NotImplementedError("Not implemented UKMO AMDAR data preprocessing")
         case _ as unreachable:
             assert_never(unreachable)
