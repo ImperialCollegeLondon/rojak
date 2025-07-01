@@ -45,6 +45,7 @@ rojak = "rojak.cli.main:app"
 #complete = ["rojak[ecmwf,amdar]"]
 dev = [
     "doc8",
+    "pandas-stubs",
     "pre-commit",
     "pyright",
     "ruff",
@@ -64,6 +65,8 @@ ecmwf = [
     "cdsapi>=0.7.5",
 ]
 amdar = [
+    "dask-geopandas",
+    "geopandas",
     "netcdf4",
     "pyarrow",
 ]

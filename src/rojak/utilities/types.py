@@ -25,6 +25,14 @@ class GoHomeYouAreDrunkError(Exception):
         super().__init__(message)
 
 
-Limits = NamedTuple("Limits", [("lower", float), ("upper", float)])
+# Limits = NamedTuple("Limits", [("lower", float), ("upper", float)])
 type DiagnosticName = str
 DistributionParameters = NamedTuple("DistributionParameters", [("mean", float), ("variance", float)])
+
+
+class Limits[T](NamedTuple):
+    lower: T
+    upper: T
+
+
+Coordinate = NamedTuple("Coordinate", [("latitude", float), ("longitude", float)])

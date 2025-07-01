@@ -12,7 +12,7 @@ from rojak.orchestrator.configuration import (
     TurbulenceDiagnostics,
     TurbulenceThresholds,
 )
-from rojak.orchestrator.turbulence import CalibrationStage
+from rojak.orchestrator.turbulence import DISTRIBUTION_PARAMS_TYPE_ADAPTER, THRESHOLDS_TYPE_ADAPTER, CalibrationStage
 from rojak.turbulence.analysis import HistogramData
 
 if TYPE_CHECKING:
@@ -174,9 +174,7 @@ def test_calibration_stage_perform_calibration(
     assert generated_threshold_file.is_file()
 
     # Verify the serialisation and deserialisation of the thresholds worked
-    instantiated_from_generated = calibration.thresholds_type_adapter().validate_json(
-        generated_threshold_file.read_text()
-    )
+    instantiated_from_generated = THRESHOLDS_TYPE_ADAPTER.validate_json(generated_threshold_file.read_text())
     assert instantiated_from_generated == output_thresholds
 
 
@@ -195,7 +193,10 @@ def test_calibration_stage_load_thresholds_from_file(tmp_path_factory, dump_to_f
 
 
 def test_calibration_stage_compute_distribution_params(
-    mocker: "MockerFixture", tmp_path_factory, calibration_config_data_dir, output_dist_params
+    mocker: "MockerFixture",
+    tmp_path_factory,
+    calibration_config_data_dir,
+    output_dist_params,
 ) -> None:
     start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
     calibration = CalibrationStage(
@@ -223,7 +224,5 @@ def test_calibration_stage_compute_distribution_params(
     )
     assert generated_dist_params_file.exists()
     assert generated_dist_params_file.is_file()
-    instantiated_from_generated = calibration.distribution_parameters_type_adapter().validate_json(
-        generated_dist_params_file.read_text()
-    )
+    instantiated_from_generated = DISTRIBUTION_PARAMS_TYPE_ADAPTER.validate_json(generated_dist_params_file.read_text())
     assert instantiated_from_generated == output_dist_params

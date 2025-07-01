@@ -292,7 +292,7 @@ def test_divergence(create_random_lat_lon_dataarray) -> None:
 )
 def test_get_projection_correction_factors_error(lat, lon, matches) -> None:
     with pytest.raises(ValueError, match=matches) as excinfo:
-        derivatives.get_projection_correction_factors(lat, lon)
+        derivatives.get_projection_correction_factors(lat, lon, False)
     assert excinfo.type is ValueError
 
 
@@ -314,7 +314,7 @@ def test_get_projection_correction_factors() -> None:
         ]
     )
     factors = derivatives.get_projection_correction_factors(
-        xr.DataArray(np.linspace(30, 40, 4)), xr.DataArray(np.linspace(260, 270, 4))
+        xr.DataArray(np.linspace(30, 40, 4)), xr.DataArray(np.linspace(260, 270, 4)), False
     )
     npt.assert_array_almost_equal(factors.parallel_scale.data, parallel)
     npt.assert_array_almost_equal(factors.meridional_scale.data, meridional)
