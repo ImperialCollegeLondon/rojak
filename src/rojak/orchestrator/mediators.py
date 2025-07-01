@@ -4,11 +4,11 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar, Mapping, NamedTuple
 
 import dask.dataframe as dd
-import distributed
 import numpy as np
 import pandas as pd
 
 from rojak.core.calculations import bilinear_interpolation
+from rojak.core.distributed_tools import blocking_wait_futures
 from rojak.core.indexing import map_values_to_nearest_coordinate_index
 from rojak.utilities.types import Coordinate
 
@@ -333,7 +333,7 @@ class DiagnosticsAmdarDataHarmoniser:
         ).persist()
         logger.debug("Observational data successfully prepared to be harmonised")
         # https://docs.dask.org/en/stable/user-interfaces.html#combining-interfaces
-        distributed.wait(distributed.futures_of(observational_data))
+        blocking_wait_futures(observational_data)
         logger.debug("Futures from persisting observational data have completed successfully")
 
         strategies: list[DiagnosticsAmdarHarmonisationStrategy] = DiagnosticsAmdarHarmonisationStrategyFactory(

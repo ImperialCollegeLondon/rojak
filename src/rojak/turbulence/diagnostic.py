@@ -16,7 +16,6 @@ import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Generator, Mapping, Tuple, assert_never
 
-import distributed
 import numpy as np
 import xarray as xr
 from dask.base import is_dask_collection
@@ -29,6 +28,7 @@ from rojak.core.derivatives import (
     spatial_gradient,
     spatial_laplacian,
 )
+from rojak.core.distributed_tools import blocking_wait_futures
 from rojak.orchestrator.configuration import (
     TurbulenceDiagnostics,
     TurbulenceSeverity,
@@ -91,7 +91,7 @@ class Diagnostic(ABC):
     def computed_value(self) -> xr.DataArray:
         if self._computed_value is None:
             self._computed_value = self._compute().persist()
-            distributed.wait(distributed.futures_of(self._computed_value))
+            blocking_wait_futures(self._computed_value)
         return self._computed_value
 
 
