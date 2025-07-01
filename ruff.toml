@@ -26,6 +26,7 @@ extend-select = [
     "PERF", # Linter for performance anti-patterns
     "PL", # pylint - static code analyser
     #    "UP", #
+    "PD", # linter for pandas
 ]
 
 [lint.extend-per-file-ignores]
