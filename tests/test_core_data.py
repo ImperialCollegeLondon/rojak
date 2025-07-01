@@ -1,45 +1,35 @@
 from typing import TYPE_CHECKING
 
+import dask.dataframe as dd
+import dask_geopandas
+import geopandas as gpd
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
 import xarray.testing as xrt
+from shapely.geometry import box
 
-from rojak.core.data import MetData
+from rojak.core.data import CATData, CATPrognosticData, as_geo_dataframe, expand_grid_bounds
+from rojak.core.derivatives import VelocityDerivative
+from rojak.core.geometric import create_grid_data_frame
 from rojak.datalib.ecmwf.era5 import Era5Data
+from rojak.datalib.madis.amdar import AcarsAmdarRepository
+from rojak.datalib.ukmo.amdar import UkmoAmdarRepository
 from rojak.orchestrator.configuration import SpatialDomain
+from tests.conftest import generate_array_data, time_coordinate
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
-
-@pytest.fixture
-def create_met_data_mock(mocker: "MockerFixture"):
-    mocker.patch.multiple(MetData, __abstractmethods__=set())
-    return MetData()  # pyright: ignore[reportAbstractUsage]
-
-
-def test_pressure_to_altitude_standard_atmosphere(create_met_data_mock) -> None:
-    met_data = create_met_data_mock
-    # Values from https://github.com/Unidata/MetPy/blob/60c94ebd5f314b85d770118cb7bfbe369a668c8c/tests/calc/test_basic.py#L327
-    pressures = xr.DataArray([975.2, 987.5, 956.0, 943.0])
-    alts = xr.DataArray([321.5, 216.5, 487.6, 601.7])
-    xrt.assert_allclose(alts, met_data.pressure_to_altitude_std_atm(pressures), rtol=1e-3)
-
-
-def time_coordinate():
-    return np.arange("2005-02-01T00", "2005-02-02T00", dtype="datetime64[h]")
-
-
-def generate_array_data(shape):
-    return np.random.default_rng().random(shape)
+    from rojak.utilities.types import Limits
 
 
 @pytest.fixture
 def make_select_domain_dummy_data():
     # Factory as fixtures
     # https://docs.pytest.org/en/latest/how-to/fixtures.html#factories-as-fixtures
-    def _make_select_domain_dummy_data(to_replace: dict) -> xr.Dataset:
+    def _make_select_domain_dummy_data(to_replace: dict, use_numpy: bool = True) -> xr.Dataset:
         default_coords = {
             "longitude": np.arange(10),
             "latitude": np.arange(10),
@@ -51,7 +41,7 @@ def make_select_domain_dummy_data():
         return xr.Dataset(
             data_vars={
                 "a": xr.DataArray(
-                    data=generate_array_data((10, 10, 24, 4)),
+                    data=generate_array_data((10, 10, 24, 4), use_numpy),
                     dims=["longitude", "latitude", "time", "level"],
                 )
             },
@@ -309,3 +299,264 @@ def test_select_domain_shift_longitude(make_select_domain_dummy_data) -> None:
     assert down_selected["a"]["longitude"].min() < -165  # noqa: PLR2004
     assert down_selected["a"]["longitude"].max() > 155  # noqa: PLR2004
     assert down_selected["a"].shape == (10, 10, 24, 4)
+
+
+def test_as_geo_dataframe(make_select_domain_dummy_data):
+    dummy_data = make_select_domain_dummy_data({}, use_numpy=False)
+    gdf = as_geo_dataframe(dummy_data.to_dask_dataframe())
+    assert "geometry" in gdf.columns
+    assert isinstance(gdf, dask_geopandas.GeoDataFrame)
+    assert gdf.crs == "epsg:4326"
+    gdf.head()  # Call head() to check it can be computed
+
+
+def test_instantiate_cat_prognostic_fail_on_variables(make_select_domain_dummy_data):
+    with pytest.raises(
+        ValueError, match="Attempting to instantiate CATPrognosticData with missing data variables"
+    ) as excinfo:
+        CATPrognosticData(make_select_domain_dummy_data({}))
+
+    assert excinfo.type is ValueError
+
+
+def test_instantiate_cat_prognostic_fail_on_coords(make_dummy_cat_data):
+    dummy_data = make_dummy_cat_data({})
+    dummy_data = dummy_data.drop_vars("altitude")
+    with pytest.raises(ValueError, match="Attempting to instantiate CATPrognosticData with missing coords") as excinfo:
+        CATPrognosticData(dummy_data)
+
+    assert excinfo.type is ValueError
+
+
+def test_instantiate_cat_prognostic_successfully(make_dummy_cat_data):
+    dummy_data = CATPrognosticData(make_dummy_cat_data({}))
+    assert isinstance(dummy_data, CATPrognosticData)
+
+
+@pytest.mark.parametrize(
+    ("attr_name", "dataset_name"),
+    [
+        ("temperature", "temperature"),
+        ("divergence", "divergence_of_wind"),
+        ("geopotential", "geopotential"),
+        ("specific_humidity", "specific_humidity"),
+        ("u_wind", "eastward_wind"),
+        ("v_wind", "northward_wind"),
+        ("potential_vorticity", "potential_vorticity"),
+        ("vorticity", "vorticity"),
+        ("altitude", "altitude"),
+    ],
+)
+def test_getters_on_cat_prognostic_dataset(make_dummy_cat_data, attr_name: str, dataset_name: str):
+    dummy_data = make_dummy_cat_data({})
+    dataset = CATPrognosticData(dummy_data)
+
+    xrt.assert_equal(getattr(dataset, attr_name)(), dummy_data[dataset_name])
+
+
+def test_time_window_on_cat_prognostic_dataset(make_dummy_cat_data):
+    dataset = CATPrognosticData(make_dummy_cat_data({}))
+    min_time = time_coordinate().min()
+    max_time = time_coordinate().max()
+    window: "Limits" = dataset.time_window()
+    assert window.lower == min_time
+    assert window.upper == max_time
+
+
+def test_cat_data_potential_temperature(mocker: "MockerFixture", make_dummy_cat_data) -> None:
+    dummy_data = make_dummy_cat_data({})
+    temp_to_potential_temp = mocker.patch("rojak.turbulence.calculations.potential_temperature")
+    temp_to_potential_temp.return_value = dummy_data["temperature"]
+
+    data = CATData(dummy_data)
+    theta = data.potential_temperature()
+    temp_to_potential_temp.assert_called_once()
+    xrt.assert_equal(theta, dummy_data["temperature"])
+    xrt.assert_equal(temp_to_potential_temp.call_args.args[0], data.temperature())
+    xrt.assert_equal(temp_to_potential_temp.call_args.args[0], dummy_data["temperature"])
+    xrt.assert_equal(temp_to_potential_temp.call_args.args[1], data.temperature()["pressure_level"])
+    xrt.assert_equal(temp_to_potential_temp.call_args.args[1], dummy_data["pressure_level"])
+
+
+def test_cat_data_velocity_derivatives(mocker: "MockerFixture", make_dummy_cat_data) -> None:
+    dummy_data = make_dummy_cat_data({})
+    velocity_derivatives = mocker.patch("rojak.core.derivatives.vector_derivatives")
+    ret_val = {VelocityDerivative.DV_DX: None}
+    velocity_derivatives.return_value = ret_val
+
+    data = CATData(dummy_data)
+    computed_derivs = data.velocity_derivatives()
+    velocity_derivatives.assert_called_once()
+    assert computed_derivs == ret_val
+    xrt.assert_equal(velocity_derivatives.call_args.args[0], data.u_wind())
+    xrt.assert_equal(velocity_derivatives.call_args.args[0], dummy_data["eastward_wind"])
+    xrt.assert_equal(velocity_derivatives.call_args.args[1], data.v_wind())
+    xrt.assert_equal(velocity_derivatives.call_args.args[1], dummy_data["northward_wind"])
+    assert velocity_derivatives.call_args.args[2] == "deg"
+
+    dv_dx = data.specific_velocity_derivative(VelocityDerivative.DV_DX)
+    assert dv_dx is None
+
+
+@pytest.mark.parametrize(
+    ("deformation_type", "method_name"),
+    [("shearing_deformation", "shear_deformation"), ("stretching_deformation", "stretching_deformation")],
+)
+def test_shear_and_stretch_deformation(
+    mocker: "MockerFixture", make_dummy_cat_data, deformation_type, method_name
+) -> None:
+    dummy_data = make_dummy_cat_data({})
+    data = CATData(dummy_data)
+
+    vel_deriv_mock = mocker.patch.object(data, "specific_velocity_derivative", return_value=dummy_data["eastward_wind"])
+    deformation = mocker.patch(f"rojak.turbulence.calculations.{deformation_type}")
+    deformation.return_value = dummy_data["northward_wind"]
+
+    computed_deformation = getattr(data, method_name)()
+
+    deformation.assert_called_once()
+    xrt.assert_equal(deformation.call_args.args[0], dummy_data["eastward_wind"])
+    xrt.assert_equal(deformation.call_args.args[1], dummy_data["eastward_wind"])
+    vel_deriv_mock.assert_called()
+    assert vel_deriv_mock.call_count == 2  # noqa: PLR2004
+
+    xrt.assert_equal(computed_deformation, dummy_data["northward_wind"])
+
+    stored_deformation = getattr(data, method_name)()
+    # Verify call count did not increase
+    assert vel_deriv_mock.call_count == 2  # noqa: PLR2004
+    xrt.assert_equal(stored_deformation, dummy_data["northward_wind"])
+
+
+def test_total_deformation(make_dummy_cat_data) -> None:
+    dummy_data = make_dummy_cat_data({})
+    data = CATData(dummy_data)
+
+    deformation_from_class = data.total_deformation()
+    total_deformation = (
+        data.shear_deformation() * data.shear_deformation()
+        + data.stretching_deformation() * data.stretching_deformation()
+    )
+    xrt.assert_allclose(deformation_from_class, total_deformation)
+
+
+def test_jacobian_horizontal_velocity(mocker: "MockerFixture", make_dummy_cat_data) -> None:
+    # Analytical Solution for
+    # x = u^2 - v^3 => dx_du = 2u dx_dv = -3v^2
+    # y = u^2 + v^3 => dy_du = 2u dy_dv = 3v^2
+    # determinant = 12 u v^2
+
+    dummy_data = make_dummy_cat_data({})
+    data = CATData(dummy_data)
+    derivatives = {
+        VelocityDerivative.DU_DX: 2 * dummy_data["eastward_wind"],
+        VelocityDerivative.DV_DX: -3 * dummy_data["northward_wind"] * dummy_data["northward_wind"],
+        VelocityDerivative.DU_DY: 2 * dummy_data["eastward_wind"],
+        VelocityDerivative.DV_DY: 3 * dummy_data["northward_wind"] * dummy_data["northward_wind"],
+    }
+    mocker.patch.object(data, "velocity_derivatives", return_value=derivatives)
+    analytical_det_of_jacobian = (
+        12 * dummy_data["eastward_wind"] * dummy_data["northward_wind"] * dummy_data["northward_wind"]
+    )
+    xrt.assert_allclose(analytical_det_of_jacobian, data.jacobian_horizontal_velocity())
+
+
+@pytest.fixture
+def get_standard_atmosphere_pressure_and_altitude():
+    pressure = np.asarray([1013.25, 843.07, 329.32, 238.42, 187.54])
+    # MSL, 5000ft, 28 000ft, 35 000ft, 40 000ft
+    altitude = np.asarray([0, 1524.0, 8534.4, 10668.0, 12192.0])
+    return pressure, altitude
+
+
+@pytest.mark.parametrize(
+    (
+        "test_altitude",
+        "closest_pressure",
+    ),
+    [(500, 1013.25), (1000, 843.07), (2000, 843.07), (9000, 329.32), (15000, 187.54)],
+)
+def test_amdar_data_repository_closest_pressure_level(
+    test_altitude, closest_pressure, get_standard_atmosphere_pressure_and_altitude
+):
+    pressure, altitude = get_standard_atmosphere_pressure_and_altitude
+    instance = AcarsAmdarRepository("")
+    assert instance._find_closest_pressure_level(test_altitude, altitude, pressure) == closest_pressure
+
+
+@pytest.mark.parametrize("concrete_class", [AcarsAmdarRepository, UkmoAmdarRepository])
+def test_compute_closest_pressure_level(
+    mocker: "MockerFixture", get_standard_atmosphere_pressure_and_altitude, concrete_class
+):
+    pressure, altitude = get_standard_atmosphere_pressure_and_altitude
+    converter_mock = mocker.patch("rojak.core.calculations.pressure_to_altitude_std_atm")
+    converter_mock.return_value = altitude
+    ddf = dd.from_pandas(pd.DataFrame({"altitude": [500, 1000, 2000, 9000, 15000]}))
+    closest = pd.Series([1013.24, 843.07, 843.07, 329.32, 187.54], name="level")
+
+    instance = concrete_class("")
+    ddf["level"] = instance._compute_closest_pressure_level(ddf, pressure, "altitude")
+    assert isinstance(ddf["level"], dd.Series)
+    pd.testing.assert_series_equal(ddf["level"].compute(), closest)
+
+
+@pytest.mark.parametrize("concrete_class", [AcarsAmdarRepository, UkmoAmdarRepository])
+def test_convert_to_amdar_turbulence_data(
+    mocker: "MockerFixture", load_flat_data: pd.DataFrame, concrete_class, valid_region_for_flat_data
+):
+    instance = concrete_class("")
+    load_mock = mocker.patch.object(instance, "load", return_value=dd.from_pandas(load_flat_data))
+
+    turbulence_data = instance.to_amdar_turbulence_data(valid_region_for_flat_data, 0.25, [150, 200, 250])
+    load_mock.assert_called_once()
+    computed_df = turbulence_data.data_frame.compute()
+    assert isinstance(computed_df, gpd.GeoDataFrame)
+    assert set(computed_df.columns) == {
+        "recNum",
+        "altitude",
+        "level",
+        "index_right",
+        "datetime",
+        "geometry",
+        "latitude",
+        "longitude",
+        "min_lat",
+        "max_lat",
+        "min_lon",
+        "max_lon",
+    }
+
+
+def test_expand_grid_bounds():
+    grid = create_grid_data_frame(box(10, 10, 12, 12), 1)
+    grid_bounds_df = expand_grid_bounds(grid).compute()
+    bottom_left = {"min_lon": [10], "min_lat": [10], "max_lon": [11], "max_lat": [11]}
+    bottom_right = {"min_lon": [11], "min_lat": [10], "max_lon": [12], "max_lat": [11]}
+    top_left = {"min_lon": [10], "min_lat": [11], "max_lon": [11], "max_lat": [12]}
+    top_right = {"min_lon": [11], "min_lat": [11], "max_lon": [12], "max_lat": [12]}
+    quadrants = [bottom_left, bottom_right, top_left, top_right]
+    for quadrant in quadrants:
+        contains_row: bool = False
+        for row in grid_bounds_df.isin(quadrant).iterrows():
+            # iterrows returns a tuple of [row_number, row]
+            if row[1].all():
+                contains_row = True
+                break
+        assert contains_row
+
+
+def test_join_grid_bounds():
+    grid = create_grid_data_frame(box(10, 10, 12, 12), 1)
+    index_right_values = np.random.default_rng().integers(low=0, high=4, size=100)
+    left_df = dd.from_pandas(pd.DataFrame({"some_value": np.arange(100), "index_right": index_right_values}))
+    repository_instance = AcarsAmdarRepository("")
+    joined_df = repository_instance.join_grid_bounds(left_df, grid).compute()
+    expanded_grid = expand_grid_bounds(grid).compute()
+    for row_num, row in joined_df.iterrows():
+        grid_index = int(row["index_right"])
+        assert grid_index == index_right_values[row_num]
+        pd.testing.assert_series_equal(
+            expanded_grid.iloc[grid_index], row[["min_lon", "min_lat", "max_lon", "max_lat"]], check_names=False
+        )
+
+    assert joined_df.shape == (100, 6)
