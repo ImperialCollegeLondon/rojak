@@ -320,11 +320,14 @@ class EvaluationStage:
                 condition: dict[str, list] = {"pressure_level": self._config.pressure_levels}
                 if phase == TurbulenceEvaluationPhaseOption.CORRELATION_BTW_PROBABILITIES:
                     condition["severity"] = [str(sev) for sev in self._config.severities]
+                    corr_on_what = "probability"
+                else:
+                    corr_on_what = "edr"
                 correlation = CorrelationBetweenDiagnostics(dict(correlation_on), condition).execute()
                 chained_names: str = chain_diagnostic_names(correlation_on.keys())
                 create_diagnostic_correlation_plot(
                     correlation,
-                    str(self._plots_dir / f"correlation_btw_{chained_names}.{self._image_format}"),
+                    str(self._plots_dir / f"corr_{corr_on_what}_btw_{chained_names}.{self._image_format}"),
                     "diagnostic1",
                     "diagnostic2",
                 )
