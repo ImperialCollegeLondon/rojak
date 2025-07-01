@@ -18,13 +18,17 @@ import shutil
 import tempfile
 from ftplib import FTP
 from pathlib import Path
-from typing import FrozenSet, Iterable
+from typing import TYPE_CHECKING, Any, FrozenSet, Iterable
 
 import dask.dataframe as dd
 import xarray as xr
 from rich.progress import track
 
-from rojak.core.data import DataPreprocessor, DataRetriever, Date
+from rojak.core.data import AmdarDataRepository, AmdarTurbulenceData, DataPreprocessor, DataRetriever, Date
+
+if TYPE_CHECKING:
+    import dask_geopandas as dgpd
+    import numpy as np
 
 ALL_AMDAR_DATA_VARS: FrozenSet[str] = frozenset(
     {'nStaticIds', 'staticIds', 'lastRecord', 'invTime', 'prevRecord', 'inventory', 'globalInventory', 'firstOverflow',
@@ -51,13 +55,13 @@ ALL_AMDAR_DATA_VARS: FrozenSet[str] = frozenset(
 
 
 class MadisAmdarPreprocessor(DataPreprocessor):
-    filepaths: Iterable[Path]
+    filepaths: list[Path]
     data_vars_for_turbulence: set[str] = {"altitude", "altitudeDD", "bounceError", "correctedFlag", "dataDescriptor",
         "dataSource", "dataType", "dest_airport_id", "en_tailNumber", "heading", "interpolatedLL", "interpolatedTime",
         "latitude", "latitudeDD", "longitude", "longitudeDD", "mach", "maxEDR", "maxEDRDD", "maxTurbulence",
         "medEDR", "medEDRDD", "medTurbulence", "orig_airport_id", "phaseFlight", "speedError", "tempError",
-        "temperature", "temperatureDD", "timeMaxTurbulence", "timeObs", "timeObsDD",  "trueAirSpeed",
-        "trueAirSpeedDD", "trueAirSpeedError", "turbIndex", "turbIndexDD", "turbulenceError",
+        "temperature", "temperatureDD", "timeMaxTurbulence", "timeObs", "timeObsDD",  "trueAirSpeed", "rollFlag",
+        "trueAirSpeedDD", "trueAirSpeedError", "turbIndex", "turbIndexDD", "turbulenceError", "baroAltitude",
         "vertAccel", "vertGust", "windDir", "windDirDD", "windDirError", "windSpeed", "windSpeedDD", "windSpeedError",
     }  # fmt: skip
     quality_control_vars: set[str] = {"altitudeDD", "windSpeedDD", "timeObsDD", "latitudeDD", "longitudeDD",
@@ -93,7 +97,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
         else:
             self.relative_to_root_path = None
             if isinstance(filepaths, Iterable):
-                self.filepaths = filepaths
+                self.filepaths = list(filepaths)
             else:
                 if not filepaths.is_file():
                     raise ValueError(
@@ -163,7 +167,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
         # Filters and exports data to parquet
         output_directory.mkdir(parents=True, exist_ok=True)
 
-        for index, filepath in track(enumerate(self.filepaths)):
+        for index, filepath in track(enumerate(self.filepaths), total=len(self.filepaths)):
             temp_netcdf_file: Path = self.decompress_gz(filepath)
             data: xr.Dataset = xr.open_dataset(
                 temp_netcdf_file,
@@ -195,7 +199,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
                 else output_directory / self.relative_to_root_path[index] / f"{filepath.stem}.parquet"
             )  # fmt: skip
             output_file.parent.mkdir(parents=True, exist_ok=True)
-            data[variables_to_keep].to_dataframe().to_parquet(output_file)
+            dd.from_pandas(data[variables_to_keep].to_dataframe()).to_parquet(output_file)
 
             temp_netcdf_file.unlink()
             del data
@@ -238,6 +242,46 @@ class AcarsRetriever(DataRetriever):
             self._download_file(date, base_output_dir)
 
 
-def load_acars_amdar_data(path: str | list) -> "dd.DataFrame":
-    # ASSUMES FILES ARE IN PARQUET FORMAT
-    return dd.read_parquet(path, filesystem="arrow")
+class AcarsAmdarRepository(AmdarDataRepository):
+    def __init__(self, path_to_files: str | list) -> None:
+        super().__init__(path_to_files)
+
+    def load(self) -> "dd.DataFrame":
+        return dd.read_parquet(self._path_to_files)
+
+    def _call_compute_closest_pressure_level(
+        self, data_frame: "dd.DataFrame", pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]"
+    ) -> "dd.Series":
+        return self._compute_closest_pressure_level(data_frame, pressure_levels, "altitude")
+
+    def _instantiate_amdar_turbulence_data_class(
+        self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame"
+    ) -> "AmdarTurbulenceData":
+        return AcarsAmdarTurbulenceData(data_frame, grid)
+
+    def _time_column_rename_mapping(self) -> dict[str, str]:
+        return {"timeObs": "datetime"}
+
+
+class AcarsAmdarTurbulenceData(AmdarTurbulenceData):
+    def __init__(self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame") -> None:
+        super().__init__(data_frame, grid)
+
+    def _minimum_altitude_qc(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
+        return data_frame[data_frame["altitude"] >= self.MINIMUM_ALTITUDE]
+
+    def _drop_manoeuvre_data_qc(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
+        # Attributes:
+        # long_name:  Aircraft roll angle flag
+        # units:        G = < 5 degrees, B = > 5 degrees
+        # value_G:    roll <= 5 degrees
+        # value_B:    roll > 5 degrees, OR flagged suspect or bad on receipt
+        # value_N:    N/A
+        # value_-:    Missing value
+
+        # All the data gets filetered out
+        # return data_frame[data_frame["rollFlag"] == ord("G")]
+        return data_frame
+
+    def turbulence_column_names(self) -> list[str]:
+        return ["maxEDR", "maxTurbulence", "medEDR", "medTurbulence", "turbIndex", "vertGust"]
