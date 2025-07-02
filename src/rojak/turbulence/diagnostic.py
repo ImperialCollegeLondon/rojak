@@ -28,6 +28,7 @@ from rojak.core.derivatives import (
     spatial_gradient,
     spatial_laplacian,
 )
+from rojak.core.distributed_tools import blocking_wait_futures
 from rojak.orchestrator.configuration import (
     TurbulenceDiagnostics,
     TurbulenceSeverity,
@@ -89,7 +90,8 @@ class Diagnostic(ABC):
     @property
     def computed_value(self) -> xr.DataArray:
         if self._computed_value is None:
-            self._computed_value = self._compute()
+            self._computed_value = self._compute().persist()
+            blocking_wait_futures(self._computed_value)
         return self._computed_value
 
 
