@@ -73,6 +73,7 @@ amdar = [
 plot = [
     "cartopy",
     "matplotlib",
+    "pypalettes",
 ]
 
 [tool.pyright]
