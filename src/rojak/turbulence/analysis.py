@@ -40,6 +40,14 @@ OVERALL_CLIMATOLOGICAL_PARAMETER = ClimatologicalEDRConstants(-2.572, 0.5067)
 
 
 class TurbulenceIntensityThresholds(PostProcessor):
+    """
+    Computes threshold diagnostic value for each turbulence intensity using percentiles
+
+    To determine if turbulence of a given intensity is encountered, the threshold value for said intensity must first
+    be calculated for each diagnostics. Using the specified percentile values, these thresholds are computed to be
+    on the calibration dataset in accordance to the methodology detailed in [Williams2017]_
+    """
+
     _percentile_config: TurbulenceThresholds
     _computed_diagnostic: xr.DataArray
 
