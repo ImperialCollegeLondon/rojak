@@ -20,14 +20,17 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, List, Literal, Mapping, NamedTuple, Sequence
 
 import dask_geopandas as dgpd
+import distributed
 import numpy as np
 import pandas as pd
 import xarray as xr
+from dask.base import is_dask_collection
 
 from rojak.core import derivatives
 from rojak.core.calculations import pressure_to_altitude_std_atm
 from rojak.core.constants import MAX_LONGITUDE
 from rojak.core.derivatives import VelocityDerivative
+from rojak.core.distributed_tools import blocking_wait_futures
 from rojak.core.geometric import create_grid_data_frame
 from rojak.core.indexing import make_value_based_slice
 from rojak.turbulence import calculations as turb_calc
@@ -37,6 +40,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     import dask.dataframe as dd
+    from distributed import Future
     from numpy.typing import NDArray
     from shapely.geometry import Polygon
 
@@ -117,7 +121,8 @@ class CATPrognosticData:
         if not set(dataset.coords.keys()).issuperset(self.required_coords):
             missing_coords = self.required_coords - dataset.coords.keys()
             raise ValueError(f"Attempting to instantiate CATPrognosticData with missing coords: {missing_coords}")
-        self._dataset = dataset
+        self._dataset = dataset.persist()
+        blocking_wait_futures(self._dataset)
 
     def temperature(self) -> xr.DataArray:
         return self._dataset["temperature"]
@@ -163,12 +168,18 @@ class CATData(CATPrognosticData):
         if self._potential_temperature is None:
             self._potential_temperature = turb_calc.potential_temperature(
                 self.temperature(), self.temperature()["pressure_level"]
-            )
+            ).persist()
+            blocking_wait_futures(self._potential_temperature)
         return self._potential_temperature
 
     def velocity_derivatives(self) -> dict[VelocityDerivative, xr.DataArray]:
         if self._velocity_derivatives is None:
             self._velocity_derivatives = derivatives.vector_derivatives(self.u_wind(), self.v_wind(), "deg")
+            if is_dask_collection(self.u_wind()):
+                futures: List["Future"] = []
+                for derivative in self._velocity_derivatives.values():
+                    futures.extend(distributed.futures_of(derivative.persist()))
+                distributed.wait(futures)
         return self._velocity_derivatives
 
     def specific_velocity_derivative(self, target_derivative: VelocityDerivative) -> xr.DataArray:
@@ -181,7 +192,8 @@ class CATData(CATPrognosticData):
             self._shear_deformation = turb_calc.shearing_deformation(
                 self.specific_velocity_derivative(VelocityDerivative.DV_DX),
                 self.specific_velocity_derivative(VelocityDerivative.DU_DY),
-            )
+            ).persist()
+            blocking_wait_futures(self._shear_deformation)
         return self._shear_deformation
 
     def stretching_deformation(self) -> xr.DataArray:
@@ -189,7 +201,8 @@ class CATData(CATPrognosticData):
             self._stretching_deformation = turb_calc.stretching_deformation(
                 self.specific_velocity_derivative(VelocityDerivative.DU_DX),
                 self.specific_velocity_derivative(VelocityDerivative.DV_DY),
-            )
+            ).persist()
+            blocking_wait_futures(self._stretching_deformation)
         return self._stretching_deformation
 
     def total_deformation(self) -> xr.DataArray:
