@@ -18,6 +18,7 @@ import cartopy.crs as ccrs
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
+import pypalettes
 import scipy.cluster.hierarchy as sch
 import xarray as xr
 from shapely import Polygon
@@ -172,7 +173,7 @@ def create_multi_turbulence_diagnotics_probability_plot(
                 "shrink": 0.6,
             },
             # cmap="Blues",
-            # cmap=mpl.colormaps["WhiteBlueGreenYellowRed"].resampled(20),
+            cmap=pypalettes.load_cmap("cancri").resampled(20),
             robust=True,
         )
     )
