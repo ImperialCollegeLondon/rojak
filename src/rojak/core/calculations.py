@@ -31,14 +31,14 @@ class PressureToAltitudeConstantsICAO:
             and time, as defined in Equation 6
     """
 
-    reference_pressure: float  # P_0 in hPa
-    reference_temperature: float  # T_0 in K
-    tropopause_pressure: float  # P^* in hPa
-    tropopause_temperature: float  # T^* in K
-    lapse_rate: float  # a in K / m
-    n_value: float  # n = G/aR dimensionless
-    inverse_n: float  # 1/n (dimensionless) where n = G / aR
-    geopotential_dimensional_constant: float  # G
+    reference_pressure: float = 1013.25  # P_0 in hPa
+    reference_temperature: float = 288.16  # T_0 in K
+    tropopause_pressure: float = 226.32  # P^* in hPa
+    tropopause_temperature: float = 216.66  # T^* in K
+    lapse_rate: float = 0.0065  # a in K / m
+    n_value: float = 5.2561  # n = G/aR dimensionless
+    inverse_n: float = 1 / 5.2621  # 1/n (dimensionless) where n = G / aR
+    geopotential_dimensional_constant: float = 9.80665  # G
 
     @property
     def b_value(self) -> float:
@@ -71,16 +71,7 @@ class PressureToAltitudeConstantsICAO:
         return (self.reference_temperature - self.tropopause_temperature) / self.lapse_rate
 
 
-icao_constants = PressureToAltitudeConstantsICAO(
-    reference_pressure=1013.25,  # hPa
-    reference_temperature=288.16,  # K
-    tropopause_pressure=226.32,  # K
-    tropopause_temperature=216.66,  # K
-    lapse_rate=0.0065,  # K/m
-    n_value=5.2561,  # dimensionless
-    inverse_n=1 / 5.2561,  # dimensionless
-    geopotential_dimensional_constant=9.80665,  # m^2/s^2m'
-)
+icao_constants = PressureToAltitudeConstantsICAO()
 
 
 def pressure_to_altitude_std_atm(pressure: "NumpyOrDataArray") -> "NumpyOrDataArray":
