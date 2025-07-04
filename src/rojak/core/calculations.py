@@ -15,7 +15,8 @@ def pressure_to_altitude_std_atm(pressure: "ArrayLike") -> "ArrayLike":
     """
     Equation 3.106 on page 104 in Wallace, J. M., and Hobbs, P. V., “Atmospheric Science: An Introductory Survey,”
     Elsevier Science & Technology, San Diego, UNITED STATES, 2006.
-    ..math:: z = \frac{T_0}{\\Gamma} \\left[ 1 - \\left( \frac{p}{p_0} \right)^{\frac{R\\Gamma}{g}} \right]
+
+    ..math:: z = \\frac{T_0}{\\Gamma} \\left[ 1 - \\left( \\frac{p}{p_0} \\right)^{\\frac{R\\Gamma}{g}} \\right]
     """
     reference_temperature: float = 288.0  # kelvin
     gamma: float = 0.0065  # 6.5 K/km => 0.0065 K/m
