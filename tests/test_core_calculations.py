@@ -31,45 +31,51 @@ def test_pressure_to_altitude_standard_atmosphere() -> None:
 @pytest.mark.parametrize(
     ("pressures", "converter_method", "descriptor"),
     [
-        pytest.param(
-            np.asarray([230]), pressure_to_altitude_troposphere, "greater than", id="single value troposphere"
-        ),
+        pytest.param(np.asarray([220]), pressure_to_altitude_troposphere, "less than", id="single value troposphere"),
         pytest.param(
             np.asarray([icao_constants.tropopause_pressure]),
             pressure_to_altitude_troposphere,
-            "greater than",
+            "less than",
             id="troposphere boundary value",
         ),
         pytest.param(
             np.asarray([220, 230]),
             pressure_to_altitude_troposphere,
-            "greater than",
+            "less than",
             id="one value is above troposphere",
         ),
         pytest.param(
-            np.linspace(icao_constants.tropopause_pressure, 500, 10),
+            np.linspace(icao_constants.tropopause_pressure, 100, 10),
             pressure_to_altitude_troposphere,
-            "greater than",
+            "less than",
             id="multiple value is above troposphere",
         ),
         pytest.param(
-            np.linspace(0, icao_constants.tropopause_pressure, 20),
+            np.linspace(1013, icao_constants.tropopause_pressure, 20),
             pressure_to_altitude_troposphere,
-            "greater than",
+            "less than",
             id="final value is tropopause boundary",
         ),
-        pytest.param(np.asarray([220]), pressure_to_altitude_stratosphere, "less than", id="single value stratosphere"),
+        pytest.param(
+            np.asarray([230]), pressure_to_altitude_stratosphere, "greater than", id="single value stratosphere"
+        ),
         pytest.param(
             np.asarray([220, 230]),
             pressure_to_altitude_stratosphere,
-            "less than",
+            "greater than",
             id="one value is below stratosphere",
         ),
         pytest.param(
-            np.linspace(0, 220, 10),
+            np.linspace(250, 500, 10),
             pressure_to_altitude_stratosphere,
-            "less than",
+            "greater than",
             id="multiple value is below stratosphere",
+        ),
+        pytest.param(
+            np.linspace(icao_constants.tropopause_pressure, 500, 10),
+            pressure_to_altitude_stratosphere,
+            "greater than",
+            id="multiple value is below stratosphere (with boundary)",
         ),
     ],
 )
