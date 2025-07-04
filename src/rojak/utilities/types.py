@@ -17,7 +17,7 @@ from typing import NamedTuple
 import numpy.typing as npt
 import xarray as xr
 
-ArrayLike = npt.NDArray | xr.DataArray
+NumpyOrDataArray = npt.NDArray | xr.DataArray
 
 
 class GoHomeYouAreDrunkError(Exception):

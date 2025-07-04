@@ -13,7 +13,7 @@ from rojak.core import derivatives
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
-    from rojak.utilities.types import ArrayLike
+    from rojak.utilities.types import NumpyOrDataArray
 
 
 @pytest.mark.parametrize(
@@ -77,7 +77,7 @@ def test_is_lat_lon_in_degrees(expected: bool, mocker: "MockerFixture", lat, lon
         (xr.DataArray([0.0, 90.0]), xr.DataArray([0, np.pi]), "Latitude is in degrees, but longitude is not"),
     ],
 )
-def test_is_lat_lon_in_degrees_error(lat: "ArrayLike", lon: "ArrayLike", matches: str) -> None:
+def test_is_lat_lon_in_degrees_error(lat: "NumpyOrDataArray", lon: "NumpyOrDataArray", matches: str) -> None:
     with pytest.raises(ValueError, match=matches) as excinfo:
         derivatives.is_lat_lon_in_degrees(lat, lon)
     assert excinfo.type is ValueError
