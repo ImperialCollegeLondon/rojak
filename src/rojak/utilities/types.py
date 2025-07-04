@@ -12,10 +12,17 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+import sys
 from typing import NamedTuple
 
+import numpy as np
 import numpy.typing as npt
 import xarray as xr
+
+if sys.version_info >= (3, 13):
+    from typing import TypeIs
+else:
+    from typing_extensions import TypeIs
 
 NumpyOrDataArray = npt.NDArray | xr.DataArray
 
@@ -36,3 +43,11 @@ class Limits[T](NamedTuple):
 
 
 Coordinate = NamedTuple("Coordinate", [("latitude", float), ("longitude", float)])
+
+
+def is_xr_data_array(obj: object) -> TypeIs[xr.DataArray]:
+    return isinstance(obj, xr.DataArray)
+
+
+def is_np_array(obj: object) -> TypeIs[npt.NDArray]:
+    return isinstance(obj, np.ndarray)

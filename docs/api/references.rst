@@ -40,3 +40,7 @@ References
 .. [Dutton1980] Dutton, M. J. O. (1980). Probability forecasts of clear-air turbulence based on numerical model output. Meteorological Magazine (UK), 109(1299), 293–310.
 
 .. [Williams2017] Williams, P. D. (2017). Increased light, moderate, and severe clear-air turbulence in response to climate change. Advances in Atmospheric Sciences, 34(5), 576–586. https://doi.org/10.1007/s00376-017-6268-2
+
+.. [Wallace2006] Wallace, J. M., & Hobbs, P. V. (2006). Atmospheric Science: An Introductory Survey. San Diego, UNITED STATES: Elsevier Science & Technology. Retrieved from http://ebookcentral.proquest.com/lib/imperial/detail.action?docID=631901
+
+.. [NACA3182] Manual of the ICAO standard atmosphere calculations by the NACA. (1954, May 1). Retrieved from https://ntrs.nasa.gov/citations/19930083952
