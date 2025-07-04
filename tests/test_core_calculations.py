@@ -1,11 +1,22 @@
+from typing import TYPE_CHECKING, Callable
+
 import numpy as np
 import pytest
 import xarray as xr
 from scipy.interpolate import RegularGridInterpolator
 from xarray import testing as xrt
 
-from rojak.core.calculations import bilinear_interpolation, pressure_to_altitude_std_atm
+from rojak.core.calculations import (
+    bilinear_interpolation,
+    icao_constants,
+    pressure_to_altitude_std_atm,
+    pressure_to_altitude_stratosphere,
+    pressure_to_altitude_troposphere,
+)
 from rojak.utilities.types import Coordinate
+
+if TYPE_CHECKING:
+    from rojak.utilities.types import NumpyOrDataArray
 
 
 def test_pressure_to_altitude_standard_atmosphere() -> None:
@@ -13,6 +24,67 @@ def test_pressure_to_altitude_standard_atmosphere() -> None:
     pressures = xr.DataArray([975.2, 987.5, 956.0, 943.0])
     alts = xr.DataArray([321.5, 216.5, 487.6, 601.7])
     xrt.assert_allclose(alts, pressure_to_altitude_std_atm(pressures), rtol=1e-3)
+
+
+@pytest.mark.parametrize("is_2d", [True, False])
+@pytest.mark.parametrize("wrap_in_data_array", [True, False])
+@pytest.mark.parametrize(
+    ("pressures", "converter_method", "descriptor"),
+    [
+        pytest.param(
+            np.asarray([230]), pressure_to_altitude_troposphere, "greater than", id="single value troposphere"
+        ),
+        pytest.param(
+            np.asarray([icao_constants.tropopause_pressure]),
+            pressure_to_altitude_troposphere,
+            "greater than",
+            id="troposphere boundary value",
+        ),
+        pytest.param(
+            np.asarray([220, 230]),
+            pressure_to_altitude_troposphere,
+            "greater than",
+            id="one value is above troposphere",
+        ),
+        pytest.param(
+            np.linspace(icao_constants.tropopause_pressure, 500, 10),
+            pressure_to_altitude_troposphere,
+            "greater than",
+            id="multiple value is above troposphere",
+        ),
+        pytest.param(
+            np.linspace(0, icao_constants.tropopause_pressure, 20),
+            pressure_to_altitude_troposphere,
+            "greater than",
+            id="final value is tropopause boundary",
+        ),
+        pytest.param(np.asarray([220]), pressure_to_altitude_stratosphere, "less than", id="single value stratosphere"),
+        pytest.param(
+            np.asarray([220, 230]),
+            pressure_to_altitude_stratosphere,
+            "less than",
+            id="one value is below stratosphere",
+        ),
+        pytest.param(
+            np.linspace(0, 220, 10),
+            pressure_to_altitude_stratosphere,
+            "less than",
+            id="multiple value is below stratosphere",
+        ),
+    ],
+)
+def test_pressure_to_altitude_fails_checks(
+    pressures: "NumpyOrDataArray", converter_method: Callable, descriptor: str, wrap_in_data_array: bool, is_2d: bool
+) -> None:
+    matches: str = (
+        f"Attempting to convert pressure to altitude for troposphere with pressure {descriptor} tropopause pressure"
+    )
+    if is_2d:
+        pressures = pressures * np.ones((pressures.size, pressures.size))
+    if wrap_in_data_array:
+        pressures = xr.DataArray(pressures)
+    with pytest.raises(ValueError, match=matches):
+        converter_method(pressures)
 
 
 def linear_function(x_vals, y_vals):
