@@ -143,6 +143,17 @@ def pressure_to_altitude_troposphere(pressure: "NumpyOrDataArray") -> "NumpyOrDa
     )
 
 
+def altitude_to_pressure_troposphere(altitude: "NumpyOrDataArray") -> "NumpyOrDataArray":
+    return (
+        icao_constants.reference_pressure
+        * (
+            (icao_constants.reference_temperature - icao_constants.lapse_rate * altitude)
+            / icao_constants.reference_temperature
+        )
+        ** icao_constants.n_value
+    )
+
+
 def pressure_to_altitude_stratosphere(pressure: "NumpyOrDataArray") -> "NumpyOrDataArray":
     """
     Convert pressure to altitude for the stratosphere
