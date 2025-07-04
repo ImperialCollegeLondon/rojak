@@ -95,17 +95,14 @@ def quadratic_function(x_vals, y_vals):
     return x_vals + y_vals
 
 
+@pytest.mark.parametrize("ff", [linear_function, quadratic_function])
 @pytest.mark.parametrize(
-    ("x_slice", "y_slice", "interpolation_point", "ff"),
+    ("x_slice", "y_slice", "interpolation_point"),
     [
-        (slice(2), slice(2), (-1, -1), linear_function),
-        (slice(2), slice(1, None), (1, -1), linear_function),
-        (slice(1, None), slice(2), (-1, 1), linear_function),
-        (slice(1, None), slice(1, None), (1, 1), linear_function),
-        (slice(2), slice(2), (-1, -1), quadratic_function),
-        (slice(2), slice(1, None), (1, -1), quadratic_function),
-        (slice(1, None), slice(2), (-1, 1), quadratic_function),
-        (slice(1, None), slice(1, None), (1, 1), quadratic_function),
+        (slice(2), slice(2), (-1, -1)),
+        (slice(2), slice(1, None), (1, -1)),
+        (slice(1, None), slice(2), (-1, 1)),
+        (slice(1, None), slice(1, None), (1, 1)),
     ],
 )
 def test_bilinear_interpolation(x_slice, y_slice, interpolation_point, ff) -> None:
