@@ -7,6 +7,7 @@ from scipy.interpolate import RegularGridInterpolator
 from xarray import testing as xrt
 
 from rojak.core.calculations import (
+    altitude_to_pressure_troposphere,
     bilinear_interpolation,
     icao_constants,
     pressure_to_altitude_std_atm,
@@ -91,6 +92,21 @@ def test_pressure_to_altitude_fails_checks(
         pressures = xr.DataArray(pressures)
     with pytest.raises(ValueError, match=matches):
         converter_method(pressures)
+
+
+def test_pressure_to_altitude_troposphere_and_vice_versa() -> None:
+    pressure = np.asarray([1013.25, 794.95, 701.08, 616.40, 577.28, 478.81, 410.61, 330.99, 350.88, 300.62, 250.50])
+    altitude_from_table = np.asarray([0, 2000, 3000, 4000, 4500, 6000, 7000, 8500, 8100, 9150, 10350])
+
+    computed_altitude = pressure_to_altitude_troposphere(pressure)
+    computed_pressure = altitude_to_pressure_troposphere(altitude_from_table)
+    np.testing.assert_allclose(computed_pressure, pressure, rtol=0.02)
+    # rtol based on altitude -> pressure as table is from altitude -> pressure
+    np.testing.assert_allclose(computed_altitude, altitude_from_table, rtol=0.02)
+
+    # Test that we get back approximately the same thing when passed through inverses
+    np.testing.assert_allclose(altitude_to_pressure_troposphere(computed_altitude), pressure, rtol=0.002)
+    np.testing.assert_allclose(pressure_to_altitude_troposphere(computed_pressure), altitude_from_table, rtol=0.002)
 
 
 def linear_function(x_vals, y_vals):
