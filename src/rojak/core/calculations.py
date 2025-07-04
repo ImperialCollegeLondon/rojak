@@ -20,15 +20,15 @@ class PressureToAltitudeConstantsICAO:
     Class to store constants used to convert pressure to altitude based on ICAO manual [NACA3182]_
 
     Attributes:
-        reference_pressure (float): Pressure in hPa, :math:`P_0`, as defined in Equation 9
-        reference_temperature (float): Temperature in K, :math:`T_0`, as defined in Equation 9
-        tropopause_pressure (float): Pressure in hPa, :math:`P^*`, as defined in Equation 29
-        tropopause_temperature (float): Temperature in K, :math:`T^*`, as defined in Equation 14
-        lapse_rate (float): Lapse rate in K/m, :math:`a=-\\frac{dT}{dH}`, as defined in Equation 12
+        reference_pressure (float): Pressure, :math:`P_0`, in hPa as defined in Equation 9
+        reference_temperature (float): Temperature, :math:`T_0`, in K as defined in Equation 9
+        tropopause_pressure (float): Pressure, :math:`P^*`, in hPa as defined in Equation 29
+        tropopause_temperature (float): Temperature, :math:`T^*`, in K as defined in Equation 14
+        lapse_rate (float): Lapse rate, :math:`a=-\\frac{dT}{dH}`, in K/m as defined in Equation 12
         n_value (float): Dimensionless constant value, :math:`n=\\frac{G}{aR}`, as defined in Equation 17
         inverse_n (float): :math:`\\frac{1}{n}`
-        geopotential_dimensional_constant (float):  Constant determines magnitude of :math:`H` in terms of length
-            and time, as defined in Equation 6
+        geopotential_dimensional_constant (float):  Constant :math:`G` determines magnitude of :math:`H` in terms of
+            length and time, as defined in Equation 6
     """
 
     reference_pressure: float = 1013.25  # P_0 in hPa
@@ -78,9 +78,9 @@ def pressure_to_altitude_std_atm(pressure: "NumpyOrDataArray") -> "NumpyOrDataAr
     """
     Convert pressure to altitude for a standard atmosphere
 
-    Using Equation 3.106 on page 104 in [Wallace2006]_,
+    An implementation of Equation 3.106 on page 104 in [Wallace2006]_,
 
-    ..math:: z = \\frac{T_0}{\\Gamma} \\left[ 1 - \\left( \\frac{p}{p_0} \\right)^{\\frac{R\\Gamma}{g}} \\right]
+    .. math:: z = \\frac{T_0}{\\Gamma} \\left[ 1 - \\left( \\frac{p}{p_0} \\right)^{\\frac{R\\Gamma}{g}} \\right]
 
     Args:
         pressure (NumpyOrDataArray): Pressure in hPa
@@ -116,10 +116,17 @@ def _check_if_pressures_are_valid(pressure: "NumpyOrDataArray", is_below_tropopa
 
 def pressure_to_altitude_troposphere(pressure: "NumpyOrDataArray") -> "NumpyOrDataArray":
     """
-    Equation 40 from ICAO manual [NACA3182]_
+    Convert pressure to altitude for the troposphere
+
+    Please use :py:func:`pressure_to_altitude_icao` for pressures in both the troposphere and stratosphere.
+
+    An implementation of equation 40 from ICAO manual [NACA3182]_
 
     .. math::
         \\text{H} = \\frac{T_0}{a} \\left[ 1 - \\left( \\frac{P}{P_0} \\right)^{1/n} \\right]
+
+    where :math:`H` is the geopotential height and is treated as equivalent to altitude for engineering purposes
+    (see [NACA3182]_ for details).
 
     Args:
         pressure (NumpyOrDataArray): Pressure in hPa
@@ -136,12 +143,18 @@ def pressure_to_altitude_troposphere(pressure: "NumpyOrDataArray") -> "NumpyOrDa
 
 def pressure_to_altitude_stratosphere(pressure: "NumpyOrDataArray") -> "NumpyOrDataArray":
     """
+    Convert pressure to altitude for the stratosphere
 
-    Equation 41 from ICAO manual [NACA3182]_
+    Please use :py:func:`pressure_to_altitude_icao` for pressures in both the troposphere and stratosphere.
+
+    An implementation of equation 41 from ICAO manual [NACA3182]_
 
     .. math::
         \\text{H} = \\text{H}^* + \\frac{1}{\\text{B}} \\left[ n \\log_{10} \\left( \\frac{T^*}{T_0} \\right) \\right]
         - \\frac{1}{\\text{B}} \\log_{10} \\left( \\frac{P}{P_0} \\right)
+
+    where :math:`H` is the geopotential height and is treated as equivalent to altitude for engineering purposes
+    (see [NACA3182]_ for details).
 
     Args:
         pressure (NumpyOrDataArray): Pressure in hPa
