@@ -94,12 +94,14 @@ def pressure_to_altitude_std_atm(pressure: "NumpyOrDataArray") -> "NumpyOrDataAr
 
 
 def _check_if_pressures_are_valid(pressure: "NumpyOrDataArray", is_below_tropopause: bool) -> None:
+    # Closer to ground => larger pressure
+    # Thus, below tropopause => values > tropopause pressure. Condition will be opposite
     condition = (
-        pressure >= icao_constants.tropopause_pressure
+        pressure <= icao_constants.tropopause_pressure
         if is_below_tropopause
-        else pressure < icao_constants.tropopause_pressure
+        else pressure > icao_constants.tropopause_pressure
     )
-    descriptive_comparator: str = "greater than" if is_below_tropopause else "less than"
+    descriptive_comparator: str = "less than" if is_below_tropopause else "greater than"
 
     if pressure.ndim == 1 or is_np_array(pressure):
         if pressure[condition].size != 0:
