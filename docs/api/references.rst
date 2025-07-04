@@ -38,3 +38,5 @@ References
 .. [Colson1965] Colson, D., & Panofsky, H. A. (1965). An index of clear air turbulence. Quarterly Journal of the Royal Meteorological Society, 91(390), 507–513. https://doi.org/10.1002/qj.49709139010
 
 .. [Dutton1980] Dutton, M. J. O. (1980). Probability forecasts of clear-air turbulence based on numerical model output. Meteorological Magazine (UK), 109(1299), 293–310.
+
+.. [Williams2017] Williams, P. D. (2017). Increased light, moderate, and severe clear-air turbulence in response to climate change. Advances in Atmospheric Sciences, 34(5), 576–586. https://doi.org/10.1007/s00376-017-6268-2
