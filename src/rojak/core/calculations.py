@@ -2,7 +2,6 @@ import dataclasses
 from typing import TYPE_CHECKING
 
 import numpy as np
-import xarray as xr
 from scipy.interpolate import RegularGridInterpolator
 
 from rojak.core.constants import GAS_CONSTANT_DRY_AIR, GRAVITATIONAL_ACCELERATION
@@ -200,12 +199,26 @@ def pressure_to_altitude_icao(pressure: "NumpyOrDataArray") -> "NumpyOrDataArray
     Returns:
 
     """
-    package = np if is_np_array(pressure) else xr
-    return package.where(
-        pressure < icao_constants.tropopause_pressure,
-        pressure_to_altitude_troposphere(pressure),
-        pressure_to_altitude_stratosphere(pressure),
-    )
+    if pressure.ndim > 1:
+        raise NotImplementedError("Multidimensional pressure not yet supported")
+
+    mask = pressure > icao_constants.tropopause_pressure
+    pressures_within_troposphere = pressure[mask]
+    pressures_within_stratosphere = pressure[~mask]
+
+    if pressures_within_troposphere.size == pressure.size:
+        return pressure_to_altitude_troposphere(pressure)
+    if pressures_within_stratosphere.size == pressure.size:
+        return pressure_to_altitude_stratosphere(pressure)
+
+    if is_np_array(pressure):
+        pressure[mask] = pressure_to_altitude_troposphere(pressures_within_troposphere)
+        pressure[~mask] = pressure_to_altitude_stratosphere(pressures_within_stratosphere)
+    else:
+        pressure.loc[mask] = pressure_to_altitude_troposphere(pressures_within_troposphere)
+        pressure.loc[~mask] = pressure_to_altitude_stratosphere(pressures_within_stratosphere)
+
+    return pressure
 
 
 def bilinear_interpolation(
