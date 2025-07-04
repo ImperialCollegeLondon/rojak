@@ -95,7 +95,7 @@ def pressure_to_altitude_std_atm(pressure: "NumpyOrDataArray") -> "NumpyOrDataAr
 
 def _check_if_pressures_are_valid(pressure: "NumpyOrDataArray", is_below_tropopause: bool) -> None:
     condition = (
-        pressure > icao_constants.tropopause_pressure
+        pressure >= icao_constants.tropopause_pressure
         if is_below_tropopause
         else pressure < icao_constants.tropopause_pressure
     )
