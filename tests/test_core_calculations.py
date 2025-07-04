@@ -10,6 +10,7 @@ from rojak.core.calculations import (
     altitude_to_pressure_troposphere,
     bilinear_interpolation,
     icao_constants,
+    pressure_to_altitude_icao,
     pressure_to_altitude_std_atm,
     pressure_to_altitude_stratosphere,
     pressure_to_altitude_troposphere,
@@ -116,6 +117,11 @@ def test_pressure_to_altitude_troposphere_and_vice_versa(wrap_in_data_array: boo
     np.testing.assert_allclose(computed_pressure, pressure, rtol=0.02)
     # rtol based on altitude -> pressure as table is from altitude -> pressure
     np.testing.assert_allclose(computed_altitude, altitude_from_table, rtol=0.02)
+    if not is_2d:
+        if wrap_in_data_array:
+            np.testing.assert_equal(pressure_to_altitude_icao(pressure).values, computed_altitude)  # pyright: ignore[reportAttributeAccessIssue]
+        else:
+            np.testing.assert_equal(pressure_to_altitude_icao(pressure), computed_altitude)
 
     # Test that we get back approximately the same thing when passed through inverses
     np.testing.assert_allclose(altitude_to_pressure_troposphere(computed_altitude), pressure, rtol=0.002)
