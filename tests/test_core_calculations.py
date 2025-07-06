@@ -159,6 +159,41 @@ def test_pressure_to_altitude_stratosphere(is_2d: bool, wrap_in_data_array: bool
             np.testing.assert_equal(pressure_to_altitude_icao(pressure), computed_altitude)
 
 
+@pytest.mark.parametrize("wrap_in_data_array", [True, False])
+def test_pressure_to_altitude_icao(wrap_in_data_array) -> None:
+    pressure = np.asarray(
+        [
+            1013.25,
+            794.95,
+            701.08,
+            616.40,
+            577.28,
+            478.81,
+            449.60,
+            410.61,
+            330.99,
+            350.88,
+            300.62,
+            250.50,
+            226.32,
+            199.50,
+            175.85,
+            150.20,
+            124.30,
+            99.68,
+        ]
+    )
+    altitude_from_table = np.asarray(
+        [0, 2000, 3000, 4000, 4500, 6000, 6300, 7000, 8500, 8100, 9150, 10350, 11000, 11800, 12600, 13600, 14800, 16200]
+    )
+
+    if wrap_in_data_array:
+        pressure = xr.DataArray(pressure)
+        altitude_from_table = xr.DataArray(altitude_from_table)
+
+    np.testing.assert_allclose(pressure_to_altitude_icao(pressure), altitude_from_table, rtol=0.02)
+
+
 def linear_function(x_vals, y_vals):
     return x_vals + y_vals
 
