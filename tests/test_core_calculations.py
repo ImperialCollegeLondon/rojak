@@ -7,13 +7,13 @@ from scipy.interpolate import RegularGridInterpolator
 from xarray import testing as xrt
 
 from rojak.core.calculations import (
+    _icao_constants,
     altitude_to_pressure_troposphere,
     bilinear_interpolation,
-    icao_constants,
     pressure_to_altitude_icao,
-    pressure_to_altitude_std_atm,
     pressure_to_altitude_stratosphere,
     pressure_to_altitude_troposphere,
+    pressure_to_altitude_us_std_atm,
 )
 from rojak.utilities.types import Coordinate
 
@@ -25,7 +25,7 @@ def test_pressure_to_altitude_standard_atmosphere() -> None:
     # Values from https://github.com/Unidata/MetPy/blob/60c94ebd5f314b85d770118cb7bfbe369a668c8c/tests/calc/test_basic.py#L327
     pressures = xr.DataArray([975.2, 987.5, 956.0, 943.0])
     alts = xr.DataArray([321.5, 216.5, 487.6, 601.7])
-    xrt.assert_allclose(alts, pressure_to_altitude_std_atm(pressures), rtol=1e-3)
+    xrt.assert_allclose(alts, pressure_to_altitude_us_std_atm(pressures), rtol=1e-3)
 
 
 @pytest.mark.parametrize("is_2d", [True, False])
@@ -35,7 +35,7 @@ def test_pressure_to_altitude_standard_atmosphere() -> None:
     [
         pytest.param(np.asarray([220]), pressure_to_altitude_troposphere, "less than", id="single value troposphere"),
         pytest.param(
-            np.asarray([icao_constants.tropopause_pressure]),
+            np.asarray([_icao_constants.tropopause_pressure]),
             pressure_to_altitude_troposphere,
             "less than",
             id="troposphere boundary value",
@@ -47,13 +47,13 @@ def test_pressure_to_altitude_standard_atmosphere() -> None:
             id="one value is above troposphere",
         ),
         pytest.param(
-            np.linspace(icao_constants.tropopause_pressure, 100, 10),
+            np.linspace(_icao_constants.tropopause_pressure, 100, 10),
             pressure_to_altitude_troposphere,
             "less than",
             id="multiple value is above troposphere",
         ),
         pytest.param(
-            np.linspace(1013, icao_constants.tropopause_pressure, 20),
+            np.linspace(1013, _icao_constants.tropopause_pressure, 20),
             pressure_to_altitude_troposphere,
             "less than",
             id="final value is tropopause boundary",
@@ -74,7 +74,7 @@ def test_pressure_to_altitude_standard_atmosphere() -> None:
             id="multiple value is below stratosphere",
         ),
         pytest.param(
-            np.linspace(icao_constants.tropopause_pressure, 500, 10),
+            np.linspace(_icao_constants.tropopause_pressure, 500, 10),
             pressure_to_altitude_stratosphere,
             "greater than",
             id="multiple value is below stratosphere (with boundary)",
@@ -131,7 +131,7 @@ def test_pressure_to_altitude_troposphere_and_vice_versa(wrap_in_data_array: boo
 def test_pressure_to_altitude_troposphere_equiv_to_wallace() -> None:
     pressure = np.asarray([1013.25, 794.95, 701.08, 616.40, 577.28, 478.81, 410.61, 330.99, 350.88, 300.62, 250.50])
     np.testing.assert_allclose(
-        pressure_to_altitude_troposphere(pressure), pressure_to_altitude_std_atm(pressure), rtol=1e-3
+        pressure_to_altitude_troposphere(pressure), pressure_to_altitude_us_std_atm(pressure), rtol=1e-3
     )
 
 

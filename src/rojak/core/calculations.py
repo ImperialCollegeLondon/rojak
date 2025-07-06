@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 
 @dataclasses.dataclass(frozen=True)
-class PressureToAltitudeConstantsICAO:
+class _PressureToAltitudeConstantsICAO:
     """
     Class to store constants used to convert pressure to altitude based on ICAO manual [NACA3182]_
 
@@ -70,10 +70,10 @@ class PressureToAltitudeConstantsICAO:
         return (self.reference_temperature - self.tropopause_temperature) / self.lapse_rate
 
 
-icao_constants = PressureToAltitudeConstantsICAO()
+_icao_constants = _PressureToAltitudeConstantsICAO()
 
 
-def pressure_to_altitude_std_atm(pressure: "NumpyOrDataArray") -> "NumpyOrDataArray":
+def pressure_to_altitude_us_std_atm(pressure: "NumpyOrDataArray") -> "NumpyOrDataArray":
     """
     Convert pressure to altitude for a standard atmosphere
 
@@ -96,9 +96,9 @@ def _check_if_pressures_are_valid(pressure: "NumpyOrDataArray", is_below_tropopa
     # Closer to ground => larger pressure
     # Thus, below tropopause => values > tropopause pressure. Condition will be opposite
     condition = (
-        pressure <= icao_constants.tropopause_pressure
+        pressure <= _icao_constants.tropopause_pressure
         if is_below_tropopause
-        else pressure > icao_constants.tropopause_pressure
+        else pressure > _icao_constants.tropopause_pressure
     )
     descriptive_comparator: str = "less than" if is_below_tropopause else "greater than"
 
@@ -137,19 +137,19 @@ def pressure_to_altitude_troposphere(pressure: "NumpyOrDataArray") -> "NumpyOrDa
     """
     _check_if_pressures_are_valid(pressure, True)
 
-    return (icao_constants.reference_temperature / icao_constants.lapse_rate) * (
-        1 - (pressure / icao_constants.reference_pressure) ** icao_constants.inverse_n
+    return (_icao_constants.reference_temperature / _icao_constants.lapse_rate) * (
+        1 - (pressure / _icao_constants.reference_pressure) ** _icao_constants.inverse_n
     )
 
 
 def altitude_to_pressure_troposphere(altitude: "NumpyOrDataArray") -> "NumpyOrDataArray":
     return (
-        icao_constants.reference_pressure
+        _icao_constants.reference_pressure
         * (
-            (icao_constants.reference_temperature - icao_constants.lapse_rate * altitude)
-            / icao_constants.reference_temperature
+            (_icao_constants.reference_temperature - _icao_constants.lapse_rate * altitude)
+            / _icao_constants.reference_temperature
         )
-        ** icao_constants.n_value
+        ** _icao_constants.n_value
     )
 
 
@@ -176,16 +176,16 @@ def pressure_to_altitude_stratosphere(pressure: "NumpyOrDataArray") -> "NumpyOrD
     """
     _check_if_pressures_are_valid(pressure, False)
 
-    b_inverse: float = 1 / icao_constants.b_value
+    b_inverse: float = 1 / _icao_constants.b_value
     middle_constant_term = (
         b_inverse
-        * icao_constants.n_value
-        * np.log10(icao_constants.tropopause_temperature / icao_constants.reference_temperature)
+        * _icao_constants.n_value
+        * np.log10(_icao_constants.tropopause_temperature / _icao_constants.reference_temperature)
     )
     return (
-        icao_constants.tropopause_height
+        _icao_constants.tropopause_height
         + middle_constant_term
-        - b_inverse * np.log10(pressure / icao_constants.reference_pressure)
+        - b_inverse * np.log10(pressure / _icao_constants.reference_pressure)
     )
 
 
@@ -194,15 +194,16 @@ def pressure_to_altitude_icao(pressure: "NumpyOrDataArray") -> "NumpyOrDataArray
     Convert pressure to altitude for ICAO standard atmosphere up to 80 km [NACA3182]_
 
     Args:
-        pressure:
+        pressure: One dimensional array of pressure in hPa
 
     Returns:
+        One dimensional array of altitude in m
 
     """
     if pressure.ndim > 1:
         raise NotImplementedError("Multidimensional pressure not yet supported")
 
-    mask = pressure > icao_constants.tropopause_pressure
+    mask = pressure > _icao_constants.tropopause_pressure
     pressures_within_troposphere = pressure[mask]
     pressures_within_stratosphere = pressure[~mask]
 
