@@ -19,7 +19,7 @@ import cdsapi
 from dask.base import is_dask_collection
 from rich.progress import track
 
-from rojak.core.calculations import pressure_to_altitude_std_atm
+from rojak.core.calculations import pressure_to_altitude_icao
 from rojak.core.data import CATData, DataRetriever, DataVarSchema, MetData
 from rojak.datalib.ecmwf.constants import (
     blank_default,
@@ -151,7 +151,7 @@ class Era5Data(MetData):
         target_data = target_data.assign_coords(
             altitude=(
                 "pressure_level",
-                pressure_to_altitude_std_atm(target_data["pressure_level"]).data,
+                pressure_to_altitude_icao(target_data["pressure_level"]).data,
             )
         )
         target_data = target_data.rename({"valid_time": "time"})
