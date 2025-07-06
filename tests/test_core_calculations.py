@@ -135,6 +135,30 @@ def test_pressure_to_altitude_troposphere_equiv_to_wallace() -> None:
     )
 
 
+@pytest.mark.parametrize("is_2d", [True, False])
+@pytest.mark.parametrize("wrap_in_data_array", [True, False])
+def test_pressure_to_altitude_stratosphere(is_2d: bool, wrap_in_data_array: bool) -> None:
+    pressure = np.asarray([226.32, 199.50, 175.85, 150.20, 124.30, 99.68])
+    altitude_from_table = np.asarray([11000, 11800, 12600, 13600, 14800, 16200])
+
+    if is_2d:
+        pressure = pressure.reshape((2, 3))
+        altitude_from_table = altitude_from_table.reshape((2, 3))
+
+    if wrap_in_data_array:
+        pressure = xr.DataArray(pressure)
+        altitude_from_table = xr.DataArray(altitude_from_table)
+
+    computed_altitude = pressure_to_altitude_stratosphere(pressure)
+    np.testing.assert_allclose(computed_altitude, altitude_from_table, rtol=0.02)
+
+    if not is_2d:
+        if wrap_in_data_array:
+            np.testing.assert_equal(pressure_to_altitude_icao(pressure).values, computed_altitude)  # pyright: ignore[reportAttributeAccessIssue]
+        else:
+            np.testing.assert_equal(pressure_to_altitude_icao(pressure), computed_altitude)
+
+
 def linear_function(x_vals, y_vals):
     return x_vals + y_vals
 
