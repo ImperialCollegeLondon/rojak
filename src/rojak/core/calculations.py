@@ -143,6 +143,24 @@ def pressure_to_altitude_troposphere(pressure: "NumpyOrDataArray") -> "NumpyOrDa
 
 
 def altitude_to_pressure_troposphere(altitude: "NumpyOrDataArray") -> "NumpyOrDataArray":
+    """
+    Convert altitude to pressure for the troposphere
+
+    An implementation of equation 18 from ICAO manual [NACA3182]_
+
+    .. math::
+        P = P_0 \\left( \\frac{T_0 - aH}{T_0} \\right) ^ n
+
+    where :math:`a` is the lapse rate, :math:`H` is the altitude, and :math:`n = \\frac{G}{aR} = 5.2561` is a
+    dimensionless constant.
+
+    Args:
+        altitude: Altitude in m
+
+    Returns:
+        NumpyOrDataArray: Pressure in hPa
+
+    """
     return (
         _icao_constants.reference_pressure
         * (
@@ -225,6 +243,18 @@ def pressure_to_altitude_icao(pressure: "NumpyOrDataArray") -> "NumpyOrDataArray
 def bilinear_interpolation(
     longitude: "NDArray", latitude: "NDArray", function_value: "NDArray", target_coordinate: "Coordinate"
 ) -> "NDArray":
+    """
+    Bilinear interpolation using 4 points
+
+    Args:
+        longitude:
+        latitude:
+        function_value:
+        target_coordinate:
+
+    Returns:
+
+    """
     assert len(longitude) == len(latitude)
     assert len(longitude) > 1
     squeezed_values = np.squeeze(function_value)
