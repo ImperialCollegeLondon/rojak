@@ -28,7 +28,7 @@ from rojak.utilities.types import GoHomeYouAreDrunkError, NumpyOrDataArray
 GridSpacing = NamedTuple("GridSpacing", [("dx", NumpyOrDataArray), ("dy", NumpyOrDataArray)])
 
 
-def is_in_degrees(
+def _is_in_degrees(
     array: NumpyOrDataArray,
     coordinate: Literal["latitude", "longitude"] | None = None,
     axis: int | None = None,
@@ -37,17 +37,17 @@ def is_in_degrees(
     Checks if array could be in degrees based whether it exceeds the maximum radian value for the specified coordinate.
 
     >>> np.set_printoptions(legacy="1.25")
-    >>> is_in_degrees(np.asarray([0, 180, 360, -180]), coordinate="longitude")
+    >>> _is_in_degrees(np.asarray([0, 180, 360, -180]), coordinate="longitude")
     True
-    >>> is_in_degrees(np.asarray([-90, 0, 90]), coordinate="latitude")
+    >>> _is_in_degrees(np.asarray([-90, 0, 90]), coordinate="latitude")
     True
-    >>> is_in_degrees(np.asarray([0, 2 *np.pi]))
+    >>> _is_in_degrees(np.asarray([0, 2 *np.pi]))
     False
-    >>> is_in_degrees(np.asarray([0, np.pi / 4]), coordinate="latitude")
+    >>> _is_in_degrees(np.asarray([0, np.pi / 4]), coordinate="latitude")
     False
-    >>> is_in_degrees(np.asarray([np.pi/2 + 0.01]), coordinate="latitude")
+    >>> _is_in_degrees(np.asarray([np.pi/2 + 0.01]), coordinate="latitude")
     True
-    >>> is_in_degrees(np.asarray([0]), coordinate="longitude")
+    >>> _is_in_degrees(np.asarray([0]), coordinate="longitude")
     False
     """
     if coordinate is None or coordinate == "longitude":
@@ -62,9 +62,9 @@ def is_in_degrees(
     )
 
 
-def is_lat_lon_in_degrees(latitude: NumpyOrDataArray, longitude: NumpyOrDataArray) -> bool:
-    is_lat_in_degrees: bool = is_in_degrees(latitude, coordinate="latitude")
-    is_lon_in_degrees: bool = is_in_degrees(longitude, coordinate="longitude")
+def _is_lat_lon_in_degrees(latitude: NumpyOrDataArray, longitude: NumpyOrDataArray) -> bool:
+    is_lat_in_degrees: bool = _is_in_degrees(latitude, coordinate="latitude")
+    is_lon_in_degrees: bool = _is_in_degrees(longitude, coordinate="longitude")
 
     if is_lat_in_degrees and not is_lon_in_degrees:
         raise ValueError("Latitude is in degrees, but longitude is not")
@@ -77,16 +77,16 @@ def is_lat_lon_in_degrees(latitude: NumpyOrDataArray, longitude: NumpyOrDataArra
 type LatLonUnits = Literal["deg", "rad"]
 
 
-def ensure_lat_lon_in_deg(
+def _ensure_lat_lon_in_deg(
     latitude: "NumpyOrDataArray", longitude: "NumpyOrDataArray", units: LatLonUnits
 ) -> Tuple["NumpyOrDataArray", "NumpyOrDataArray"]:
     """
-    >>> ensure_lat_lon_in_deg(np.asarray([90, 0, -90]), np.asarray([360, 180, 0]), "deg")
+    >>> _ensure_lat_lon_in_deg(np.asarray([90, 0, -90]), np.asarray([360, 180, 0]), "deg")
     (array([ 90,   0, -90]), array([360, 180,   0]))
-    >>> ensure_lat_lon_in_deg(np.asarray([np.pi/2, 0, -np.pi/2]), np.asarray([2*np.pi, np.pi, 0]), "rad")
+    >>> _ensure_lat_lon_in_deg(np.asarray([np.pi/2, 0, -np.pi/2]), np.asarray([2*np.pi, np.pi, 0]), "rad")
     (array([ 90.,   0., -90.]), array([360., 180.,   0.]))
     """
-    are_in_degrees: bool = is_lat_lon_in_degrees(latitude, longitude)
+    are_in_degrees: bool = _is_lat_lon_in_degrees(latitude, longitude)
     if units == "deg" and not are_in_degrees:
         warnings.warn("Latitude and longitude specified to be in degrees, but are smaller than pi values", stacklevel=2)
     elif units == "rad" and are_in_degrees:
@@ -112,7 +112,7 @@ def grid_spacing(
     if latitude.ndim != longitude.ndim:
         raise ValueError("latitude and longitude must have same number of dimensions")
 
-    latitude, longitude = ensure_lat_lon_in_deg(latitude, longitude, units)
+    latitude, longitude = _ensure_lat_lon_in_deg(latitude, longitude, units)
 
     lat_grid: NumpyOrDataArray
     lon_grid: NumpyOrDataArray
@@ -147,7 +147,7 @@ def nominal_grid_spacing(
         # In metpy, geod = CRS('+proj=latlon').get_geod()
         geod = Geod(ellps="WGS84")
 
-    latitude, longitude = ensure_lat_lon_in_deg(latitude, longitude, units)
+    latitude, longitude = _ensure_lat_lon_in_deg(latitude, longitude, units)
 
     lat_equator = np.zeros_like(longitude)
     _, _, dx = geod.inv(longitude[:-1], lat_equator[:-1], longitude[1:], lat_equator[1:])
@@ -272,7 +272,7 @@ class GradientMode(Enum):
 SpatialGradient = NamedTuple("SpatialGradient", [("dfdx", xr.DataArray | None), ("dfdy", xr.DataArray | None)])
 
 
-def check_lat_lon_dimensions_in_array(array: "xr.DataArray") -> None:
+def _check_lat_lon_dimensions_in_array(array: "xr.DataArray") -> None:
     if "longitude" not in array.dims:
         raise ValueError(f"Longitude not in dimension of array - {array.dims}")
     if "latitude" not in array.dims:
@@ -292,7 +292,7 @@ def spatial_gradient(
     geod: Geod | None = None,
     crs: CRS | None = None,
 ) -> dict[SpatialGradientKeys, xr.DataArray]:
-    check_lat_lon_dimensions_in_array(array)
+    _check_lat_lon_dimensions_in_array(array)
 
     gradients: dict[SpatialGradientKeys, xr.DataArray] = {}
     grid_deltas = nominal_grid_spacing(array["latitude"], array["longitude"], units, geod=geod)
@@ -358,8 +358,8 @@ def vector_derivatives(
     geod: Geod | None = None,
     crs: CRS | None = None,
 ) -> dict[VelocityDerivative, xr.DataArray]:
-    check_lat_lon_dimensions_in_array(u)
-    check_lat_lon_dimensions_in_array(v)
+    _check_lat_lon_dimensions_in_array(u)
+    _check_lat_lon_dimensions_in_array(v)
 
     if components is None:
         components = [

@@ -48,7 +48,7 @@ if TYPE_CHECKING:
     ],
 )
 def test_is_in_degrees(values, coordinate, expected):
-    outcome = derivatives.is_in_degrees(np.asarray(values), coordinate)
+    outcome = derivatives._is_in_degrees(np.asarray(values), coordinate)
     assert outcome == expected
 
 
@@ -63,7 +63,7 @@ def test_is_in_degrees(values, coordinate, expected):
 )
 def test_is_lat_lon_in_degrees(expected: bool, mocker: "MockerFixture", lat, lon) -> None:
     is_in_deg_mock = mocker.patch("rojak.core.derivatives.is_in_degrees", return_value=expected)
-    outcome = derivatives.is_lat_lon_in_degrees(lon, lon)
+    outcome = derivatives._is_lat_lon_in_degrees(lon, lon)
     assert outcome == expected
     assert is_in_deg_mock.call_count == 2  # noqa: PLR2004
 
@@ -79,7 +79,7 @@ def test_is_lat_lon_in_degrees(expected: bool, mocker: "MockerFixture", lat, lon
 )
 def test_is_lat_lon_in_degrees_error(lat: "NumpyOrDataArray", lon: "NumpyOrDataArray", matches: str) -> None:
     with pytest.raises(ValueError, match=matches) as excinfo:
-        derivatives.is_lat_lon_in_degrees(lat, lon)
+        derivatives._is_lat_lon_in_degrees(lat, lon)
     assert excinfo.type is ValueError
 
 
@@ -88,7 +88,7 @@ def test_check_lat_lon_units_warning(mocker: "MockerFixture") -> None:
     with pytest.warns(
         UserWarning, match="Latitude and longitude specified to be in degrees, but are smaller than pi values"
     ) as record:
-        derivatives.ensure_lat_lon_in_deg(np.asarray([0, 1]), np.asarray([0, 1]), "deg")
+        derivatives._ensure_lat_lon_in_deg(np.asarray([0, 1]), np.asarray([0, 1]), "deg")
 
     assert len(record) == 1
     assert (
@@ -103,7 +103,7 @@ def test_check_lat_lon_units_error(mocker: "MockerFixture") -> None:
     with pytest.raises(
         ValueError, match="Latitude and longitude specified to be in radians, but are too large to be in radians"
     ) as excinfo:
-        derivatives.ensure_lat_lon_in_deg(np.asarray([0, 90]), np.asarray([180, 360]), "rad")
+        derivatives._ensure_lat_lon_in_deg(np.asarray([0, 90]), np.asarray([180, 360]), "rad")
 
     assert excinfo.type is ValueError
     assert is_in_deg_mock.call_count == 1
@@ -134,7 +134,7 @@ longitude_in_rad: np.ndarray = np.deg2rad(longitude_in_deg)
 )
 def test_check_lat_lon_in_degree(mocker: "MockerFixture", lat, lon, is_deg: bool) -> None:
     is_in_deg_mock = mocker.patch("rojak.core.derivatives.is_lat_lon_in_degrees", return_value=is_deg)
-    new_lat, new_lon = derivatives.ensure_lat_lon_in_deg(lat, lon, "deg" if is_deg else "rad")
+    new_lat, new_lon = derivatives._ensure_lat_lon_in_deg(lat, lon, "deg" if is_deg else "rad")
     if is_deg:
         npt.assert_array_almost_equal(np.asarray(new_lat), np.asarray(latitude_in_deg))
         npt.assert_array_almost_equal(np.asarray(new_lon), np.asarray(longitude_in_deg))
