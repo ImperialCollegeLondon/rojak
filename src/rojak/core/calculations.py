@@ -165,8 +165,8 @@ def pressure_to_altitude_stratosphere(pressure: "NumpyOrDataArray") -> "NumpyOrD
         \\text{H} = \\text{H}^* + \\frac{1}{\\text{B}} \\left[ n \\log_{10} \\left( \\frac{T^*}{T_0} \\right) \\right]
         - \\frac{1}{\\text{B}} \\log_{10} \\left( \\frac{P}{P_0} \\right)
 
-    where :math:`H` is the geopotential height and is treated as equivalent to altitude for engineering purposes
-    (see [NACA3182]_ for details).
+    where :math:`^*` indicates values at the tropopause, :math:`H` is the geopotential height and is treated as
+    equivalent to altitude for engineering purposes (see [NACA3182]_ for details).
 
     Args:
         pressure (NumpyOrDataArray): Pressure in hPa
