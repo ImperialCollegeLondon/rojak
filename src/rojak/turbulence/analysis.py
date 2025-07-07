@@ -51,7 +51,8 @@ class TurbulenceIntensityThresholds(PostProcessor):
         if is_dask_collection(self._computed_diagnostic):
             # flattened_array = da.asarray(self._computed_diagnostic.data, chunks="auto").flatten()
             flattened_array = da.asarray(self._computed_diagnostic, chunks="auto").flatten()
-            return da.percentile(flattened_array, target_percentiles, internal_method="dask").compute()
+            # Must use tdigest method as internal dask version gives incorrect results
+            return da.percentile(flattened_array, target_percentiles, internal_method="tdigest").compute()
         return np.percentile(self._computed_diagnostic.stack(all=[...]), target_percentiles)
 
     def _find_index_without_nones(self) -> list[int | None]:
