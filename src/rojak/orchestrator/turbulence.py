@@ -121,7 +121,10 @@ class CalibrationStage:
             self.create_diagnostic_suite(diagnostics, chunks) if self._config.calibration_data_dir is not None else None
         )
 
-        return {phase: self.run_phase(phase, suite) for phase in self._phases.phases}
+        result = {phase: self.run_phase(phase, suite) for phase in self._phases.phases}
+
+        del suite  # "teardown" try to get python to release memory related to calibration data
+        return result
 
     def create_diagnostic_suite(
         self, diagnostics: list["TurbulenceDiagnostics"], chunks: Mapping
