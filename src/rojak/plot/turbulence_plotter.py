@@ -173,7 +173,7 @@ def create_multi_turbulence_diagnotics_probability_plot(
                 "shrink": 0.6,
             },
             # cmap="Blues",
-            cmap=pypalettes.load_cmap("cancri").resampled(20),
+            cmap=pypalettes.load_cmap("cancri", cmap_type="continuous", reverse=True).resampled(20),
             robust=True,
         )
     )
