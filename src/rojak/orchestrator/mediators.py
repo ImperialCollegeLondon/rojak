@@ -1,7 +1,7 @@
 import logging
 from abc import ABC, abstractmethod
 from enum import StrEnum
-from typing import TYPE_CHECKING, ClassVar, Mapping, NamedTuple
+from typing import TYPE_CHECKING, Callable, ClassVar, Mapping, NamedTuple, assert_never
 
 import dask.dataframe as dd
 import numpy as np
@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
     from rojak.core.data import AmdarTurbulenceData
+    from rojak.orchestrator.configuration import TurbulenceSeverity
     from rojak.turbulence.diagnostic import EvaluationDiagnosticSuite
     from rojak.utilities.types import DiagnosticName, Limits
 
@@ -35,6 +36,23 @@ class DiagnosticsAmdarHarmonisationStrategyOptions(StrEnum):
     EDR = "edr"
     EDR_TURBULENCE_INTENSITY = "edr_severity"
 
+    def column_name_method(self, severity: "TurbulenceSeverity | None" = None) -> Callable:
+        match self:
+            case (
+                DiagnosticsAmdarHarmonisationStrategyOptions.EDR
+                | DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES
+            ):
+                assert severity is None
+                return lambda name: f"{name}_{str(self)}"
+            case (
+                DiagnosticsAmdarHarmonisationStrategyOptions.INDEX_TURBULENCE_INTENSITY
+                | DiagnosticsAmdarHarmonisationStrategyOptions.EDR_TURBULENCE_INTENSITY
+            ):
+                assert severity is not None
+                return lambda name: f"{name}_{str(self)}_{str(severity)}"
+            case _ as unreachable:
+                assert_never(unreachable)
+
 
 class SpatialTemporalIndex(NamedTuple):
     longitudes: list[float]
@@ -44,16 +62,15 @@ class SpatialTemporalIndex(NamedTuple):
 
 
 class DiagnosticsAmdarHarmonisationStrategy(ABC):
-    _name_suffix: str
+    _column_namer: Callable
     _met_values: dict["DiagnosticName", "xr.DataArray"]
 
-    def __init__(self, name_suffix: str, met_values: dict["DiagnosticName", "xr.DataArray"]) -> None:
-        self._name_suffix = name_suffix
+    def __init__(self, column_namer: Callable, met_values: dict["DiagnosticName", "xr.DataArray"]) -> None:
+        self._column_namer = column_namer
         self._met_values = met_values
 
-    @property
-    def name_suffix(self) -> str:
-        return self._name_suffix
+    def column_name(self, diagnostic_name: "DiagnosticName") -> str:
+        return self._column_namer(diagnostic_name)
 
     @staticmethod
     def get_nearest_values(indexer: SpatialTemporalIndex, values_array: "xr.DataArray") -> "xr.DataArray":
@@ -66,7 +83,7 @@ class DiagnosticsAmdarHarmonisationStrategy(ABC):
         for name, diagnostic in self._met_values.items():  # DiagnosticName, xr.DataArray
             surrounding_values: "xr.DataArray" = self.get_nearest_values(indexer, diagnostic)
 
-            output[f"{name}_{self._name_suffix}"] = self.interpolate(
+            output[self.column_name(name)] = self.interpolate(
                 observation_coord, indexer, surrounding_values.values, name
             )
 
@@ -84,8 +101,8 @@ class DiagnosticsAmdarHarmonisationStrategy(ABC):
 
 
 class ValuesStrategy(DiagnosticsAmdarHarmonisationStrategy):
-    def __init__(self, name_suffix: str, met_values: dict["DiagnosticName", "xr.DataArray"]) -> None:
-        super().__init__(name_suffix, met_values)
+    def __init__(self, column_namer: Callable, met_values: dict["DiagnosticName", "xr.DataArray"]) -> None:
+        super().__init__(column_namer, met_values)
 
     def interpolate(
         self,
@@ -107,11 +124,11 @@ class DiagnosticsSeveritiesStrategy(DiagnosticsAmdarHarmonisationStrategy):
 
     def __init__(
         self,
-        name_suffix: str,
+        column_namer: Callable,
         met_values: dict["DiagnosticName", "xr.DataArray"],
         thresholds: Mapping["DiagnosticName", "Limits"],
     ) -> None:
-        super().__init__(name_suffix, met_values)
+        super().__init__(column_namer, met_values)
         self._thresholds = thresholds
 
     def interpolate(
@@ -136,9 +153,9 @@ class EdrSeveritiesStrategy(DiagnosticsAmdarHarmonisationStrategy):
     _edr_bounds: "Limits"
 
     def __init__(
-        self, name_suffix: str, met_values: dict["DiagnosticName", "xr.DataArray"], edr_bounds: "Limits"
+        self, column_namer: Callable, met_values: dict["DiagnosticName", "xr.DataArray"], edr_bounds: "Limits"
     ) -> None:
-        super().__init__(name_suffix, met_values)
+        super().__init__(column_namer, met_values)
         self._edr_bounds = edr_bounds
 
     def interpolate(
@@ -181,14 +198,14 @@ class DiagnosticsAmdarHarmonisationStrategyFactory:
             met_values = self.get_met_values(option)
             match option:
                 case DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES:
-                    strategies.append(ValuesStrategy(str(option), met_values))
+                    strategies.append(ValuesStrategy(option.column_name_method(), met_values))
                 case DiagnosticsAmdarHarmonisationStrategyOptions.EDR:
-                    strategies.append(ValuesStrategy(str(option), met_values))
+                    strategies.append(ValuesStrategy(option.column_name_method(), met_values))
                 case DiagnosticsAmdarHarmonisationStrategyOptions.INDEX_TURBULENCE_INTENSITY:
                     for severity, threshold_mapping in self._diagnostics_suite.get_limits_for_severities():
                         strategies.append(
                             DiagnosticsSeveritiesStrategy(
-                                f"{str(option)}_{str(severity)}",
+                                option.column_name_method(severity=severity),
                                 met_values,
                                 threshold_mapping,
                             )
@@ -196,7 +213,7 @@ class DiagnosticsAmdarHarmonisationStrategyFactory:
                 case DiagnosticsAmdarHarmonisationStrategyOptions.EDR_TURBULENCE_INTENSITY:
                     for severity, edr_limits in self._diagnostics_suite.get_edr_bounds():
                         strategies.append(
-                            EdrSeveritiesStrategy(f"{str(option)}_{str(severity)}", met_values, edr_limits)
+                            EdrSeveritiesStrategy(option.column_name_method(severity=severity), met_values, edr_limits)
                         )
         logger.debug("Finished instantiating the harmonisation strategies")
         return strategies
@@ -293,7 +310,7 @@ class DiagnosticsAmdarDataHarmoniser:
             meta_for_new_dataframe[name] = float
         for strategy in strategies:
             for name in self._diagnostics_suite.diagnostic_names():
-                meta_for_new_dataframe[f"{name}_{strategy.name_suffix}"] = float
+                meta_for_new_dataframe[strategy.column_name(name)] = float
         return dd.from_pandas(
             pd.DataFrame(
                 {column_name: pd.Series(dtype=data_type) for column_name, data_type in meta_for_new_dataframe.items()}
