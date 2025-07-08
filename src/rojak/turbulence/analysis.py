@@ -25,6 +25,7 @@ from numpy.typing import NDArray
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 
 from rojak.core.analysis import PostProcessor
+from rojak.core.distributed_tools import blocking_wait_futures
 from rojak.orchestrator.configuration import TurbulenceSeverity, TurbulenceThresholdMode, TurbulenceThresholds
 from rojak.utilities.types import Limits
 
@@ -51,7 +52,8 @@ class TurbulenceIntensityThresholds(PostProcessor):
         if is_dask_collection(self._computed_diagnostic):
             # flattened_array = da.asarray(self._computed_diagnostic.data, chunks="auto").flatten()
             flattened_array = da.asarray(self._computed_diagnostic, chunks="auto").flatten()
-            return da.percentile(flattened_array, target_percentiles, internal_method="dask").compute()
+            # Must use tdigest method as internal dask version gives incorrect results
+            return da.percentile(flattened_array, target_percentiles, internal_method="tdigest").compute()
         return np.percentile(self._computed_diagnostic.stack(all=[...]), target_percentiles)
 
     def _find_index_without_nones(self) -> list[int | None]:
@@ -299,8 +301,9 @@ class TransformToEDR(EvaluationPostProcessor):
         # https://stackoverflow.com/a/45384691
         # return exponent_term * (np.sign(self.computed_value()) * (np.abs(self.computed_value()) ** scaling))
         # e^a x^b
-        mapped_index: xr.DataArray = np.exp(offset) * (unmapped_index**scaling)
-        return mapped_index.compute() if self._has_parent else mapped_index
+        mapped_index: xr.DataArray = (np.exp(offset) * (unmapped_index**scaling)).persist()
+        blocking_wait_futures(mapped_index)
+        return mapped_index
 
 
 class CorrelationBetweenDiagnostics(PostProcessor):
@@ -328,7 +331,7 @@ class CorrelationBetweenDiagnostics(PostProcessor):
                     self._computed_indices[first_diagnostic].sel(self._sel_condition),
                     self._computed_indices[second_diagnostic].sel(self._sel_condition),
                 )
-                .stack(flat=[...])
+                # .stack(flat=[...])
                 .compute()
             )
             corr_btw_diagnostics.loc[{"diagnostic1": first_diagnostic, "diagnostic2": second_diagnostic}] = this_corr

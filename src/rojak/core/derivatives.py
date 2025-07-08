@@ -23,6 +23,7 @@ from dask.base import is_dask_collection
 from pyproj import CRS, Geod, Proj
 
 from rojak.core.constants import MAX_LATITUDE, MAX_LONGITUDE
+from rojak.core.distributed_tools import blocking_wait_futures
 from rojak.utilities.types import ArrayLike, GoHomeYouAreDrunkError
 
 GridSpacing = NamedTuple("GridSpacing", [("dx", ArrayLike), ("dy", ArrayLike)])
@@ -185,10 +186,12 @@ def get_projection_correction_factors(
         lon_grid, lat_grid = da.meshgrid(longitude, latitude)  # pyright: ignore[reportGeneralTypeIssues]
         parallel_scale = da.map_blocks(
             lambda lon, lat: Proj(crs).get_factors(lon, lat, radians=is_radians).parallel_scale, lon_grid, lat_grid
-        )
+        ).persist()
+        blocking_wait_futures(parallel_scale)
         meridional_scale = da.map_blocks(
             lambda lon, lat: Proj(crs).get_factors(lon, lat, radians=is_radians).meridional_scale, lon_grid, lat_grid
-        )
+        ).persist()
+        blocking_wait_futures(meridional_scale)
     else:
         lon_grid, lat_grid = np.meshgrid(longitude, latitude)
         factors = Proj(crs).get_factors(lon_grid, lat_grid, radians=is_radians)
