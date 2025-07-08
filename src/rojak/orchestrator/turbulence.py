@@ -11,11 +11,13 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
-
+import itertools
+import sys
 from datetime import datetime
-from typing import TYPE_CHECKING, Mapping, NamedTuple, assert_never
+from typing import TYPE_CHECKING, Final, Iterable, Mapping, NamedTuple, assert_never
 
 import numpy as np
+import xarray as xr
 from pydantic import TypeAdapter
 
 from rojak.core import data
@@ -32,6 +34,11 @@ from rojak.orchestrator.configuration import (
     TurbulenceThresholds,
 )
 from rojak.orchestrator.mediators import DiagnosticsAmdarDataHarmoniser
+from rojak.plot.turbulence_plotter import (
+    create_diagnostic_correlation_plot,
+    create_multi_region_correlation_plot,
+    create_multi_turbulence_diagnotics_probability_plot,
+)
 from rojak.turbulence.analysis import (
     CorrelationBetweenDiagnostics,
     HistogramData,
@@ -114,7 +121,10 @@ class CalibrationStage:
             self.create_diagnostic_suite(diagnostics, chunks) if self._config.calibration_data_dir is not None else None
         )
 
-        return {phase: self.run_phase(phase, suite) for phase in self._phases.phases}
+        result = {phase: self.run_phase(phase, suite) for phase in self._phases.phases}
+
+        del suite  # "teardown" try to get python to release memory related to calibration data
+        return result
 
     def create_diagnostic_suite(
         self, diagnostics: list["TurbulenceDiagnostics"], chunks: Mapping
@@ -186,6 +196,32 @@ class CalibrationStage:
         return Result(distribution_parameters)
 
 
+def abbreviate_diagnostic_name(diagnostic_name: str) -> str:
+    if len(diagnostic_name) > 3:  # noqa: PLR2004
+        if diagnostic_name == "ncsu1" or diagnostic_name[:3] == "ngm":
+            return diagnostic_name
+        if "-" in diagnostic_name:
+            return "".join([name[0] for name in diagnostic_name.split("-")])
+        return diagnostic_name[:3]
+    return diagnostic_name
+
+
+def chain_diagnostic_names(diagnostic_names: Iterable[str]) -> str:
+    joined: str = "_".join(diagnostic_names)
+    # max filename length is 255 chars or bytes depending on file system
+    # Remove 55 chars as a safety factor (might stuff before this)
+    max_file_chars: Final[int] = 200
+    if len(joined) >= max_file_chars or sys.getsizeof(joined) >= max_file_chars:
+        abbreviated_names: list[str] = [abbreviate_diagnostic_name(name) for name in diagnostic_names]
+        abbrev_joined: str = "_".join(abbreviated_names)
+        # Did a quick test with all available diagnostics and that totals to 110 so this should always pass
+        assert len(abbrev_joined) < max_file_chars and sys.getsizeof(abbrev_joined) < max_file_chars, (  # noqa: PT018
+            "Name of joined abbreviated diagnostics should be shorter than 255 bytes"
+        )
+        return abbrev_joined
+    return joined
+
+
 class EvaluationStageResult(NamedTuple):
     suite: EvaluationDiagnosticSuite
     phase_outcomes: Mapping[TurbulenceEvaluationPhaseOption, Result]
@@ -197,8 +233,8 @@ class EvaluationStage:
     _config: "TurbulenceEvaluationConfig"
     _spatial_domain: "SpatialDomain"
     _plots_dir: "Path"
-    _name: RunName
     _start_time: TimeStr
+    _image_format: str
 
     def __init__(
         self,
@@ -208,14 +244,16 @@ class EvaluationStage:
         plots_dir: "Path",
         name: RunName,
         start_time: TimeStr,
+        image_format: str,
     ) -> None:
         self._calibration_result = calibration_result
         self._phases = phases_config.phases
         self._config = phases_config.evaluation_config
         self._spatial_domain = domain
-        self._name = name
         self._start_time = start_time
-        self._plots_dir = plots_dir
+        self._plots_dir = plots_dir / name
+        self._plots_dir.mkdir(parents=True, exist_ok=True)
+        self._image_format = image_format
 
     def launch(self, diagnostics: list["TurbulenceDiagnostics"], chunks: dict) -> EvaluationStageResult:
         suite: EvaluationDiagnosticSuite = self.create_diagnostic_suite(diagnostics, chunks)
@@ -244,7 +282,9 @@ class EvaluationStage:
             diagnostics,
             severities=self._config.severities,
             pressure_levels=self._config.pressure_levels,
-            probability_thresholds=self._calibration_result[TurbulenceCalibrationPhaseOption.THRESHOLDS].result,
+            probability_thresholds=self._calibration_result[TurbulenceCalibrationPhaseOption.THRESHOLDS].result
+            if TurbulenceCalibrationPhaseOption.THRESHOLDS in self._calibration_result
+            else None,
             threshold_mode=self._config.threshold_mode,
             distribution_parameters=dist_params,
         )
@@ -252,40 +292,81 @@ class EvaluationStage:
     def run_phase(self, phase: TurbulenceEvaluationPhaseOption, suite: EvaluationDiagnosticSuite) -> Result:  # noqa: PLR0911
         match phase:
             case TurbulenceEvaluationPhaseOption.PROBABILITIES:
-                return Result(suite.probabilities)
+                result = suite.probabilities
+                for pressure_level, severity in itertools.product(
+                    self._config.pressure_levels, self._config.severities
+                ):
+                    chained_names: str = chain_diagnostic_names(result.keys())
+                    create_multi_turbulence_diagnotics_probability_plot(
+                        xr.Dataset(
+                            data_vars={
+                                name: diagnostic.sel(pressure_level=pressure_level, severity=severity)
+                                for name, diagnostic in result.items()
+                            }
+                        ),
+                        suite.diagnostic_names(),
+                        str(
+                            self._plots_dir / f"multi_diagnostic_{chained_names}_on_{pressure_level:.0f}_{severity}"
+                            f".{self._image_format}"
+                        ),
+                    )
+                return Result(result)
             case TurbulenceEvaluationPhaseOption.EDR:
                 return Result(suite.edr)
             case TurbulenceEvaluationPhaseOption.TURBULENT_REGIONS:
                 return Result(suite.compute_turbulent_regions())
-            case TurbulenceEvaluationPhaseOption.CORRELATION_BTW_PROBABILITIES:
-                return Result(
-                    CorrelationBetweenDiagnostics(
-                        dict(suite.probabilities),
-                        {"pressure_level": self._config.pressure_levels, "threshold": self._config.severities},
-                    )
+            case (
+                TurbulenceEvaluationPhaseOption.CORRELATION_BTW_PROBABILITIES
+                | TurbulenceEvaluationPhaseOption.CORRELATION_BTW_EDR
+            ):
+                correlation_on = (
+                    suite.probabilities
+                    if phase == TurbulenceEvaluationPhaseOption.CORRELATION_BTW_PROBABILITIES
+                    else suite.edr
                 )
-            case TurbulenceEvaluationPhaseOption.CORRELATION_BTW_EDR:
-                return Result(
-                    CorrelationBetweenDiagnostics(
-                        dict(suite.edr),
-                        {"pressure_level": self._config.pressure_levels, "threshold": self._config.severities},
-                    )
+                condition: dict[str, list] = {"pressure_level": self._config.pressure_levels}
+                if phase == TurbulenceEvaluationPhaseOption.CORRELATION_BTW_PROBABILITIES:
+                    condition["severity"] = [str(sev) for sev in self._config.severities]
+                    corr_on_what = "probability"
+                else:
+                    corr_on_what = "edr"
+                correlation = CorrelationBetweenDiagnostics(dict(correlation_on), condition).execute()
+                chained_names: str = chain_diagnostic_names(correlation_on.keys())
+                create_diagnostic_correlation_plot(
+                    correlation,
+                    str(self._plots_dir / f"corr_{corr_on_what}_btw_{chained_names}.{self._image_format}"),
+                    "diagnostic1",
+                    "diagnostic2",
                 )
-            case TurbulenceEvaluationPhaseOption.REGIONAL_CORRELATION_PROBABILITIES:
+                return Result(correlation)
+            case (
+                TurbulenceEvaluationPhaseOption.REGIONAL_CORRELATION_PROBABILITIES
+                | TurbulenceEvaluationPhaseOption.REGIONAL_CORRELATION_EDR
+            ):
                 sel_condition: dict = {"pressure_level": self._config.pressure_levels}
-                if not self._config.severities:  # Add a check that "threshold" is an axis
-                    sel_condition["threshold"] = self._config.severities
-                return Result(
-                    # Add in config to specify hemisphere and regions
-                    LatitudinalCorrelationBetweenDiagnostics(dict(suite.probabilities), sel_condition)
+                if phase == TurbulenceEvaluationPhaseOption.REGIONAL_CORRELATION_PROBABILITIES:
+                    # Add a check that "threshold" is an axis
+                    if not self._config.severities:
+                        sel_condition["threshold"] = self._config.severities
+                    corr_on_what = "probability"
+                else:
+                    corr_on_what = "edr"
+
+                correlation_on = (
+                    suite.probabilities
+                    if phase == TurbulenceEvaluationPhaseOption.CORRELATION_BTW_PROBABILITIES
+                    else suite.edr
                 )
-            case TurbulenceEvaluationPhaseOption.REGIONAL_CORRELATION_EDR:
-                return Result(
-                    # Add in config to specify hemisphere and regions
-                    LatitudinalCorrelationBetweenDiagnostics(
-                        dict(suite.edr), {"pressure_level": self._config.pressure_levels}
-                    )
+                # TODO: Add in config to specify hemisphere and regions
+                correlation = LatitudinalCorrelationBetweenDiagnostics(dict(correlation_on), sel_condition).execute()
+                chained_names: str = chain_diagnostic_names(correlation_on.keys())
+                create_multi_region_correlation_plot(
+                    correlation,
+                    str(self._plots_dir / f"regional_{corr_on_what}_corr_btw_{chained_names}.{self._image_format}"),
+                    "diagnostic1",
+                    "diagnostic2",
                 )
+                return Result(correlation)
             case _ as unreachable:
                 assert_never(unreachable)
 
@@ -318,6 +399,7 @@ class TurbulenceLauncher:
                 self._context.plots_dir,
                 self._context.name,
                 self._start_time,
+                self._context.image_format,
             ).launch(self._config.diagnostics, self._config.chunks)
             logger.info("Finished Turbulence Evaluation")
             return result
@@ -331,14 +413,22 @@ class DiagnosticsAmdarLauncher:
     _spatial_domain: "SpatialDomain"
     _strategies: list["DiagnosticsAmdarHarmonisationStrategyOptions"]
     _time_window: "Limits[datetime]"
+    _output_filepath: "Path"
 
-    def __init__(self, data_config: "DataConfig") -> None:
+    def __init__(self, data_config: "DataConfig", output_dir: "Path", run_name: "RunName") -> None:
         assert data_config.amdar_config is not None
         self._data_source = data_config.amdar_config.data_source
         self._path_to_files = str(data_config.amdar_config.data_dir.resolve() / data_config.amdar_config.glob_pattern)
         self._spatial_domain = data_config.spatial_domain
         self._strategies = data_config.amdar_config.harmonisation_strategies
         self._time_window = data_config.amdar_config.time_window
+
+        base_dir = output_dir / run_name / "data_harmonisation"
+        base_dir.mkdir(parents=True, exist_ok=True)
+        time_window_as_str = np.datetime_as_string([self._time_window.lower, self._time_window.upper], unit="D")
+        self._output_filepath = (
+            base_dir / f"{self._data_source}_{time_window_as_str[0]}_{time_window_as_str[1]}.parquet"
+        )
 
     def create_amdar_data_repository(self) -> "AmdarDataRepository":
         match self._data_source:
@@ -364,5 +454,6 @@ class DiagnosticsAmdarLauncher:
             self._strategies, Limits(np.datetime64(self._time_window.lower), np.datetime64(self._time_window.upper))
         ).persist()
         blocking_wait_futures(result)
+        result.to_parquet(self._output_filepath)
         logger.info("Finished Turbulence Amdar Harmonisation")
         return result
