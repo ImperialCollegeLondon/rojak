@@ -23,6 +23,7 @@ classifiers = [
 
 requires-python = ">=3.12"
 dependencies = [
+    "crick", # necessary for dask.percentile method
     "dask",
     "distributed",
     "h5netcdf",
@@ -74,6 +75,7 @@ amdar = [
 plot = [
     "cartopy",
     "matplotlib",
+    "pypalettes",
 ]
 
 [tool.pyright]
