@@ -425,9 +425,10 @@ class DiagnosticsAmdarLauncher:
 
         base_dir = output_dir / run_name / "data_harmonisation"
         base_dir.mkdir(parents=True, exist_ok=True)
-        time_window_as_str = np.datetime_as_string([self._time_window.lower, self._time_window.upper], unit="D")
+        time_format: str = "%Y-%m-%dT%H%M"  # e.g. 2025-02-31T1200
         self._output_filepath = (
-            base_dir / f"{self._data_source}_{time_window_as_str[0]}_{time_window_as_str[1]}.parquet"
+            base_dir / f"{self._data_source}_{self._time_window.lower.strftime(time_format)}"
+            f"_{self._time_window.upper.strftime(time_format)}.parquet"
         )
 
     def create_amdar_data_repository(self) -> "AmdarDataRepository":
