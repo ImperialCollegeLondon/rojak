@@ -31,7 +31,24 @@ def test_turbulence_intensity_threshold_post_processor() -> None:
         dummy_turbulence_percentile_configs(), xr.DataArray(da.asarray(dummy_data_for_percentiles_flattened()))
     )
     output_dask = processor_dask.execute()
-    assert output_dask == dummy_turbulence_percentile_configs()
+    desired = dummy_turbulence_percentile_configs()
+    # tdigest method for percentile no longer gives the exact value due to the interpolation
+    # assert output_dask == dummy_turbulence_percentile_configs()
+    np.testing.assert_allclose(
+        np.asarray(
+            [
+                output_dask.light,
+                output_dask.light_to_moderate,
+                output_dask.moderate,
+                output_dask.moderate_to_severe,
+                output_dask.severe,
+            ]
+        ),
+        np.asarray(
+            [desired.light, desired.light_to_moderate, desired.moderate, desired.moderate_to_severe, desired.severe]
+        ),
+        rtol=0.005,
+    )
 
     processor_with_none = TurbulenceIntensityThresholds(
         dummy_turbulence_percentile_configs_with_none(), xr.DataArray(dummy_data_for_percentiles_flattened())
