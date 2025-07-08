@@ -282,7 +282,9 @@ class EvaluationStage:
             diagnostics,
             severities=self._config.severities,
             pressure_levels=self._config.pressure_levels,
-            probability_thresholds=self._calibration_result[TurbulenceCalibrationPhaseOption.THRESHOLDS].result,
+            probability_thresholds=self._calibration_result[TurbulenceCalibrationPhaseOption.THRESHOLDS].result
+            if TurbulenceCalibrationPhaseOption.THRESHOLDS in self._calibration_result
+            else None,
             threshold_mode=self._config.threshold_mode,
             distribution_parameters=dist_params,
         )
