@@ -368,6 +368,28 @@ wheels = [
 ]
 
 [[package]]
+name = "crick"
+version = "0.0.8"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a4/d3/8a60c78612fc2d708b94dac7a2dbef4c0de048d64565336a2c0b53c7a872/crick-0.0.8.tar.gz", hash = "sha256:973b8315fdd72bdeb5fdf4d6b2f444753fc0ebd6380f38f8e1138f8ff8797d99", size = 478217, upload-time = "2024-12-23T16:23:16.096Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8f/b5/6e976250002b5ef1183de0ec996c0deefd6094d1521fc4cd3ebf733a1c21/crick-0.0.8-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:03ccd477b6bdfa17f1a7b6091b22340d845c0da3fa841f222fcacc3cb536f7b0", size = 685403, upload-time = "2024-12-23T16:22:42.578Z" },
+    { url = "https://files.pythonhosted.org/packages/98/bd/b23d05b47a8d61cd95a99e72bb3cc121ea5c5749a406f45036c413ff7839/crick-0.0.8-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d3d519d7db779b80a6b34daf30ae3c8d1969c8621c96d8ddf7cc93b8791b0fa2", size = 1809811, upload-time = "2024-12-23T16:22:45.198Z" },
+    { url = "https://files.pythonhosted.org/packages/f8/b7/1bad9997eb286c25a70189c7cc8baf5b03f8e23b59ed755fef520ca0ff4a/crick-0.0.8-cp312-cp312-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:ac3f5164254dcaeed565a01e9428168634f205e64bc6b36fb215e0118d7adefb", size = 1744173, upload-time = "2024-12-23T16:22:47.897Z" },
+    { url = "https://files.pythonhosted.org/packages/7a/34/0b4c102c8e4cd8c45b60e1b8d2637c6a40d39c5bcd68a010af9a49f638cb/crick-0.0.8-cp312-cp312-musllinux_1_2_i686.whl", hash = "sha256:01bde2f7e4ce536a9608a1223d1706001ef869644d9f51993ef26813df8a757c", size = 1787266, upload-time = "2024-12-23T16:22:49.26Z" },
+    { url = "https://files.pythonhosted.org/packages/41/10/ca0d5cc259fb612b8d31138997967e1d95107edfb147f2e9597ce7093ce6/crick-0.0.8-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:672904bc747d59a7a69682e78859fe56544d307ed79a32c5848905eabb7f85b3", size = 1827607, upload-time = "2024-12-23T16:22:51.896Z" },
+    { url = "https://files.pythonhosted.org/packages/ca/d5/37eaabc8f35ff308e7d16a247d712b4aa8941dd18825a1585025659a6e65/crick-0.0.8-cp312-cp312-win32.whl", hash = "sha256:030983579c9789f4c88cdeccbd3333b1d901987bf3e345f6618bd1fd63e85b3d", size = 649917, upload-time = "2024-12-23T16:22:54.923Z" },
+    { url = "https://files.pythonhosted.org/packages/ed/87/b2b9e74580b5238054b85e2b632ba2c34c28a3a304370803d1a5f698d51b/crick-0.0.8-cp312-cp312-win_amd64.whl", hash = "sha256:4a133c79a63df906c0095fb3239e3abeeb101cb30e4a027a015d24e7f2a3dc6c", size = 679572, upload-time = "2024-12-23T16:22:58.141Z" },
+    { url = "https://files.pythonhosted.org/packages/5d/c4/dac7d58c28ced87eed622edde794022ceef8369c58337e269009fd807c51/crick-0.0.8-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:f730adb72bb58e1d8b625f6389db33d19538b2f880c63f5bfdb5649f14aa3e17", size = 681725, upload-time = "2024-12-23T16:22:59.468Z" },
+    { url = "https://files.pythonhosted.org/packages/24/1f/b5f1426dad8c25ce15256e86d9fde584838d0d5cb4b9c9feba225a7e369d/crick-0.0.8-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:83d3a5fb7016fc8372e994f6adf0fcab33061822a146f9826cad532964fa3ba7", size = 1796005, upload-time = "2024-12-23T16:23:02.185Z" },
+    { url = "https://files.pythonhosted.org/packages/ba/2d/87580853298d0de826a1dc5e03bdfb94963a2b2053758deb0ecae993a16d/crick-0.0.8-cp313-cp313-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:59810c9bb31339b4be2a3d7722cb7d71aac175e212b3e6c4435c24711241a3c2", size = 1726887, upload-time = "2024-12-23T16:23:04.6Z" },
+    { url = "https://files.pythonhosted.org/packages/cc/01/8b7f89f4628343f3b1f63423395e88cf55d49007123a7c6135337bda5d28/crick-0.0.8-cp313-cp313-musllinux_1_2_i686.whl", hash = "sha256:f5bc008377a3eebc48e5ee04e3cf97afda9ff82f4933620dc1ce9301f8a0d80b", size = 1773731, upload-time = "2024-12-23T16:23:06.004Z" },
+    { url = "https://files.pythonhosted.org/packages/b3/e5/050db708bef2e7fb3043a1a2b146f3e624915816a71d38087f318be277f1/crick-0.0.8-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:dd16f1dde28871b40546f1c092deb03a7e05a415a225ed7825eb6fab8fe06241", size = 1810898, upload-time = "2024-12-23T16:23:09.543Z" },
+    { url = "https://files.pythonhosted.org/packages/aa/dc/d398daf46e77ce31d0ea61950d92c33c6ff6625340f5c7cb8d858aa9653a/crick-0.0.8-cp313-cp313-win32.whl", hash = "sha256:e320be26bf23d94ecbf1d13896655003fde2e8de0a50cbd3bdb9125c9966f218", size = 648860, upload-time = "2024-12-23T16:23:12.941Z" },
+    { url = "https://files.pythonhosted.org/packages/48/29/a1cb53ab2b07d90169d1ae4a287e55581444d9c97cf1b137800529a7e3af/crick-0.0.8-cp313-cp313-win_amd64.whl", hash = "sha256:0a458cfef2411eb803eea8c37851faffd012c18cc6bc4603dbcaadb733b8b0e3", size = 677935, upload-time = "2024-12-23T16:23:14.198Z" },
+]
+
+[[package]]
 name = "cycler"
 version = "0.12.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1630,6 +1652,18 @@ wheels = [
 ]
 
 [[package]]
+name = "pypalettes"
+version = "0.1.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "matplotlib" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e3/c5/c0b05f74220fd3dc824d5df3b4583631d79d534aa443721b66acf5ca1155/pypalettes-0.1.6.tar.gz", hash = "sha256:c11a2e0d45de7c4333c602e49209807e62d88226f2b777ad47f584256c5c0cbe", size = 14527437, upload-time = "2025-06-27T14:17:41.242Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/81/a1/847f1e0a625130a2919f2b85e71c5196f5ba1a9e45cd77dffbf82492aa52/pypalettes-0.1.6-py3-none-any.whl", hash = "sha256:ad1ce4c79aa07afbb4fc1d91e4e914ab2d9a301d898c1241cdc8f8c0bffc64bf", size = 366236, upload-time = "2025-06-27T14:17:39.108Z" },
+]
+
+[[package]]
 name = "pyparsing"
 version = "3.2.3"
 source = { registry = "https://pypi.org/simple" }
@@ -1873,6 +1907,7 @@ name = "rojak"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "crick" },
     { name = "dask" },
     { name = "distributed" },
     { name = "h5netcdf" },
@@ -1910,6 +1945,7 @@ ecmwf = [
 plot = [
     { name = "cartopy" },
     { name = "matplotlib" },
+    { name = "pypalettes" },
 ]
 test = [
     { name = "pytest" },
@@ -1919,6 +1955,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "crick" },
     { name = "dask" },
     { name = "distributed" },
     { name = "h5netcdf" },
@@ -1954,6 +1991,7 @@ ecmwf = [{ name = "cdsapi", specifier = ">=0.7.5" }]
 plot = [
     { name = "cartopy" },
     { name = "matplotlib" },
+    { name = "pypalettes" },
 ]
 test = [
     { name = "pytest" },
