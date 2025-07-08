@@ -1,5 +1,5 @@
 import itertools
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 import dask_geopandas as dgpd
 import geopandas as gpd
@@ -50,3 +50,20 @@ def create_grid_data_frame(
         crs=crs,
     )
     return dgpd.from_geopandas(grid)
+
+
+def spatial_aggregation(
+    grid: "dgpd.GeoDataFrame",
+    data_to_aggregate: "dgpd.GeoDataFrame",
+    columns_to_aggregate: list[str],
+    agg_func: Callable | str | dict,
+    by: str = "index_right",
+    drop_na: bool = True,
+) -> "dgpd.GeoDataFrame":
+    if not {"geometry"}.issubset(columns_to_aggregate):
+        columns_to_aggregate.append("geometry")
+
+    relevant_data = data_to_aggregate[columns_to_aggregate]
+    aggregated_data = grid.join(relevant_data.dissolve(by=by, aggfunc=agg_func))
+
+    return aggregated_data.dropna() if drop_na else aggregated_data

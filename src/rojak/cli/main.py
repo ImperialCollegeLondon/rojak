@@ -68,5 +68,5 @@ def run(
     if turbulence_result is None and context.data_config.amdar_config is not None:
         raise ValueError("Failed to launch diagnostic amdar harmonisation as evaluation phase was not run")
     if turbulence_result is not None and context.data_config.amdar_config is not None:
-        DiagnosticsAmdarLauncher(context.data_config).launch(turbulence_result.suite)
+        DiagnosticsAmdarLauncher(context.data_config, context.output_dir, context.name).launch(turbulence_result.suite)
     client.close()
