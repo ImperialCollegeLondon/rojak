@@ -517,6 +517,9 @@ class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
         list[DiagnosticsAmdarHarmonisationStrategyOptions],
         Field(description="List of harmonisation strategies", repr=True, frozen=True),
     ]
+    save_harmonised_data: Annotated[
+        bool, Field(description="Save harmonised data", repr=True, frozen=True, default=True)
+    ] = True
 
     @model_validator(mode="after")
     def check_valid_glob_pattern(self) -> Self:
