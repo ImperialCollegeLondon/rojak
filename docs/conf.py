@@ -33,6 +33,10 @@ extensions = [
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
+# This needs to be set despite the default being true
+# See https://github.com/sphinx-doc/sphinx/issues/6800
+autosummary_generate = True
+
 autoclass_content = "both"
 autodoc_member_order = "groupwise"
 autodoc_typehints = "both"
