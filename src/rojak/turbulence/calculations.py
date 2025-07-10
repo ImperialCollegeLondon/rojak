@@ -18,9 +18,9 @@ import numpy as np
 import xarray as xr
 
 from rojak.core import derivatives
+from rojak.core.constants import GRAVITATIONAL_ACCELERATION
 
 # https://physics.nist.gov/cgi-bin/cuu/Value?gn
-GRAVITATIONAL_ACCELERATION: float = 9.80665  # m/s
 EARTH_AVG_RADIUS: float = 6371008.7714  # m
 EARTH_ANGULAR_VELOCITY: float = 7292115e-11  # rad/s
 
