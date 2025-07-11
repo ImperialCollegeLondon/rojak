@@ -234,8 +234,8 @@ class DiagnosticsAmdarDataHarmoniser:
         self._amdar_data = amdar_data
         self._diagnostics_suite = diagnostics_suite
 
-    @staticmethod
     def _process_amdar_row(
+        self,
         row: "dd.Series",
         methods: list[DiagnosticsAmdarHarmonisationStrategy],
         amdar_turblence_columns: list[str],
@@ -251,14 +251,17 @@ class DiagnosticsAmdarDataHarmoniser:
             "datetime": this_time,
             "level": row["level"],
             "geometry": row["geometry"],
-            "index_right": row["index_right"],
+            self.grid_box_column_name: row[self.grid_box_column_name],
             "latitude": row["latitude"],
             "longitude": row["longitude"],
+            self.common_time_column_name: row[self.common_time_column_name],
         }
         for column in amdar_turblence_columns:
             new_row[column] = row[column]
 
-        indexer: SpatialTemporalIndex = SpatialTemporalIndex(longitudes, latitudes, level, row["time_index"])
+        indexer: SpatialTemporalIndex = SpatialTemporalIndex(
+            longitudes, latitudes, level, row[self.common_time_column_name]
+        )
         for method in methods:
             new_row = new_row | method.harmonise(indexer, target_coord)
 
@@ -304,6 +307,7 @@ class DiagnosticsAmdarDataHarmoniser:
             "index_right": int,
             "latitude": float,
             "longitude": float,
+            "time_index": int,
         }
         column_names = self._amdar_data.turbulence_column_names()
         for name in column_names:
@@ -329,6 +333,14 @@ class DiagnosticsAmdarDataHarmoniser:
             )
         )
 
+    @property
+    def common_time_column_name(self) -> str:
+        return "time_index"
+
+    @property
+    def grid_box_column_name(self) -> str:
+        return "index_right"
+
     def execute_harmonisation(
         self,
         methods: list[DiagnosticsAmdarHarmonisationStrategyOptions],
@@ -341,7 +353,7 @@ class DiagnosticsAmdarDataHarmoniser:
 
         observational_data: "dd.DataFrame" = self._amdar_data.clip_to_time_window(time_window)
         current_dtypes = observational_data.dtypes.to_dict()
-        current_dtypes["time_index"] = int
+        current_dtypes[self.common_time_column_name] = int
         observational_data = observational_data.map_partitions(
             self._add_time_index_column,
             observational_data["datetime"],
