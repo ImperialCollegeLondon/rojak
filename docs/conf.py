@@ -42,7 +42,10 @@ autodoc_member_order = "groupwise"
 autodoc_typehints = "both"
 
 # Mapping to other project documentation
-intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}
+intersphinx_mapping = {
+    "python": ("https://docs.python.org/3", None),
+    "xarray": ("https://docs.xarray.dev/en/stable/", None),
+}
 
 # Allow markdown files to be recognised
 source_suffix = [".rst", ".md"]
