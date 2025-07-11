@@ -26,16 +26,50 @@ EARTH_ANGULAR_VELOCITY: float = 7292115e-11  # rad/s
 
 
 def shearing_deformation(dv_dx: xr.DataArray, du_dy: xr.DataArray) -> xr.DataArray:
+    """
+    Shear deformation
+
+    .. math:: D_{\\text{sh}} = \\frac{ \\partial v }{ \\partial x }  + \\frac{ \\partial u }{ \\partial y }
+
+    Args:
+        dv_dx (`xarray.DataArray`): Array containing values for :math:`\\frac{ \\partial v }{ \\partial x }`
+        du_dy (`xarray.DataArray`): Array containing values for :math:`\\frac{ \\partial u }{ \\partial y }`
+    """
     return dv_dx + du_dy
 
 
 def stretching_deformation(du_dx: xr.DataArray, dv_dy: xr.DataArray) -> xr.DataArray:
+    """
+    Stretch deformation
+
+    .. math:: D_{\\text{st}} = \\frac{ \\partial u }{ \\partial x }  - \\frac{ \\partial v }{ \\partial y }
+
+    Args:
+        du_dx (`xarray.DataArray`): Array containing values for :math:`\\frac{ \\partial u }{ \\partial x }`
+        dv_dy (`xarray.DataArray`): Array containing values for :math:`\\frac{ \\partial v }{ \\partial y }`
+    """
     return du_dx - dv_dy
 
 
 def total_deformation(
     du_dx: xr.DataArray, du_dy: xr.DataArray, dv_dx: xr.DataArray, dv_dy: xr.DataArray, is_squared: bool
 ) -> xr.DataArray:
+    """
+    Total deformation
+
+    .. math:: \\text{DEF} = \\sqrt{ D_{\\text{sh}}^{2} + D_{\\text{st}}^{2} }
+
+    where :math:`D_{\\text{sh}}` is the shear deformation and :math:`D_{\\text{st}}` is the stretch deformation.
+    See :py:func:`shearing_deformation` and :py:func:`stretching_deformation` for more details.
+
+    Args:
+        du_dx (`xarray.DataArray`): Array containing values for :math:`\\frac{ \\partial u }{ \\partial x }`
+        du_dy (`xarray.DataArray`): Array containing values for :math:`\\frac{ \\partial u }{ \\partial y }`
+        dv_dx (`xarray.DataArray`): Array containing values for :math:`\\frac{ \\partial v }{ \\partial x }`
+        dv_dy (`xarray.DataArray`): Array containing values for :math:`\\frac{ \\partial v }{ \\partial y }`
+        is_squared (bool): Controls whether deformation is squared, i.e.
+            :math:`D_{\\text{sh}}^{2} + D_{\\text{st}}^{2}`
+    """
     return magnitude_of_vector(
         shearing_deformation(dv_dx, du_dy), stretching_deformation(du_dx, dv_dy), is_squared=is_squared
     )
@@ -44,6 +78,19 @@ def total_deformation(
 def magnitude_of_vector(
     x_component: xr.DataArray, y_component: xr.DataArray, is_abs: bool = False, is_squared: bool = False
 ) -> xr.DataArray:
+    """
+    Magnitude of vector
+
+    Convenience method to calculate magnitude of a 2D vector, i.e. :math:`\\sqrt{x^2 + y^2}`
+
+    Args:
+        x_component (`xarray.DataArray`): x-values of vector
+        y_component (`xarray.DataArray`): y-values of vector
+        is_abs (bool, optional): If ``True``, the components of vector is absolute (i.e. :math:`\\sqrt{|x|^2 + |y|^2}`.
+            Defaults to ``False``.
+        is_squared (bool, optional): If ``True``, the components of vector is squared (i.e. :math:`x^2 + y^2`).
+            Defaults to ``False``.
+    """
     x_component = np.abs(x_component) if is_abs else x_component  # pyright: ignore[reportAssignmentType]
     y_component = np.abs(y_component) if is_abs else y_component  # pyright: ignore[reportAssignmentType]
 
@@ -51,6 +98,16 @@ def magnitude_of_vector(
 
 
 def vertical_component_vorticity(dvdx: xr.DataArray, dudy: xr.DataArray) -> xr.DataArray:
+    """
+    Vertical component of vorticity
+
+    .. math:: \\frac{ \\partial v }{ \\partial x } - \\frac{ \\partial u }{ \\partial y }
+
+    Args:
+        dvdx (`xarray.DataArray`): Array containing values for :math:`\\frac{ \\partial v }{ \\partial x }`
+        dudy (`xarray.DataArray`): Array containing values for :math:`\\frac{ \\partial u }{ \\partial y }`
+    ..
+    """
     return dvdx - dudy
 
 
@@ -58,6 +115,25 @@ def vertical_component_vorticity(dvdx: xr.DataArray, dudy: xr.DataArray) -> xr.D
 def altitude_derivative_on_pressure_level(
     function: xr.DataArray, geopotential: xr.DataArray, level_coord_name: str = "pressure_level"
 ) -> xr.DataArray:
+    """
+    Derivative w.r.t. altitude for data on pressure level
+
+    Using the definition of geopotential,
+
+    .. math:: \\Phi = gz \\implies \\frac{ \\partial \\Phi }{ \\partial z } = g
+
+    Express derivative w.r.t. altitude in terms of pressure. For example, for the function :math:`f`,
+
+    .. math::
+        \\frac{ \\partial f }{ \\partial z } = \\frac{ \\partial f }{ \\partial p }
+            \\frac{ \\partial p }{ \\partial \\Phi } \\frac{ \\partial \\Phi }{ \\partial z }
+            = g \\frac{ \\partial f }{ \\partial p } \\left( \\frac{ \\partial \\Phi }{ \\partial p } \\right)^{-1}
+
+    Args:
+        function (`xarray.DataArray`): Function to perform derivative on that varies with pressure level
+        geopotential (`xarray.DataArray`): Geopotential data
+        level_coord_name (`str`): Name of pressure level coordinate
+    """
     return GRAVITATIONAL_ACCELERATION * (
         function.differentiate(level_coord_name) / geopotential.differentiate(level_coord_name)
     )
