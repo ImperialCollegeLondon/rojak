@@ -64,48 +64,42 @@ class DiagnosticAmdarVerification:
             return self._harmonised_data
         return self._harmonised_data
 
-    def use_sparse(
+    def _add_nearest_grid_indices(
         self,
-        validation_conditions: "list[DiagnosticValidationCondition]",
-        prototype_diagnostic_array: "xr.DataArray",
-        do_persist: bool = False,
-    ) -> list[da.Array]:
-        # assert len(set(validation_conditions)) == len(validation_conditions), (
-        #     "Validation conditions must be unique to ensure name of dd.Aggregation is unique to prevent
-        #     data corruption"
-        # )
-        assert {"pressure_level", "longitude", "latitude", "time"}.issubset(prototype_diagnostic_array.coords)
+        validation_columns: list[str],
+        grid_prototype: "xr.DataArray",
+    ) -> "dd.DataFrame":
         space_time_columns: list[str] = [
             self._data_harmoniser.common_time_column_name,
             "level",
             "longitude",
             "latitude",
         ]
-        validation_columns: list[str] = [
-            condition.observed_turbulence_column_name for condition in validation_conditions
-        ]
         target_columns = space_time_columns + validation_columns
         target_data: "dd.DataFrame" = self.data[target_columns]
         target_data = target_data.map_partitions(
             lambda df: df.assign(
                 level_index=df.apply(
-                    lambda row, pressure_level=prototype_diagnostic_array["pressure_level"].values: np.abs(  # noqa: PD011
+                    lambda row, pressure_level=grid_prototype["pressure_level"].values: np.abs(  # noqa: PD011
                         row.level - pressure_level
                     ).argmin(),
                     axis=1,
                 )
             )
         )
-        target_data = target_data.map_partitions(
+        return target_data.map_partitions(
             lambda df: df.assign(
-                lat_index=map_values_to_nearest_coordinate_index(
-                    df.latitude, prototype_diagnostic_array["latitude"].values
-                ),
-                lon_index=map_values_to_nearest_coordinate_index(
-                    df.longitude, prototype_diagnostic_array["longitude"].values
-                ),
+                lat_index=map_values_to_nearest_coordinate_index(df.latitude, grid_prototype["latitude"].values),
+                lon_index=map_values_to_nearest_coordinate_index(df.longitude, grid_prototype["longitude"].values),
             )
         )
+
+    def _spatio_temporal_data_aggregation(
+        self,
+        target_data: "dd.DataFrame",
+        validation_columns: list[str],
+        validation_conditions: "list[DiagnosticValidationCondition]",
+    ) -> "dd.DataFrame":
         group_by_columns: list[str] = [
             "lat_index",
             "lon_index",
@@ -119,7 +113,25 @@ class DiagnosticAmdarVerification:
             condition.observed_turbulence_column_name: _observed_turbulence_aggregation(condition)
             for condition in validation_conditions
         }
-        aggregated_data: "dd.DataFrame" = grouped_by_space_time.aggregate(aggregation_spec)
+        return grouped_by_space_time.aggregate(aggregation_spec)
+
+    def use_sparse(
+        self,
+        validation_conditions: "list[DiagnosticValidationCondition]",
+        prototype_diagnostic_array: "xr.DataArray",
+        do_persist: bool = True,
+    ) -> list[da.Array]:
+        # assert len(set(validation_conditions)) == len(validation_conditions), (
+        #     "Validation conditions must be unique to ensure name of dd.Aggregation is unique to prevent
+        #     data corruption"
+        # )
+        assert {"pressure_level", "longitude", "latitude", "time"}.issubset(prototype_diagnostic_array.coords)
+        validation_columns: list[str] = [
+            condition.observed_turbulence_column_name for condition in validation_conditions
+        ]
+        target_data = self._add_nearest_grid_indices(validation_columns, prototype_diagnostic_array)
+        aggregated_data = self._spatio_temporal_data_aggregation(target_data, validation_columns, validation_conditions)
+
         # Cannot implement as values.map_blocks as the shape changes so it cannot be broadcasted to the new shape
         # coordinate_values: "da.Array" = aggregated_data.index.values.map_blocks(lambda x: np.asarray(list(x)))
         coordinate_values: "da.Array" = da.map_blocks(lambda x: np.stack(x), aggregated_data.index.values)
@@ -168,7 +180,7 @@ class DiagnosticAmdarVerification:
                 concatenate=False,
                 dtype=bool,
                 meta=sparse.COO((), shape=shape_of_output, fill_value=np.nan),
-            ).compute()
+            )
             if do_persist:
                 as_sparse_array = as_sparse_array.persist()
                 blocking_wait_futures(as_sparse_array)
