@@ -46,6 +46,8 @@ autodoc_typehints = "both"
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "xarray": ("https://docs.xarray.dev/en/stable/", None),
+    "numpy": ("https://numpy.org/doc/stable/", None),
+    "dask": ("https://docs.dask.org/en/latest/", None),
 }
 
 # Allow markdown files to be recognised
