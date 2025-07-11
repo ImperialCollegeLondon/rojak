@@ -7,7 +7,7 @@ import xarray.testing as xrt
 
 from rojak.turbulence.calculations import (
     EARTH_AVG_RADIUS,
-    WrapAroundAngleArray,
+    _WrapAroundAngleArray,
     angles_gradient,
     coriolis_parameter,
     latitudinal_derivative,
@@ -150,9 +150,9 @@ def test_coriolis_param_and_derivative_ncl_rossby_values() -> None:
 
 def test_direction_class_type(generate_random_array_pair) -> None:
     arr, _ = generate_random_array_pair
-    assert issubclass(WrapAroundAngleArray, np.ndarray)
-    direction: np.ndarray = WrapAroundAngleArray(arr)
-    assert isinstance(direction, WrapAroundAngleArray)
+    assert issubclass(_WrapAroundAngleArray, np.ndarray)
+    direction: np.ndarray = _WrapAroundAngleArray(arr)
+    assert isinstance(direction, _WrapAroundAngleArray)
     # See https://numpy.org/doc/stable/reference/generated/numpy.asarray.html#numpy-asarray
     assert np.shares_memory(np.asarray(direction), arr)
     # np.asarray() does not pass through ndarray subclasses
@@ -164,11 +164,11 @@ def test_direction_class_type(generate_random_array_pair) -> None:
 def test_direction_cross_zero_single_value() -> None:
     np.testing.assert_array_equal(
         np.array([np.pi / 2]),
-        WrapAroundAngleArray(np.array([np.pi / 4])) - WrapAroundAngleArray(np.array([7.0 * np.pi / 4])),
+        _WrapAroundAngleArray(np.array([np.pi / 4])) - _WrapAroundAngleArray(np.array([7.0 * np.pi / 4])),
     )
     np.testing.assert_array_equal(
         np.array([np.pi / 2]),
-        WrapAroundAngleArray(np.array([7.0 * np.pi / 4])) - WrapAroundAngleArray(np.array(np.pi / 4)),
+        _WrapAroundAngleArray(np.array([7.0 * np.pi / 4])) - _WrapAroundAngleArray(np.array(np.pi / 4)),
     )
 
 
@@ -176,10 +176,10 @@ def test_direction_cross_zero_array() -> None:
     initial: np.ndarray = np.array([np.pi / 4, 1.0, np.pi / 2])
     other: np.ndarray = initial + (5 * np.pi / 4)
 
-    initial_direction: np.ndarray = WrapAroundAngleArray(initial)
+    initial_direction: np.ndarray = _WrapAroundAngleArray(initial)
     other_direction: np.ndarray = initial_direction + (5 * np.pi / 4)
 
-    assert isinstance(initial_direction - other_direction, WrapAroundAngleArray)
+    assert isinstance(initial_direction - other_direction, _WrapAroundAngleArray)
     assert isinstance(initial - other, np.ndarray)
     np.testing.assert_raises(
         AssertionError, np.testing.assert_array_equal, np.abs(initial - other), initial_direction - other_direction
@@ -194,14 +194,14 @@ def angles_data():
 def test_angle_array_gradient(angles_data) -> None:
     # Values in angle_gradient = WrapAroundAngleArray([0.21460184, 0.39269908, 0.89269908, 0.78539816,
     #                                                  0.39269908, 1.17809725, 3.92699082])
-    desired_gradient: WrapAroundAngleArray = np.gradient(WrapAroundAngleArray(np.array(angles_data)))
+    desired_gradient: _WrapAroundAngleArray = np.gradient(_WrapAroundAngleArray(np.array(angles_data)))
     # Values in normal_gradient = array([ 0.21460184,  0.39269908,  2.24889357, -0.78539816, -2.74889357,
     #                                     1.96349541,  3.92699082])
     normal_gradient: np.ndarray = np.gradient(np.array(angles_data))
 
     assert np.all(desired_gradient > 0)
     assert np.any(normal_gradient < 0)
-    assert isinstance(desired_gradient, WrapAroundAngleArray)
+    assert isinstance(desired_gradient, _WrapAroundAngleArray)
 
 
 # Add tests which show which cases of nesting WrapAroundAngleArray don't work
@@ -236,7 +236,7 @@ def test_angle_array_gradient_ufunc_simple(angles_data) -> None:
         kwargs={"target_axis": axis_which_varies},
     ).compute()
 
-    single_thread: xr.DataArray = np.gradient(WrapAroundAngleArray(target_array), axis=1)
+    single_thread: xr.DataArray = np.gradient(_WrapAroundAngleArray(target_array), axis=1)
     np.testing.assert_array_equal(angles_gradient(target_array, target_axis=axis_which_varies), single_thread)
     np.testing.assert_array_equal(single_thread, parallelised_ufunc.data)
 
@@ -245,8 +245,8 @@ def test_direction_behaves_like_normal_abs_sub(generate_random_array_pair) -> No
     initial_angles, subsequent_angles = generate_random_array_pair
     initial_angles = initial_angles * np.pi
     subsequent_angles = subsequent_angles * np.pi
-    initial_as_direction: np.ndarray = WrapAroundAngleArray(initial_angles)
-    subsequent_as_direction: np.ndarray = WrapAroundAngleArray(subsequent_angles)
+    initial_as_direction: np.ndarray = _WrapAroundAngleArray(initial_angles)
+    subsequent_as_direction: np.ndarray = _WrapAroundAngleArray(subsequent_angles)
 
     np.testing.assert_array_equal(
         np.abs(initial_angles - subsequent_angles), initial_as_direction - subsequent_as_direction
@@ -271,8 +271,8 @@ def test_direction_not_behave_like_normal_sub(generate_random_array_pair) -> Non
     initial_angles, subsequent_angles = generate_random_array_pair
     initial_angles = initial_angles * (np.pi / 2)
     subsequent_angles = subsequent_angles * (3 * np.pi / 2)
-    initial_as_direction = WrapAroundAngleArray(initial_angles)
-    subsequent_as_direction = WrapAroundAngleArray(subsequent_angles)
+    initial_as_direction = _WrapAroundAngleArray(initial_angles)
+    subsequent_as_direction = _WrapAroundAngleArray(subsequent_angles)
 
     np.testing.assert_raises(
         AssertionError,

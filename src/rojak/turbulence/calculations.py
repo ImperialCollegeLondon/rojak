@@ -140,7 +140,7 @@ def altitude_derivative_on_pressure_level(
 
 
 # Note: numpy dtype can't be overloaded as it's immutable. Therefore, go via array subclassing
-class WrapAroundAngleArray(np.ndarray):
+class _WrapAroundAngleArray(np.ndarray):
     def __new__(cls, input_array: np.ndarray) -> np.ndarray:
         # https://numpy.org/doc/stable/user/basics.subclassing.html#slightly-more-realistic-example-attribute-added-to-existing-array
         return np.asarray(input_array).view(cls)
@@ -149,14 +149,14 @@ class WrapAroundAngleArray(np.ndarray):
         if isinstance(other, self.__class__):
             abs_diff: np.ndarray = np.abs(np.asarray(self) - np.asarray(other))
             remaining_angle: np.ndarray = (2 * np.pi) - abs_diff
-            return np.where(abs_diff < remaining_angle, abs_diff, remaining_angle).view(WrapAroundAngleArray)
+            return np.where(abs_diff < remaining_angle, abs_diff, remaining_angle).view(_WrapAroundAngleArray)
         raise TypeError(f"unsupported operand types(s) for: '{self.__class__} and '{other.__class__}'")
 
 
 def angles_gradient(array: np.ndarray, target_axis: int, coord_values: np.ndarray | None = None) -> np.ndarray:
     if coord_values is None:
-        return np.gradient(WrapAroundAngleArray(array), axis=target_axis)
-    return np.gradient(WrapAroundAngleArray(array), coord_values, axis=target_axis)
+        return np.gradient(_WrapAroundAngleArray(array), axis=target_axis)
+    return np.gradient(_WrapAroundAngleArray(array), coord_values, axis=target_axis)
 
 
 def wind_direction(u_wind: xr.DataArray, v_wind: xr.DataArray) -> xr.DataArray:
