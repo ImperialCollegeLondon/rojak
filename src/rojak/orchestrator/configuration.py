@@ -546,6 +546,26 @@ class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
         return self
 
 
+class DiagnosticValidationCondition(BaseConfigModel):
+    observed_turbulence_column_name: Annotated[
+        str, Field(description="Observed turbulence column name", frozen=True, repr=True, strict=True)
+    ]
+    value_greater_than: Annotated[
+        float, Field(description="Value greater than", repr=True, strict=True, ge=0.0, frozen=True)
+    ]
+
+
+class DiagnosticValidationConfig(BaseConfigModel):
+    validation_conditions: list[DiagnosticValidationCondition]
+
+    @model_validator(mode="after")
+    def check_conditions_are_unique(self) -> Self:
+        assert len(set(self.validation_conditions)) == len(self.validation_conditions), (
+            "Validation conditions must be unique"
+        )
+        return self
+
+
 class DataConfig(BaseConfigModel):
     # Config for data, this would cover both observational data and weather data
     spatial_domain: SpatialDomain
