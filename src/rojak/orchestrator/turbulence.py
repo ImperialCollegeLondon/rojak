@@ -461,5 +461,5 @@ class DiagnosticsAmdarLauncher:
         logger.info("Finished Turbulence Amdar Harmonisation")
         if self._save_output:
             logger.info("Saving results to %s", self._output_filepath)
-            result.drop(columns="geometry").to_parquet(self._output_filepath)
+            result.drop(columns="geometry").set_index(harmoniser.grid_box_column_name).to_parquet(self._output_filepath)
         return result
