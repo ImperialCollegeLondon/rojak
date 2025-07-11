@@ -24,6 +24,7 @@ extensions = [
     "sphinx.ext.autodoc",  # Include documentation from docstrings
     "sphinx.ext.apidoc",  # Generate API documentation from Python packages
     "sphinx.ext.mathjax",
+    "sphinx.ext.intersphinx",  # Links to other projects
     "sphinx.ext.autosummary",  # Generate autodoc summaries
     "sphinx.ext.napoleon",  # Support for NumPy and Google style docstrings
     "myst_parser",  # Markdown support
