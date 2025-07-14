@@ -199,10 +199,10 @@ def linear_function(x_vals, y_vals):
 
 
 def quadratic_function(x_vals, y_vals):
-    return x_vals + y_vals
+    return x_vals * x_vals + y_vals * y_vals
 
 
-@pytest.mark.parametrize("ff", [linear_function, quadratic_function])
+@pytest.mark.parametrize(("ff", "is_ff_linear"), [(linear_function, True), (quadratic_function, False)])
 @pytest.mark.parametrize(
     ("x_slice", "y_slice", "interpolation_point"),
     [
@@ -212,7 +212,7 @@ def quadratic_function(x_vals, y_vals):
         (slice(1, None), slice(1, None), (1, 1)),
     ],
 )
-def test_bilinear_interpolation(x_slice, y_slice, interpolation_point, ff) -> None:
+def test_bilinear_interpolation(x_slice, y_slice, interpolation_point, ff, is_ff_linear) -> None:
     x = np.asarray([-2, 0, 2])
     y = np.asarray([-2, 0, 2])
     xx, yy = np.meshgrid(x, y)
@@ -222,4 +222,5 @@ def test_bilinear_interpolation(x_slice, y_slice, interpolation_point, ff) -> No
         x[x_slice], y[y_slice], ff(*np.meshgrid(x[x_slice], y[y_slice])), Coordinate(*interpolation_point)
     )
     assert rgi(interpolation_point) == interpolated
-    assert interpolated == ff(interpolation_point[0], interpolation_point[1])
+    if is_ff_linear:
+        assert interpolated == ff(interpolation_point[0], interpolation_point[1])
