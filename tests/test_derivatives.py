@@ -62,7 +62,7 @@ def test_is_in_degrees(values, coordinate, expected) -> None:
     ],
 )
 def test_is_lat_lon_in_degrees(expected: bool, mocker: "MockerFixture", lat, lon) -> None:
-    is_in_deg_mock = mocker.patch("rojak.core.derivatives.is_in_degrees", return_value=expected)
+    is_in_deg_mock = mocker.patch("rojak.core.derivatives._is_in_degrees", return_value=expected)
     outcome = derivatives._is_lat_lon_in_degrees(lon, lon)
     assert outcome == expected
     assert is_in_deg_mock.call_count == 2  # noqa: PLR2004
@@ -84,7 +84,7 @@ def test_is_lat_lon_in_degrees_error(lat: "NumpyOrDataArray", lon: "NumpyOrDataA
 
 
 def test_check_lat_lon_units_warning(mocker: "MockerFixture") -> None:
-    is_in_deg_mock = mocker.patch("rojak.core.derivatives.is_lat_lon_in_degrees", return_value=False)
+    is_in_deg_mock = mocker.patch("rojak.core.derivatives._is_lat_lon_in_degrees", return_value=False)
     with pytest.warns(
         UserWarning, match="Latitude and longitude specified to be in degrees, but are smaller than pi values"
     ) as record:
@@ -99,7 +99,7 @@ def test_check_lat_lon_units_warning(mocker: "MockerFixture") -> None:
 
 
 def test_check_lat_lon_units_error(mocker: "MockerFixture") -> None:
-    is_in_deg_mock = mocker.patch("rojak.core.derivatives.is_lat_lon_in_degrees", return_value=True)
+    is_in_deg_mock = mocker.patch("rojak.core.derivatives._is_lat_lon_in_degrees", return_value=True)
     with pytest.raises(
         ValueError, match="Latitude and longitude specified to be in radians, but are too large to be in radians"
     ) as excinfo:
@@ -133,7 +133,7 @@ longitude_in_rad: np.ndarray = np.deg2rad(longitude_in_deg)
     ],
 )
 def test_check_lat_lon_in_degree(mocker: "MockerFixture", lat, lon, is_deg: bool) -> None:
-    is_in_deg_mock = mocker.patch("rojak.core.derivatives.is_lat_lon_in_degrees", return_value=is_deg)
+    is_in_deg_mock = mocker.patch("rojak.core.derivatives._is_lat_lon_in_degrees", return_value=is_deg)
     new_lat, new_lon = derivatives._ensure_lat_lon_in_deg(lat, lon, "deg" if is_deg else "rad")
     if is_deg:
         npt.assert_array_almost_equal(np.asarray(new_lat), np.asarray(latitude_in_deg))
@@ -149,7 +149,7 @@ def test_nominal_grid_spacing(mocker: "MockerFixture") -> None:
     lat = np.array([25.0, 35.0, 45.0])
     lon = np.array([-105, -100, -95, -90])
 
-    ensure_is_deg_mock = mocker.patch("rojak.core.derivatives.ensure_lat_lon_in_deg", return_value=(lat, lon))
+    ensure_is_deg_mock = mocker.patch("rojak.core.derivatives._ensure_lat_lon_in_deg", return_value=(lat, lon))
 
     # Subcase 1: Specify geod
     grid_deltas: derivatives.GridSpacing = derivatives.nominal_grid_spacing(lat, lon, "deg", geod=Geod(a=4370997))
