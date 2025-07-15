@@ -21,7 +21,7 @@ from rojak.orchestrator.configuration import (
     TurbulenceThresholdMode,
     TurbulenceThresholds,
 )
-from rojak.turbulence.mediators import DiagnosticsAmdarHarmonisationStrategyOptions
+from rojak.turbulence.verification import DiagnosticsAmdarHarmonisationStrategyOptions
 from rojak.utilities.types import Limits
 
 if TYPE_CHECKING:

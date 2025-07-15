@@ -44,7 +44,7 @@ from rojak.turbulence.analysis import (
     LatitudinalCorrelationBetweenDiagnostics,
 )
 from rojak.turbulence.diagnostic import CalibrationDiagnosticSuite, DiagnosticFactory, EvaluationDiagnosticSuite
-from rojak.turbulence.mediators import DiagnosticsAmdarDataHarmoniser
+from rojak.turbulence.verification import DiagnosticsAmdarDataHarmoniser, DiagnosticsAmdarHarmonisationStrategyOptions
 from rojak.utilities.types import DistributionParameters, Limits
 
 if TYPE_CHECKING:
@@ -62,7 +62,6 @@ if TYPE_CHECKING:
         TurbulenceConfig,
         TurbulenceDiagnostics,
     )
-    from rojak.turbulence.mediators import DiagnosticsAmdarHarmonisationStrategyOptions
     from rojak.utilities.types import DiagnosticName
 
 import logging
