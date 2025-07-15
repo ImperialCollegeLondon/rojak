@@ -96,6 +96,7 @@ class DiagnosticAmdarVerification:
         self,
         target_data: "dd.DataFrame",
         validation_columns: list[str],
+        strategy_columns: list[str],
         validation_conditions: "list[DiagnosticValidationCondition]",
     ) -> "dd.DataFrame":
         group_by_columns: list[str] = [
@@ -104,13 +105,15 @@ class DiagnosticAmdarVerification:
             "level_index",
             self._data_harmoniser.common_time_column_name,
         ]
-        target_columns = group_by_columns + validation_columns
+        target_columns = group_by_columns + validation_columns + strategy_columns
         grouped_by_space_time = target_data[target_columns].groupby(group_by_columns)
 
         aggregation_spec: dict = {
             condition.observed_turbulence_column_name: _observed_turbulence_aggregation(condition)
             for condition in validation_conditions
         }
+        for strategy_column in strategy_columns:
+            aggregation_spec[strategy_column] = "mean"
         return grouped_by_space_time.aggregate(aggregation_spec)
 
     def compute_roc_curve(
@@ -127,28 +130,13 @@ class DiagnosticAmdarVerification:
         validation_columns: list[str] = [
             condition.observed_turbulence_column_name for condition in validation_conditions
         ]
-        target_columns = validation_columns + strategy_columns
         target_data = self._add_nearest_grid_indices(
-            target_columns,
+            validation_columns + strategy_columns,
             prototype_diagnostic_array,
         )
-        group_by_columns: list[str] = [
-            "lat_index",
-            "lon_index",
-            "level_index",
-            self._data_harmoniser.common_time_column_name,
-        ]
-        target_columns = group_by_columns + validation_columns + strategy_columns
-        grouped_by_space_time = target_data[target_columns].groupby(group_by_columns)
-
-        aggregation_spec: dict = {
-            condition.observed_turbulence_column_name: _observed_turbulence_aggregation(condition)
-            for condition in validation_conditions
-        }
-        for strategy_column in strategy_columns:
-            aggregation_spec[strategy_column] = "mean"
-
-        aggregated_data = grouped_by_space_time.aggregate(aggregation_spec).persist()
+        aggregated_data = self._spatio_temporal_data_aggregation(
+            target_data, validation_columns, strategy_columns, validation_conditions
+        )
         blocking_wait_futures(aggregated_data)
 
         result: dict[str, dict[str, BinaryClassificationResult]] = {}
