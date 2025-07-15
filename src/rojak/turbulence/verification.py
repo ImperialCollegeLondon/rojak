@@ -48,7 +48,8 @@ def received_operating_characteristic(
 
     Returns:
 
-    Modifying the example in the scikit-learn documentation:
+    Modifying the example in the scikit-learn `documentation on roc_curves`_:
+
     >>> import dask.array as da
     >>> y = np.asarray([1, 1, 2, 2])
     >>> scores = np.asarray([0.1, 0.4, 0.35, 0.8])
@@ -70,6 +71,10 @@ def received_operating_characteristic(
     array([0. , 0.5, 0.5, 1. , 1. ])
     >>> roc.thresholds.compute()
     array([ inf, 0.8 , 0.4 , 0.35, 0.1 ])
+
+    see :py:func:`binary_classification_curve` for a more detailed explanation of doc test
+
+    .. _documentation on roc_curves: https://scikit-learn.org/stable/modules/model_evaluation.html#receiver-operating-characteristic-roc
     """
     classification_result = binary_classification_curve(
         sorted_truth,
@@ -117,28 +122,42 @@ def binary_classification_curve(
     Returns:
         BinaryClassificationResult: A named tuple with the false positive, true positive, and thresholds
 
-    Modifying the example in the scikit-learn documentation:
+    Modifying the example in the scikit-learn `documentation on roc_curves`_:
+
     >>> import dask.array as da
     >>> y = np.asarray([1, 1, 2, 2])
     >>> scores = np.asarray([0.1, 0.4, 0.35, 0.8])
     >>> binary_classification_curve(da.asarray(y), da.asarray(scores), positive_classification_label=2)
     Traceback (most recent call last):
     ValueError: values must be strictly decreasing
+
+    Scikit-learn does not require the arrays to be sorted. However, as this implementation uses dask arrays, there
+    is no built-in way to sort a dask array. Thus, the arrays passed into these methods must already be sorted
+
     >>> decrease_idx = np.argsort(scores)[::-1]
     >>> scores = da.asarray(scores[decrease_idx])
     >>> y = da.asarray(y[decrease_idx])
+
+    Once the values are sorted, they can be passed into the method.
+
     >>> classification = binary_classification_curve(y, scores, positive_classification_label=2)
     >>> classification
     BinaryClassificationResult(false_positives=dask.array<sub, shape=(nan,), dtype=int64, chunksize=(nan,),
     chunktype=numpy.ndarray>, true_positives=dask.array<slice_with_int_dask_array_aggregate, shape=(nan,), dtype=int64,
     chunksize=(nan,), chunktype=numpy.ndarray>, thresholds=dask.array<slice_with_int_dask_array_aggregate, shape=(nan,),
     dtype=float64, chunksize=(nan,), chunktype=numpy.ndarray>)
+
+    The method returns a named tuple :py:class:`BinaryClassificationResult` containing `dask.array.Array`. To get the
+    values, `compute()` must be invoked on them evaluate the lazy collection.
+
     >>> classification.false_positives.compute()
     array([0, 1, 1, 2])
     >>> classification.true_positives.compute()
     array([1, 1, 2, 2])
     >>> classification.thresholds.compute()
     array([0.8 , 0.4 , 0.35, 0.1 ])
+
+    .. _documentation on roc_curves: https://scikit-learn.org/stable/modules/model_evaluation.html#receiver-operating-characteristic-roc
     """
     if sorted_truth.ndim != 1 or sorted_values.ndim != 1:
         raise ValueError("sorted_truth and sorted_values must be 1D")
