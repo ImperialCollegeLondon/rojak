@@ -21,7 +21,7 @@ import numpy as np
 import yaml
 from pydantic import AfterValidator, BaseModel, Field, ValidationError, model_validator
 
-from rojak.orchestrator.mediators import DiagnosticsAmdarHarmonisationStrategyOptions
+from rojak.turbulence.mediators import DiagnosticsAmdarHarmonisationStrategyOptions
 from rojak.utilities.types import Limits
 
 

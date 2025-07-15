@@ -19,7 +19,7 @@ import numpy as np
 
 from rojak.core.distributed_tools import blocking_wait_futures
 from rojak.core.indexing import map_values_to_nearest_coordinate_index
-from rojak.orchestrator.mediators import (
+from rojak.turbulence.mediators import (
     DiagnosticsAmdarHarmonisationStrategyOptions,
 )
 from rojak.turbulence.metrics import BinaryClassificationResult, received_operating_characteristic
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     import xarray as xr
 
     from rojak.orchestrator.configuration import DiagnosticValidationCondition
-    from rojak.orchestrator.mediators import (
+    from rojak.turbulence.mediators import (
         DiagnosticsAmdarDataHarmoniser,
     )
     from rojak.utilities.types import Limits

@@ -5,7 +5,7 @@ import pytest
 import xarray as xr
 
 from rojak.orchestrator.configuration import TurbulenceDiagnostics, TurbulenceSeverity
-from rojak.orchestrator.mediators import (
+from rojak.turbulence.mediators import (
     DiagnosticsAmdarDataHarmoniser,
     DiagnosticsAmdarHarmonisationStrategy,
     DiagnosticsAmdarHarmonisationStrategyFactory,
