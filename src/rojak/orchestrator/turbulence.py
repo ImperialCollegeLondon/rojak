@@ -33,7 +33,6 @@ from rojak.orchestrator.configuration import (
     TurbulenceEvaluationPhases,
     TurbulenceThresholds,
 )
-from rojak.orchestrator.mediators import DiagnosticsAmdarDataHarmoniser
 from rojak.plot.turbulence_plotter import (
     create_diagnostic_correlation_plot,
     create_multi_region_correlation_plot,
@@ -45,6 +44,7 @@ from rojak.turbulence.analysis import (
     LatitudinalCorrelationBetweenDiagnostics,
 )
 from rojak.turbulence.diagnostic import CalibrationDiagnosticSuite, DiagnosticFactory, EvaluationDiagnosticSuite
+from rojak.turbulence.mediators import DiagnosticsAmdarDataHarmoniser
 from rojak.utilities.types import DistributionParameters, Limits
 
 if TYPE_CHECKING:
@@ -62,7 +62,7 @@ if TYPE_CHECKING:
         TurbulenceConfig,
         TurbulenceDiagnostics,
     )
-    from rojak.orchestrator.mediators import DiagnosticsAmdarHarmonisationStrategyOptions
+    from rojak.turbulence.mediators import DiagnosticsAmdarHarmonisationStrategyOptions
     from rojak.utilities.types import DiagnosticName
 
 import logging
