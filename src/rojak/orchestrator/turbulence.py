@@ -33,7 +33,6 @@ from rojak.orchestrator.configuration import (
     TurbulenceEvaluationPhases,
     TurbulenceThresholds,
 )
-from rojak.orchestrator.mediators import DiagnosticsAmdarDataHarmoniser
 from rojak.plot.turbulence_plotter import (
     create_diagnostic_correlation_plot,
     create_multi_region_correlation_plot,
@@ -45,6 +44,7 @@ from rojak.turbulence.analysis import (
     LatitudinalCorrelationBetweenDiagnostics,
 )
 from rojak.turbulence.diagnostic import CalibrationDiagnosticSuite, DiagnosticFactory, EvaluationDiagnosticSuite
+from rojak.turbulence.verification import DiagnosticsAmdarDataHarmoniser, DiagnosticsAmdarHarmonisationStrategyOptions
 from rojak.utilities.types import DistributionParameters, Limits
 
 if TYPE_CHECKING:
@@ -62,7 +62,6 @@ if TYPE_CHECKING:
         TurbulenceConfig,
         TurbulenceDiagnostics,
     )
-    from rojak.orchestrator.mediators import DiagnosticsAmdarHarmonisationStrategyOptions
     from rojak.utilities.types import DiagnosticName
 
 import logging
@@ -414,6 +413,7 @@ class DiagnosticsAmdarLauncher:
     _strategies: list["DiagnosticsAmdarHarmonisationStrategyOptions"]
     _time_window: "Limits[datetime]"
     _output_filepath: "Path"
+    _save_output: bool
 
     def __init__(self, data_config: "DataConfig", output_dir: "Path", run_name: "RunName") -> None:
         assert data_config.amdar_config is not None
@@ -423,11 +423,14 @@ class DiagnosticsAmdarLauncher:
         self._strategies = data_config.amdar_config.harmonisation_strategies
         self._time_window = data_config.amdar_config.time_window
 
+        self._save_output = data_config.amdar_config.save_harmonised_data
         base_dir = output_dir / run_name / "data_harmonisation"
-        base_dir.mkdir(parents=True, exist_ok=True)
-        time_window_as_str = np.datetime_as_string([self._time_window.lower, self._time_window.upper], unit="D")
+        if self._save_output:
+            base_dir.mkdir(parents=True, exist_ok=True)
+        time_format: str = "%Y-%m-%dT%H%M"  # e.g. 2025-02-31T1200
         self._output_filepath = (
-            base_dir / f"{self._data_source}_{time_window_as_str[0]}_{time_window_as_str[1]}.parquet"
+            base_dir / f"{self._data_source}_{self._time_window.lower.strftime(time_format)}"
+            f"_{self._time_window.upper.strftime(time_format)}.parquet"
         )
 
     def create_amdar_data_repository(self) -> "AmdarDataRepository":
@@ -454,6 +457,8 @@ class DiagnosticsAmdarLauncher:
             self._strategies, Limits(np.datetime64(self._time_window.lower), np.datetime64(self._time_window.upper))
         ).persist()
         blocking_wait_futures(result)
-        result.to_parquet(self._output_filepath)
         logger.info("Finished Turbulence Amdar Harmonisation")
+        if self._save_output:
+            logger.info("Saving results to %s", self._output_filepath)
+            result.drop(columns="geometry").set_index(harmoniser.grid_box_column_name).to_parquet(self._output_filepath)
         return result

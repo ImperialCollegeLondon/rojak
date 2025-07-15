@@ -21,7 +21,7 @@ import numpy as np
 import yaml
 from pydantic import AfterValidator, BaseModel, Field, ValidationError, model_validator
 
-from rojak.orchestrator.mediators import DiagnosticsAmdarHarmonisationStrategyOptions
+from rojak.turbulence.verification import DiagnosticsAmdarHarmonisationStrategyOptions
 from rojak.utilities.types import Limits
 
 
@@ -517,6 +517,9 @@ class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
         list[DiagnosticsAmdarHarmonisationStrategyOptions],
         Field(description="List of harmonisation strategies", repr=True, frozen=True),
     ]
+    save_harmonised_data: Annotated[
+        bool, Field(description="Save harmonised data", repr=True, frozen=True, default=True)
+    ] = True
 
     @model_validator(mode="after")
     def check_valid_glob_pattern(self) -> Self:
@@ -540,6 +543,26 @@ class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
     def check_time_window_increasing(self) -> Self:
         if self.time_window.lower > self.time_window.upper:
             raise InvalidConfigurationError("Time must be increasing from lower to upp")
+        return self
+
+
+class DiagnosticValidationCondition(BaseConfigModel):
+    observed_turbulence_column_name: Annotated[
+        str, Field(description="Observed turbulence column name", frozen=True, repr=True, strict=True)
+    ]
+    value_greater_than: Annotated[
+        float, Field(description="Value greater than", repr=True, strict=True, ge=0.0, frozen=True)
+    ]
+
+
+class DiagnosticValidationConfig(BaseConfigModel):
+    validation_conditions: list[DiagnosticValidationCondition]
+
+    @model_validator(mode="after")
+    def check_conditions_are_unique(self) -> Self:
+        assert len(set(self.validation_conditions)) == len(self.validation_conditions), (
+            "Validation conditions must be unique"
+        )
         return self
 
 

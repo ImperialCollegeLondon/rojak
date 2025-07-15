@@ -5,7 +5,7 @@ import pytest
 import xarray as xr
 
 from rojak.orchestrator.configuration import TurbulenceDiagnostics, TurbulenceSeverity
-from rojak.orchestrator.mediators import (
+from rojak.turbulence.verification import (
     DiagnosticsAmdarDataHarmoniser,
     DiagnosticsAmdarHarmonisationStrategy,
     DiagnosticsAmdarHarmonisationStrategyFactory,
@@ -142,7 +142,7 @@ def test_diagnostic_amdar_harmonisation_strategy_factory_create_strategies_value
     for strategy, option in zip(strategies, options, strict=False):
         assert isinstance(strategy, DiagnosticsAmdarHarmonisationStrategy)
         assert isinstance(strategy, ValuesStrategy)
-        assert option == strategy.name_suffix
+        assert option.column_name_method()("test_name") == strategy.column_name("test_name")
 
 
 @pytest.mark.parametrize(
@@ -217,5 +217,5 @@ def test_diagnostic_amdar_harmonisation_strategy_factory_create_strategies_non_v
 
     for strategy, severity in zip(strategies, limits_data, strict=False):
         assert isinstance(strategy, DiagnosticsAmdarHarmonisationStrategy)
-        assert strategy.name_suffix == f"{str(option)}_{str(severity)}"
+        assert strategy.column_name("test_name") == option.column_name_method(severity=severity)("test_name")
         assert isinstance(strategy, child_strategy_class)

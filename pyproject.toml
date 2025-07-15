@@ -50,6 +50,7 @@ dev = [
     "pre-commit",
     "pyright",
     "ruff",
+    "bokeh", # For dask dashboard
     "scipy-stubs",
 ]
 test = [
