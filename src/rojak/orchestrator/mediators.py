@@ -1,7 +1,7 @@
 import logging
 from abc import ABC, abstractmethod
 from enum import StrEnum
-from typing import TYPE_CHECKING, Callable, ClassVar, Mapping, NamedTuple, assert_never
+from typing import TYPE_CHECKING, Callable, ClassVar, Generator, Mapping, NamedTuple, assert_never
 
 import dask.dataframe as dd
 import numpy as np
@@ -20,7 +20,6 @@ if TYPE_CHECKING:
     from rojak.orchestrator.configuration import TurbulenceSeverity
     from rojak.turbulence.diagnostic import EvaluationDiagnosticSuite
     from rojak.utilities.types import DiagnosticName, Limits
-
 
 logger = logging.getLogger(__name__)
 
@@ -296,6 +295,20 @@ class DiagnosticsAmdarDataHarmoniser:
                 assert self._amdar_data.data_frame[column].unique().isin(longitudes).all().compute()
             else:  # endswith("lat")
                 assert self._amdar_data.data_frame[column].unique().isin(latitudes).all().compute()
+
+    def strategy_values_columns(
+        self, strategies: list[DiagnosticsAmdarHarmonisationStrategyOptions]
+    ) -> Generator[str, None, None]:
+        for strategy in filter(
+            lambda strat: strat
+            in {
+                DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES,
+                DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES,
+            },
+            strategies,
+        ):
+            for name in self._diagnostics_suite.diagnostic_names():
+                yield strategy.column_name_method()(name)
 
     def _construct_meta_dataframe(
         self, strategies: list[DiagnosticsAmdarHarmonisationStrategy], num_partitions: int

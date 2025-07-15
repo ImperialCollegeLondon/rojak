@@ -1,5 +1,6 @@
 from typing import NamedTuple
 
+import dask
 import dask.array as da
 import numpy as np
 
@@ -142,7 +143,8 @@ def binary_classification_curve(
     """
     if sorted_truth.ndim != 1 or sorted_values.ndim != 1:
         raise ValueError("sorted_truth and sorted_values must be 1D")
-    if sorted_truth.size != sorted_values.size:
+    sizes = dask.compute(sorted_truth.size, sorted_values.size)  # pyright: ignore[reportPrivateImportUsage]
+    if sizes[0] != sizes[1]:
         raise ValueError("sorted_truth and sorted_values must have same size")
 
     if sorted_truth.dtype != bool:
