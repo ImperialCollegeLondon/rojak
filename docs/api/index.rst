@@ -7,7 +7,6 @@ API
    :toctree: generated/
    :recursive:
 
-    cli
     core
     datalib
     orchestrator
