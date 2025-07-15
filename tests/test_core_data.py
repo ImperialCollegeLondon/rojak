@@ -489,13 +489,16 @@ def test_compute_closest_pressure_level(
     mocker: "MockerFixture", get_standard_atmosphere_pressure_and_altitude, concrete_class
 ):
     pressure, altitude = get_standard_atmosphere_pressure_and_altitude
-    converter_mock = mocker.patch("rojak.core.calculations.pressure_to_altitude_std_atm")
+    # See docs on why it is core.data instead of where it is imported from, i.e. core.calculations
+    # https://docs.python.org/3/library/unittest.mock.html#where-to-patch
+    converter_mock = mocker.patch("rojak.core.data.pressure_to_altitude_icao")
     converter_mock.return_value = altitude
     ddf = dd.from_pandas(pd.DataFrame({"altitude": [500, 1000, 2000, 9000, 15000]}))
     closest = pd.Series([1013.24, 843.07, 843.07, 329.32, 187.54], name="level")
 
     instance = concrete_class("")
     ddf["level"] = instance._compute_closest_pressure_level(ddf, pressure, "altitude")
+    converter_mock.assert_called_once_with(pressure)
     assert isinstance(ddf["level"], dd.Series)
     pd.testing.assert_series_equal(ddf["level"].compute(), closest)
 

@@ -24,6 +24,7 @@ extensions = [
     "sphinx.ext.autodoc",  # Include documentation from docstrings
     "sphinx.ext.apidoc",  # Generate API documentation from Python packages
     "sphinx.ext.mathjax",
+    "sphinx.ext.intersphinx",  # Links to other projects
     "sphinx.ext.autosummary",  # Generate autodoc summaries
     "sphinx.ext.napoleon",  # Support for NumPy and Google style docstrings
     "myst_parser",  # Markdown support
@@ -33,12 +34,21 @@ extensions = [
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
+# This needs to be set despite the default being true
+# See https://github.com/sphinx-doc/sphinx/issues/6800
+autosummary_generate = True
+
 autoclass_content = "both"
 autodoc_member_order = "groupwise"
 autodoc_typehints = "both"
 
 # Mapping to other project documentation
-intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}
+intersphinx_mapping = {
+    "python": ("https://docs.python.org/3", None),
+    "xarray": ("https://docs.xarray.dev/en/stable/", None),
+    "numpy": ("https://numpy.org/doc/stable/", None),
+    "dask": ("https://docs.dask.org/en/latest/", None),
+}
 
 # Allow markdown files to be recognised
 source_suffix = [".rst", ".md"]

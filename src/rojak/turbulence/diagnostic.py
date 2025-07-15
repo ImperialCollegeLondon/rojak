@@ -709,6 +709,16 @@ class GradientRichardson(Diagnostic):
 
 
 class WindSpeed(Diagnostic):
+    """
+    Wind Speed CAT diagnostic
+
+    .. math:: | \\mathbf{u} | = \\sqrt{u^2 + v^2}
+
+    Args:
+        u_wind: Zonal wind speeds in m/s
+        v_wind: Meridional wind speeds in m/s
+    """
+
     _u_wind: xr.DataArray
     _v_wind: xr.DataArray
 
@@ -722,6 +732,15 @@ class WindSpeed(Diagnostic):
 
 
 class DeformationSquared(Diagnostic):
+    """
+    Total Deformation Squared CAT diagnostic
+
+    See :py:func:`total_deformation` for definition of total deformation
+
+    Args:
+        total_deformation: Total deformation
+    """
+
     _total_deformation: xr.DataArray
 
     def __init__(self, total_deformation: xr.DataArray) -> None:
@@ -733,6 +752,16 @@ class DeformationSquared(Diagnostic):
 
 
 class WindDirection(Diagnostic):
+    """
+    Wind Direction CAT diagnostic
+
+    See :py:func:`wind_direction` for definition of wind direction
+
+    Args:
+        u_wind: Zonal wind speeds in m/s
+        v_wind: Meridional wind speeds in m/s
+    """
+
     _u_wind: xr.DataArray
     _v_wind: xr.DataArray
 
@@ -746,6 +775,15 @@ class WindDirection(Diagnostic):
 
 
 class HorizontalDivergence(Diagnostic):
+    """
+    Horizontal Divergence CAT diagnostic
+
+    Absolute value of horizontal divergence
+
+    Args:
+        divergence: Horizontal divergence of wind in m/s
+    """
+
     _divergence: xr.DataArray
 
     def __init__(self, divergence: xr.DataArray) -> None:
@@ -757,6 +795,16 @@ class HorizontalDivergence(Diagnostic):
 
 
 class MagnitudePotentialVorticity(Diagnostic):
+    """
+    Magnitude potential vorticity CAT diagnostic
+
+    The magnitude of potential vorticity, :math:`|\\text{PV}|`, was used by [Knox2001]_ to show that unbalanced regions,
+    indicated by low potential vorticity, were a source of CAT.
+
+    Args:
+        potential_vorticity: potential vorticity
+    """
+
     _potential_vorticity: xr.DataArray
 
     def __init__(self, potential_vorticity: xr.DataArray) -> None:
@@ -768,6 +816,17 @@ class MagnitudePotentialVorticity(Diagnostic):
 
 
 class GradientPotentialVorticity(Diagnostic):
+    """
+    Gradient potential vorticity CAT diagnostic
+
+    The horizontal potential vorticity gradient was used by [Sharman2017]_ in the GTG and is defined as,
+
+    .. math: |\\nabla \\text{PV} |
+
+    Args:
+        potential_vorticity: potential vorticity
+    """
+
     _potential_vorticity: xr.DataArray
 
     def __init__(self, potential_vorticity: xr.DataArray) -> None:
@@ -779,6 +838,13 @@ class GradientPotentialVorticity(Diagnostic):
 
 
 class VerticalVorticitySquared(Diagnostic):
+    """
+    Vertical Vorticity Squared CAT diagnostic
+
+    Args:
+        vorticity: Vertical component of vorticity in m/s
+    """
+
     _vorticity: xr.DataArray
 
     def __init__(self, vorticity: xr.DataArray) -> None:
@@ -790,6 +856,17 @@ class VerticalVorticitySquared(Diagnostic):
 
 
 class DirectionalShear(Diagnostic):
+    """
+    Directional Shear CAT diagnostic
+
+    .. math: \\left| \\frac{ \\partial \\psi }{ \\partial z }  \\right|
+
+    Args:
+        u_wind: Zonal wind speeds in m/s
+        v_wind: Meridional wind speeds in m/s
+        geopotential: Geopotential in m^2/s
+    """
+
     _u_wind: xr.DataArray
     _v_wind: xr.DataArray
     _geopotential: xr.DataArray

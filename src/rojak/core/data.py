@@ -27,7 +27,7 @@ import xarray as xr
 from dask.base import is_dask_collection
 
 from rojak.core import derivatives
-from rojak.core.calculations import pressure_to_altitude_std_atm
+from rojak.core.calculations import pressure_to_altitude_icao
 from rojak.core.constants import MAX_LONGITUDE
 from rojak.core.derivatives import VelocityDerivative
 from rojak.core.distributed_tools import blocking_wait_futures
@@ -386,7 +386,7 @@ class AmdarDataRepository(ABC):
         Returns:
             dd.Series: New series with the closest pressure level
         """
-        altitudes = pressure_to_altitude_std_atm(pressure_levels)
+        altitudes = pressure_to_altitude_icao(pressure_levels)
         return data_frame[altitude_column].apply(
             self._find_closest_pressure_level, args=(altitudes, pressure_levels), meta=("level", float)
         )
