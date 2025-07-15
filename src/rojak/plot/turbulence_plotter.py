@@ -20,6 +20,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pypalettes
 import scipy.cluster.hierarchy as sch
+import scipy.spatial.distance as ssd
 import xarray as xr
 from shapely import Polygon
 
@@ -187,7 +188,7 @@ def create_multi_turbulence_diagnotics_probability_plot(
 
 
 def get_clustered_indexing(correlation_array: np.ndarray) -> np.ndarray:
-    pairwise_distances: np.ndarray = sch.distance.pdist(correlation_array)
+    pairwise_distances: np.ndarray = ssd.pdist(correlation_array)
     linkage: np.ndarray = sch.linkage(pairwise_distances, method="complete")
     cluster_distance_threshold: float = pairwise_distances.max() / 2
     idx_to_cluster_array: np.ndarray = sch.fcluster(linkage, cluster_distance_threshold, criterion="distance")

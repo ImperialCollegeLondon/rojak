@@ -50,6 +50,7 @@ dev = [
     "pre-commit",
     "pyright",
     "ruff",
+    "scipy-stubs",
 ]
 test = [
     "pytest",
