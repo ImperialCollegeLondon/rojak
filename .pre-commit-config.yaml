@@ -23,6 +23,6 @@ repos:
         types: [ file ]
         files: \.(rst)$
   - repo: https://github.com/RobertCraigie/pyright-python
-    rev: v1.1.402
+    rev: v1.1.403
     hooks:
       - id: pyright
