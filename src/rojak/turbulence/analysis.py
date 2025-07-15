@@ -167,6 +167,12 @@ class HistogramData:
 
 
 class DiagnosticHistogramDistribution(PostProcessor):
+    """
+    Computes histogram bins for log-normal distribution of turbulence diagnostics.
+
+    Implementation of the methodology in [Sharman2017]_ to map the raw diagnostic value into EDR
+    """
+
     _computed_diagnostic: xr.DataArray
     _NUM_HIST_BINS: int = 50
 
@@ -210,14 +216,21 @@ class DiagnosticHistogramDistribution(PostProcessor):
 
 
 # ABSTRACTION MIGHT NOT BE NECESSARY. REMOVE IN FUTURE IF IT ISN'T
-class EvaluationPostProcessor(PostProcessor, ABC):
+class _EvaluationPostProcessor(PostProcessor, ABC):
     _components: Mapping[str, PostProcessor]
 
     def __init__(self, components: Mapping[str, PostProcessor] | None = None) -> None:
         self._components = components if components is not None else {}
 
 
-class TurbulentRegionsBySeverity(EvaluationPostProcessor):
+class TurbulentRegionsBySeverity(PostProcessor):
+    """
+    Computes turbulent regions by severity for a given turbulence diagnostic
+
+    Based on the thresholds for a given turbulence diagnostic, performs a binary classification of whether
+    turbulence is present.
+    """
+
     _computed_diagnostic: xr.DataArray
     _severities: list["TurbulenceSeverity"]
     _thresholds: "TurbulenceThresholds"
@@ -251,7 +264,11 @@ class TurbulentRegionsBySeverity(EvaluationPostProcessor):
         return by_severity if self._has_parent else xr.concat(by_severity, xr.Variable("severity", self._severities))
 
 
-class TurbulenceProbabilityBySeverity(EvaluationPostProcessor):
+class TurbulenceProbabilityBySeverity(_EvaluationPostProcessor):
+    """
+    Computes probability of encountering turbulence of each severity for a given turbulence diagnostic
+    """
+
     _severities: list["TurbulenceSeverity"]
     _num_time_steps: int
 
@@ -283,7 +300,15 @@ class TurbulenceProbabilityBySeverity(EvaluationPostProcessor):
         return xr.concat(probabilities, xr.Variable("severity", self._severities))
 
 
-class TransformToEDR(EvaluationPostProcessor):
+class TransformToEDR(PostProcessor):
+    """
+    Transforms turbulence diagnostic values into EDR
+
+    Using the mean and variance of the log-normal distribution of the turbulence diagnostic from the calibration
+    dataset, converts turbulence diagnostic values into EDR. An implementation of the methodology described in
+    [Sharman2017]_.
+    """
+
     _computed_diagnostic: xr.DataArray
     _mean: float
     _variance: float
@@ -315,6 +340,12 @@ class TransformToEDR(EvaluationPostProcessor):
 
 
 class CorrelationBetweenDiagnostics(PostProcessor):
+    """
+    Computes the correlation between turbulence diagnostics
+
+
+    """
+
     _diagnostic_names: list["DiagnosticName"]
     _computed_indices: dict["DiagnosticName", xr.DataArray]
     _sel_condition: Mapping[str, Any]
@@ -361,6 +392,10 @@ class LatitudinalRegion(StrEnum):
 
 
 class LatitudinalCorrelationBetweenDiagnostics(PostProcessor):
+    """
+    Computes the correlation between turbulence diagnostics by latitudinal region
+    """
+
     _computed_indices: Mapping["DiagnosticName", xr.DataArray]
     _hemispheres: list[Hemisphere]
     _latitudinal_regions: list[LatitudinalRegion]
