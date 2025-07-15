@@ -29,7 +29,75 @@ class BinaryClassificationResult(NamedTuple):
     thresholds: "da.Array"
 
 
-# Modified from scikit-learn metric roc's invocation of binary classification method
+# Modified from scikit-learn.metrics roc_curve() method
+# https://github.com/scikit-learn/scikit-learn/blob/da08f3d99194565caaa2b6757a3816eef258cd70/sklearn/metrics/_ranking.py#L1069
+def received_operating_characteristic(
+    sorted_truth: "da.Array",
+    sorted_values: "da.Array",
+    num_intervals: int = 100,
+    positive_classification_label: int | float | bool | str | None = None,
+) -> BinaryClassificationResult:
+    """
+    Received operating characteristic or ROC curve
+
+    Args:
+        sorted_truth:
+        sorted_values:
+        num_intervals:
+        positive_classification_label:
+
+    Returns:
+
+    Modifying the example in the scikit-learn documentation:
+    >>> import dask.array as da
+    >>> y = np.asarray([1, 1, 2, 2])
+    >>> scores = np.asarray([0.1, 0.4, 0.35, 0.8])
+    >>> received_operating_characteristic(da.asarray(y), da.asarray(scores), positive_classification_label=2)
+    Traceback (most recent call last):
+    ValueError: values must be strictly decreasing
+    >>> decrease_idx = np.argsort(scores)[::-1]
+    >>> scores = da.asarray(scores[decrease_idx])
+    >>> y = da.asarray(y[decrease_idx])
+    >>> roc = received_operating_characteristic(y, scores, positive_classification_label=2)
+    >>> roc
+    BinaryClassificationResult(false_positives=dask.array<truediv, shape=(5,), dtype=float64, chunksize=(3,),
+    chunktype=numpy.ndarray>, true_positives=dask.array<truediv, shape=(5,), dtype=float64, chunksize=(3,),
+    chunktype=numpy.ndarray>, thresholds=dask.array<concatenate, shape=(5,), dtype=float64, chunksize=(3,),
+    chunktype=numpy.ndarray>)
+    >>> roc.false_positives.compute()
+    array([0. , 0. , 0.5, 0.5, 1. ])
+    >>> roc.true_positives.compute()
+    array([0. , 0.5, 0.5, 1. , 1. ])
+    >>> roc.thresholds.compute()
+    array([ inf, 0.8 , 0.4 , 0.35, 0.1 ])
+    """
+    classification_result = binary_classification_curve(
+        sorted_truth,
+        sorted_values,
+        num_intervals=num_intervals,
+        positive_classification_label=positive_classification_label,
+    )
+
+    # Make curve start at 0
+    zero_array = da.zeros(1)
+    true_positive = da.hstack((zero_array, classification_result.true_positives.compute_chunk_sizes()))  # pyright: ignore[reportAttributeAccessIssue]
+    false_positive = da.hstack((zero_array, classification_result.false_positives.compute_chunk_sizes()))  # pyright: ignore[reportAttributeAccessIssue]
+    thresholds = da.hstack((da.asarray([np.inf]), classification_result.thresholds.compute_chunk_sizes()))  # pyright: ignore[reportAttributeAccessIssue]
+
+    if false_positive[-1] < 0:
+        raise ValueError("false positives cannot be negative")
+    false_positive = false_positive / false_positive[-1]
+
+    if true_positive[-1] < 0:
+        raise ValueError("true positives cannot be negative")
+    true_positive = true_positive / true_positive[-1]
+
+    return BinaryClassificationResult(
+        false_positives=false_positive, true_positives=true_positive, thresholds=thresholds
+    )
+
+
+# Modified from scikit-learn metric binary classification method
 # https://github.com/scikit-learn/scikit-learn/blob/da08f3d99194565caaa2b6757a3816eef258cd70/sklearn/metrics/_ranking.py#L826
 def binary_classification_curve(
     sorted_truth: "da.Array",
@@ -38,7 +106,7 @@ def binary_classification_curve(
     positive_classification_label: int | float | bool | str | None = None,
 ) -> BinaryClassificationResult:
     """
-    Received operating characteristic or ROC curve
+    Binary classification curve
 
     Args:
         sorted_truth:
@@ -61,10 +129,10 @@ def binary_classification_curve(
     >>> y = da.asarray(y[decrease_idx])
     >>> classification = binary_classification_curve(y, scores, positive_classification_label=2)
     >>> classification
-    RocResults(false_positives=dask.array<sub, shape=(nan,), dtype=int64, chunksize=(nan,), chunktype=numpy.ndarray>,
-    true_positives=dask.array<slice_with_int_dask_array_aggregate, shape=(nan,), dtype=int64, chunksize=(nan,),
-    chunktype=numpy.ndarray>, thresholds=dask.array<slice_with_int_dask_array_aggregate, shape=(nan,), dtype=float64,
-    chunksize=(nan,), chunktype=numpy.ndarray>)
+    BinaryClassificationResult(false_positives=dask.array<sub, shape=(nan,), dtype=int64, chunksize=(nan,),
+    chunktype=numpy.ndarray>, true_positives=dask.array<slice_with_int_dask_array_aggregate, shape=(nan,), dtype=int64,
+    chunksize=(nan,), chunktype=numpy.ndarray>, thresholds=dask.array<slice_with_int_dask_array_aggregate, shape=(nan,),
+    dtype=float64, chunksize=(nan,), chunktype=numpy.ndarray>)
     >>> classification.false_positives.compute()
     array([0, 1, 1, 2])
     >>> classification.true_positives.compute()
