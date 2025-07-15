@@ -11,6 +11,7 @@ from rojak.core.indexing import map_values_to_nearest_coordinate_index
 from rojak.orchestrator.mediators import (
     DiagnosticsAmdarHarmonisationStrategyOptions,
 )
+from rojak.turbulence.metrics import BinaryClassificationResult, received_operating_characteristic
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -164,6 +165,59 @@ class DiagnosticAmdarVerification:
             dtype=bool,
             meta=sparse.COO((), shape=shape_of_output),
         )
+
+    def compute_roc_curve(
+        self,
+        validation_conditions: "list[DiagnosticValidationCondition]",
+        prototype_diagnostic_array: "xr.DataArray",
+    ) -> dict[str, dict[str, BinaryClassificationResult]]:
+        assert {"pressure_level", "longitude", "latitude", "time"}.issubset(prototype_diagnostic_array.coords)
+        strategy_columns: list[str] = list(
+            self._data_harmoniser.strategy_values_columns(
+                [DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES]
+            )
+        )
+        validation_columns: list[str] = [
+            condition.observed_turbulence_column_name for condition in validation_conditions
+        ]
+        target_columns = validation_columns + strategy_columns
+        target_data = self._add_nearest_grid_indices(
+            target_columns,
+            prototype_diagnostic_array,
+        )
+        group_by_columns: list[str] = [
+            "lat_index",
+            "lon_index",
+            "level_index",
+            self._data_harmoniser.common_time_column_name,
+        ]
+        target_columns = group_by_columns + validation_columns + strategy_columns
+        grouped_by_space_time = target_data[target_columns].groupby(group_by_columns)
+
+        aggregation_spec: dict = {
+            condition.observed_turbulence_column_name: _observed_turbulence_aggregation(condition)
+            for condition in validation_conditions
+        }
+        for strategy_column in strategy_columns:
+            aggregation_spec[strategy_column] = "mean"
+
+        aggregated_data = grouped_by_space_time.aggregate(aggregation_spec).persist()
+        blocking_wait_futures(aggregated_data)
+
+        result: dict[str, dict[str, BinaryClassificationResult]] = {}
+        for strategy_column in strategy_columns:
+            # descending values
+            result[strategy_column] = {}
+            subset_df = aggregated_data[[*validation_columns, strategy_column]].sort_values(
+                strategy_column, ascending=False
+            )
+            for column in validation_columns:
+                result[strategy_column][column] = received_operating_characteristic(
+                    subset_df[column].values.compute_chunk_sizes(),  # noqa: PD011
+                    subset_df[strategy_column].values.compute_chunk_sizes(),  # noqa: PD011
+                )
+
+        return result
 
     def get_verification_ground_truth(
         self,
