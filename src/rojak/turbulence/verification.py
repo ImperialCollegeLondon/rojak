@@ -1,10 +1,7 @@
-import functools
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
-import dask.array as da
 import dask.dataframe as dd
 import numpy as np
-import sparse
 
 from rojak.core.distributed_tools import blocking_wait_futures
 from rojak.core.indexing import map_values_to_nearest_coordinate_index
@@ -41,36 +38,6 @@ def _observed_turbulence_aggregation(condition: "DiagnosticValidationCondition")
         agg=aggregate_chunks,
         finalize=apply_condition,
     )
-
-
-def _combine_sparse_arrays(
-    block_concatenated_coo_arrays: "da.Array", shape_of_output: tuple, binary_numpy_function: Callable
-) -> "da.Array":
-    def combine_function(args: list, **kwargs: dict) -> da.Array:
-        if len(args) == 2:  # noqa: PLR2004
-            return sparse.elemwise(binary_numpy_function, args[0], args[1])
-
-        out = args[0]
-        for item in args[1:]:
-            out = sparse.elemwise(binary_numpy_function, out, item)
-        return out
-
-    def on_chunk(x_chunk: "sparse.COO", axis: int, keepdims: bool) -> "sparse.COO":
-        return x_chunk
-
-    def finalise_aggregation(from_combine: "list[sparse.COO]", axis: int, keepdims: bool) -> "sparse.COO":
-        return sparse.elemwise(binary_numpy_function, *from_combine)
-
-    reduced: "da.Array" = da.reduction(
-        block_concatenated_coo_arrays,
-        on_chunk,
-        finalise_aggregation,
-        combine=combine_function,
-        concatenate=False,
-        dtype=bool,
-        meta=sparse.COO((), shape=shape_of_output, fill_value=np.nan),
-    )
-    return reduced
 
 
 # Keep this extendable for verification against other forms of data??
@@ -146,26 +113,6 @@ class DiagnosticAmdarVerification:
         }
         return grouped_by_space_time.aggregate(aggregation_spec)
 
-    @staticmethod
-    def _transform_aggregated_data_into_sparse_array(
-        aggregated_data: "dd.DataFrame",
-        coordinate_values: "da.Array",
-        shape_of_output: tuple[int, int, int, int],
-        condition: "DiagnosticValidationCondition",
-    ) -> "da.Array":
-        was_observed: "da.Array" = aggregated_data[condition.observed_turbulence_column_name].values  # noqa: PD011
-        as_sparse_coo = functools.partial(
-            lambda coord, data, output_shape: sparse.COO(coord.T, data=data, shape=output_shape),
-            output_shape=shape_of_output,
-        )
-        return da.map_blocks(
-            as_sparse_coo,
-            coordinate_values,  # coords must be (ndim, nnz)
-            was_observed,
-            dtype=bool,
-            meta=sparse.COO((), shape=shape_of_output),
-        )
-
     def compute_roc_curve(
         self,
         validation_conditions: "list[DiagnosticValidationCondition]",
@@ -216,46 +163,5 @@ class DiagnosticAmdarVerification:
                     subset_df[column].values.compute_chunk_sizes(),  # noqa: PD011
                     subset_df[strategy_column].values.compute_chunk_sizes(),  # noqa: PD011
                 )
-
-        return result
-
-    def get_verification_ground_truth(
-        self,
-        validation_conditions: "list[DiagnosticValidationCondition]",
-        prototype_diagnostic_array: "xr.DataArray",
-        do_persist: bool = True,
-    ) -> list[da.Array]:
-        # assert len(set(validation_conditions)) == len(validation_conditions), (
-        #     "Validation conditions must be unique to ensure name of dd.Aggregation is unique to prevent
-        #     data corruption"
-        # )
-        assert {"pressure_level", "longitude", "latitude", "time"}.issubset(prototype_diagnostic_array.coords)
-        validation_columns: list[str] = [
-            condition.observed_turbulence_column_name for condition in validation_conditions
-        ]
-        target_data = self._add_nearest_grid_indices(validation_columns, prototype_diagnostic_array)
-        aggregated_data = self._spatio_temporal_data_aggregation(target_data, validation_columns, validation_conditions)
-
-        # Cannot implement as values.map_blocks as the shape changes so it cannot be broadcasted to the new shape
-        # coordinate_values: "da.Array" = aggregated_data.index.values.map_blocks(lambda x: np.asarray(list(x)))
-        coordinate_values: "da.Array" = da.map_blocks(lambda x: np.stack(x), aggregated_data.index.values)
-
-        shape_of_output = (
-            prototype_diagnostic_array["latitude"].size,
-            prototype_diagnostic_array["longitude"].size,
-            prototype_diagnostic_array["pressure_level"].size,
-            prototype_diagnostic_array["time"].size,
-        )
-        result = []
-        for condition in validation_conditions:
-            # Sparse arrays have been concatenated together => shape will be nchunks * latitude.size
-            block_concatenated = self._transform_aggregated_data_into_sparse_array(
-                aggregated_data, coordinate_values, shape_of_output, condition
-            )
-            as_sparse_array = _combine_sparse_arrays(block_concatenated, shape_of_output, np.logical_or)
-            if do_persist:
-                as_sparse_array = as_sparse_array.persist()
-                blocking_wait_futures(as_sparse_array)
-            result.append(as_sparse_array)
 
         return result

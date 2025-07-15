@@ -77,9 +77,6 @@ plot = [
     "matplotlib",
     "pypalettes",
 ]
-verification = [
-    "sparse",
-]
 
 [tool.pyright]
 venvPath = "."
