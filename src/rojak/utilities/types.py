@@ -18,6 +18,7 @@ from typing import NamedTuple
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
+from dask import array as da
 
 if sys.version_info >= (3, 13):
     from typing import TypeIs
@@ -51,3 +52,7 @@ def is_xr_data_array(obj: object) -> TypeIs[xr.DataArray]:
 
 def is_np_array(obj: object) -> TypeIs[npt.NDArray]:
     return isinstance(obj, np.ndarray)
+
+
+def is_dask_array(array: object) -> TypeIs["da.Array"]:
+    return isinstance(array, da.Array)
