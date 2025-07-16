@@ -16,9 +16,10 @@ import fnmatch
 import gzip
 import shutil
 import tempfile
+from collections.abc import Iterable
 from ftplib import FTP
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, FrozenSet, Iterable
+from typing import TYPE_CHECKING, Any
 
 import dask.dataframe as dd
 import xarray as xr
@@ -30,7 +31,7 @@ if TYPE_CHECKING:
     import dask_geopandas as dgpd
     import numpy as np
 
-ALL_AMDAR_DATA_VARS: FrozenSet[str] = frozenset(
+ALL_AMDAR_DATA_VARS: frozenset[str] = frozenset(
     {'nStaticIds', 'staticIds', 'lastRecord', 'invTime', 'prevRecord', 'inventory', 'globalInventory', 'firstOverflow',
      'isOverflow', 'firstInBin', 'lastInBin', 'QCT', 'ICT', 'missingInputMinutes', 'minDate', 'maxDate', 'minSecs',
      'maxSecs', 'latitude', 'latitudeDD', 'latitudeQCA', 'latitudeQCR', 'latitudeQCD', 'longitude', 'longitudeDD',
@@ -135,13 +136,11 @@ class MadisAmdarPreprocessor(DataPreprocessor):
         # V - Verified
         # G - Good
         return dataset.where(
-            (
-                (dataset[data_var] == b"Z")
-                | (dataset[data_var] == b"C")
-                | (dataset[data_var] == b"S")
-                | (dataset[data_var] == b"V")
-                | (dataset[data_var] == b"G")
-            )
+            (dataset[data_var] == b"Z")
+            | (dataset[data_var] == b"C")
+            | (dataset[data_var] == b"S")
+            | (dataset[data_var] == b"V")
+            | (dataset[data_var] == b"G")
         )
 
     def drop_invalid_qc_data(self, dataset: xr.Dataset) -> xr.Dataset:
@@ -155,7 +154,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
         # value_p:  pass -> char(p) = 112
         # value_-:  unknown: no tests could be performed -> char(-) = 45
         # Filters out value_f:  fail: flagged suspect or bad upon receipt -> var(f) = 102
-        return dataset.where(((dataset[data_var] == ord("p")) | (dataset[data_var] == ord("-"))))
+        return dataset.where((dataset[data_var] == ord("p")) | (dataset[data_var] == ord("-")))
 
     def drop_invalid_error_data(self, dataset: xr.Dataset) -> xr.Dataset:
         error_vars_present: set[str] = dataset.data_vars.keys() & self.error_vars

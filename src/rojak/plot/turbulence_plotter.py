@@ -12,7 +12,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from typing import TYPE_CHECKING, Tuple
+from typing import TYPE_CHECKING
 
 import cartopy.crs as ccrs
 import matplotlib.colors as mcolors
@@ -49,9 +49,9 @@ def xarray_plot_wrapper(
     plot_kwargs: dict | None = None,
     projection: "ccrs.Projection" = _PLATE_CARREE,
 ) -> None:
-    fig: "Figure" = plt.figure(figsize=(8, 6))
+    fig: Figure = plt.figure(figsize=(8, 6))
     # Passing it the kwarg projection => it is a cartopy GeoAxis
-    ax: "GeoAxes" = fig.add_subplot(1, 1, 1, projection=projection)  # pyright: ignore[reportAssignmentType]
+    ax: GeoAxes = fig.add_subplot(1, 1, 1, projection=projection)  # pyright: ignore[reportAssignmentType]
     data_array.plot(
         transform=projection,
         robust=True,
@@ -97,7 +97,7 @@ diagnostic_label_mapping: dict[TurbulenceDiagnostics, str] = {
 }
 
 
-def calculate_extent(spatial_domain: "SpatialDomain | Polygon") -> Tuple[float, float, float, float]:
+def calculate_extent(spatial_domain: "SpatialDomain | Polygon") -> tuple[float, float, float, float]:
     if isinstance(spatial_domain, SpatialDomain):
         return (
             spatial_domain.minimum_longitude,
@@ -120,9 +120,9 @@ def create_turbulence_probability_plot(
     cmap_bounds: "NDArray | None" = None,
     cmap_name: str | None = None,
 ) -> None:
-    fig: "Figure" = plt.figure(figsize=(8, 6))
+    fig: Figure = plt.figure(figsize=(8, 6))
     # Passing it the kwarg projection => it is a cartopy GeoAxis
-    ax: "GeoAxes" = fig.add_subplot(1, 1, 1, projection=projection)  # pyright: ignore[reportAssignmentType]
+    ax: GeoAxes = fig.add_subplot(1, 1, 1, projection=projection)  # pyright: ignore[reportAssignmentType]
     extent = calculate_extent(spatial_domain)
     ax.set_extent(extent)
     # im: "AxesImage" = ax.imshow(probability, extent=extent, cmap="jet", vmin=0, vmax=1)
@@ -135,7 +135,7 @@ def create_turbulence_probability_plot(
     cmap = plt.get_cmap(cmap_name)
     norm = mcolors.BoundaryNorm(boundaries=cmap_bounds, ncolors=cmap.N, extend="max")
 
-    im: "AxesImage" = ax.imshow(probabilities, extent=extent, cmap=cmap, norm=norm, transform=projection)
+    im: AxesImage = ax.imshow(probabilities, extent=extent, cmap=cmap, norm=norm, transform=projection)
     ax.set_title(diagnostic_label_mapping[diagnostic])
     fig.colorbar(im, ax=ax, label="Turbulence Percentage", spacing="uniform")
     ax.coastlines()
@@ -152,7 +152,7 @@ def create_multi_turbulence_diagnotics_probability_plot(
 ) -> None:
     names = [str(item) for item in diagnostics]
     # pyright thinks xr.plot doesn't exists...
-    fg: "xr.plot.FacetGrid" = (  # pyright: ignore [reportAttributeAccessIssue, reportCallIssue]
+    fg: xr.plot.FacetGrid = (  # pyright: ignore [reportAttributeAccessIssue, reportCallIssue]
         probabilities[names]
         .to_dataarray("diagnostics")
         .plot(
@@ -256,8 +256,8 @@ def create_diagnostic_correlation_plot(correlations: xr.DataArray, plot_name: st
 
     clustered_correlations: xr.DataArray = cluster_2d_correlations(correlations)
     # fig: "Figure" = plt.figure(figsize=(15, 11))
-    fig: "Figure" = plt.figure()
-    ax: "Axes" = fig.add_subplot(1, 1, 1)
+    fig: Figure = plt.figure()
+    ax: Axes = fig.add_subplot(1, 1, 1)
     clustered_correlations.plot.imshow(ax=ax, center=0.0, cmap="bwr", cbar_kwargs={"label": "Correlation"})
     ax.set_xticks(
         np.arange(num_diagnostics),
@@ -307,10 +307,10 @@ def create_multi_region_correlation_plot(
     num_diagnostics: int = correlations.shape[0]
     assert num_diagnostics == correlations.shape[1], "Correlations matrix must be square"
 
-    clustered_correlations: "xr.DataArray" = cluster_multi_dim_correlations(
+    clustered_correlations: xr.DataArray = cluster_multi_dim_correlations(
         correlations, Hemisphere.GLOBAL, LatitudinalRegion.FULL, in_place=True
     )
-    fg: "xr.plot.FacetGrid" = clustered_correlations.plot.imshow(  # pyright: ignore[reportAttributeAccessIssue]
+    fg: xr.plot.FacetGrid = clustered_correlations.plot.imshow(  # pyright: ignore[reportAttributeAccessIssue]
         x="diagnostic1", y="diagnostic2", col="hemisphere", row="region", center=0.0, cmap="bwr", size=num_diagnostics
     )
 
@@ -331,7 +331,7 @@ def create_multi_region_correlation_plot(
             if row_idx == 0:
                 current_axis.set_title(create_multi_correlation_axis_title(hemisphere, region))
 
-            this_correlation: "xr.DataArray" = clustered_correlations.sel(region=region, hemisphere=hemisphere)
+            this_correlation: xr.DataArray = clustered_correlations.sel(region=region, hemisphere=hemisphere)
             for y_index in range(num_diagnostics):
                 for x_index in range(num_diagnostics):
                     current_axis.text(

@@ -30,8 +30,8 @@ if TYPE_CHECKING:
 
 @pytest.fixture
 def basic_context_yaml_file(tmp_path_factory) -> "Path":
-    tmp_output: "Path" = tmp_path_factory.mktemp("output")
-    tmp_plots: "Path" = tmp_path_factory.mktemp("plots")
+    tmp_output: Path = tmp_path_factory.mktemp("output")
+    tmp_plots: Path = tmp_path_factory.mktemp("plots")
     content: dict = {
         "data_config": {"name": "test", "spatial_domain": {}},
         "name": "test",
@@ -39,7 +39,7 @@ def basic_context_yaml_file(tmp_path_factory) -> "Path":
         "output_dir": str(tmp_output),
         "plots_dir": str(tmp_plots),
     }
-    output_file: "Path" = tmp_path_factory.mktemp("config") / "simplest_config.yml"
+    output_file: Path = tmp_path_factory.mktemp("config") / "simplest_config.yml"
     with output_file.open(mode="w") as file:
         yaml.safe_dump(content, file, encoding="utf-8")
 
@@ -51,7 +51,7 @@ def basic_context_yaml_file_create_output_plots_on_validation(
     tmp_path_factory,
 ) -> "Path":
     # Prevent creating the folders in the folder where tests are run
-    tmp_folder: "Path" = tmp_path_factory.mktemp("empty_folder")
+    tmp_folder: Path = tmp_path_factory.mktemp("empty_folder")
     content: dict = {
         "data_config": {"name": "test", "spatial_domain": {}},
         "name": "test",
@@ -59,7 +59,7 @@ def basic_context_yaml_file_create_output_plots_on_validation(
         "output_dir": str(tmp_folder / "output"),
         "plots_dir": str(tmp_folder / "plots"),
     }
-    output_file: "Path" = tmp_path_factory.mktemp("config") / "simplest_config.yml"
+    output_file: Path = tmp_path_factory.mktemp("config") / "simplest_config.yml"
     with output_file.open("w") as file:
         yaml.safe_dump(content, file, encoding="utf-8")
 
@@ -102,7 +102,7 @@ def test_context_from_yaml_basic(
 
 
 def dump_dict_to_file(target_path: "Path", content: dict) -> "Path":
-    output_file: "Path" = target_path / "config.yml"
+    output_file: Path = target_path / "config.yml"
     # Allows for StrEnums to be dumped to yaml
     # See: https://github.com/yaml/pyyaml/issues/722
     # noinspection PyTypeChecker

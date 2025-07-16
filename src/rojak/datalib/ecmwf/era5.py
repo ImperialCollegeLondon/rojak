@@ -13,7 +13,7 @@
 #  limitations under the License.
 
 import logging
-from typing import TYPE_CHECKING, ClassVar, List, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal
 
 import cdsapi
 from dask.base import is_dask_collection
@@ -90,12 +90,12 @@ class Era5Retriever(DataRetriever):
 
     def download_files(
         self,
-        years: List[int],
-        months: List[int],
-        days: List[int],
+        years: list[int],
+        months: list[int],
+        days: list[int],
         base_output_dir: "Path",
     ) -> None:
-        dates: list["Date"] = self.compute_date_combinations(years, months, days)
+        dates: list[Date] = self.compute_date_combinations(years, months, days)
         (base_output_dir / self.folder_name).resolve().mkdir(parents=True, exist_ok=True)
         for date in track(dates):
             self._download_file(date, base_output_dir)
@@ -144,7 +144,7 @@ class Era5Data(MetData):
             Era5Data.vorticity,
         ]
         target_var_names: list[str] = [var.database_name for var in target_variables]
-        target_data: "xr.Dataset" = self._on_pressure_level[target_var_names]
+        target_data: xr.Dataset = self._on_pressure_level[target_var_names]
         # On ERA5 data 0 < longitude < 360 => shift to make it -180 < longitude < 180
         target_data = self.shift_longitude(target_data)
         target_data = target_data.rename({"valid_time": "time"})

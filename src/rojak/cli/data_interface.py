@@ -14,7 +14,7 @@
 
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Optional, assert_never
+from typing import TYPE_CHECKING, Annotated, assert_never
 
 import typer
 
@@ -73,7 +73,7 @@ def retrieve(  # noqa: PLR0913
         ),
     ],
     output_dir: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option(
             "-o",
             "--output_dir",
@@ -82,7 +82,7 @@ def retrieve(  # noqa: PLR0913
         ),
     ] = None,
     glob_pattern: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "-g",
             "--glob-pattern",
@@ -126,14 +126,14 @@ def preprocess(
         ),
     ],
     output_dir: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option(
             "-o",
             "--output_dir",
             help="Directory to save preprocessed files. If unspecified, it will be the input directory",
         ),
     ] = None,
-    glob_pattern: Annotated[Optional[str], typer.Option(help="Glob pattern to select files")] = None,
+    glob_pattern: Annotated[str | None, typer.Option(help="Glob pattern to select files")] = None,
 ) -> None:
     match source:
         case AmdarDataSource.MADIS:
@@ -145,7 +145,7 @@ def preprocess(
 
 
 def preprocess_madis_amdar_data(input_dir: Path, output_dir: Path | None, glob_pattern: str | None) -> None:
-    preprocessor: "DataPreprocessor" = MadisAmdarPreprocessor(input_dir, glob_pattern=glob_pattern)
+    preprocessor: DataPreprocessor = MadisAmdarPreprocessor(input_dir, glob_pattern=glob_pattern)
     if output_dir is None:
         output_dir = input_dir
     preprocessor.apply_preprocessor(output_dir)
@@ -205,7 +205,7 @@ def retrieve_meteorology(  # noqa: PLR0913
     ],
     data_set_name: Annotated[str, typer.Option("-n", "--data-set-name", help="Name of data set to retrieve")],
     output_dir: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option(
             "-o",
             "--output-dir",
@@ -213,7 +213,7 @@ def retrieve_meteorology(  # noqa: PLR0913
         ),
     ] = None,
     default_name: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--default-name",
             help="Default request to use, options vary based on data source",

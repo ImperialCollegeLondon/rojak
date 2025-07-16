@@ -12,7 +12,8 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from typing import TYPE_CHECKING, Any, ClassVar, FrozenSet, Iterable, List
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import dask.dataframe as dd
 
@@ -24,10 +25,10 @@ if TYPE_CHECKING:
 
 
 class UkmoAmdarRepository(AmdarDataRepository):
-    TIME_COLUMNS: ClassVar[FrozenSet[str]] = frozenset({"year", "month", "day", "hour", "minute", "second"})
-    TURBULENCE_COL_INDICES: ClassVar[List[int]] = [0, 1, 2, 3, 4, 5, 11, 12, 13, 14, 15, 20, 21, 22, 24, 25, 26, 27, 28,
+    TIME_COLUMNS: ClassVar[frozenset[str]] = frozenset({"year", "month", "day", "hour", "minute", "second"})
+    TURBULENCE_COL_INDICES: ClassVar[list[int]] = [0, 1, 2, 3, 4, 5, 11, 12, 13, 14, 15, 20, 21, 22, 24, 25, 26, 27, 28,
                                                   30, 32]  # fmt: skip
-    COLUMN_NAMES: ClassVar[List[str]] = ['year', 'month', 'day', 'hour', 'minute', 'second', 'registration_number',
+    COLUMN_NAMES: ClassVar[list[str]] = ['year', 'month', 'day', 'hour', 'minute', 'second', 'registration_number',
                                            'call_sign', 'latitude', 'longitude', 'altitude', 'roll_angle', 'pressure',
                                            'flight_phase', 'wind_direction', 'wind_speed', 'vert_gust_velocity',
                                            'vert_gust_acceleration', 'turbulence_degree', 'air_temperature',
@@ -37,7 +38,7 @@ class UkmoAmdarRepository(AmdarDataRepository):
         super().__init__(path)
 
     def load(
-        self, target_columns: Iterable[str | int] | None = None, column_names: List[str] | None = None
+        self, target_columns: Iterable[str | int] | None = None, column_names: list[str] | None = None
     ) -> dd.DataFrame:
         if target_columns is None:
             target_columns = UkmoAmdarRepository.TURBULENCE_COL_INDICES

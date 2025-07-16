@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, Callable, Tuple
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import dask.array as da
 import geopandas as gpd
@@ -18,7 +19,7 @@ def time_coordinate():
     return np.arange("2005-02-01T00", "2005-02-02T00", dtype="datetime64[h]")
 
 
-def generate_array_data(shape: Tuple, use_numpy: bool, rng_seed=None):
+def generate_array_data(shape: tuple, use_numpy: bool, rng_seed=None):
     data = np.random.default_rng(rng_seed).random(shape)
     return data if use_numpy else da.from_array(data)
 

@@ -1,5 +1,6 @@
 import itertools
-from typing import TYPE_CHECKING, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import dask_geopandas as dgpd
 import geopandas as gpd
@@ -20,8 +21,8 @@ def _create_grid_boxes(bounding_box: geometry.Polygon, step_size: float) -> list
     nx: int = int(np.ceil((max_x - min_x) / step_size))
     ny: int = int(np.ceil((max_y - min_y) / step_size))
 
-    x_loc: "NDArray" = np.linspace(min_x, max_x, nx + 1)
-    y_loc: "NDArray" = np.linspace(min_y, max_y, ny + 1)
+    x_loc: NDArray = np.linspace(min_x, max_x, nx + 1)
+    y_loc: NDArray = np.linspace(min_y, max_y, ny + 1)
     return [
         geometry.box(x_loc[x_index], y_loc[y_index], x_loc[x_index + 1], y_loc[y_index + 1])
         for x_index, y_index in itertools.product(range(nx), range(ny))

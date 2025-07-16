@@ -14,7 +14,8 @@
 
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Generator, Mapping, Tuple, assert_never
+from collections.abc import Generator, Mapping
+from typing import TYPE_CHECKING, assert_never
 
 import numpy as np
 import xarray as xr
@@ -1323,14 +1324,14 @@ class DiagnosticSuite:
     _diagnostics: dict["DiagnosticName", Diagnostic]
 
     def __init__(self, factory: DiagnosticFactory, diagnostics: list[TurbulenceDiagnostics]) -> None:
-        self._diagnostics: dict["DiagnosticName", Diagnostic] = {
+        self._diagnostics: dict[DiagnosticName, Diagnostic] = {
             str(diagnostic): factory.create(diagnostic)
             for diagnostic in diagnostics  # TurbulenceDiagnostic
         }
 
     def computed_values(
         self, progress_description: str
-    ) -> Generator[Tuple["DiagnosticName", "xr.DataArray"], None, None]:
+    ) -> Generator[tuple["DiagnosticName", "xr.DataArray"], None, None]:
         for name, diagnostic in (
             track(self._diagnostics.items(), description=progress_description)
             if progress_description
@@ -1450,7 +1451,7 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
 
     def get_limits_for_severities(
         self,
-    ) -> Generator[Tuple["TurbulenceSeverity", Mapping["DiagnosticName", "Limits"]], None, None]:
+    ) -> Generator[tuple["TurbulenceSeverity", Mapping["DiagnosticName", "Limits"]], None, None]:
         if self._probability_thresholds is None or self._threshold_mode is None or self._severities is None:
             raise ValueError("Identifying turbulent regions of a given severity needs more inputs")
 
@@ -1463,7 +1464,7 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
                 },
             )
 
-    def get_edr_bounds(self) -> Generator[Tuple["TurbulenceSeverity", "Limits"], None, None]:
+    def get_edr_bounds(self) -> Generator[tuple["TurbulenceSeverity", "Limits"], None, None]:
         if self._edr_thresholds is None or self._severities is None or self._threshold_mode is None:
             raise ValueError("Identifying turbulent regions of a given severity needs more inputs")
 

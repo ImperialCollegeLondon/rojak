@@ -35,7 +35,11 @@ class GoHomeYouAreDrunkError(Exception):
 
 # Limits = NamedTuple("Limits", [("lower", float), ("upper", float)])
 type DiagnosticName = str
-DistributionParameters = NamedTuple("DistributionParameters", [("mean", float), ("variance", float)])
+
+
+class DistributionParameters(NamedTuple):
+    mean: float
+    variance: float
 
 
 class Limits[T](NamedTuple):
@@ -43,7 +47,9 @@ class Limits[T](NamedTuple):
     upper: T
 
 
-Coordinate = NamedTuple("Coordinate", [("latitude", float), ("longitude", float)])
+class Coordinate(NamedTuple):
+    latitude: float
+    longitude: float
 
 
 def is_xr_data_array(obj: object) -> TypeIs[xr.DataArray]:

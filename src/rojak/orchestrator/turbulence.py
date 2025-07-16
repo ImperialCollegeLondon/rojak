@@ -13,8 +13,9 @@
 #  limitations under the License.
 import itertools
 import sys
+from collections.abc import Iterable, Mapping
 from datetime import datetime
-from typing import TYPE_CHECKING, Final, Iterable, Mapping, NamedTuple, assert_never
+from typing import TYPE_CHECKING, Final, NamedTuple, assert_never
 
 import numpy as np
 import xarray as xr
@@ -130,7 +131,7 @@ class CalibrationStage:
     ) -> "CalibrationDiagnosticSuite":
         assert self._config.calibration_data_dir is not None
         logger.debug("Loading CATData")
-        calibration_data: "CATData" = Era5Data(
+        calibration_data: CATData = Era5Data(
             data.load_from_folder(self._config.calibration_data_dir, chunks=chunks),
         ).to_clear_air_turbulence_data(self._spatial_domain)
         logger.debug("Instantiating CalibrationDiagnosticSuite")
@@ -167,9 +168,9 @@ class CalibrationStage:
         return Result(thresholds)
 
     def export_thresholds(self, diagnostic_thresholds: Mapping["DiagnosticName", "TurbulenceThresholds"]) -> None:
-        target_dir: "Path" = (self._output_dir / self._name).resolve()
+        target_dir: Path = (self._output_dir / self._name).resolve()
         target_dir.mkdir(parents=True, exist_ok=True)
-        output_file: "Path" = target_dir / f"thresholds_{self._start_time}.json"
+        output_file: Path = target_dir / f"thresholds_{self._start_time}.json"
 
         with output_file.open("wb") as output_json:
             output_json.write(THRESHOLDS_TYPE_ADAPTER.dump_json(diagnostic_thresholds, indent=4))
@@ -181,9 +182,9 @@ class CalibrationStage:
         return Result(distribution_parameters)
 
     def export_distribution_parameters(self, diagnostic_thresholds: Mapping["DiagnosticName", "HistogramData"]) -> None:
-        target_dir: "Path" = (self._output_dir / self._name).resolve()
+        target_dir: Path = (self._output_dir / self._name).resolve()
         target_dir.mkdir(parents=True, exist_ok=True)
-        output_file: "Path" = target_dir / f"distribution_params_{self._start_time}.json"
+        output_file: Path = target_dir / f"distribution_params_{self._start_time}.json"
 
         with output_file.open("wb") as output_json:
             output_json.write(DISTRIBUTION_PARAMS_TYPE_ADAPTER.dump_json(diagnostic_thresholds, indent=4))
@@ -263,7 +264,7 @@ class EvaluationStage:
     ) -> EvaluationDiagnosticSuite:
         assert self._config.evaluation_data_dir is not None
         logger.debug("Loading CATData")
-        evaluation_data: "CATData" = Era5Data(
+        evaluation_data: CATData = Era5Data(
             data.load_from_folder(self._config.evaluation_data_dir, chunks=chunks),
         ).to_clear_air_turbulence_data(self._spatial_domain)
         if TurbulenceCalibrationPhaseOption.HISTOGRAM in self._calibration_result:
@@ -453,7 +454,7 @@ class DiagnosticsAmdarLauncher:
             self._spatial_domain, self._spatial_domain.grid_size, diagnostic_suite.pressure_levels
         )
         harmoniser = DiagnosticsAmdarDataHarmoniser(amdar_data, diagnostic_suite)
-        result: "dd.DataFrame" = harmoniser.execute_harmonisation(
+        result: dd.DataFrame = harmoniser.execute_harmonisation(
             self._strategies, Limits(np.datetime64(self._time_window.lower), np.datetime64(self._time_window.upper))
         ).persist()
         blocking_wait_futures(result)
