@@ -75,7 +75,7 @@ jobs:
       - build_sdist
     environment:
       name: testpypi
-      url: https://test.pypi.org/project/rojak-turbulence/
+#      url: https://test.pypi.org/project/
     permissions:
       id-token: write
 
