@@ -14,6 +14,11 @@ help:
 
 .PHONY: help Makefile
 
+# Invokes clean and removes the generated files
+clean-all: Makefile
+	@$(SPHINXBUILD) -M clean "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(0)
+	rm -r api/generated/*.rst
+
 # Catch-all target: route all unknown targets to Sphinx using the new
 # "make mode" option.  $(O) is meant as a shortcut for $(SPHINXOPTS).
 %: Makefile
