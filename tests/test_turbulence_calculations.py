@@ -1,5 +1,3 @@
-from typing import Tuple
-
 import numpy as np
 import pytest
 import xarray as xr
@@ -23,7 +21,7 @@ from rojak.turbulence.calculations import (
 
 
 @pytest.fixture
-def generate_random_array_pair() -> Tuple[xr.DataArray, xr.DataArray]:
+def generate_random_array_pair() -> tuple[xr.DataArray, xr.DataArray]:
     return xr.DataArray(np.random.default_rng().random((50, 50))), xr.DataArray(
         np.random.default_rng().random((50, 50))
     )

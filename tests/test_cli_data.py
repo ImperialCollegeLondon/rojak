@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Tuple
+from typing import TYPE_CHECKING
 
 import dask.dataframe as dd
 import pytest
@@ -48,7 +48,7 @@ def test_preprocess_data_ukmo_amdar(tmp_path) -> None:
 
 
 @pytest.fixture
-def retrieve_madis_data(tmp_path) -> Tuple["Path", "Result"]:
+def retrieve_madis_data(tmp_path) -> tuple["Path", "Result"]:
     result = runner.invoke(
         app,
         [
@@ -71,7 +71,7 @@ def retrieve_madis_data(tmp_path) -> Tuple["Path", "Result"]:
 
 
 @pytest.fixture
-def retrieve_madis_data_single_file(tmp_path) -> Tuple["Path", "Result"]:
+def retrieve_madis_data_single_file(tmp_path) -> tuple["Path", "Result"]:
     result = runner.invoke(
         app,
         [

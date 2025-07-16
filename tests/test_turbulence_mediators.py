@@ -206,8 +206,7 @@ def test_diagnostic_amdar_harmonisation_strategy_factory_create_strategies_non_v
     get_met_mock = mocker.patch.object(factory, "get_met_values", return_value={"key": "value"})
 
     def limits_method():
-        for key, value in limits_data.items():
-            yield key, value
+        yield from limits_data.items()
 
     mocker.patch.object(suite_mock, suite_method_mock, new=limits_method)
 

@@ -14,7 +14,7 @@
 
 import warnings
 from enum import Enum, StrEnum, auto
-from typing import Literal, NamedTuple, Tuple, assert_never
+from typing import Literal, NamedTuple, assert_never
 
 import dask.array as da
 import numpy as np
@@ -26,7 +26,10 @@ from rojak.core.constants import MAX_LATITUDE, MAX_LONGITUDE
 from rojak.core.distributed_tools import blocking_wait_futures
 from rojak.utilities.types import GoHomeYouAreDrunkError, NumpyOrDataArray
 
-GridSpacing = NamedTuple("GridSpacing", [("dx", NumpyOrDataArray), ("dy", NumpyOrDataArray)])
+
+class GridSpacing(NamedTuple):
+    dx: NumpyOrDataArray
+    dy: NumpyOrDataArray
 
 
 def _is_in_degrees(
@@ -80,7 +83,7 @@ type LatLonUnits = Literal["deg", "rad"]
 
 def _ensure_lat_lon_in_deg(
     latitude: "NumpyOrDataArray", longitude: "NumpyOrDataArray", units: LatLonUnits
-) -> Tuple["NumpyOrDataArray", "NumpyOrDataArray"]:
+) -> tuple["NumpyOrDataArray", "NumpyOrDataArray"]:
     """
     >>> _ensure_lat_lon_in_deg(np.asarray([90, 0, -90]), np.asarray([360, 180, 0]), "deg")
     (array([ 90,   0, -90]), array([360, 180,   0]))
@@ -272,7 +275,9 @@ class GradientMode(Enum):
     CARTESIAN = auto()
 
 
-SpatialGradient = NamedTuple("SpatialGradient", [("dfdx", xr.DataArray | None), ("dfdy", xr.DataArray | None)])
+class SpatialGradient(NamedTuple):
+    dfdx: xr.DataArray | None
+    dfdy: xr.DataArray | None
 
 
 def _check_lat_lon_dimensions_in_array(array: "xr.DataArray") -> None:
@@ -314,7 +319,7 @@ def spatial_gradient(
         assert dim_name is not None
         axis: int = get_dimension_number(dim_name, array)
         grid_delta = dim.get_grid_spacing(grid_deltas)
-        computed_gradient: "xr.DataArray" = first_derivative(array, grid_delta, axis)
+        computed_gradient: xr.DataArray = first_derivative(array, grid_delta, axis)
         if gradient_mode == GradientMode.GEOSPATIAL:
             correction = dim.get_correction_factor(correction_factors)
             computed_gradient = computed_gradient * correction

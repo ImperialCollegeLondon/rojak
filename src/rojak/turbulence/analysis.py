@@ -14,8 +14,9 @@
 
 import itertools
 from abc import ABC
+from collections.abc import Hashable, Mapping
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Hashable, Mapping, NamedTuple, assert_never
+from typing import TYPE_CHECKING, Any, NamedTuple, assert_never
 
 import dask.array as da
 import numpy as np
@@ -35,7 +36,12 @@ if TYPE_CHECKING:
 type IntensityName = str
 type IntensityValues = dict[IntensityName, float]
 
-ClimatologicalEDRConstants = NamedTuple("ClimatologicalEDRConstants", [("c1", float), ("c2", float)])
+
+class ClimatologicalEDRConstants(NamedTuple):
+    c1: float
+    c2: float
+
+
 # From Sharman 2017
 OVERALL_CLIMATOLOGICAL_PARAMETER = ClimatologicalEDRConstants(-2.572, 0.5067)
 
@@ -256,7 +262,7 @@ class TurbulentRegionsBySeverity(PostProcessor):
     def execute(self) -> xr.DataArray | list[xr.DataArray]:
         by_severity = []
         for severity in self._severities:
-            bounds: "Limits" = self._thresholds.get_bounds(severity, self._threshold_mode)
+            bounds: Limits = self._thresholds.get_bounds(severity, self._threshold_mode)
             this_severity = xr.where(
                 (self._computed_diagnostic >= bounds.lower) & (self._computed_diagnostic < bounds.upper), True, False
             )

@@ -206,7 +206,7 @@ class TurbulenceThresholds(BaseConfigModel):
                 if self.get_by_severity(higher_severity) is not None
             )
         except StopIteration as exception:
-            raise StopIteration("Failed to get upper bound for severity {}".format(severity)) from exception
+            raise StopIteration(f"Failed to get upper bound for severity {severity}") from exception
         upper_bound = self.get_by_severity(next_severity)
         assert upper_bound is not None
         return Limits(lower_bound, upper_bound)

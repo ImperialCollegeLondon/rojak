@@ -16,8 +16,9 @@ import calendar
 import itertools
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ClassVar, List, Literal, Mapping, NamedTuple, Sequence
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple
 
 import dask_geopandas as dgpd
 import distributed
@@ -59,9 +60,9 @@ class DataRetriever(ABC):
     @abstractmethod
     def download_files(
         self,
-        years: List[int],
-        months: List[int],
-        days: List[int],
+        years: list[int],
+        months: list[int],
+        days: list[int],
         base_output_dir: "Path",
     ) -> None: ...
 
@@ -176,7 +177,7 @@ class CATData(CATPrognosticData):
         if self._velocity_derivatives is None:
             self._velocity_derivatives = derivatives.vector_derivatives(self.u_wind(), self.v_wind(), "deg")
             if is_dask_collection(self.u_wind()):
-                futures: List["Future"] = []
+                futures: list[Future] = []
                 for derivative in self._velocity_derivatives.values():
                     futures.extend(distributed.futures_of(derivative.persist()))
                 distributed.wait(futures)
@@ -457,14 +458,14 @@ class AmdarDataRepository(ABC):
             AmdarTurbulenceData: Instance containing the data loaded from file with the spatial operations applied.
 
         """
-        raw_data_frame: "dd.DataFrame" = self.load()
+        raw_data_frame: dd.DataFrame = self.load()
 
         raw_data_frame["level"] = self._call_compute_closest_pressure_level(
             raw_data_frame, np.asarray(target_pressure_levels, dtype=np.float64)
         )
 
-        grid: "dgpd.GeoDataFrame" = create_grid_data_frame(target_region, grid_size)
-        within_region: "dgpd.GeoDataFrame" = as_geo_dataframe(raw_data_frame).sjoin(grid).optimize()
+        grid: dgpd.GeoDataFrame = create_grid_data_frame(target_region, grid_size)
+        within_region: dgpd.GeoDataFrame = as_geo_dataframe(raw_data_frame).sjoin(grid).optimize()
         within_region = self.join_grid_bounds(within_region, grid)
         if self._time_column_rename_mapping():
             within_region = within_region.rename(columns=self._time_column_rename_mapping())

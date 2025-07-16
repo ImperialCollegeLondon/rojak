@@ -25,7 +25,7 @@ extend-select = [
     #    "ARG", # Checks for unused arguments
     "PERF", # Linter for performance anti-patterns
     "PL", # pylint - static code analyser
-    #    "UP", #
+    "UP", # Upgrade old Python syntax
     "PD", # linter for pandas
 ]
 

@@ -14,8 +14,9 @@
 
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Generator, Mapping
 from enum import StrEnum
-from typing import TYPE_CHECKING, Callable, ClassVar, Generator, Mapping, NamedTuple, assert_never
+from typing import TYPE_CHECKING, ClassVar, NamedTuple, assert_never
 
 import dask.dataframe as dd
 import numpy as np
@@ -96,7 +97,7 @@ class DiagnosticsAmdarHarmonisationStrategy(ABC):
     def harmonise(self, indexer: SpatialTemporalIndex, observation_coord: Coordinate) -> dict:
         output = {}
         for name, diagnostic in self._met_values.items():  # DiagnosticName, xr.DataArray
-            surrounding_values: "xr.DataArray" = self.get_nearest_values(indexer, diagnostic)
+            surrounding_values: xr.DataArray = self.get_nearest_values(indexer, diagnostic)
 
             output[self.column_name(name)] = self.interpolate(
                 observation_coord, indexer, surrounding_values.values, name
@@ -286,7 +287,7 @@ class DiagnosticsAmdarDataHarmoniser:
     def _check_time_window_within_met_data(
         time_window: "Limits[np.datetime64]", first_diagnostic: "xr.DataArray"
     ) -> None:
-        time_coordinate: "xr.DataArray" = first_diagnostic["time"]
+        time_coordinate: xr.DataArray = first_diagnostic["time"]
         if time_window.lower < time_coordinate.min() or time_window.upper > time_coordinate.max():
             raise NotWithinTimeFrameError("Time window is not within time coordinate of met data")
 
@@ -375,12 +376,12 @@ class DiagnosticsAmdarDataHarmoniser:
         methods: list[DiagnosticsAmdarHarmonisationStrategyOptions],
         time_window: "Limits[np.datetime64]",
     ) -> "dd.DataFrame":
-        a_computed_diagnostic: "xr.DataArray" = next(iter(self._diagnostics_suite.computed_values_as_dict().values()))
+        a_computed_diagnostic: xr.DataArray = next(iter(self._diagnostics_suite.computed_values_as_dict().values()))
         self._check_time_window_within_met_data(time_window, a_computed_diagnostic)
         # self._check_grids_match(a_computed_diagnostic)
         logger.debug("Verified met data and AMDAR data can be harmonised")
 
-        observational_data: "dd.DataFrame" = self._amdar_data.clip_to_time_window(time_window)
+        observational_data: dd.DataFrame = self._amdar_data.clip_to_time_window(time_window)
         current_dtypes = observational_data.dtypes.to_dict()
         current_dtypes[self.common_time_column_name] = int
         observational_data = observational_data.map_partitions(
@@ -440,7 +441,7 @@ class DiagnosticAmdarVerification:
     @property
     def data(self) -> "dd.DataFrame":
         if self._harmonised_data is None:
-            data: "dd.DataFrame" = self._data_harmoniser.execute_harmonisation(
+            data: dd.DataFrame = self._data_harmoniser.execute_harmonisation(
                 [DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES], self._time_window
             ).persist()  # Need to do this assignment to make pyright happy
             self._harmonised_data = data
@@ -460,7 +461,7 @@ class DiagnosticAmdarVerification:
             "latitude",
         ]
         target_columns = space_time_columns + validation_columns
-        target_data: "dd.DataFrame" = self.data[target_columns]
+        target_data: dd.DataFrame = self.data[target_columns]
         target_data = target_data.map_partitions(
             lambda df: df.assign(
                 level_index=df.apply(

@@ -358,7 +358,7 @@ def test_time_window_on_cat_prognostic_dataset(make_dummy_cat_data):
     dataset = CATPrognosticData(make_dummy_cat_data({}))
     min_time = time_coordinate().min()
     max_time = time_coordinate().max()
-    window: "Limits" = dataset.time_window()
+    window: Limits = dataset.time_window()
     assert window.lower == min_time
     assert window.upper == max_time
 

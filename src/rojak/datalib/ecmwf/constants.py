@@ -12,20 +12,19 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from typing import Dict
 
 reanalysis_dataset_names: dict[str, str] = {
     "pressure-level": "reanalysis-era5-pressure-levels",
     "single-level": "reanalysis-era5-single-levels",
 }
 
-blank_default: Dict = {
+blank_default: dict = {
     "product_type": ["reanalysis"],
     "data_format": "netcdf",
     "download_format": "unarchived",
 }
 
-cat_data_default: Dict = {
+cat_data_default: dict = {
     "product_type": ["reanalysis"],
     "variable": [
         "divergence",
@@ -116,7 +115,7 @@ contrail_cat_data_default: dict = {
     "download_format": "unarchived",
 }
 
-data_defaults: Dict[str, Dict] = {
+data_defaults: dict[str, dict] = {
     "cat": cat_data_default,
     "surface": surface_data_contrails_default,
     "contrail": contrail_cat_data_default,

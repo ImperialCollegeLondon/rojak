@@ -219,7 +219,7 @@ def _serial_area_under_curve(x_values: "NDArray", y_values: "NDArray") -> float:
     if x_values.size < 2:  # noqa: PLR2004
         raise ValueError("x_value and y_values must have at least 2 points to compute area under the curve")
 
-    dx: "NDArray" = np.diff(x_values)
+    dx: NDArray = np.diff(x_values)
     is_decreasing: np.bool = np.all(dx <= 0)
     if not (is_decreasing or np.all(dx >= 0)):
         raise ValueError("x_values must be increasing or decreasing")
