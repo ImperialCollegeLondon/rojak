@@ -235,7 +235,7 @@ def _serial_area_under_curve(x_values: "NDArray", y_values: "NDArray") -> float:
 
     dx: "NDArray" = np.diff(x_values)
     is_decreasing: np.bool = np.all(dx <= 0)
-    if is_decreasing or np.all(dx >= 0):
+    if not (is_decreasing or np.all(dx >= 0)):
         raise ValueError("x_values must be increasing or decreasing")
 
     area: np.floating | NDArray = integrate.trapezoid(y_values, x_values)
@@ -270,7 +270,7 @@ def _parallel_area_under_curve(x_values: da.Array | xr.DataArray, y_values: da.A
 
     area: float | NDArray = np.add.reduce(
         da.map_overlap(lambda x, y: integrate.trapezoid(y[:-1], x[:-1]), x_vals, y_vals, depth=1).compute()
-    ) + integrate.trapezoid(np.asarray(y_vals), np.asarray(x_vals[-2:]))
+    ) + integrate.trapezoid(np.asarray(y_vals[-2:]), np.asarray(x_vals[-2:]))
 
     # If dx is decreasing, then area is negative
     return -float(area) if is_decreasing else float(area)
@@ -293,8 +293,35 @@ def area_under_curve(
         y_values: 1D array to integrate
 
     Returns:
-        float: Area under the curve
+        Area under the curve
 
+    Modifying the examples in the documentation for :func:`scipy:scipy.integrate.trapezoid` method,
+
+    >>> area_under_curve(np.asarray([4, 5, 6]), np.asarray([1, 2, 3]))
+    4.0
+    >>> area_under_curve(da.asarray([4, 5, 6]), da.asarray([1, 2, 3]))
+    4.0
+
+    As this is to be used for computing AUC for ROC, the area under the curve should always be positive if
+    the values to integrate over are decreasing in the x-axis. Thus, this method will return + 8.0 and not -8.0
+    as seen in :func:`scipy:scipy.integrate.trapezoid`
+
+    >>> area_under_curve(np.asarray([8, 6, 4]), np.asarray([1, 2, 3]))
+    8.0
+    >>> area_under_curve(da.asarray([8, 6, 4]), da.asarray([1, 2, 3]))
+    8.0
+
+    This behaviour is consistent with :func:`scikit-learn:sklearn.metrics.auc`. Modifying the example in the
+    scikit-learn docs,
+
+    >>> y = np.asarray([1, 1, 2, 2])
+    >>> scores = np.asarray([0.1, 0.4, 0.35, 0.8])
+    >>> decrease_idx = np.argsort(scores)[::-1]
+    >>> scores = da.asarray(scores[decrease_idx], chunks=2)
+    >>> y = da.asarray(y[decrease_idx], chunks=2)
+    >>> roc = received_operating_characteristic(y, scores, positive_classification_label=2)
+    >>> area_under_curve(roc.false_positives, roc.true_positives)
+    0.75
     """
     if x_values.ndim != 1 or y_values.ndim != 1:
         raise ValueError("x_values and y_values must be 1D")
@@ -312,33 +339,7 @@ def area_under_curve(
     ):
         raise ValueError("x_values and y_values must either be both dask collections or both not dask collections")
 
-    # if x_values.size != y_values.size:
-    #     raise ValueError("x_values and y_values must have same size")
-    # if x_values.size < 2:
-    #     raise ValueError("x_value and y_values must have at least 2 points to compute area under the curve")
-
     assert is_ndarray(x_values)
     assert is_ndarray(y_values)
 
-    # dx: "NDArray" = np.diff(x_values)
-    # is_decreasing: np.bool = np.all(dx <= 0)
-    # if is_decreasing or np.all(dx >= 0):
-    #     raise ValueError("x_values must be increasing or decreasing")
-    #
-    # # x_vals: "NumpyOrDataArray" = x_values.compute() if is_dask_backed(x_values) else x_values
-    # # y_vals: "NumpyOrDataArray" = y_values.compute() if is_dask_backed(y_values) else y_values
-    # #
-    # # if x_vals.size != y_vals.size:
-    # #     raise ValueError("x_values and y_values must have same size")
-    # # if x_vals.size < 2:
-    # #     raise ValueError("x_value and y_values must have at least 2 points to compute area under the curve")
-    # #
-    # # dx: "NDArray" = np.diff(x_vals)
-    # # is_decreasing: np.bool = np.all(dx <= 0)
-    # # if is_decreasing or np.all(dx >= 0):
-    # #     raise ValueError("x_values must be increasing or decreasing")
-    #
-    # area: np.floating = integrate.trapezoid(y_values, x_values)
-    #
-    # return -float(area) if is_decreasing else float(area)
     return _serial_area_under_curve(x_values, y_values)
