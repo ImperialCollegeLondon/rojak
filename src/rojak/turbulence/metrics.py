@@ -12,11 +12,25 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from typing import NamedTuple
+import sys
+from typing import TYPE_CHECKING, NamedTuple
 
 import dask
 import dask.array as da
 import numpy as np
+import xarray as xr
+from dask.base import is_dask_collection
+from scipy import integrate
+
+if TYPE_CHECKING:
+    from numpy.typing import NDArray
+
+    from rojak.utilities.types import NumpyOrDataArray
+
+if sys.version_info >= (3, 13):
+    from typing import TypeIs
+else:
+    from typing_extensions import TypeIs
 
 
 class BinaryClassificationResult(NamedTuple):
@@ -98,6 +112,17 @@ def received_operating_characteristic(
     )
 
 
+def check_lazy_sizes_equal[T: xr.DataArray | da.Array](first_array: T, second_array: T) -> int:
+    assert is_dask_collection(first_array)
+    assert is_dask_collection(second_array)
+    sizes = dask.compute(first_array.size, second_array.size)  # pyright: ignore[reportPrivateImportUsage]
+
+    if sizes[0] != sizes[1]:
+        raise ValueError("Both arrays should have the same size")
+
+    return sizes[0]
+
+
 # Modified from scikit-learn metric binary classification method
 # https://github.com/scikit-learn/scikit-learn/blob/da08f3d99194565caaa2b6757a3816eef258cd70/sklearn/metrics/_ranking.py#L826
 def binary_classification_curve(
@@ -157,9 +182,7 @@ def binary_classification_curve(
     """
     if sorted_truth.ndim != 1 or sorted_values.ndim != 1:
         raise ValueError("sorted_truth and sorted_values must be 1D")
-    sizes = dask.compute(sorted_truth.size, sorted_values.size)  # pyright: ignore[reportPrivateImportUsage]
-    if sizes[0] != sizes[1]:
-        raise ValueError("sorted_truth and sorted_values must have same size")
+    check_lazy_sizes_equal(sorted_truth, sorted_values)
 
     if sorted_truth.dtype != bool:
         if positive_classification_label is None:
@@ -190,3 +213,132 @@ def binary_classification_curve(
     return BinaryClassificationResult(
         false_positives=false_positive, true_positives=true_positive, thresholds=sorted_values[threshold_indices]
     )
+
+
+def is_dask_array(array: "da.Array | NumpyOrDataArray") -> TypeIs["da.Array"]:
+    return isinstance(array, da.Array)
+
+
+def is_xarray_dataarray(array: "da.Array | NumpyOrDataArray") -> TypeIs["xr.DataArray"]:
+    return isinstance(array, xr.DataArray)
+
+
+def is_ndarray(array: "da.Array | NumpyOrDataArray") -> TypeIs["NDArray"]:
+    return isinstance(array, np.ndarray)
+
+
+def _serial_area_under_curve(x_values: "NDArray", y_values: "NDArray") -> float:
+    if x_values.size != y_values.size:
+        raise ValueError("x_values and y_values must have same size")
+    if x_values.size < 2:  # noqa: PLR2004
+        raise ValueError("x_value and y_values must have at least 2 points to compute area under the curve")
+
+    dx: "NDArray" = np.diff(x_values)
+    is_decreasing: np.bool = np.all(dx <= 0)
+    if is_decreasing or np.all(dx >= 0):
+        raise ValueError("x_values must be increasing or decreasing")
+
+    area: np.floating | NDArray = integrate.trapezoid(y_values, x_values)
+
+    return -float(area) if is_decreasing else float(area)
+
+
+def _parallel_area_under_curve(x_values: da.Array | xr.DataArray, y_values: da.Array | xr.DataArray) -> float:
+    if is_xarray_dataarray(x_values):
+        assert is_dask_array(x_values.values)
+        x_vals: da.Array = x_values.values
+    else:
+        assert is_dask_array(x_values)
+        x_vals: da.Array = x_values
+
+    if is_xarray_dataarray(y_values):
+        assert is_dask_array(y_values.values)
+        y_vals: da.Array = y_values.values
+    else:
+        assert is_dask_array(y_values)
+        y_vals: da.Array = y_values
+
+    array_size = check_lazy_sizes_equal(x_vals, y_vals)
+    if array_size < 2:  # noqa: PLR2004
+        raise ValueError("x_value and y_values must have at least 2 points to compute area under the curve")
+
+    delta_x: da.Array = da.diff(x_vals)
+    is_decreasing = da.all(delta_x <= 0).compute()
+    is_increasing = da.all(delta_x >= 0).compute()
+    if not (is_increasing or is_decreasing):
+        raise ValueError("x_value must be increasing or decreasing")
+
+    area: float | NDArray = np.add.reduce(
+        da.map_overlap(lambda x, y: integrate.trapezoid(y[:-1], x[:-1]), x_vals, y_vals, depth=1).compute()
+    ) + integrate.trapezoid(np.asarray(y_vals), np.asarray(x_vals[-2:]))
+
+    # If dx is decreasing, then area is negative
+    return -float(area) if is_decreasing else float(area)
+
+
+# Modified implementation of scikit-learn.metrics.auc
+# https://github.com/scikit-learn/scikit-learn/blob/da08f3d99194565caaa2b6757a3816eef258cd70/sklearn/metrics/_ranking.py#L43
+def area_under_curve(
+    x_values: "da.Array | NumpyOrDataArray",
+    y_values: "da.Array | NumpyOrDataArray",
+) -> float:
+    """
+    Area under the curve
+
+    Integrates using the :func:`scipy:scipy.integrate.trapezoid` method. Integrals over :class:`dask:dask.array.Array`
+    collections are evaluated for each chunk and combined accordingly
+
+    Args:
+        x_values: 1D array of points corresponding to the y values
+        y_values: 1D array to integrate
+
+    Returns:
+        float: Area under the curve
+
+    """
+    if x_values.ndim != 1 or y_values.ndim != 1:
+        raise ValueError("x_values and y_values must be 1D")
+
+    if (
+        is_dask_collection(x_values)
+        and is_dask_collection(y_values)
+        and not is_ndarray(x_values)
+        and not is_ndarray(y_values)
+    ):
+        return _parallel_area_under_curve(x_values, y_values)
+
+    if (is_dask_collection(x_values) and not is_dask_collection(y_values)) or (
+        not is_dask_collection(x_values) and is_dask_collection(y_values)
+    ):
+        raise ValueError("x_values and y_values must either be both dask collections or both not dask collections")
+
+    # if x_values.size != y_values.size:
+    #     raise ValueError("x_values and y_values must have same size")
+    # if x_values.size < 2:
+    #     raise ValueError("x_value and y_values must have at least 2 points to compute area under the curve")
+
+    assert is_ndarray(x_values)
+    assert is_ndarray(y_values)
+
+    # dx: "NDArray" = np.diff(x_values)
+    # is_decreasing: np.bool = np.all(dx <= 0)
+    # if is_decreasing or np.all(dx >= 0):
+    #     raise ValueError("x_values must be increasing or decreasing")
+    #
+    # # x_vals: "NumpyOrDataArray" = x_values.compute() if is_dask_backed(x_values) else x_values
+    # # y_vals: "NumpyOrDataArray" = y_values.compute() if is_dask_backed(y_values) else y_values
+    # #
+    # # if x_vals.size != y_vals.size:
+    # #     raise ValueError("x_values and y_values must have same size")
+    # # if x_vals.size < 2:
+    # #     raise ValueError("x_value and y_values must have at least 2 points to compute area under the curve")
+    # #
+    # # dx: "NDArray" = np.diff(x_vals)
+    # # is_decreasing: np.bool = np.all(dx <= 0)
+    # # if is_decreasing or np.all(dx >= 0):
+    # #     raise ValueError("x_values must be increasing or decreasing")
+    #
+    # area: np.floating = integrate.trapezoid(y_values, x_values)
+    #
+    # return -float(area) if is_decreasing else float(area)
+    return _serial_area_under_curve(x_values, y_values)
