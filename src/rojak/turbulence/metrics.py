@@ -12,7 +12,6 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-import sys
 from typing import TYPE_CHECKING, NamedTuple
 
 import dask
@@ -22,15 +21,12 @@ import xarray as xr
 from dask.base import is_dask_collection
 from scipy import integrate
 
+from rojak.utilities.types import is_dask_array, is_np_array, is_xr_data_array
+
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
     from rojak.utilities.types import NumpyOrDataArray
-
-if sys.version_info >= (3, 13):
-    from typing import TypeIs
-else:
-    from typing_extensions import TypeIs
 
 
 class BinaryClassificationResult(NamedTuple):
@@ -215,18 +211,6 @@ def binary_classification_curve(
     )
 
 
-def is_dask_array(array: "da.Array | NumpyOrDataArray") -> TypeIs["da.Array"]:
-    return isinstance(array, da.Array)
-
-
-def is_xarray_dataarray(array: "da.Array | NumpyOrDataArray") -> TypeIs["xr.DataArray"]:
-    return isinstance(array, xr.DataArray)
-
-
-def is_ndarray(array: "da.Array | NumpyOrDataArray") -> TypeIs["NDArray"]:
-    return isinstance(array, np.ndarray)
-
-
 def _serial_area_under_curve(x_values: "NDArray", y_values: "NDArray") -> float:
     if x_values.size != y_values.size:
         raise ValueError("x_values and y_values must have same size")
@@ -244,14 +228,14 @@ def _serial_area_under_curve(x_values: "NDArray", y_values: "NDArray") -> float:
 
 
 def _parallel_area_under_curve(x_values: da.Array | xr.DataArray, y_values: da.Array | xr.DataArray) -> float:
-    if is_xarray_dataarray(x_values):
+    if is_xr_data_array(x_values):
         assert is_dask_array(x_values.values)
         x_vals: da.Array = x_values.values
     else:
         assert is_dask_array(x_values)
         x_vals: da.Array = x_values
 
-    if is_xarray_dataarray(y_values):
+    if is_xr_data_array(y_values):
         assert is_dask_array(y_values.values)
         y_vals: da.Array = y_values.values
     else:
@@ -329,8 +313,8 @@ def area_under_curve(
     if (
         is_dask_collection(x_values)
         and is_dask_collection(y_values)
-        and not is_ndarray(x_values)
-        and not is_ndarray(y_values)
+        and not is_np_array(x_values)
+        and not is_np_array(y_values)
     ):
         return _parallel_area_under_curve(x_values, y_values)
 
@@ -339,7 +323,7 @@ def area_under_curve(
     ):
         raise ValueError("x_values and y_values must either be both dask collections or both not dask collections")
 
-    assert is_ndarray(x_values)
-    assert is_ndarray(y_values)
+    assert is_np_array(x_values)
+    assert is_np_array(y_values)
 
     return _serial_area_under_curve(x_values, y_values)
