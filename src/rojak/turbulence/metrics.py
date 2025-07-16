@@ -46,6 +46,8 @@ def received_operating_characteristic(
     """
     Received operating characteristic or ROC curve
 
+    This method is a dask-friendly implementation of :func:`scikit-learn:sklearn.metrics.roc_curve`
+
     Args:
         sorted_truth:
         sorted_values:
