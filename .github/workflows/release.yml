@@ -37,7 +37,7 @@ jobs:
 #          name: wheels-${{ matrix.os }}
 #          path: ./dist/*.whl
   build_wheels:
-    name: Build pure-python wheel
+    name: Build pure Python wheel
     runs-on: ubuntu-latest
 
     steps:
@@ -81,7 +81,6 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: wheels-*
           path: dist
           merge-multiple: true
       - name: Publish package distributions to TestPyPI
