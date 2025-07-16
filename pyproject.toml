@@ -1,6 +1,6 @@
 [project]
 name = "rojak"
-version = "0.1.1"
+version = "0.1.2"
 description = "rojak a package with a blend of features -- from turbulence diagnostics to aeroelasticity"
 readme = "README.md"
 authors = [
