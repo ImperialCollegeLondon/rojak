@@ -1,8 +1,10 @@
 name: Release
 
 on:
-#  workflow_call:
-#  pull_request:
+  workflow_call:
+  release:
+    types:
+      - published
   push:
     paths:
       - '.github/workflows/release.yml'
@@ -10,6 +12,8 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+permissions: {}
 
 jobs:
 #  build_wheels:
