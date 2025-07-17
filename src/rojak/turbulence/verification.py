@@ -428,7 +428,7 @@ def _observed_turbulence_aggregation(condition: "DiagnosticValidationCondition")
 
 
 # Keep this extendable for verification against other forms of data??
-class DiagnosticAmdarVerification:
+class DiagnosticsAmdarVerification:
     _data_harmoniser: "DiagnosticsAmdarDataHarmoniser"
     _harmonised_data: "dd.DataFrame | None"
     _time_window: "Limits[np.datetime64]"
@@ -509,7 +509,7 @@ class DiagnosticAmdarVerification:
         prototype_diagnostic_array: "xr.DataArray",
     ) -> dict[str, dict[str, BinaryClassificationResult]]:
         assert {"pressure_level", "longitude", "latitude", "time"}.issubset(prototype_diagnostic_array.coords)
-        strategy_columns: list[str] = list(
+        diagnostic_value_columns: list[str] = list(
             self._data_harmoniser.strategy_values_columns(
                 [DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES]
             )
@@ -518,25 +518,25 @@ class DiagnosticAmdarVerification:
             condition.observed_turbulence_column_name for condition in validation_conditions
         ]
         target_data = self._add_nearest_grid_indices(
-            validation_columns + strategy_columns,
+            validation_columns + diagnostic_value_columns,
             prototype_diagnostic_array,
         )
         aggregated_data = self._spatio_temporal_data_aggregation(
-            target_data, validation_columns, strategy_columns, validation_conditions
+            target_data, validation_columns, diagnostic_value_columns, validation_conditions
         )
         blocking_wait_futures(aggregated_data)
 
         result: dict[str, dict[str, BinaryClassificationResult]] = {}
-        for strategy_column in strategy_columns:
+        for diagnostic_val_col in diagnostic_value_columns:
             # descending values
-            result[strategy_column] = {}
-            subset_df = aggregated_data[[*validation_columns, strategy_column]].sort_values(
-                strategy_column, ascending=False
+            result[diagnostic_val_col] = {}
+            subset_df = aggregated_data[[*validation_columns, diagnostic_val_col]].sort_values(
+                diagnostic_val_col, ascending=False
             )
-            for column in validation_columns:
-                result[strategy_column][column] = received_operating_characteristic(
-                    subset_df[column].values.compute_chunk_sizes(),  # noqa: PD011
-                    subset_df[strategy_column].values.compute_chunk_sizes(),  # noqa: PD011
+            for amdar_turbulence_col in validation_columns:
+                result[diagnostic_val_col][amdar_turbulence_col] = received_operating_characteristic(
+                    subset_df[amdar_turbulence_col].values.compute_chunk_sizes(),  # noqa: PD011
+                    subset_df[diagnostic_val_col].values.compute_chunk_sizes(),  # noqa: PD011
                 )
 
         return result
