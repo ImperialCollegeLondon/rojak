@@ -21,6 +21,8 @@ import numpy as np
 import yaml
 from pydantic import AfterValidator, BaseModel, Field, ValidationError, model_validator
 
+from rojak.datalib.madis.amdar import AcarsAmdarTurbulenceData
+from rojak.datalib.ukmo.amdar import UkmoAmdarTurbulenceData
 from rojak.turbulence.verification import DiagnosticsAmdarHarmonisationStrategyOptions
 from rojak.utilities.types import Limits
 
@@ -452,6 +454,29 @@ class ContrailsConfig(BaseConfigModel):
     ...
 
 
+class DiagnosticValidationCondition(BaseConfigModel):
+    observed_turbulence_column_name: Annotated[
+        str, Field(description="Observed turbulence column name", frozen=True, repr=True, strict=True)
+    ]
+    value_greater_than: Annotated[
+        float, Field(description="Value greater than", repr=True, strict=True, ge=0.0, frozen=True)
+    ]
+
+    def __hash__(self) -> int:
+        return hash((self.observed_turbulence_column_name, self.value_greater_than))
+
+
+class DiagnosticValidationConfig(BaseConfigModel):
+    validation_conditions: list[DiagnosticValidationCondition]
+
+    @model_validator(mode="after")
+    def check_conditions_are_unique(self) -> Self:
+        assert len(set(self.validation_conditions)) == len(self.validation_conditions), (
+            "Validation conditions must be unique"
+        )
+        return self
+
+
 class SpatialDomain(BaseConfigModel):
     minimum_latitude: Annotated[float, Field(default=-90, description="Minimum latitude", ge=-90, le=90)]
     maximum_latitude: Annotated[float, Field(default=90, description="Maximum latitude", ge=-90, le=90)]
@@ -520,6 +545,10 @@ class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
     save_harmonised_data: Annotated[
         bool, Field(description="Save harmonised data", repr=True, frozen=True, default=True)
     ] = True
+    diagnostic_validation: Annotated[
+        DiagnosticValidationConfig | None,
+        Field(description="Diagnostic validation configuration", repr=True, frozen=True, default=None),
+    ] = None
 
     @model_validator(mode="after")
     def check_valid_glob_pattern(self) -> Self:
@@ -545,24 +574,18 @@ class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
             raise InvalidConfigurationError("Time must be increasing from lower to upp")
         return self
 
-
-class DiagnosticValidationCondition(BaseConfigModel):
-    observed_turbulence_column_name: Annotated[
-        str, Field(description="Observed turbulence column name", frozen=True, repr=True, strict=True)
-    ]
-    value_greater_than: Annotated[
-        float, Field(description="Value greater than", repr=True, strict=True, ge=0.0, frozen=True)
-    ]
-
-
-class DiagnosticValidationConfig(BaseConfigModel):
-    validation_conditions: list[DiagnosticValidationCondition]
-
     @model_validator(mode="after")
-    def check_conditions_are_unique(self) -> Self:
-        assert len(set(self.validation_conditions)) == len(self.validation_conditions), (
-            "Validation conditions must be unique"
-        )
+    def check_valid_diagnostic_validation_conditions(self) -> Self:
+        if self.diagnostic_validation is not None:
+            # Update this once there is more than two classes
+            data_source_class = UkmoAmdarTurbulenceData if self.data_source.UKMO else AcarsAmdarTurbulenceData
+            if not {
+                condition.observed_turbulence_column_name
+                for condition in self.diagnostic_validation.validation_conditions
+            }.issubset(data_source_class.turbulence_column_names()):
+                raise InvalidConfigurationError(
+                    "Diagnostic validation conditions must be one of the turbulence columns"
+                )
         return self
 
 
