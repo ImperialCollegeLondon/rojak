@@ -12,7 +12,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import cartopy.crs as ccrs
 import matplotlib.colors as mcolors
@@ -22,14 +22,17 @@ import pypalettes
 import scipy.cluster.hierarchy as sch
 import scipy.spatial.distance as ssd
 import xarray as xr
+from dask.base import is_dask_collection
 from shapely import Polygon
 
 from rojak.orchestrator.configuration import SpatialDomain, TurbulenceDiagnostics
 from rojak.turbulence.analysis import Hemisphere, LatitudinalRegion
+from rojak.utilities.types import is_dask_array, is_np_array
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+    import dask.array as da
     from cartopy.mpl.geoaxes import GeoAxes
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
@@ -37,7 +40,6 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
     from rojak.utilities.types import DiagnosticName
-
 
 _PLATE_CARREE: "ccrs.Projection" = ccrs.PlateCarree()
 
@@ -345,3 +347,44 @@ def create_multi_region_correlation_plot(
 
     fg.fig.savefig(plot_name, bbox_inches="tight")
     plt.close(fg.fig)
+
+
+def _evaluate_dask_collection(array: "da.Array | NDArray") -> "NDArray":
+    if is_dask_collection(array):
+        assert is_dask_array(array)
+        return array.compute()
+    assert is_np_array(array)
+    return array
+
+
+def plot_roc_curve(
+    false_positive_rates: "dict[DiagnosticName, da.Array | NDArray]",
+    true_positive_rates: "dict[DiagnosticName, da.Array | NDArray]",
+    plot_name: str,
+) -> None:
+    assert set(false_positive_rates.keys()) == set(true_positive_rates.keys())
+    fpr: dict[DiagnosticName, NDArray] = {
+        name: _evaluate_dask_collection(rate) for name, rate in false_positive_rates.items()
+    }
+    tpr: dict[DiagnosticName, NDArray] = {
+        name: _evaluate_dask_collection(rate) for name, rate in true_positive_rates.items()
+    }
+
+    line_colours: list = cast(
+        "list", cast("mcolors.ListedColormap", pypalettes.load_cmap(["tol", "royal", "prism_light"])).colors
+    )
+    if len(line_colours) < len(false_positive_rates.keys()):
+        raise ValueError("More values to plot than colours")
+
+    fig: Figure = plt.figure(figsize=(8, 6))
+    for name, colour in zip(fpr.keys(), line_colours, strict=False):
+        plt.plot(fpr[name], tpr[name], color=colour, label=name)
+    # Default line width is 1.5 according to docs
+    plt.plot(np.linspace(0, 1, 500), np.linspace(0, 1, 500), color="black", linewidth=1, linestyle="--")
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.grid()
+    plt.legend()
+    fig.tight_layout()
+    plt.savefig(plot_name)
+    plt.close(fig)
