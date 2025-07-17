@@ -15,7 +15,7 @@
 import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Any, Self, assert_never
+from typing import TYPE_CHECKING, Annotated, Any, Self, assert_never
 
 import numpy as np
 import yaml
@@ -25,6 +25,9 @@ from rojak.datalib.madis.amdar import AcarsAmdarTurbulenceData
 from rojak.datalib.ukmo.amdar import UkmoAmdarTurbulenceData
 from rojak.turbulence.verification import DiagnosticsAmdarHarmonisationStrategyOptions
 from rojak.utilities.types import Limits
+
+if TYPE_CHECKING:
+    from rojak.core.data import AmdarTurbulenceData
 
 
 class InvalidConfigurationError(Exception):
@@ -578,7 +581,10 @@ class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
     def check_valid_diagnostic_validation_conditions(self) -> Self:
         if self.diagnostic_validation is not None:
             # Update this once there is more than two classes
-            data_source_class = UkmoAmdarTurbulenceData if self.data_source.UKMO else AcarsAmdarTurbulenceData
+            data_source_class: AmdarTurbulenceData = (
+                UkmoAmdarTurbulenceData if self.data_source == AmdarDataSource.UKMO else AcarsAmdarTurbulenceData
+            )  # pyright: ignore [reportAssignmentType]
+            print(data_source_class)
             if not {
                 condition.observed_turbulence_column_name
                 for condition in self.diagnostic_validation.validation_conditions
