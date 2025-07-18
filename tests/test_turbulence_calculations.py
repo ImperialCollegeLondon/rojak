@@ -23,6 +23,7 @@ from rojak.turbulence.calculations import (
     stretching_deformation,
     total_deformation,
     vertical_component_vorticity,
+    vertical_wind_shear,
     wind_direction,
     wind_speed,
 )
@@ -374,3 +375,41 @@ def test_magnitude_of_geospatial_gradient(mocker: "MockerFixture", make_dummy_ca
     spatial_gradient_mock.return_value = {"dfdx": xr.ones_like(dummy_array), "dfdy": xr.ones_like(dummy_array)}
     xr.testing.assert_equal(magnitude_of_geospatial_gradient(dummy_array), xr.ones_like(dummy_array) * np.sqrt(2))
     spatial_gradient_mock.assert_called_once()
+
+
+def test_vertical_wind_shear_uniform_increase_both(make_dummy_cat_data) -> None:
+    dummy_array: xr.DataArray = make_dummy_cat_data({})["eastward_wind"]
+    uniform_increase_in_pressure: xr.DataArray = xr.ones_like(dummy_array) * (
+        np.arange(dummy_array["pressure_level"].size)
+    )
+    xr.testing.assert_equal(
+        vertical_wind_shear(uniform_increase_in_pressure, uniform_increase_in_pressure),
+        xr.ones_like(dummy_array) * np.sqrt(2),
+    )
+
+
+def test_vertical_wind_shear_uniform_increase_in_one(make_dummy_cat_data) -> None:
+    dummy_array: xr.DataArray = make_dummy_cat_data({})["eastward_wind"]
+    uniform_increase_in_pressure: xr.DataArray = xr.ones_like(dummy_array) * (
+        np.arange(dummy_array["pressure_level"].size)
+    )
+    xr.testing.assert_equal(
+        vertical_wind_shear(uniform_increase_in_pressure, xr.zeros_like(dummy_array)), xr.ones_like(dummy_array)
+    )
+    xr.testing.assert_equal(
+        vertical_wind_shear(xr.zeros_like(dummy_array), uniform_increase_in_pressure), xr.ones_like(dummy_array)
+    )
+
+
+def test_vertical_wind_shear_with_and_without_geopotential(load_cat_data) -> None:
+    # I don't know how valid a test this is...
+    # When it was just comparing the two derivative methods, atol=0.01
+    #   see test_altitude_derivative_on_pressure_level_similar_to_on_altitude
+    # When there are two arrays and we're performing np.hypot on them, atol needs to increase to 1.25 for them
+    # to be considered close...
+    real_data: CATData = load_cat_data(None)
+    xr.testing.assert_allclose(
+        vertical_wind_shear(real_data.u_wind(), real_data.v_wind()),
+        vertical_wind_shear(real_data.u_wind(), real_data.v_wind(), geopotential=real_data.geopotential()),
+        atol=1.25,
+    )
