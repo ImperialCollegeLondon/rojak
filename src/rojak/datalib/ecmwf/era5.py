@@ -155,10 +155,6 @@ class Era5Data(MetData):
                 "pressure_level",
                 pressure_to_altitude_icao(target_data["pressure_level"]).data,
             ),
-            level_in_pa=(
-                "pressure_level",
-                target_data["pressure_level"].data * 100,
-            ),
         )
         target_data = target_data.transpose("latitude", "longitude", "time", "pressure_level")
         if is_dask_collection(target_data):
