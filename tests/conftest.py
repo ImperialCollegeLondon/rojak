@@ -1,3 +1,4 @@
+import shutil
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -14,6 +15,8 @@ from rojak.datalib.ecmwf.era5 import Era5Data
 from rojak.orchestrator.configuration import SpatialDomain
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from shapely.geometry.polygon import Polygon
 
     from rojak.core.data import CATData
@@ -72,9 +75,11 @@ def valid_region_for_flat_data() -> "Polygon":
 
 
 @pytest.fixture
-def load_era5_data() -> Callable:
+def load_era5_data(tmp_path) -> Callable:
     def _load_era5_data(with_chunks: bool = False) -> Era5Data:
-        dataset: xr.Dataset = xr.open_dataset("tests/_static/test_era5_data.nc", engine="h5netcdf")
+        dst: Path = tmp_path / "test_era5_data.nc"
+        shutil.copy("tests/_static/test_era5_data.nc", dst)
+        dataset: xr.Dataset = xr.open_dataset(str(dst), engine="h5netcdf")
         if with_chunks:
             dataset = dataset.chunk(chunks={"valid_time": 2})
         return Era5Data(dataset)
