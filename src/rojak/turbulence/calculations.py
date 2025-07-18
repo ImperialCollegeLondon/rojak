@@ -252,7 +252,6 @@ def latitudinal_derivative(coriolis_param: xr.DataArray) -> xr.DataArray:
     return coriolis_param / EARTH_AVG_RADIUS
 
 
-# TODO: TEST
 def absolute_vorticity(vorticity: xr.DataArray) -> xr.DataArray:
     """
     Vertical component of absolute vorticity
@@ -268,7 +267,6 @@ def absolute_vorticity(vorticity: xr.DataArray) -> xr.DataArray:
     return vorticity + coriolis_parameter(vorticity["latitude"])
 
 
-# TODO: TEST
 # theta is potential temperature
 def potential_vorticity(vorticity: xr.DataArray, theta: xr.DataArray) -> xr.DataArray:
     """

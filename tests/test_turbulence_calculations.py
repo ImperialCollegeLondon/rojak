@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pytest
 import xarray as xr
@@ -7,12 +9,14 @@ from rojak.core.constants import GRAVITATIONAL_ACCELERATION
 from rojak.turbulence.calculations import (
     EARTH_AVG_RADIUS,
     _WrapAroundAngleArray,
+    absolute_vorticity,
     altitude_derivative_on_pressure_level,
     angles_gradient,
     coriolis_parameter,
     latitudinal_derivative,
     magnitude_of_vector,
     potential_temperature,
+    potential_vorticity,
     shearing_deformation,
     stretching_deformation,
     total_deformation,
@@ -20,6 +24,9 @@ from rojak.turbulence.calculations import (
     wind_direction,
     wind_speed,
 )
+
+if TYPE_CHECKING:
+    from pytest_mock import MockerFixture
 
 
 @pytest.fixture
@@ -292,3 +299,36 @@ def test_altitude_derivative_on_pressure_level_fails(make_dummy_cat_data) -> Non
     dummy_data = make_dummy_cat_data({})["eastward_wind"]
     with pytest.raises(ValueError, match="Coordinate 'level' not found in variables or dimensions"):
         altitude_derivative_on_pressure_level(dummy_data, dummy_data, level_coord_name="level")
+
+
+def test_absolute_vorticity_mock_coriolis(mocker: "MockerFixture", make_dummy_cat_data) -> None:
+    dummy_data = make_dummy_cat_data({})
+    coriolis_function = mocker.patch("rojak.turbulence.calculations.coriolis_parameter")
+    coriolis_function.return_value = dummy_data["vorticity"]["latitude"]
+
+    abs_vorticity: xr.DataArray = absolute_vorticity(dummy_data["vorticity"])
+    xr.testing.assert_equal(abs_vorticity, dummy_data["vorticity"] + dummy_data["vorticity"]["latitude"])
+
+    coriolis_function.assert_called_once()
+    xr.testing.assert_equal(coriolis_function.call_args[0][0], dummy_data["vorticity"]["latitude"])
+
+
+def test_absolute_vorticity_no_mock(make_dummy_cat_data) -> None:
+    dummy_data = make_dummy_cat_data({})
+    xr.testing.assert_equal(
+        absolute_vorticity(dummy_data["vorticity"]),
+        dummy_data["vorticity"] + coriolis_parameter(dummy_data["vorticity"]["latitude"]),
+    )
+
+
+def test_potential_vorticity(make_dummy_cat_data, mocker: "MockerFixture") -> None:
+    dummy_data = make_dummy_cat_data({})
+    abs_vorticity_function = mocker.patch("rojak.turbulence.calculations.absolute_vorticity")
+    abs_vorticity_function.return_value = dummy_data["vorticity"]
+    theta = mocker.Mock()
+    theta_mock = mocker.patch.object(theta, "differentiate")
+    theta_mock.return_value = xr.ones_like(dummy_data["temperature"])
+
+    pv: xr.DataArray = potential_vorticity(dummy_data["vorticity"], theta)
+    theta_mock.assert_called_once_with("pressure_level")
+    xr.testing.assert_equal(pv, -GRAVITATIONAL_ACCELERATION * dummy_data["vorticity"])
