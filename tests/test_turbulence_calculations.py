@@ -401,15 +401,25 @@ def test_vertical_wind_shear_uniform_increase_in_one(make_dummy_cat_data) -> Non
     )
 
 
-def test_vertical_wind_shear_with_and_without_geopotential(load_cat_data) -> None:
+@pytest.mark.parametrize("is_parallel", [True, False])
+def test_vertical_wind_shear_with_and_without_geopotential(load_cat_data, is_parallel: bool) -> None:
+    if is_parallel:
+        from distributed import Client
+
+        client = Client()
+    else:
+        client = None
     # I don't know how valid a test this is...
     # When it was just comparing the two derivative methods, atol=0.01
     #   see test_altitude_derivative_on_pressure_level_similar_to_on_altitude
     # When there are two arrays and we're performing np.hypot on them, atol needs to increase to 1.25 for them
     # to be considered close...
-    real_data: CATData = load_cat_data(None)
+    real_data: CATData = load_cat_data(None, with_chunks=is_parallel)
     xr.testing.assert_allclose(
         vertical_wind_shear(real_data.u_wind(), real_data.v_wind()),
         vertical_wind_shear(real_data.u_wind(), real_data.v_wind(), geopotential=real_data.geopotential()),
         atol=1.25,
     )
+
+    if is_parallel and client is not None:
+        client.close()
