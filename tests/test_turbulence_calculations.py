@@ -28,6 +28,8 @@ from rojak.turbulence.calculations import (
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
+    from rojak.core.data import CATData
+
 
 @pytest.fixture
 def generate_random_array_pair() -> tuple[xr.DataArray, xr.DataArray]:
@@ -299,6 +301,17 @@ def test_altitude_derivative_on_pressure_level_fails(make_dummy_cat_data) -> Non
     dummy_data = make_dummy_cat_data({})["eastward_wind"]
     with pytest.raises(ValueError, match="Coordinate 'level' not found in variables or dimensions"):
         altitude_derivative_on_pressure_level(dummy_data, dummy_data, level_coord_name="level")
+
+
+def test_altitude_derivative_on_pressure_level_similar_to_on_altitude(load_cat_data) -> None:
+    cat_data: CATData = load_cat_data(None)
+    # NOTE: They will be close but not close by equality standards
+    #       This is to show that there is a small difference between the two methods
+    xr.testing.assert_allclose(
+        cat_data.u_wind().differentiate("altitude"),
+        altitude_derivative_on_pressure_level(cat_data.u_wind(), cat_data.geopotential()),
+        atol=0.01,
+    )
 
 
 def test_absolute_vorticity_mock_coriolis(mocker: "MockerFixture", make_dummy_cat_data) -> None:
