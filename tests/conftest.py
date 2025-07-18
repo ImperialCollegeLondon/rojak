@@ -72,14 +72,20 @@ def valid_region_for_flat_data() -> "Polygon":
 
 
 @pytest.fixture
-def load_era5_data() -> Era5Data:
-    return Era5Data(xr.open_dataset("tests/_static/test_era5_data.nc", engine="h5netcdf"))
+def load_era5_data() -> Callable:
+    def _load_era5_data(with_chunks: bool = False) -> Era5Data:
+        dataset: xr.Dataset = xr.open_dataset("tests/_static/test_era5_data.nc", engine="h5netcdf")
+        if with_chunks:
+            dataset = dataset.chunk(chunks={"valid_time": 2})
+        return Era5Data(dataset)
+
+    return _load_era5_data
 
 
 @pytest.fixture
 def load_cat_data(load_era5_data) -> Callable:
-    def _load_cat_data(domain: SpatialDomain | None) -> "CATData":
-        data: Era5Data = load_era5_data
+    def _load_cat_data(domain: SpatialDomain | None, with_chunks: bool = False) -> "CATData":
+        data: Era5Data = load_era5_data(with_chunks=with_chunks)
         if domain is None:
             domain = SpatialDomain(
                 minimum_latitude=-90, maximum_latitude=90, minimum_longitude=-180, maximum_longitude=180
