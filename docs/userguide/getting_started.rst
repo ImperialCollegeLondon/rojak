@@ -41,10 +41,8 @@ To install the auto-completions for your shell,
 ``rojak`` has several functionalities. As such, each functionality corresponds to a command within the CLI.
 Currently, there two main functions,
 
-1. ``run``: Performing the turbulence analysis on data. As there are a multitude of permutations which would involve
-   too many CLI flags, the control flow of the program is dictated by the configuration file. The full set of available
-   settings can be found in the :doc:`configuration </api/generated/rojak.orchestrator.configuration>` API reference
-2. ``data``: Command for retrieving and pre-processing turbulence data
+#. ``run``: Performing the turbulence analysis on data. As there are a multitude of permutations which would involve too many CLI flags, the control flow of the program is dictated by the configuration file. The full set of available settings can be found in the :doc:`configuration </api/generated/rojak.orchestrator.configuration>` API reference
+#. ``data``: Command for retrieving and pre-processing turbulence data
 
 Computing Clear Air Turbulence (CAT) diagnostics
 -------------------------------------------------
