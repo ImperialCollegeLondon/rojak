@@ -120,3 +120,71 @@ Running ``rojak`` with the above command and configuration file would,
 #. The evaluation phases specified will use the output of the calibration phases
 
 For more details on what can be specified and the various options for the configuration file, see :py:mod:`rojak.orchestrator.configuration`.
+
+
+Retrieving Data
+-------------------------------------------------
+
+``rojak``'s ``data`` command in the CLI tool allows one to perform operations on data,
+
+.. code-block::
+
+    $ rojak data --help
+
+     Usage: rojak data [OPTIONS] COMMAND [ARGS]...
+
+     Perform operations on data
+
+
+    ╭─ Options ────────────────────────────────────────────────────────────────────────────────╮
+    │ --help          Show this message and exit.                                              │
+    ╰──────────────────────────────────────────────────────────────────────────────────────────╯
+    ╭─ Commands ───────────────────────────────────────────────────────────────────────────────╮
+    │ amdar         Operations for AMDAR data                                                  │
+    │ meteorology   Operations for Meteorology data                                            │
+    ╰──────────────────────────────────────────────────────────────────────────────────────────╯
+
+As there are two main types of data, the operations that can be performed are split based on whether it is AMDAR data or meteorological data.
+
+AMDAR Data
+^^^^^^^^^^^^^^^^^
+
+``rojak`` has two commands for AMDAR data: ``retrieve`` and ``preprocess``. The ``retrieve`` command gets the data from a public server. As `UKMO MetDB AMDAR data <https://catalogue.ceda.ac.uk/uuid/33f44351f9ceb09c495b8cef74860726>`__ is not publicly available, it is not currently supported.
+
+``rojak`` retrieves `AMDAR data from the NOAA MADIS distribution service <https://amdar.ncep.noaa.gov/index.shtml>`__. Currently, it only supports retrieving data from the `public ftp server <https://madis-data.ncep.noaa.gov/index.shtml>`__.
+
+Running the ``--help`` with the command shows the possible arguments,
+
+.. code-block::
+
+    $ rojak data amdar retrieve --help
+
+For example, if you would like to download all the data in 2024 and place them in the ``~/noaa_amdar`` folder, the command would be,
+
+.. code-block::
+
+    $ rojak data amdar retrieve -s madis -y 2024 -m -1 -d -1 -o ~/noaa_amdar
+
+This allows the user to specify what date range the data should be retrieved. For ``rojak`` to use ACARS AMDAR data in its turbulence analysis, it must first be preprocessed and converted to `parquet <https://parquet.apache.org/>`__ files. To preprocess the data retrieved in the previous step, the command would be,
+
+.. code-block::
+
+    $ rojak data amdar preprocess -s madis -i ~/noaa_amdar -o ~/processed_noaa_amdar
+
+To use this processed AMDAR data in the turbulence analysis, the :py:class:`rojak.orchestrator.configuration.AmdarConfig` to the :py:class:`rojak.orchestrator.configuration.DataConfig` in the configuration file. For example,
+
+.. code-block:: yaml
+
+    data_config:
+      spatial_domain:
+        maximum_latitude: 90.0
+        maximum_longitude: 180.0
+        minimum_latitude: -90.0
+        minimum_longitude: -180.0
+      amdar_config:
+        data_dir: "~/processed_noaa_amdar/"
+        glob_pattern: "**/*.parquet"
+        data_source: madis
+        time_window:
+          lower: "2024-01-01"
+          upper: "2024-12-12T18:00"
