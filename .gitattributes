@@ -21,6 +21,10 @@
 *.pyo    binary export-ignore
 *.pyd    binary
 
+# Data files
+# ============
+*.nc
+
 # Jupyter notebook
 *.ipynb  text eol=lf
 
