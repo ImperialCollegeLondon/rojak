@@ -6,6 +6,7 @@ import xarray as xr
 import xarray.testing as xrt
 
 from rojak.core.constants import GRAVITATIONAL_ACCELERATION
+from rojak.orchestrator.configuration import SpatialDomain
 from rojak.turbulence.calculations import (
     EARTH_AVG_RADIUS,
     _WrapAroundAngleArray,
@@ -334,7 +335,7 @@ def test_absolute_vorticity_no_mock(make_dummy_cat_data) -> None:
     )
 
 
-def test_potential_vorticity(make_dummy_cat_data, mocker: "MockerFixture") -> None:
+def test_potential_vorticity_mocked(make_dummy_cat_data, mocker: "MockerFixture") -> None:
     dummy_data = make_dummy_cat_data({})
     abs_vorticity_function = mocker.patch("rojak.turbulence.calculations.absolute_vorticity")
     abs_vorticity_function.return_value = dummy_data["vorticity"]
@@ -345,3 +346,22 @@ def test_potential_vorticity(make_dummy_cat_data, mocker: "MockerFixture") -> No
     pv: xr.DataArray = potential_vorticity(dummy_data["vorticity"], theta)
     theta_mock.assert_called_once_with("pressure_level")
     xr.testing.assert_equal(pv, -GRAVITATIONAL_ACCELERATION * dummy_data["vorticity"])
+
+
+# As we move to higher latitudes, the error introduced by derivatives on lat lon increase
+@pytest.mark.parametrize(("latitude_threshold", "abs_tol"), [(30, 1e-5), (45, 1e-5), (50, 1e-4), (90, 1e-4)])
+def test_potential_vorticity_against_real_values(load_cat_data, latitude_threshold, abs_tol) -> None:
+    real_data: CATData = load_cat_data(
+        SpatialDomain(
+            minimum_latitude=-latitude_threshold,
+            maximum_latitude=latitude_threshold,
+            minimum_longitude=-180,
+            maximum_longitude=180,
+        )
+    )
+    xr.testing.assert_allclose(
+        # pressure_level is in hPa => derivatives are 10^2 larger
+        potential_vorticity(real_data.vorticity(), real_data.potential_temperature()) / 100,
+        real_data.potential_vorticity(),
+        atol=abs_tol,
+    )
