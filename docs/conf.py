@@ -5,8 +5,12 @@
 
 
 # https://www.sphinx-doc.org/en/master/usage/extensions/autodoc.html
+import inspect
+import os
 import sys
 from pathlib import Path
+
+import rojak  # for linkcode_resolve
 
 sys.path.insert(0, str(Path("..", "src").resolve()))
 
@@ -27,6 +31,7 @@ extensions = [
     "sphinx.ext.intersphinx",  # Links to other projects
     "sphinx.ext.autosummary",  # Generate autodoc summaries
     "sphinx.ext.napoleon",  # Support for NumPy and Google style docstrings
+    "sphinx.ext.linkcode",  # Add external links to source code
     "myst_parser",  # Markdown support
     "jupyter_sphinx",  # Executes embedded code in a Jupyter kernel
 ]
@@ -54,6 +59,69 @@ intersphinx_mapping = {
 
 # Allow markdown files to be recognised
 source_suffix = [".rst", ".md"]
+
+SOURCE_BASE_URL: str = "https://github.com/ImperialCollegeLondon/rojak/blob"
+
+
+# For links to source code on GitHub
+# Modified from numpy's and pandas conf.py
+# See https://github.com/numpy/numpy/blob/d02611ad99488637b48f4be203f297ea7b29c95d/doc/source/conf.py#L532
+# See https://github.com/pandas-dev/pandas/blob/6a6a1bab4e0dccddf0c2e241c0add138e75d4a84/doc/source/conf.py#L645
+def linkcode_resolve(domain: str, info: dict[str, str]) -> str | None:
+    if domain != "py":
+        return None
+
+    modname = info["module"]
+    fullname = info["fullname"]
+
+    submod = sys.modules.get(modname)
+    if submod is None:
+        return None
+
+    obj = submod
+    for part in fullname.split("."):
+        try:
+            obj = getattr(obj, part)
+        except Exception:
+            return None
+
+    # FROM NUMPY: code doesn't have decorators atm
+    # strip decorators, which would resolve to the source of the decorator
+    # possibly an upstream bug in getsourcefile, bpo-1764286
+    # try:
+    #     unwrap = inspect.unwrap
+    # except AttributeError:
+    #     pass
+    # else:
+    #     obj = unwrap(obj)
+
+    # FROM PANDAS: numpy as some logic that looks specific to numpy itself
+    try:
+        # Blindly trust Pandas devs and get pyright to ignore
+        fn = inspect.getsourcefile(inspect.unwrap(obj))  # pyright: ignore[reportArgumentType]
+    except TypeError:
+        try:  # property
+            fn = inspect.getsourcefile(inspect.unwrap(obj.fget))
+        except (AttributeError, TypeError):
+            fn = None
+    if not fn:
+        return None
+
+    try:
+        source, lineno = inspect.getsourcelines(obj)
+    except TypeError:
+        try:  # property
+            source, lineno = inspect.getsourcelines(obj.fget)
+        except (AttributeError, TypeError):
+            lineno = None
+    except OSError:
+        lineno = None
+
+    # Blindly trust Pandas devs and get pyright to ignore
+    linespec = f"#L{lineno}-L{lineno + len(source) - 1}" if lineno else ""  # pyright: ignore[reportPossiblyUnboundVariable]
+    fn = os.path.relpath(fn, start=Path(rojak.__file__).parent)
+
+    return f"{SOURCE_BASE_URL}/master/src/rojak/{fn}{linespec}"
 
 
 # -- Options for HTML output -------------------------------------------------
