@@ -188,3 +188,14 @@ To use this processed AMDAR data in the turbulence analysis, the :py:class:`roja
         time_window:
           lower: "2024-01-01"
           upper: "2024-12-12T18:00"
+
+Meteorological Data: ERA5
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``rojak`` uses the `Climate Data Store (CDS) <https://cds.climate.copernicus.eu/>`__'s API to retrieve the ERA5 data. To use the functionality, you will need to follow the `CDS instructions on setup to use the API <https://cds.climate.copernicus.eu/how-to-api>`__. The optional dependency in the ``ecmwf`` group must be installed.
+
+Once everything has been setup, you could, for example, download all the data for 2024 on pressure levels using,
+
+.. code-block::
+
+    $ rojak data meteorology retrieve -s era5 -y 2024 -m -1 -d -1 --data-set-name "pressure-level"
