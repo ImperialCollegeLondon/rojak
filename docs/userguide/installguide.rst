@@ -20,14 +20,15 @@ There are a few way which ``rojak`` can be installed. The easiest is through ``p
 
 .. code-block::
 
-    $ pip install rojak
+    $ pip install rojak_cat
     $ uv add rojak # if you use uv as your package manager
 
-Alternatively, it can be installed through Conda_ on the `conda-forge`_ channel
+..
+    Alternatively, it can be installed through Conda_ on the `conda-forge`_ channel
 
-.. code-block::
+    .. code-block::
 
-    $ conda install -c conda-forge rojak
+        $ conda install -c conda-forge rojak
 
 If you'd like the latest changes, ``rojak`` can be installed from source_
 

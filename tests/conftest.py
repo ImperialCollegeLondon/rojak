@@ -10,9 +10,13 @@ import xarray as xr
 from shapely import box
 
 from rojak.core.data import CATPrognosticData
+from rojak.datalib.ecmwf.era5 import Era5Data
+from rojak.orchestrator.configuration import SpatialDomain
 
 if TYPE_CHECKING:
     from shapely.geometry.polygon import Polygon
+
+    from rojak.core.data import CATData
 
 
 def time_coordinate():
@@ -65,3 +69,40 @@ def load_geo_data(load_flat_data: pd.DataFrame) -> gpd.GeoDataFrame:
 @pytest.fixture
 def valid_region_for_flat_data() -> "Polygon":
     return box(-130, 25, 28, 60)
+
+
+@pytest.fixture
+def load_era5_data() -> Callable:
+    def _load_era5_data(with_chunks: bool = False) -> Era5Data:
+        dataset: xr.Dataset = xr.open_dataset("tests/_static/test_era5_data.nc", engine="h5netcdf")
+        if with_chunks:
+            dataset = dataset.chunk(chunks={"valid_time": 2})
+        return Era5Data(dataset)
+
+    return _load_era5_data
+
+
+# @pytest.fixture
+# def load_era5_data(tmp_path) -> Callable:
+#     def _load_era5_data(with_chunks: bool = False) -> Era5Data:
+#         dst: Path = tmp_path / "test_era5_data.nc"
+#         shutil.copy("tests/_static/test_era5_data.nc", dst)
+#         dataset: xr.Dataset = xr.open_dataset(str(dst), engine="h5netcdf")
+#         if with_chunks:
+#             dataset = dataset.chunk(chunks={"valid_time": 2})
+#         return Era5Data(dataset)
+#
+#     return _load_era5_data
+
+
+@pytest.fixture
+def load_cat_data(load_era5_data) -> Callable:
+    def _load_cat_data(domain: SpatialDomain | None, with_chunks: bool = False) -> "CATData":
+        data: Era5Data = load_era5_data(with_chunks=with_chunks)
+        if domain is None:
+            domain = SpatialDomain(
+                minimum_latitude=-90, maximum_latitude=90, minimum_longitude=-180, maximum_longitude=180
+            )
+        return data.to_clear_air_turbulence_data(domain)
+
+    return _load_cat_data

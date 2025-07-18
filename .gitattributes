@@ -21,6 +21,10 @@
 *.pyo    binary export-ignore
 *.pyd    binary
 
+# Data files
+# ============
+*.nc
+
 # Jupyter notebook
 *.ipynb  text eol=lf
 
@@ -28,3 +32,4 @@
 # with the python modules ``pickle``, ``dbm.*``,
 # ``shelve``, ``marshal``, ``anydbm``, & ``bsddb``
 # (among others).
+tests/_static/test_era5_data.nc filter=lfs diff=lfs merge=lfs -text

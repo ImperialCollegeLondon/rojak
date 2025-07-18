@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 def make_value_based_slice(coordinate: Sequence, min_value: float | None, max_value: float | None) -> slice:
     """
     Make a slice from coordinate while accounting for whether values are increasing or decreasing.
+
     Args:
         coordinate: Sequence of values
         min_value: Minimum value in slice
@@ -49,6 +50,7 @@ def get_regular_grid_spacing[T: np.number | np.inexact | np.datetime64 | np.time
 ) -> None | T:
     """
     Determines if array has a regular grid spacing
+
     Args:
         array: Array to be checked
 
@@ -92,7 +94,7 @@ def map_values_to_nearest_coordinate_index[T: np.datetime64 | np.number | np.ine
     valid_window: np.timedelta64 | np.number | np.inexact | None = None,
 ) -> "dd.Series | pd.Series[int]":
     """
-    Assuming the coordinate is a regular grid, compute the closest index that the values in the series correspond to
+    Assuming the coordinate is a regular grid, compute the closest index that the values in the series correspond to.
 
     Args:
         series: Data which corresponds to a given value in the coordinate array and needs to be mapped to the closest
@@ -121,12 +123,14 @@ def map_values_to_nearest_coordinate_index[T: np.datetime64 | np.number | np.ine
 
     Not specifying the valid window, forces the minimum and maximum of the data in the Series to be strictly within
     the range of the coordinate
+
     >>> map_values_to_nearest_coordinate_index(data_series, time_coordinate)
     Traceback (most recent call last):
     ValueError: Values in series must be within the range of the coordinate
 
     By extending the time coordiante to include the last 6 hours on 2018-08-03 places the 2018-08-02T19:09 within
     the range of the coordinate
+
     >>> time_coordinate = np.arange(np.datetime64("2018-08-01"), np.datetime64("2018-08-03T06"), np.timedelta64(6, "h"))
     >>> map_values_to_nearest_coordinate_index(data_series, time_coordinate)
         0    7

@@ -1,5 +1,5 @@
 [project]
-name = "rojak"
+name = "rojak_cat"
 version = "0.1.0"
 description = "rojak a package with a blend of features -- from turbulence diagnostics to aeroelasticity"
 readme = "README.md"
@@ -86,3 +86,6 @@ venv = ".venv"
 [tool.doc8]
 max-line-length = 120
 ignore-path = "docs/_templates"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rojak"]
