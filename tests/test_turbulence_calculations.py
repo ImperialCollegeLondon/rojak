@@ -3,9 +3,11 @@ import pytest
 import xarray as xr
 import xarray.testing as xrt
 
+from rojak.core.constants import GRAVITATIONAL_ACCELERATION
 from rojak.turbulence.calculations import (
     EARTH_AVG_RADIUS,
     _WrapAroundAngleArray,
+    altitude_derivative_on_pressure_level,
     angles_gradient,
     coriolis_parameter,
     latitudinal_derivative,
@@ -278,3 +280,15 @@ def test_direction_not_behave_like_normal_sub(generate_random_array_pair) -> Non
         np.abs(initial_angles - subsequent_angles),
         initial_as_direction - subsequent_as_direction,
     )
+
+
+def test_altitude_derivative_on_pressure_level_same_array_for_both(make_dummy_cat_data) -> None:
+    dummy_data = make_dummy_cat_data({})["eastward_wind"]
+    result = altitude_derivative_on_pressure_level(dummy_data, dummy_data)
+    np.testing.assert_array_equal(result.values, np.ones_like(dummy_data.values) * GRAVITATIONAL_ACCELERATION)
+
+
+def test_altitude_derivative_on_pressure_level_fails(make_dummy_cat_data) -> None:
+    dummy_data = make_dummy_cat_data({})["eastward_wind"]
+    with pytest.raises(ValueError, match="Coordinate 'level' not found in variables or dimensions"):
+        altitude_derivative_on_pressure_level(dummy_data, dummy_data, level_coord_name="level")

@@ -111,7 +111,6 @@ def vertical_component_vorticity(dvdx: xr.DataArray, dudy: xr.DataArray) -> xr.D
     return dvdx - dudy
 
 
-# TODO: TEST
 def altitude_derivative_on_pressure_level(
     function: xr.DataArray, geopotential: xr.DataArray, level_coord_name: str = "pressure_level"
 ) -> xr.DataArray:
