@@ -15,6 +15,7 @@ from rojak.turbulence.calculations import (
     angles_gradient,
     coriolis_parameter,
     latitudinal_derivative,
+    magnitude_of_geospatial_gradient,
     magnitude_of_vector,
     potential_temperature,
     potential_vorticity,
@@ -365,3 +366,11 @@ def test_potential_vorticity_against_real_values(load_cat_data, latitude_thresho
         real_data.potential_vorticity(),
         atol=abs_tol,
     )
+
+
+def test_magnitude_of_geospatial_gradient(mocker: "MockerFixture", make_dummy_cat_data) -> None:
+    dummy_array = make_dummy_cat_data({})["eastward_wind"]
+    spatial_gradient_mock = mocker.patch("rojak.core.derivatives.spatial_gradient")
+    spatial_gradient_mock.return_value = {"dfdx": xr.ones_like(dummy_array), "dfdy": xr.ones_like(dummy_array)}
+    xr.testing.assert_equal(magnitude_of_geospatial_gradient(dummy_array), xr.ones_like(dummy_array) * np.sqrt(2))
+    spatial_gradient_mock.assert_called_once()
