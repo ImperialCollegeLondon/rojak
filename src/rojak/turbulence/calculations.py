@@ -272,7 +272,7 @@ def potential_vorticity(vorticity: xr.DataArray, theta: xr.DataArray) -> xr.Data
     """
     Ertel's potential vorticity
 
-    Isentropic potential vorticity is defined in [Wallace2006]_ (pg. 290) as,
+    Potential vorticity is defined in [Sharman2006]_ as,
 
     .. math:: \\text{PV} = -g \\zeta_{a} \\frac{ \\partial \\theta }{ \\partial p }
 
