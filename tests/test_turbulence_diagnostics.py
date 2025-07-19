@@ -32,6 +32,7 @@ from rojak.turbulence.diagnostic import (
     VerticalVorticitySquared,
     VerticalWindShear,
     WindDirection,
+    WindSpeed,
 )
 
 
@@ -52,6 +53,7 @@ from rojak.turbulence.diagnostic import (
         (TurbulenceDiagnostics.BRUNT_VAISALA, BruntVaisalaFrequency),
         (TurbulenceDiagnostics.VWS, VerticalWindShear),
         (TurbulenceDiagnostics.RICHARDSON, GradientRichardson),
+        (TurbulenceDiagnostics.WIND_SPEED, WindSpeed),
         (TurbulenceDiagnostics.DEF, DeformationSquared),
         (TurbulenceDiagnostics.WIND_DIRECTION, WindDirection),
         (TurbulenceDiagnostics.HORIZONTAL_DIVERGENCE, HorizontalDivergence),
