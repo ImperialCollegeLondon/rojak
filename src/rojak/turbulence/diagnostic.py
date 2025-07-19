@@ -888,8 +888,11 @@ class DirectionalShear(Diagnostic):
                 dask="parallelized",
                 output_dtypes=[np.float32],
             ).persist()
-            return np.abs(altitude_derivative_on_pressure_level(directional_shear, self._geopotential))  # pyright: ignore[reportReturnType]
-        return np.abs(altitude_derivative_on_pressure_level(direction, self._geopotential))  # pyright: ignore[reportReturnType]
+        else:
+            directional_shear: xr.DataArray = direction.copy(
+                data=angles_gradient(direction.values, z_axis, values_in_z_axis)
+            )
+        return np.abs(altitude_derivative_on_pressure_level(directional_shear, self._geopotential))  # pyright: ignore[reportReturnType]
 
 
 class NestedGridModel1(Diagnostic):

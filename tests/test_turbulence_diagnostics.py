@@ -38,6 +38,8 @@ from rojak.turbulence.diagnostic import (
 
 # IMPORTANT: This verifies that the diagnostics can run in a distributed manner. It does NOT currently verify the
 #            correctness of the calculations
+#            Correctness is current established by looking at whether the generated plots match those in literature
+#            and whether the behaviour is expected (based on the theory)
 @pytest.mark.parametrize(
     ("diagnostic", "target_class"),
     [
@@ -84,3 +86,21 @@ def test_turbulence_diagnostics_compute_on_distributed(
         assert isinstance(item, Future)
 
     assert isinstance(instantiated_diagnostic.computed_value, xr.DataArray)
+
+
+@pytest.mark.parametrize("diagnostic", [e.value for e in TurbulenceDiagnostics])
+def test_turbulence_diagnostics_serial_and_distributed_are_equivalent(
+    client, load_cat_data, diagnostic: TurbulenceDiagnostics
+) -> None:
+    distributed_factory = DiagnosticFactory(load_cat_data(None, with_chunks=True))
+    serial_factory = DiagnosticFactory(load_cat_data(None, with_chunks=False))
+
+    distributed_diagnostic = distributed_factory.create(diagnostic)
+    serial_diagnostic = serial_factory.create(diagnostic)
+
+    assert type(distributed_diagnostic) is type(serial_diagnostic)
+    assert distributed_diagnostic != serial_diagnostic
+
+    serial_result = serial_diagnostic.computed_value.compute()
+    serial_result = serial_result.drop_vars("expver")
+    xr.testing.assert_equal(distributed_diagnostic.computed_value.compute(), serial_result)
