@@ -18,6 +18,9 @@ if TYPE_CHECKING:
 
     from rojak.core.data import CATData
 
+# Add fixtures from dask.distributed
+pytest_plugins = ["distributed.utils_test"]
+
 
 def time_coordinate():
     return np.arange("2005-02-01T00", "2005-02-02T00", dtype="datetime64[h]")
@@ -80,19 +83,6 @@ def load_era5_data() -> Callable:
         return Era5Data(dataset)
 
     return _load_era5_data
-
-
-# @pytest.fixture
-# def load_era5_data(tmp_path) -> Callable:
-#     def _load_era5_data(with_chunks: bool = False) -> Era5Data:
-#         dst: Path = tmp_path / "test_era5_data.nc"
-#         shutil.copy("tests/_static/test_era5_data.nc", dst)
-#         dataset: xr.Dataset = xr.open_dataset(str(dst), engine="h5netcdf")
-#         if with_chunks:
-#             dataset = dataset.chunk(chunks={"valid_time": 2})
-#         return Era5Data(dataset)
-#
-#     return _load_era5_data
 
 
 @pytest.fixture

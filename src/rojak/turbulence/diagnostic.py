@@ -86,7 +86,6 @@ class Diagnostic(ABC):
     def name(self) -> "DiagnosticName":
         return self._name
 
-    # TODO: TEEST
     @property
     def computed_value(self) -> xr.DataArray:
         if self._computed_value is None:
