@@ -33,3 +33,7 @@
 # ``shelve``, ``marshal``, ``anydbm``, & ``bsddb``
 # (among others).
 tests/_static/test_era5_data.nc filter=lfs diff=lfs merge=lfs -text
+
+# Images for JOSS paper
+joss/multi_diagnostic_f3d_ti1_on_200_light.png filter=lfs diff=lfs merge=lfs -text
+joss/multi_edr_f3d_ti1.png filter=lfs diff=lfs merge=lfs -text
