@@ -1,23 +1,37 @@
+from typing import TYPE_CHECKING
+
 import numpy as np
 import pytest
 import xarray as xr
 import xarray.testing as xrt
 
+from rojak.core.constants import GRAVITATIONAL_ACCELERATION
+from rojak.orchestrator.configuration import SpatialDomain
 from rojak.turbulence.calculations import (
     EARTH_AVG_RADIUS,
     _WrapAroundAngleArray,
+    absolute_vorticity,
+    altitude_derivative_on_pressure_level,
     angles_gradient,
     coriolis_parameter,
     latitudinal_derivative,
+    magnitude_of_geospatial_gradient,
     magnitude_of_vector,
     potential_temperature,
+    potential_vorticity,
     shearing_deformation,
     stretching_deformation,
     total_deformation,
     vertical_component_vorticity,
+    vertical_wind_shear,
     wind_direction,
     wind_speed,
 )
+
+if TYPE_CHECKING:
+    from pytest_mock import MockerFixture
+
+    from rojak.core.data import CATData
 
 
 @pytest.fixture
@@ -278,3 +292,134 @@ def test_direction_not_behave_like_normal_sub(generate_random_array_pair) -> Non
         np.abs(initial_angles - subsequent_angles),
         initial_as_direction - subsequent_as_direction,
     )
+
+
+def test_altitude_derivative_on_pressure_level_same_array_for_both(make_dummy_cat_data) -> None:
+    dummy_data = make_dummy_cat_data({})["eastward_wind"]
+    result = altitude_derivative_on_pressure_level(dummy_data, dummy_data)
+    np.testing.assert_array_equal(result.values, np.ones_like(dummy_data.values) * GRAVITATIONAL_ACCELERATION)
+
+
+def test_altitude_derivative_on_pressure_level_fails(make_dummy_cat_data) -> None:
+    dummy_data = make_dummy_cat_data({})["eastward_wind"]
+    with pytest.raises(ValueError, match="Coordinate 'level' not found in variables or dimensions"):
+        altitude_derivative_on_pressure_level(dummy_data, dummy_data, level_coord_name="level")
+
+
+def test_altitude_derivative_on_pressure_level_similar_to_on_altitude(load_cat_data) -> None:
+    cat_data: CATData = load_cat_data(None)
+    # NOTE: They will be close but not close by equality standards
+    #       This is to show that there is a small difference between the two methods
+    xr.testing.assert_allclose(
+        cat_data.u_wind().differentiate("altitude"),
+        altitude_derivative_on_pressure_level(cat_data.u_wind(), cat_data.geopotential()),
+        atol=0.01,
+    )
+
+
+def test_absolute_vorticity_mock_coriolis(mocker: "MockerFixture", make_dummy_cat_data) -> None:
+    dummy_data = make_dummy_cat_data({})
+    coriolis_function = mocker.patch("rojak.turbulence.calculations.coriolis_parameter")
+    coriolis_function.return_value = dummy_data["vorticity"]["latitude"]
+
+    abs_vorticity: xr.DataArray = absolute_vorticity(dummy_data["vorticity"])
+    xr.testing.assert_equal(abs_vorticity, dummy_data["vorticity"] + dummy_data["vorticity"]["latitude"])
+
+    coriolis_function.assert_called_once()
+    xr.testing.assert_equal(coriolis_function.call_args[0][0], dummy_data["vorticity"]["latitude"])
+
+
+def test_absolute_vorticity_no_mock(make_dummy_cat_data) -> None:
+    dummy_data = make_dummy_cat_data({})
+    xr.testing.assert_equal(
+        absolute_vorticity(dummy_data["vorticity"]),
+        dummy_data["vorticity"] + coriolis_parameter(dummy_data["vorticity"]["latitude"]),
+    )
+
+
+def test_potential_vorticity_mocked(make_dummy_cat_data, mocker: "MockerFixture") -> None:
+    dummy_data = make_dummy_cat_data({})
+    abs_vorticity_function = mocker.patch("rojak.turbulence.calculations.absolute_vorticity")
+    abs_vorticity_function.return_value = dummy_data["vorticity"]
+    theta = mocker.Mock()
+    theta_mock = mocker.patch.object(theta, "differentiate")
+    theta_mock.return_value = xr.ones_like(dummy_data["temperature"])
+
+    pv: xr.DataArray = potential_vorticity(dummy_data["vorticity"], theta)
+    theta_mock.assert_called_once_with("pressure_level")
+    xr.testing.assert_equal(pv, -GRAVITATIONAL_ACCELERATION * dummy_data["vorticity"])
+
+
+# As we move to higher latitudes, the error introduced by derivatives on lat lon increase
+@pytest.mark.parametrize(("latitude_threshold", "abs_tol"), [(30, 1e-5), (45, 1e-5), (50, 1e-4), (90, 1e-4)])
+def test_potential_vorticity_against_real_values(load_cat_data, latitude_threshold, abs_tol) -> None:
+    real_data: CATData = load_cat_data(
+        SpatialDomain(
+            minimum_latitude=-latitude_threshold,
+            maximum_latitude=latitude_threshold,
+            minimum_longitude=-180,
+            maximum_longitude=180,
+        )
+    )
+    xr.testing.assert_allclose(
+        # pressure_level is in hPa => derivatives are 10^2 larger
+        potential_vorticity(real_data.vorticity(), real_data.potential_temperature()) / 100,
+        real_data.potential_vorticity(),
+        atol=abs_tol,
+    )
+
+
+def test_magnitude_of_geospatial_gradient(mocker: "MockerFixture", make_dummy_cat_data) -> None:
+    dummy_array = make_dummy_cat_data({})["eastward_wind"]
+    spatial_gradient_mock = mocker.patch("rojak.core.derivatives.spatial_gradient")
+    spatial_gradient_mock.return_value = {"dfdx": xr.ones_like(dummy_array), "dfdy": xr.ones_like(dummy_array)}
+    xr.testing.assert_equal(magnitude_of_geospatial_gradient(dummy_array), xr.ones_like(dummy_array) * np.sqrt(2))
+    spatial_gradient_mock.assert_called_once()
+
+
+def test_vertical_wind_shear_uniform_increase_both(make_dummy_cat_data) -> None:
+    dummy_array: xr.DataArray = make_dummy_cat_data({})["eastward_wind"]
+    uniform_increase_in_pressure: xr.DataArray = xr.ones_like(dummy_array) * (
+        np.arange(dummy_array["pressure_level"].size)
+    )
+    xr.testing.assert_equal(
+        vertical_wind_shear(uniform_increase_in_pressure, uniform_increase_in_pressure),
+        xr.ones_like(dummy_array) * np.sqrt(2),
+    )
+
+
+def test_vertical_wind_shear_uniform_increase_in_one(make_dummy_cat_data) -> None:
+    dummy_array: xr.DataArray = make_dummy_cat_data({})["eastward_wind"]
+    uniform_increase_in_pressure: xr.DataArray = xr.ones_like(dummy_array) * (
+        np.arange(dummy_array["pressure_level"].size)
+    )
+    xr.testing.assert_equal(
+        vertical_wind_shear(uniform_increase_in_pressure, xr.zeros_like(dummy_array)), xr.ones_like(dummy_array)
+    )
+    xr.testing.assert_equal(
+        vertical_wind_shear(xr.zeros_like(dummy_array), uniform_increase_in_pressure), xr.ones_like(dummy_array)
+    )
+
+
+@pytest.mark.parametrize("is_parallel", [True, False])
+def test_vertical_wind_shear_with_and_without_geopotential(load_cat_data, is_parallel: bool) -> None:
+    if is_parallel:
+        from distributed import Client  # noqa: PLC0415
+
+        client = Client()
+    else:
+        client = None
+    # I don't know how valid a test this is...
+    # When it was just comparing the two derivative methods, atol=0.01
+    #   see test_altitude_derivative_on_pressure_level_similar_to_on_altitude
+    # When there are two arrays and we're performing np.hypot on them, atol needs to increase to 1.25 for them
+    # to be considered close...
+    real_data: CATData = load_cat_data(None, with_chunks=is_parallel)
+    xr.testing.assert_allclose(
+        vertical_wind_shear(real_data.u_wind(), real_data.v_wind()),
+        vertical_wind_shear(real_data.u_wind(), real_data.v_wind(), geopotential=real_data.geopotential()),
+        atol=1.25,
+    )
+
+    if is_parallel and client is not None:
+        client.close()

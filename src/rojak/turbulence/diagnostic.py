@@ -82,7 +82,6 @@ class Diagnostic(ABC):
     def _compute(self) -> xr.DataArray:
         pass
 
-    # TODO: TEEST
     @property
     def name(self) -> "DiagnosticName":
         return self._name

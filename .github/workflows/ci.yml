@@ -8,6 +8,12 @@ on:
     branches: [ "master" ]
   pull_request:
     branches: [ "master" , "dev" ]
+  workflow_dispatch:
+
+# GH102: Auto-cancel on repeated PRs
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -20,6 +26,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       - name: Install uv and set the python version
         uses: astral-sh/setup-uv@v6
         with:

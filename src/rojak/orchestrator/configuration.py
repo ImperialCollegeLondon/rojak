@@ -35,7 +35,7 @@ class InvalidConfigurationError(Exception):
         super().__init__(message)
 
 
-def dir_must_exist(path: Path) -> Path:
+def _dir_must_exist(path: Path) -> Path:
     if not path.exists():
         raise InvalidConfigurationError(f"{path} does not exist")
     if not path.is_dir():
@@ -43,7 +43,7 @@ def dir_must_exist(path: Path) -> Path:
     return path
 
 
-def make_dir_if_not_present(path: Path) -> Path:
+def _make_dir_if_not_present(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -329,7 +329,7 @@ class TurbulenceEvaluationConfig(BaseConfigModel):
             repr=True,
             frozen=True,
         ),
-        AfterValidator(dir_must_exist),
+        AfterValidator(_dir_must_exist),
     ]  # Remove this?????
     threshold_mode: Annotated[
         TurbulenceThresholdMode,
@@ -525,7 +525,7 @@ class BaseInputDataConfig[T: StrEnum](BaseConfigModel):
             repr=True,
             frozen=True,
         ),
-        AfterValidator(dir_must_exist),
+        AfterValidator(_dir_must_exist),
     ]
     data_source: Annotated[T, Field(description="Where data comes from", repr=True, frozen=True)]
 
@@ -616,12 +616,12 @@ class Context(BaseConfigModel):
     output_dir: Annotated[
         Path,
         Field(description="Output directory", repr=True, frozen=True),
-        AfterValidator(make_dir_if_not_present),
+        AfterValidator(_make_dir_if_not_present),
     ]
     plots_dir: Annotated[
         Path,
         Field(description="Plots directory", repr=True, frozen=True),
-        AfterValidator(make_dir_if_not_present),
+        AfterValidator(_make_dir_if_not_present),
     ]
     turbulence_config: TurbulenceConfig | None = None
     contrails_config: ContrailsConfig | None = None

@@ -111,7 +111,6 @@ def vertical_component_vorticity(dvdx: xr.DataArray, dudy: xr.DataArray) -> xr.D
     return dvdx - dudy
 
 
-# TODO: TEST
 def altitude_derivative_on_pressure_level(
     function: xr.DataArray, geopotential: xr.DataArray, level_coord_name: str = "pressure_level"
 ) -> xr.DataArray:
@@ -253,7 +252,6 @@ def latitudinal_derivative(coriolis_param: xr.DataArray) -> xr.DataArray:
     return coriolis_param / EARTH_AVG_RADIUS
 
 
-# TODO: TEST
 def absolute_vorticity(vorticity: xr.DataArray) -> xr.DataArray:
     """
     Vertical component of absolute vorticity
@@ -269,13 +267,12 @@ def absolute_vorticity(vorticity: xr.DataArray) -> xr.DataArray:
     return vorticity + coriolis_parameter(vorticity["latitude"])
 
 
-# TODO: TEST
 # theta is potential temperature
 def potential_vorticity(vorticity: xr.DataArray, theta: xr.DataArray) -> xr.DataArray:
     """
     Ertel's potential vorticity
 
-    Isentropic potential vorticity is defined in [Wallace2006]_ (pg. 290) as,
+    Potential vorticity is defined in [Sharman2006]_ as,
 
     .. math:: \\text{PV} = -g \\zeta_{a} \\frac{ \\partial \\theta }{ \\partial p }
 
