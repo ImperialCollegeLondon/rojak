@@ -63,6 +63,7 @@ docs = [
     "myst-parser",
     "pydata-sphinx-theme",
     "sphinx",
+    "sphinx-design",
 ]
 ecmwf = [
     "cdsapi>=0.7.5",
