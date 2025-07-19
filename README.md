@@ -19,6 +19,13 @@ Currently, it supports,
 3. Computing 27 different turbulence diagnostics, such as the three-dimensional frontogenesis equation, turbulence index 1 and 2, negative vorticity advection, and Brown's Richardson tendency equation.
 4. Converting turbulence diagnostic values into the eddy dissipation rate (EDR) --- the International Civil Aviation Organization's (ICAO) official metric for reporting turbulence.
 
+>[!NOTE]
+> This repository is under active development. As a result,
+> 1. The API is subject to change and may not be stable
+> 2. The documentation is incomplete and will be updated as development progresses.
+>
+> We appreciate your understanding and encourage you to check back for updates.
+
 ## Documentation
 
 Learn more about `rojak` at [imperialcollegelondon.github.io/rojak/](https://imperialcollegelondon.github.io/rojak/).
