@@ -2,9 +2,10 @@
 
 [![CI](https://github.com/ImperialCollegeLondon/rojak/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/ImperialCollegeLondon/rojak/actions/workflows/ci.yml)
 [![CD](https://github.com/ImperialCollegeLondon/rojak/actions/workflows/cd.yml/badge.svg?branch=master)](https://github.com/ImperialCollegeLondon/rojak/actions/workflows/cd.yml)
+[![codecov](https://codecov.io/gh/ImperialCollegeLondon/rojak/graph/badge.svg?token=0COCM07N7R)](https://codecov.io/gh/ImperialCollegeLondon/rojak)
+
 [![Checked with pyright](https://microsoft.github.io/pyright/img/pyright_badge.svg)](https://microsoft.github.io/pyright/)
 [![Formatted with ruff](https://img.shields.io/badge/code%20style-ruff-d7ff64)](https://github.com/astral-sh/ruff)
-
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
 
 Rojak is salad with Javanese origins. Colloquially (in Singlish), it means a mixture of things.
