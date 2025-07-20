@@ -20,7 +20,6 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Typing :: Typed"
 ]
-
 requires-python = ">=3.12"
 dependencies = [
     "crick", # necessary for dask.percentile method
@@ -55,8 +54,9 @@ dev = [
 ]
 test = [
     "pytest",
-    "pytest-cov",
-    "pytest-mock",
+    "pytest-cov", # code coverage
+    "pytest-mock", # mocking
+    "pytest-xdist", # distributed testing
 ]
 docs = [
     "jupyter-sphinx",
