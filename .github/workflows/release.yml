@@ -12,11 +12,11 @@ on:
     tags:
       - 'v*'
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  # Don't cancel releases
-  # https://docs.github.com/en/actions/how-tos/writing-workflows/choosing-when-your-workflow-runs/control-the-concurrency-of-workflows-and-jobs
-  cancel-in-progress: ${{ !contains(github.ref, 'release/')}}
+#concurrency:
+#  group: ${{ github.workflow }}-${{ github.ref }}
+#  # Don't cancel releases
+#  # https://docs.github.com/en/actions/how-tos/writing-workflows/choosing-when-your-workflow-runs/control-the-concurrency-of-workflows-and-jobs
+#  cancel-in-progress: ${{ !contains(github.ref, 'release/')}}
 
 # Disable permissions for all available permissions
 # https://docs.github.com/en/actions/how-tos/writing-workflows/choosing-what-your-workflow-does/controlling-permissions-for-github_token#defining-access-for-the-github_token-permissions
