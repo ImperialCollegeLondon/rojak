@@ -1,6 +1,6 @@
 [project]
 name = "rojak_cat"
-version = "0.1.0"
+dynamic = ["version"]
 description = "rojak a package with a blend of features -- from turbulence diagnostics to aeroelasticity"
 readme = "README.md"
 authors = [
@@ -35,7 +35,7 @@ dependencies = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project.scripts]
@@ -51,6 +51,7 @@ dev = [
     "ruff",
     "bokeh", # For dask dashboard
     "scipy-stubs",
+    "hatch-vcs",
 ]
 test = [
     "pytest",
@@ -90,3 +91,6 @@ ignore-path = "docs/_templates"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rojak"]
+
+[tool.hatch.version]
+source = "vcs"
