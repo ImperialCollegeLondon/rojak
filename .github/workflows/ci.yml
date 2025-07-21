@@ -6,8 +6,16 @@ name: CI
 on:
   push:
     branches: [ "master" ]
+    paths-ignore:
+      - .github/workflows/cd.yml
+      - .github/workflows/release.yml
+      - .github/workflows/sphinx.yml
   pull_request:
     branches: [ "master" , "dev" ]
+    paths-ignore:
+      - .github/workflows/cd.yml
+      - .github/workflows/release.yml
+      - .github/workflows/sphinx.yml
   workflow_dispatch:
 
 # GH102: Auto-cancel on repeated PRs
