@@ -1346,6 +1346,10 @@ class DiagnosticSuite:
     def diagnostic_names(self) -> list["DiagnosticName"]:
         return list(self._diagnostics.keys())
 
+    def get_prototype_computed_diagnostic(self) -> xr.DataArray:
+        _, prototype = next(self.computed_values(""))
+        return prototype
+
 
 class CalibrationDiagnosticSuite(DiagnosticSuite):
     def __init__(self, factory: DiagnosticFactory, diagnostics: list[TurbulenceDiagnostics]) -> None:
