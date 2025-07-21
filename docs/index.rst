@@ -8,6 +8,12 @@ rojak documentation
 
 ``rojak`` is an open source library and CLI tool for analysing aviation turbulence.
 
+.. toctree::
+   :maxdepth: 2
+   :hidden:
+
+   userguide/index
+   api/index
 
 .. grid:: 1 1 2 2
     :gutter: 2

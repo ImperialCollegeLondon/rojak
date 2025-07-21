@@ -314,7 +314,9 @@ def test_get_projection_correction_factors() -> None:
         ]
     )
     factors = derivatives.get_projection_correction_factors(
-        xr.DataArray(np.linspace(30, 40, 4)), xr.DataArray(np.linspace(260, 270, 4)), False
+        xr.DataArray(np.linspace(30, 40, 4), dims="latitude"),
+        xr.DataArray(np.linspace(260, 270, 4), dims="longitude"),
+        False,
     )
     npt.assert_array_almost_equal(factors.parallel_scale.data, parallel)
     npt.assert_array_almost_equal(factors.meridional_scale.data, meridional)
