@@ -40,7 +40,7 @@ Clear air turbulence (CAT) is a form of aviation turbulence which cannot be dete
 In order to mitigate this safety risk, CAT diagnostics are used to forecast turbulent regions such that pilots are able to tactically avoid them.
 
 <!-- Description of the software -->
-`rojak` is a parallelised python library and command-line tool for using meterological data to forecast CAT and evaluating the effectiveness of CAT diagnostics against turbulence observations.
+`rojak` is a parallelised python library and command-line tool for using meteorological data to forecast CAT and evaluating the effectiveness of CAT diagnostics against turbulence observations.
 Currently, it supports,
 
 1. Computing turbulence diagnostics on meteorological data from European Centre for Medium-Range Weather Forecasts's (ECMWF) ERA5 reanalysis on pressure levels [@hersbach2023era5]. Moreover, it is easily extendable to support other types of meteorological data.
@@ -107,14 +107,14 @@ The full details and references of the are contained within the documentation of
 In the context of operational forecasting [e.g. methods detailed in @gillObjectiveVerificationWorld2014; @sharmanIntegratedApproachMid2006; and @pearsonPredictionEnergyDissipation2017], the comparison of turbulence diagnostics computed from meteorological data against observational data is a fundamental component. The statistical nature of using an ensemble of turbulence diagnostics which has an optimal balance of a low false positive and false negative rate mandates it.
 The architecture of `rojak` enables it to seamlessly integrate various sources of meteorological and observational data, with their interactions managed through a central mediator.
 <!-- The design of `rojak` abstracts interactions between various meteorological and observational data sources through a mediator, ensuring extensibility and modularity. -->
-<!-- As such `rojak` has not only been architected to handle different source of meterological data and observational data, but also abstracted for their interaction to be through a mediator. -->
+<!-- As such `rojak` has not only been architected to handle different source of meteorological data and observational data, but also abstracted for their interaction to be through a mediator. -->
 <!-- Bridge to talking about CLI to retrieve data -->
 `rojak` also contains a command-line interface tool which can be launched to perform a variety of aviation turbulence analyses and to retrieve the meteorological and observation data from the various data providers.
 
 <!-- 1. Methodology for evaluating the presence of turbulence of a given severity comes from literature, e.g. thresholds for probabilities and EDR
 2. Evaluating the efficacy of a given turbulence diagnostics against observational data
 
-Talk about the architecture?? Architected to handle different source of meterological data and observational data. Through the command line, it is also possible to retrieve the data from the various providers. Also has the ability to perform geo-spatial analysis??? Mention the other core features. Provides both a library and CLI interface -->
+Talk about the architecture?? Architected to handle different source of meteorological data and observational data. Through the command line, it is also possible to retrieve the data from the various providers. Also has the ability to perform geo-spatial analysis??? Mention the other core features. Provides both a library and CLI interface -->
 
 <!-- Relation to other works - MetPy -->
 In terms of the calculations performed upon the meteorological data, `MetPy` [@mayMetPyPythonPackage2016] has the greatest similarity to `rojak`. However, it does not natively support `Dask` [@manserSupportDaskArrays]. Given the size of the datasets to be processed, this presented a significant issue.
