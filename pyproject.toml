@@ -34,6 +34,11 @@ dependencies = [
     "xarray",
 ]
 
+[project.urls]
+repository = "https://github.com/ImperialCollegeLondon/rojak"
+documentation = "https://imperialcollegelondon.github.io/rojak/"
+issues = "https://github.com/ImperialCollegeLondon/rojak/issues"
+
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
