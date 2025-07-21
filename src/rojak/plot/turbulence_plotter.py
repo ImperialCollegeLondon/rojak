@@ -99,7 +99,7 @@ diagnostic_label_mapping: dict[TurbulenceDiagnostics, str] = {
 }
 
 
-def calculate_extent(spatial_domain: "SpatialDomain | Polygon") -> tuple[float, float, float, float]:
+def _calculate_extent(spatial_domain: "SpatialDomain | Polygon") -> tuple[float, float, float, float]:
     if isinstance(spatial_domain, SpatialDomain):
         return (
             spatial_domain.minimum_longitude,
@@ -125,7 +125,7 @@ def create_turbulence_probability_plot(
     fig: Figure = plt.figure(figsize=(8, 6))
     # Passing it the kwarg projection => it is a cartopy GeoAxis
     ax: GeoAxes = fig.add_subplot(1, 1, 1, projection=projection)  # pyright: ignore[reportAssignmentType]
-    extent = calculate_extent(spatial_domain)
+    extent = _calculate_extent(spatial_domain)
     ax.set_extent(extent)
     # im: "AxesImage" = ax.imshow(probability, extent=extent, cmap="jet", vmin=0, vmax=1)
     # 4, 8, 12, 16 20
@@ -189,7 +189,7 @@ def create_multi_turbulence_diagnotics_probability_plot(
     plt.close(fg.fig)
 
 
-def get_clustered_indexing(correlation_array: np.ndarray) -> np.ndarray:
+def _get_clustered_indexing(correlation_array: np.ndarray) -> np.ndarray:
     pairwise_distances: np.ndarray = ssd.pdist(correlation_array)
     linkage: np.ndarray = sch.linkage(pairwise_distances, method="complete")
     cluster_distance_threshold: float = pairwise_distances.max() / 2
@@ -199,7 +199,7 @@ def get_clustered_indexing(correlation_array: np.ndarray) -> np.ndarray:
 
 
 # Modified from https://wil.yegelwel.com/cluster-correlation-matrix/
-def cluster_2d_correlations(corr_array: "xr.DataArray") -> "xr.DataArray":
+def _cluster_2d_correlations(corr_array: "xr.DataArray") -> "xr.DataArray":
     """
     Rearranges the correlation matrix, corr_array, so that groups of highly
     correlated variables are next to each other
@@ -216,7 +216,7 @@ def cluster_2d_correlations(corr_array: "xr.DataArray") -> "xr.DataArray":
     """
 
     corr_values: np.ndarray = corr_array.values
-    idx: np.ndarray = get_clustered_indexing(corr_values)  # 1D array
+    idx: np.ndarray = _get_clustered_indexing(corr_values)  # 1D array
 
     clustered_corr: np.ndarray = corr_values[idx, :][:, idx]
     new_coords = {
@@ -235,7 +235,7 @@ def cluster_multi_dim_correlations(
 ) -> "xr.DataArray":
     assert corr_array.dims[0] not in {"hemisphere", "region"} or corr_array.dims[0] not in {"hemisphere", "region"}
     correlation_to_order_by: np.ndarray = corr_array.sel(hemisphere=order_by_hemisphere, region=order_by_region).values
-    idx: np.ndarray = get_clustered_indexing(correlation_to_order_by)
+    idx: np.ndarray = _get_clustered_indexing(correlation_to_order_by)
 
     if in_place:
         return corr_array[idx, :][:, idx]
@@ -256,7 +256,7 @@ def create_diagnostic_correlation_plot(correlations: xr.DataArray, plot_name: st
     num_diagnostics: int = correlations.shape[0]
     assert num_diagnostics == correlations.shape[1], "Correlations matrix must be square"
 
-    clustered_correlations: xr.DataArray = cluster_2d_correlations(correlations)
+    clustered_correlations: xr.DataArray = _cluster_2d_correlations(correlations)
     # fig: "Figure" = plt.figure(figsize=(15, 11))
     fig: Figure = plt.figure()
     ax: Axes = fig.add_subplot(1, 1, 1)

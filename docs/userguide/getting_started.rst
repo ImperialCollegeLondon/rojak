@@ -194,8 +194,8 @@ Meteorological Data: ERA5
 
 ``rojak`` uses the `Climate Data Store (CDS) <https://cds.climate.copernicus.eu/>`__'s API to retrieve the ERA5 data. To use the functionality, you will need to follow the `CDS instructions on setup to use the API <https://cds.climate.copernicus.eu/how-to-api>`__. The optional dependency in the ``ecmwf`` group must be installed.
 
-Once everything has been setup, you could, for example, download all the data for 2024 on pressure levels using,
+Once everything has been setup, you could, for example, download all the data for 2024 on pressure levels for CAT diagnostics using,
 
 .. code-block::
 
-    $ rojak data meteorology retrieve -s era5 -y 2024 -m -1 -d -1 --data-set-name "pressure-level"
+    $ rojak data meteorology retrieve -s era5 -y 2024 -m -1 -d -1 --data-set-name "pressure-level" --default-name cat

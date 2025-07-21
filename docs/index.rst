@@ -6,16 +6,43 @@
 rojak documentation
 ===================
 
-Add your content using ``reStructuredText`` syntax. See the
-`reStructuredText <https://www.sphinx-doc.org/en/master/usage/restructuredtext/index.html>`_
-documentation for details.
-
+``rojak`` is an open source library and CLI tool for analysing aviation turbulence.
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents:
+   :hidden:
 
    userguide/index
    api/index
 
+.. grid:: 1 1 2 2
+    :gutter: 2
+
+    .. grid-item-card::  Installation Guide
+        :img-top: _static/index_installation.svg
+        :class-card: intro-card
+        :link: userguide/installguide
+        :link-type: doc
+
+        *Ready to Get Started??*
+
+        Visit our installation guide!
+
+    .. grid-item-card::  User guide
+        :img-top: _static/index_user_guide.svg
+        :class-card: intro-card
+        :link: userguide/index
+        :link-type: doc
+
+        Visit the user guide to learn more about how to use rojak
+
+    .. grid-item-card::  API reference
+        :img-top: _static/index_api.svg
+        :class-card: intro-card
+        :link: api/index
+        :link-type: doc
+
+        *Want to get into the nitty gritty?*
+
+        Dive into rojak's API documentation
 

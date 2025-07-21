@@ -402,13 +402,7 @@ def test_vertical_wind_shear_uniform_increase_in_one(make_dummy_cat_data) -> Non
 
 
 @pytest.mark.parametrize("is_parallel", [True, False])
-def test_vertical_wind_shear_with_and_without_geopotential(load_cat_data, is_parallel: bool) -> None:
-    if is_parallel:
-        from distributed import Client  # noqa: PLC0415
-
-        client = Client()
-    else:
-        client = None
+def test_vertical_wind_shear_with_and_without_geopotential(load_cat_data, client, is_parallel: bool) -> None:
     # I don't know how valid a test this is...
     # When it was just comparing the two derivative methods, atol=0.01
     #   see test_altitude_derivative_on_pressure_level_similar_to_on_altitude
@@ -420,6 +414,3 @@ def test_vertical_wind_shear_with_and_without_geopotential(load_cat_data, is_par
         vertical_wind_shear(real_data.u_wind(), real_data.v_wind(), geopotential=real_data.geopotential()),
         atol=1.25,
     )
-
-    if is_parallel and client is not None:
-        client.close()

@@ -32,6 +32,7 @@ extensions = [
     "sphinx.ext.autosummary",  # Generate autodoc summaries
     "sphinx.ext.napoleon",  # Support for NumPy and Google style docstrings
     "sphinx.ext.linkcode",  # Add external links to source code
+    "sphinx_design",  # For pydata theme support
     "myst_parser",  # Markdown support
     "jupyter_sphinx",  # Executes embedded code in a Jupyter kernel
 ]
@@ -59,6 +60,9 @@ intersphinx_mapping = {
 
 # Allow markdown files to be recognised
 source_suffix = [".rst", ".md"]
+# Recommended syntax extension for myst_parser for markdown docs
+# See https://sphinx-design.readthedocs.io/en/pydata-theme/get_started.html
+myst_enable_extensions = ["colon_fence"]
 
 SOURCE_BASE_URL: str = "https://github.com/ImperialCollegeLondon/rojak/blob"
 
@@ -128,4 +132,9 @@ def linkcode_resolve(domain: str, info: dict[str, str]) -> str | None:
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 html_theme = "pydata_sphinx_theme"
-# html_static_path = ["_static"]
+# Path to static files and extra styling
+html_static_path = ["_static"]
+html_css_files = ["style.css"]
+
+# See https://pydata-sphinx-theme.readthedocs.io/en/stable/user_guide/header-links.html#icon-link-shortcuts
+html_theme_options = {"github_url": "https://github.com/ImperialCollegeLondon/rojak"}

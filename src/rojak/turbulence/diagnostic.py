@@ -86,7 +86,6 @@ class Diagnostic(ABC):
     def name(self) -> "DiagnosticName":
         return self._name
 
-    # TODO: TEEST
     @property
     def computed_value(self) -> xr.DataArray:
         if self._computed_value is None:
@@ -340,7 +339,7 @@ class Endlich(Diagnostic):
                 kwargs={"coord_values": values_in_z_axis, "target_axis": z_axis},
                 dask="parallelized",
                 output_dtypes=[np.float32],
-            ).compute()
+            ).persist()
         else:
             d_direction_d_p_values: np.ndarray = angles_gradient(
                 self._wind_direction.values, z_axis, coord_values=values_in_z_axis
@@ -888,9 +887,12 @@ class DirectionalShear(Diagnostic):
                 kwargs={"coord_values": values_in_z_axis, "target_axis": z_axis},
                 dask="parallelized",
                 output_dtypes=[np.float32],
-            ).compute()
-            return np.abs(altitude_derivative_on_pressure_level(directional_shear, self._geopotential))  # pyright: ignore[reportReturnType]
-        return np.abs(altitude_derivative_on_pressure_level(direction, self._geopotential))  # pyright: ignore[reportReturnType]
+            ).persist()
+        else:
+            directional_shear: xr.DataArray = direction.copy(
+                data=angles_gradient(direction.values, z_axis, values_in_z_axis)
+            )
+        return np.abs(altitude_derivative_on_pressure_level(directional_shear, self._geopotential))  # pyright: ignore[reportReturnType]
 
 
 class NestedGridModel1(Diagnostic):

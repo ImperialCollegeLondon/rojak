@@ -1,6 +1,6 @@
 [project]
 name = "rojak_cat"
-version = "0.1.0"
+dynamic = ["version"]
 description = "rojak a package with a blend of features -- from turbulence diagnostics to aeroelasticity"
 readme = "README.md"
 authors = [
@@ -20,7 +20,6 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Typing :: Typed"
 ]
-
 requires-python = ">=3.12"
 dependencies = [
     "crick", # necessary for dask.percentile method
@@ -35,8 +34,13 @@ dependencies = [
     "xarray",
 ]
 
+[project.urls]
+repository = "https://github.com/ImperialCollegeLondon/rojak"
+documentation = "https://imperialcollegelondon.github.io/rojak/"
+issues = "https://github.com/ImperialCollegeLondon/rojak/issues"
+
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project.scripts]
@@ -52,17 +56,20 @@ dev = [
     "ruff",
     "bokeh", # For dask dashboard
     "scipy-stubs",
+    "hatch-vcs",
 ]
 test = [
     "pytest",
-    "pytest-cov",
-    "pytest-mock",
+    "pytest-cov", # code coverage
+    "pytest-mock", # mocking
+    "pytest-xdist", # distributed testing
 ]
 docs = [
     "jupyter-sphinx",
     "myst-parser",
     "pydata-sphinx-theme",
     "sphinx",
+    "sphinx-design",
 ]
 ecmwf = [
     "cdsapi>=0.7.5",
@@ -89,3 +96,6 @@ ignore-path = "docs/_templates"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rojak"]
+
+[tool.hatch.version]
+source = "vcs"
