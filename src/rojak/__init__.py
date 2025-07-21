@@ -12,3 +12,10 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _version
+
+try:
+    __version__ = _version("rojak")
+except PackageNotFoundError:
+    __version__ = "99999"
