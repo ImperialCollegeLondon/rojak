@@ -28,6 +28,7 @@ from rojak.datalib.madis.amdar import AcarsAmdarRepository
 from rojak.datalib.ukmo.amdar import UkmoAmdarRepository
 from rojak.orchestrator.configuration import (
     AmdarDataSource,
+    AmdarDiagnosticCmpSource,
     DiagnosticsAmdarHarmonisationStrategyOptions,
     DiagnosticValidationCondition,
     TurbulenceCalibrationPhaseOption,
@@ -406,8 +407,8 @@ class TurbulenceLauncher:
             self._start_time,
         ).launch(self._config.diagnostics, self._config.chunks)
         logger.info("Finished Turbulence")
-        if self._config.phases.evaluation_phases is not None:
-            result = EvaluationStage(
+        result: EvaluationStageResult | None = (
+            EvaluationStage(
                 calibration_result,
                 self._config.phases.evaluation_phases,
                 self._context.data_config.spatial_domain,
@@ -416,9 +417,23 @@ class TurbulenceLauncher:
                 self._start_time,
                 self._context.image_format,
             ).launch(self._config.diagnostics, self._config.chunks)
+            if self._config.phases.evaluation_phases is not None
+            else None
+        )
+        if result is not None:
             logger.info("Finished Turbulence Evaluation")
-            return result
-        return None
+
+        if self._context.data_config.amdar_config is not None:
+            if self._context.data_config.amdar_config.diagnostics_from == AmdarDiagnosticCmpSource.CALIBRATION:
+                # I will figure out the plumbing for this later
+                raise NotImplementedError("Comparing amdar data with calibration data not yet supported")
+
+            assert result is not None, "Pydantic checks on config should prevent this assert from failing"
+            DiagnosticsAmdarLauncher(self._context.data_config, self._context.output_dir, self._context.name).launch(
+                result.suite
+            )
+
+        return result
 
 
 # PUT THIS IN THIS FILE FOR NOW

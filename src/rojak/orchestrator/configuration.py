@@ -557,6 +557,11 @@ class DiagnosticsAmdarHarmonisationStrategyOptions(StrEnum):
                 assert_never(unreachable)
 
 
+class AmdarDiagnosticCmpSource(StrEnum):
+    CALIBRATION = "calibration"
+    EVALUATION = "evaluation"
+
+
 class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
     glob_pattern: Annotated[
         str, Field(description="Glob pattern to match to get the data files", repr=True, frozen=True)
@@ -569,6 +574,15 @@ class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
         list[DiagnosticsAmdarHarmonisationStrategyOptions] | None,
         Field(description="List of harmonisation strategies", repr=True, default=None),
     ] = None
+    diagnostics_from: Annotated[
+        AmdarDiagnosticCmpSource,
+        Field(
+            description="Which data (thus diagnostics) should be amdar data be compared against",
+            repr=True,
+            frozen=True,
+            default=AmdarDiagnosticCmpSource.EVALUATION,
+        ),
+    ] = AmdarDiagnosticCmpSource.EVALUATION
     save_harmonised_data: Annotated[
         bool, Field(description="Save harmonised data", repr=True, frozen=True, default=True)
     ] = True
@@ -654,3 +668,28 @@ class Context(BaseConfigModel):
     turbulence_config: TurbulenceConfig | None = None
     contrails_config: ContrailsConfig | None = None
     data_config: DataConfig
+
+    @model_validator(mode="after")
+    def check_amdar_data_comparison_diagnostics_exists(self) -> Self:
+        if self.data_config.amdar_config is not None:
+            if self.turbulence_config is None:
+                raise InvalidConfigurationError("Amdar data has been specified but turbulence config is missing")
+
+            match self.data_config.amdar_config.diagnostics_from:
+                case AmdarDiagnosticCmpSource.CALIBRATION:
+                    if self.turbulence_config.phases.calibration_phases.calibration_config.calibration_data_dir is None:
+                        raise InvalidConfigurationError(
+                            "To compare amdar data against calibration, calibration data must be specified and "
+                            "cannot be restored from an earlier run"
+                        )
+                case AmdarDiagnosticCmpSource.EVALUATION:
+                    if self.turbulence_config.phases.evaluation_phases is None:
+                        raise InvalidConfigurationError(
+                            "To compare amdar data against evaluation, evaluation phases must be specified"
+                        )
+                    #  No need to check if evaluation data dir is specified as it is a required argument once
+                    #  evaluation_phases is specified
+                case _ as unreachable:
+                    assert_never(unreachable)
+
+        return self
