@@ -11,9 +11,10 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
-
+import dataclasses
 import logging
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from collections.abc import Callable, Generator, Mapping
 from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar, NamedTuple, assert_never
@@ -376,7 +377,7 @@ class DiagnosticsAmdarDataHarmoniser:
         methods: list[DiagnosticsAmdarHarmonisationStrategyOptions],
         time_window: "Limits[np.datetime64]",
     ) -> "dd.DataFrame":
-        a_computed_diagnostic: xr.DataArray = next(iter(self._diagnostics_suite.computed_values_as_dict().values()))
+        a_computed_diagnostic: xr.DataArray = self._diagnostics_suite.get_prototype_computed_diagnostic()
         self._check_time_window_within_met_data(time_window, a_computed_diagnostic)
         # self._check_grids_match(a_computed_diagnostic)
         logger.debug("Verified met data and AMDAR data can be harmonised")
@@ -427,6 +428,15 @@ def _observed_turbulence_aggregation(condition: "DiagnosticValidationCondition")
     )
 
 
+@dataclasses.dataclass
+class RocVerificationResult:
+    by_amdar_col_then_diagnostic: dict[str, dict[str, BinaryClassificationResult]]
+
+    # define iterators and getters on this class
+    def iterate_by_amdar_column(self) -> Generator[tuple[str, dict[str, BinaryClassificationResult]], None, None]:
+        yield from self.by_amdar_col_then_diagnostic.items()
+
+
 # Keep this extendable for verification against other forms of data??
 class DiagnosticsAmdarVerification:
     _data_harmoniser: "DiagnosticsAmdarDataHarmoniser"
@@ -454,6 +464,9 @@ class DiagnosticsAmdarVerification:
         validation_columns: list[str],
         grid_prototype: "xr.DataArray",
     ) -> "dd.DataFrame":
+        if not set(validation_columns).issubset(self.data.columns):
+            raise ValueError("Validation columns must be present in the data")
+
         space_time_columns: list[str] = [
             self._data_harmoniser.common_time_column_name,
             "level",
@@ -507,7 +520,7 @@ class DiagnosticsAmdarVerification:
         self,
         validation_conditions: "list[DiagnosticValidationCondition]",
         prototype_diagnostic_array: "xr.DataArray",
-    ) -> dict[str, dict[str, BinaryClassificationResult]]:
+    ) -> RocVerificationResult:
         assert {"pressure_level", "longitude", "latitude", "time"}.issubset(prototype_diagnostic_array.coords)
         diagnostic_value_columns: list[str] = list(
             self._data_harmoniser.strategy_values_columns(
@@ -521,22 +534,26 @@ class DiagnosticsAmdarVerification:
             validation_columns + diagnostic_value_columns,
             prototype_diagnostic_array,
         )
+        logger.debug("Added required columns for spatio temporal aggregating")
         aggregated_data = self._spatio_temporal_data_aggregation(
             target_data, validation_columns, diagnostic_value_columns, validation_conditions
-        )
+        ).persist()
+        logger.debug("Triggered spatio temporal aggregation")
         blocking_wait_futures(aggregated_data)
-
-        result: dict[str, dict[str, BinaryClassificationResult]] = {}
+        logger.debug("Finished spatio temporal aggregation")
+        # result: dict[str, dict[str, BinaryClassificationResult]] = {}
+        result: defaultdict[str, dict[str, BinaryClassificationResult]] = defaultdict(dict)
         for diagnostic_val_col in diagnostic_value_columns:
             # descending values
-            result[diagnostic_val_col] = {}
+            # result[diagnostic_val_col] = {}
             subset_df = aggregated_data[[*validation_columns, diagnostic_val_col]].sort_values(
                 diagnostic_val_col, ascending=False
             )
             for amdar_turbulence_col in validation_columns:
-                result[diagnostic_val_col][amdar_turbulence_col] = received_operating_characteristic(
+                result[amdar_turbulence_col][diagnostic_val_col] = received_operating_characteristic(
                     subset_df[amdar_turbulence_col].values.compute_chunk_sizes(),  # noqa: PD011
                     subset_df[diagnostic_val_col].values.compute_chunk_sizes(),  # noqa: PD011
                 )
+        logger.debug("Finished computing ROC curves")
 
-        return result
+        return RocVerificationResult(dict(result))

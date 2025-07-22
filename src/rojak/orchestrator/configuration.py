@@ -542,9 +542,9 @@ class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
     ]
     # ASSUME FOR NOW ONLY USE FOR THIS IS DATA HARMONISATION
     harmonisation_strategies: Annotated[
-        list[DiagnosticsAmdarHarmonisationStrategyOptions],
-        Field(description="List of harmonisation strategies", repr=True, frozen=True),
-    ]
+        list[DiagnosticsAmdarHarmonisationStrategyOptions] | None,
+        Field(description="List of harmonisation strategies", repr=True, default=None),
+    ] = None
     save_harmonised_data: Annotated[
         bool, Field(description="Save harmonised data", repr=True, frozen=True, default=True)
     ] = True
@@ -552,6 +552,10 @@ class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
         DiagnosticValidationConfig | None,
         Field(description="Diagnostic validation configuration", repr=True, frozen=True, default=None),
     ] = None
+
+    def model_post_init(self, context: Any, /) -> None:  # noqa: ANN401
+        if self.harmonisation_strategies is None:
+            self.harmonisation_strategies = []
 
     @model_validator(mode="after")
     def check_valid_glob_pattern(self) -> Self:

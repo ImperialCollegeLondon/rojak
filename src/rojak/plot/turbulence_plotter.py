@@ -30,6 +30,7 @@ from rojak.turbulence.analysis import Hemisphere, LatitudinalRegion
 from rojak.utilities.types import is_dask_array, is_np_array
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
     import dask.array as da
@@ -358,8 +359,8 @@ def _evaluate_dask_collection(array: "da.Array | NDArray") -> "NDArray":
 
 
 def plot_roc_curve(
-    false_positive_rates: "dict[DiagnosticName, da.Array | NDArray]",
-    true_positive_rates: "dict[DiagnosticName, da.Array | NDArray]",
+    false_positive_rates: "Mapping[DiagnosticName, da.Array | NDArray]",
+    true_positive_rates: "Mapping[DiagnosticName, da.Array | NDArray]",
     plot_name: str,
 ) -> None:
     assert set(false_positive_rates.keys()) == set(true_positive_rates.keys())
