@@ -16,6 +16,9 @@ from rojak.orchestrator.configuration import (
     TurbulenceCalibrationPhases,
     TurbulenceConfig,
     TurbulenceDiagnostics,
+    TurbulenceEvaluationConfig,
+    TurbulenceEvaluationPhaseOption,
+    TurbulenceEvaluationPhases,
     TurbulencePhases,
     TurbulenceThresholds,
 )
@@ -37,7 +40,7 @@ def create_calibration_only_config(tmp_path_factory) -> Callable:
             output_dir=output_dir,
             plots_dir=plots_dir,
             turbulence_config=TurbulenceConfig(
-                chunks={"pressure_level": 3, "latitude": 721, "longitude": 1440},
+                chunks={"pressure_level": 3, "latitude": 721, "longitude": 1440, "valid_time": 2},
                 diagnostics=diagnostics,
                 phases=TurbulencePhases(
                     calibration_phases=TurbulenceCalibrationPhases(
@@ -62,6 +65,57 @@ def create_calibration_only_config(tmp_path_factory) -> Callable:
         )
 
     return _calibration_only_config
+
+
+@pytest.fixture
+def create_evaluation_config_restore_from_outputs(tmp_path_factory) -> Callable:
+    def _evaluation_config_restore_from_outputs(
+        diagnostics: list[TurbulenceDiagnostics], path_to_thresholds: Path, path_to_distribution_params: Path
+    ) -> ConfigContext:
+        plots_dir: Path = tmp_path_factory.mktemp("plots")
+        output_dir: Path = tmp_path_factory.mktemp("output")
+        return ConfigContext(
+            name="calibration_only",
+            image_format="png",
+            output_dir=output_dir,
+            plots_dir=plots_dir,
+            turbulence_config=TurbulenceConfig(
+                chunks={"pressure_level": 3, "latitude": 721, "longitude": 1440, "valid_time": 2},
+                diagnostics=diagnostics,
+                phases=TurbulencePhases(
+                    calibration_phases=TurbulenceCalibrationPhases(
+                        phases=[
+                            TurbulenceCalibrationPhaseOption.THRESHOLDS,
+                            TurbulenceCalibrationPhaseOption.HISTOGRAM,
+                        ],
+                        calibration_config=TurbulenceCalibrationConfig(
+                            thresholds_file_path=path_to_thresholds,
+                            diagnostic_distribution_file_path=path_to_distribution_params,
+                        ),
+                    ),
+                    evaluation_phases=TurbulenceEvaluationPhases(
+                        phases=[
+                            TurbulenceEvaluationPhaseOption.PROBABILITIES,
+                            TurbulenceEvaluationPhaseOption.EDR,
+                            TurbulenceEvaluationPhaseOption.TURBULENT_REGIONS,
+                            TurbulenceEvaluationPhaseOption.CORRELATION_BTW_PROBABILITIES,
+                            # Transforming to EDR on junk data results in NaNs breaking the clustered correlations
+                            # TurbulenceEvaluationPhaseOption.CORRELATION_BTW_EDR,
+                        ],
+                        evaluation_config=TurbulenceEvaluationConfig(
+                            evaluation_data_dir=Path("tests/_static/"),
+                        ),
+                    ),
+                ),
+            ),
+            data_config=DataConfig(
+                spatial_domain=SpatialDomain(
+                    minimum_latitude=-90, maximum_latitude=90, minimum_longitude=-180, maximum_longitude=180
+                )
+            ),
+        )
+
+    return _evaluation_config_restore_from_outputs
 
 
 class CalibrationOutputFiles(NamedTuple):
@@ -114,3 +168,29 @@ def test_turbulence_calibration_only(create_calibration_only_config: Callable, c
     assert calibrated_diagnostics.intersection(distribution_params.keys()) == calibrated_diagnostics.union(
         distribution_params.keys()
     )
+
+
+def test_turbulence_evaluation_restore_from_file(
+    create_calibration_only_config, client, create_evaluation_config_restore_from_outputs
+):
+    calibration_config: ConfigContext = create_calibration_only_config(4)
+    assert calibration_config.turbulence_config is not None
+
+    TurbulenceLauncher(calibration_config).launch()
+    output_dir: Path = calibration_config.output_dir / calibration_config.name
+    output_json_files = list(output_dir.glob("*.json"))
+    assert len(output_json_files) == len(calibration_config.turbulence_config.phases.calibration_phases.phases)
+    output_files = marry_up_output_files(output_json_files)
+    assert output_files.thresholds is not None
+    assert output_files.distribution is not None
+
+    evaluation_config: ConfigContext = create_evaluation_config_restore_from_outputs(
+        calibration_config.turbulence_config.diagnostics, output_files.thresholds, output_files.distribution
+    )
+    assert evaluation_config.turbulence_config is not None
+    assert evaluation_config.turbulence_config.phases is not None
+    assert evaluation_config.turbulence_config.phases.evaluation_phases is not None
+
+    result = TurbulenceLauncher(evaluation_config).launch()
+    assert result is not None
+    assert set(evaluation_config.turbulence_config.phases.evaluation_phases.phases) == set(result.phase_outcomes.keys())
