@@ -4,12 +4,15 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from rojak.orchestrator.configuration import TurbulenceDiagnostics, TurbulenceSeverity
+from rojak.orchestrator.configuration import (
+    DiagnosticsAmdarHarmonisationStrategyOptions,
+    TurbulenceDiagnostics,
+    TurbulenceSeverity,
+)
 from rojak.turbulence.verification import (
     DiagnosticsAmdarDataHarmoniser,
     DiagnosticsAmdarHarmonisationStrategy,
     DiagnosticsAmdarHarmonisationStrategyFactory,
-    DiagnosticsAmdarHarmonisationStrategyOptions,
     DiagnosticsSeveritiesStrategy,
     EdrSeveritiesStrategy,
     NotWithinTimeFrameError,

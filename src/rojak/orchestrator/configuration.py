@@ -13,6 +13,7 @@
 #  limitations under the License.
 
 import datetime
+from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Self, assert_never
@@ -23,7 +24,6 @@ from pydantic import AfterValidator, BaseModel, Field, ValidationError, model_va
 
 from rojak.datalib.madis.amdar import AcarsAmdarTurbulenceData
 from rojak.datalib.ukmo.amdar import UkmoAmdarTurbulenceData
-from rojak.turbulence.verification import DiagnosticsAmdarHarmonisationStrategyOptions
 from rojak.utilities.types import Limits
 
 if TYPE_CHECKING:
@@ -531,6 +531,30 @@ class BaseInputDataConfig[T: StrEnum](BaseConfigModel):
 
 
 class MeteorologyConfig(BaseInputDataConfig[MetDataSource]): ...
+
+
+class DiagnosticsAmdarHarmonisationStrategyOptions(StrEnum):
+    RAW_INDEX_VALUES = "raw"
+    INDEX_TURBULENCE_INTENSITY = "index_severity"
+    EDR = "edr"
+    EDR_TURBULENCE_INTENSITY = "edr_severity"
+
+    def column_name_method(self, severity: "TurbulenceSeverity | None" = None) -> Callable:
+        match self:
+            case (
+                DiagnosticsAmdarHarmonisationStrategyOptions.EDR
+                | DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES
+            ):
+                assert severity is None
+                return lambda name: f"{name}_{str(self)}"
+            case (
+                DiagnosticsAmdarHarmonisationStrategyOptions.INDEX_TURBULENCE_INTENSITY
+                | DiagnosticsAmdarHarmonisationStrategyOptions.EDR_TURBULENCE_INTENSITY
+            ):
+                assert severity is not None
+                return lambda name: f"{name}_{str(self)}_{str(severity)}"
+            case _ as unreachable:
+                assert_never(unreachable)
 
 
 class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):

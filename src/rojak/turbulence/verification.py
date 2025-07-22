@@ -16,8 +16,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from collections.abc import Callable, Generator, Mapping
-from enum import StrEnum
-from typing import TYPE_CHECKING, ClassVar, NamedTuple, assert_never
+from typing import TYPE_CHECKING, ClassVar, NamedTuple
 
 import dask.dataframe as dd
 import numpy as np
@@ -26,6 +25,8 @@ import pandas as pd
 from rojak.core.calculations import bilinear_interpolation
 from rojak.core.distributed_tools import blocking_wait_futures
 from rojak.core.indexing import map_values_to_nearest_coordinate_index
+from rojak.orchestrator.configuration import DiagnosticsAmdarHarmonisationStrategyOptions
+from rojak.turbulence.diagnostic import EvaluationDiagnosticSuite
 from rojak.turbulence.metrics import BinaryClassificationResult, received_operating_characteristic
 from rojak.utilities.types import Coordinate
 
@@ -34,8 +35,8 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
     from rojak.core.data import AmdarTurbulenceData
-    from rojak.orchestrator.configuration import DiagnosticValidationCondition, TurbulenceSeverity
-    from rojak.turbulence.diagnostic import EvaluationDiagnosticSuite
+    from rojak.orchestrator.configuration import DiagnosticValidationCondition
+    from rojak.turbulence.diagnostic import DiagnosticSuite
     from rojak.utilities.types import DiagnosticName, Limits
 
 
@@ -45,30 +46,6 @@ logger = logging.getLogger(__name__)
 class NotWithinTimeFrameError(Exception):
     def __init__(self, message: str) -> None:
         super().__init__(message)
-
-
-class DiagnosticsAmdarHarmonisationStrategyOptions(StrEnum):
-    RAW_INDEX_VALUES = "raw"
-    INDEX_TURBULENCE_INTENSITY = "index_severity"
-    EDR = "edr"
-    EDR_TURBULENCE_INTENSITY = "edr_severity"
-
-    def column_name_method(self, severity: "TurbulenceSeverity | None" = None) -> Callable:
-        match self:
-            case (
-                DiagnosticsAmdarHarmonisationStrategyOptions.EDR
-                | DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES
-            ):
-                assert severity is None
-                return lambda name: f"{name}_{str(self)}"
-            case (
-                DiagnosticsAmdarHarmonisationStrategyOptions.INDEX_TURBULENCE_INTENSITY
-                | DiagnosticsAmdarHarmonisationStrategyOptions.EDR_TURBULENCE_INTENSITY
-            ):
-                assert severity is not None
-                return lambda name: f"{name}_{str(self)}_{str(severity)}"
-            case _ as unreachable:
-                assert_never(unreachable)
 
 
 class SpatialTemporalIndex(NamedTuple):
@@ -192,9 +169,9 @@ class EdrSeveritiesStrategy(DiagnosticsAmdarHarmonisationStrategy):
 
 
 class DiagnosticsAmdarHarmonisationStrategyFactory:
-    _diagnostics_suite: "EvaluationDiagnosticSuite"
+    _diagnostics_suite: "DiagnosticSuite"
 
-    def __init__(self, diagnostics_suite: "EvaluationDiagnosticSuite") -> None:
+    def __init__(self, diagnostics_suite: "DiagnosticSuite") -> None:
         self._diagnostics_suite = diagnostics_suite
 
     def get_met_values(
@@ -205,6 +182,7 @@ class DiagnosticsAmdarHarmonisationStrategyFactory:
             DiagnosticsAmdarHarmonisationStrategyOptions.INDEX_TURBULENCE_INTENSITY,
         }:
             return self._diagnostics_suite.computed_values_as_dict()
+        assert isinstance(self._diagnostics_suite, EvaluationDiagnosticSuite)
         return dict(self._diagnostics_suite.edr)
 
     def create_strategies(
@@ -219,6 +197,7 @@ class DiagnosticsAmdarHarmonisationStrategyFactory:
                 case DiagnosticsAmdarHarmonisationStrategyOptions.EDR:
                     strategies.append(ValuesStrategy(option.column_name_method(), met_values))
                 case DiagnosticsAmdarHarmonisationStrategyOptions.INDEX_TURBULENCE_INTENSITY:
+                    assert isinstance(self._diagnostics_suite, EvaluationDiagnosticSuite)
                     for severity, threshold_mapping in self._diagnostics_suite.get_limits_for_severities():
                         strategies.append(
                             DiagnosticsSeveritiesStrategy(
@@ -228,6 +207,7 @@ class DiagnosticsAmdarHarmonisationStrategyFactory:
                             )
                         )
                 case DiagnosticsAmdarHarmonisationStrategyOptions.EDR_TURBULENCE_INTENSITY:
+                    assert isinstance(self._diagnostics_suite, EvaluationDiagnosticSuite)
                     for severity, edr_limits in self._diagnostics_suite.get_edr_bounds():
                         strategies.append(
                             EdrSeveritiesStrategy(option.column_name_method(severity=severity), met_values, edr_limits)
@@ -243,11 +223,11 @@ class DiagnosticsAmdarDataHarmoniser:
     """
 
     _amdar_data: "AmdarTurbulenceData"
-    _diagnostics_suite: "EvaluationDiagnosticSuite"
+    _diagnostics_suite: "DiagnosticSuite"
 
     TIME_WINDOW_DELTA: ClassVar[np.timedelta64] = np.timedelta64(3, "h")
 
-    def __init__(self, amdar_data: "AmdarTurbulenceData", diagnostics_suite: "EvaluationDiagnosticSuite") -> None:
+    def __init__(self, amdar_data: "AmdarTurbulenceData", diagnostics_suite: "DiagnosticSuite") -> None:
         self._amdar_data = amdar_data
         self._diagnostics_suite = diagnostics_suite
 

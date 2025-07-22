@@ -28,6 +28,7 @@ from rojak.datalib.madis.amdar import AcarsAmdarRepository
 from rojak.datalib.ukmo.amdar import UkmoAmdarRepository
 from rojak.orchestrator.configuration import (
     AmdarDataSource,
+    DiagnosticsAmdarHarmonisationStrategyOptions,
     DiagnosticValidationCondition,
     TurbulenceCalibrationPhaseOption,
     TurbulenceEvaluationConfig,
@@ -46,10 +47,14 @@ from rojak.turbulence.analysis import (
     HistogramData,
     LatitudinalCorrelationBetweenDiagnostics,
 )
-from rojak.turbulence.diagnostic import CalibrationDiagnosticSuite, DiagnosticFactory, EvaluationDiagnosticSuite
+from rojak.turbulence.diagnostic import (
+    CalibrationDiagnosticSuite,
+    DiagnosticFactory,
+    DiagnosticSuite,
+    EvaluationDiagnosticSuite,
+)
 from rojak.turbulence.verification import (
     DiagnosticsAmdarDataHarmoniser,
-    DiagnosticsAmdarHarmonisationStrategyOptions,
     DiagnosticsAmdarVerification,
 )
 from rojak.utilities.types import DistributionParameters, Limits
@@ -463,15 +468,15 @@ class DiagnosticsAmdarLauncher:
             case _ as unreachable:
                 assert_never(unreachable)
 
-    def launch(self, diagnostic_suite: EvaluationDiagnosticSuite) -> None:
+    def launch(self, diagnostic_suite: DiagnosticSuite) -> None:
         if self._spatial_domain.grid_size is None:
             raise ValueError("Grid size for spatial domain must be specified for diagnostics amdar data harmonisation")
-        if diagnostic_suite.pressure_levels is None:
-            raise ValueError("Pressure levels for diagnostic suite must be specified")
 
         logger.info("Started Turbulence Amdar Harmonisation")
         amdar_data = self.create_amdar_data_repository().to_amdar_turbulence_data(
-            self._spatial_domain, self._spatial_domain.grid_size, diagnostic_suite.pressure_levels
+            self._spatial_domain,
+            self._spatial_domain.grid_size,
+            diagnostic_suite.get_prototype_computed_diagnostic()["pressure_level"].data,
         )
         harmoniser = DiagnosticsAmdarDataHarmoniser(amdar_data, diagnostic_suite)
         time_window_as_np_datetime: Limits[np.datetime64] = Limits(
