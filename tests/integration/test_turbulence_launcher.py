@@ -1,4 +1,3 @@
-import random
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
@@ -9,8 +8,6 @@ from rojak.orchestrator.configuration import (
     Context as ConfigContext,
 )
 from rojak.orchestrator.configuration import (
-    DataConfig,
-    SpatialDomain,
     TurbulenceCalibrationConfig,
     TurbulenceCalibrationPhaseOption,
     TurbulenceCalibrationPhases,
@@ -23,97 +20,72 @@ from rojak.orchestrator.configuration import (
     TurbulenceThresholds,
 )
 from rojak.orchestrator.turbulence import DISTRIBUTION_PARAMS_TYPE_ADAPTER, THRESHOLDS_TYPE_ADAPTER, TurbulenceLauncher
+from tests.integration.conftest import randomly_select_diagnostics
 
 if TYPE_CHECKING:
     from rojak.turbulence.analysis import HistogramData
 
 
 @pytest.fixture
-def create_calibration_only_config(tmp_path_factory) -> Callable:
+def create_calibration_only_config(create_config_context) -> Callable:
     def _calibration_only_config(num_diagnostics: int) -> ConfigContext:
-        plots_dir: Path = tmp_path_factory.mktemp("plots")
-        output_dir: Path = tmp_path_factory.mktemp("output")
-        diagnostics: list[TurbulenceDiagnostics] = random.sample(list(TurbulenceDiagnostics), k=num_diagnostics)
-        return ConfigContext(
-            name="calibration_only",
-            image_format="png",
-            output_dir=output_dir,
-            plots_dir=plots_dir,
-            turbulence_config=TurbulenceConfig(
-                chunks={"pressure_level": 3, "latitude": 721, "longitude": 1440, "valid_time": 2},
-                diagnostics=diagnostics,
-                phases=TurbulencePhases(
-                    calibration_phases=TurbulenceCalibrationPhases(
-                        phases=[
-                            TurbulenceCalibrationPhaseOption.THRESHOLDS,
-                            TurbulenceCalibrationPhaseOption.HISTOGRAM,
-                        ],
-                        calibration_config=TurbulenceCalibrationConfig(
-                            calibration_data_dir=Path("tests/_static/"),
-                            percentile_thresholds=TurbulenceThresholds(
-                                light=0.97, light_to_moderate=98.0, moderate=99.0
-                            ),
-                        ),
-                    )
-                ),
-            ),
-            data_config=DataConfig(
-                spatial_domain=SpatialDomain(
-                    minimum_latitude=-90, maximum_latitude=90, minimum_longitude=-180, maximum_longitude=180
+        diagnostics: list[TurbulenceDiagnostics] = randomly_select_diagnostics(num_diagnostics)
+        turbulence_config = TurbulenceConfig(
+            chunks={"pressure_level": 3, "latitude": 721, "longitude": 1440, "valid_time": 2},
+            diagnostics=diagnostics,
+            phases=TurbulencePhases(
+                calibration_phases=TurbulenceCalibrationPhases(
+                    phases=[
+                        TurbulenceCalibrationPhaseOption.THRESHOLDS,
+                        TurbulenceCalibrationPhaseOption.HISTOGRAM,
+                    ],
+                    calibration_config=TurbulenceCalibrationConfig(
+                        calibration_data_dir=Path("tests/_static/"),
+                        percentile_thresholds=TurbulenceThresholds(light=0.97, light_to_moderate=98.0, moderate=99.0),
+                    ),
                 )
             ),
         )
+        return create_config_context("calibration_only", turb_config=turbulence_config)
 
     return _calibration_only_config
 
 
 @pytest.fixture
-def create_evaluation_config_restore_from_outputs(tmp_path_factory) -> Callable:
+def create_evaluation_config_restore_from_outputs(create_config_context) -> Callable:
     def _evaluation_config_restore_from_outputs(
         diagnostics: list[TurbulenceDiagnostics], path_to_thresholds: Path, path_to_distribution_params: Path
     ) -> ConfigContext:
-        plots_dir: Path = tmp_path_factory.mktemp("plots")
-        output_dir: Path = tmp_path_factory.mktemp("output")
-        return ConfigContext(
-            name="calibration_only",
-            image_format="png",
-            output_dir=output_dir,
-            plots_dir=plots_dir,
-            turbulence_config=TurbulenceConfig(
-                chunks={"pressure_level": 3, "latitude": 721, "longitude": 1440, "valid_time": 2},
-                diagnostics=diagnostics,
-                phases=TurbulencePhases(
-                    calibration_phases=TurbulenceCalibrationPhases(
-                        phases=[
-                            TurbulenceCalibrationPhaseOption.THRESHOLDS,
-                            TurbulenceCalibrationPhaseOption.HISTOGRAM,
-                        ],
-                        calibration_config=TurbulenceCalibrationConfig(
-                            thresholds_file_path=path_to_thresholds,
-                            diagnostic_distribution_file_path=path_to_distribution_params,
-                        ),
+        turbulence_config = TurbulenceConfig(
+            chunks={"pressure_level": 3, "latitude": 721, "longitude": 1440, "valid_time": 2},
+            diagnostics=diagnostics,
+            phases=TurbulencePhases(
+                calibration_phases=TurbulenceCalibrationPhases(
+                    phases=[
+                        TurbulenceCalibrationPhaseOption.THRESHOLDS,
+                        TurbulenceCalibrationPhaseOption.HISTOGRAM,
+                    ],
+                    calibration_config=TurbulenceCalibrationConfig(
+                        thresholds_file_path=path_to_thresholds,
+                        diagnostic_distribution_file_path=path_to_distribution_params,
                     ),
-                    evaluation_phases=TurbulenceEvaluationPhases(
-                        phases=[
-                            TurbulenceEvaluationPhaseOption.PROBABILITIES,
-                            TurbulenceEvaluationPhaseOption.EDR,
-                            TurbulenceEvaluationPhaseOption.TURBULENT_REGIONS,
-                            TurbulenceEvaluationPhaseOption.CORRELATION_BTW_PROBABILITIES,
-                            # Transforming to EDR on junk data results in NaNs breaking the clustered correlations
-                            # TurbulenceEvaluationPhaseOption.CORRELATION_BTW_EDR,
-                        ],
-                        evaluation_config=TurbulenceEvaluationConfig(
-                            evaluation_data_dir=Path("tests/_static/"),
-                        ),
+                ),
+                evaluation_phases=TurbulenceEvaluationPhases(
+                    phases=[
+                        TurbulenceEvaluationPhaseOption.PROBABILITIES,
+                        TurbulenceEvaluationPhaseOption.EDR,
+                        TurbulenceEvaluationPhaseOption.TURBULENT_REGIONS,
+                        TurbulenceEvaluationPhaseOption.CORRELATION_BTW_PROBABILITIES,
+                        # Transforming to EDR on junk data results in NaNs breaking the clustered correlations
+                        # TurbulenceEvaluationPhaseOption.CORRELATION_BTW_EDR,
+                    ],
+                    evaluation_config=TurbulenceEvaluationConfig(
+                        evaluation_data_dir=Path("tests/_static/"),
                     ),
                 ),
             ),
-            data_config=DataConfig(
-                spatial_domain=SpatialDomain(
-                    minimum_latitude=-90, maximum_latitude=90, minimum_longitude=-180, maximum_longitude=180
-                )
-            ),
         )
+        return create_config_context("evaluation_restore_from_outputs", turb_config=turbulence_config)
 
     return _evaluation_config_restore_from_outputs
 
