@@ -1,3 +1,4 @@
+import datetime
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
@@ -5,9 +6,10 @@ from typing import TYPE_CHECKING, NamedTuple
 import pytest
 
 from rojak.orchestrator.configuration import (
-    Context as ConfigContext,
-)
-from rojak.orchestrator.configuration import (
+    AmdarConfig,
+    AmdarDataSource,
+    DataConfig,
+    SpatialDomain,
     TurbulenceCalibrationConfig,
     TurbulenceCalibrationPhaseOption,
     TurbulenceCalibrationPhases,
@@ -19,7 +21,12 @@ from rojak.orchestrator.configuration import (
     TurbulencePhases,
     TurbulenceThresholds,
 )
+from rojak.orchestrator.configuration import (
+    Context as ConfigContext,
+)
 from rojak.orchestrator.turbulence import DISTRIBUTION_PARAMS_TYPE_ADAPTER, THRESHOLDS_TYPE_ADAPTER, TurbulenceLauncher
+from rojak.turbulence.verification import DiagnosticsAmdarHarmonisationStrategyOptions
+from rojak.utilities.types import Limits
 from tests.integration.conftest import randomly_select_diagnostics
 
 if TYPE_CHECKING:
@@ -204,4 +211,54 @@ def test_turbulence_calibration_and_evaluation(create_config_context, client, re
         ),
     )
     config = create_config_context("calibration_and_evaluation", turb_config=turbulence_config)
+    TurbulenceLauncher(config).launch()
+
+
+@pytest.mark.cdsapi
+def test_turbulence_amdar_acars_harmonisation(
+    create_config_context, client, retrieve_era5_cat_data, retrieve_single_day_madis_data
+) -> None:
+    diagnostics: list[TurbulenceDiagnostics] = randomly_select_diagnostics(2)
+    turbulence_config = TurbulenceConfig(
+        chunks={"pressure_level": 3, "latitude": 721, "longitude": 1440, "valid_time": 3},
+        diagnostics=diagnostics,
+        phases=TurbulencePhases(
+            calibration_phases=TurbulenceCalibrationPhases(
+                phases=[
+                    TurbulenceCalibrationPhaseOption.THRESHOLDS,
+                    TurbulenceCalibrationPhaseOption.HISTOGRAM,
+                ],
+                calibration_config=TurbulenceCalibrationConfig(
+                    calibration_data_dir=retrieve_era5_cat_data,
+                    percentile_thresholds=TurbulenceThresholds(light=0.97, light_to_moderate=98.0, moderate=99.0),
+                ),
+            ),
+            evaluation_phases=TurbulenceEvaluationPhases(
+                phases=[],  # Don't specify EDR as it should automatically calculate due to how code is structured
+                evaluation_config=TurbulenceEvaluationConfig(
+                    evaluation_data_dir=retrieve_era5_cat_data,
+                ),
+            ),
+        ),
+    )
+    data_config = DataConfig(
+        spatial_domain=SpatialDomain(
+            minimum_latitude=25, maximum_latitude=54, minimum_longitude=-125, maximum_longitude=2, grid_size=0.25
+        ),
+        amdar_config=AmdarConfig(
+            data_dir=retrieve_single_day_madis_data,
+            data_source=AmdarDataSource.MADIS,
+            glob_pattern="**/*.parquet",
+            time_window=Limits(
+                datetime.datetime(2024, month=1, day=1), datetime.datetime(2024, month=1, day=1, hour=18)
+            ),
+            harmonisation_strategies=[
+                DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES,
+                DiagnosticsAmdarHarmonisationStrategyOptions.EDR,
+            ],
+        ),
+    )
+    config = create_config_context(
+        "diagnostic_amdar_harmonisation_acars", turb_config=turbulence_config, data_config=data_config
+    )
     TurbulenceLauncher(config).launch()

@@ -74,8 +74,17 @@ def retrieve_era5_cat_data(pytestconfig) -> Path:
 
 
 @pytest.fixture(scope="module")
-def retrieve_single_day_madis_data(tmp_path_factory) -> Path:
-    amdar_dir = tmp_path_factory.mktemp("amdar_data")
+def retrieve_single_day_madis_data(pytestconfig) -> Path:
+    cached_amdar_data = pytestconfig.cache.get("path_to_amdar_data", None)
+    if cached_amdar_data is not None:
+        cached_amdar_dir = Path(cached_amdar_data)
+        parquet_file_status = [
+            (cached_amdar_dir / "2024" / "01" / f"20240101_{hour:02d}00.parquet").is_dir() for hour in range(24)
+        ]
+        if all(parquet_file_status):
+            return cached_amdar_dir
+
+    amdar_dir = pytestconfig.cache.mkdir("amdar_data")
     get_through_cli = runner.invoke(
         app,
         ["data", "amdar", "retrieve", "-s", "madis", "-y", "2024", "-m", "1", "-d", "1", "-o", amdar_dir],
@@ -96,6 +105,9 @@ def retrieve_single_day_madis_data(tmp_path_factory) -> Path:
         ],
     )
     assert pre_process_madis.exit_code == 0
+
+    pytestconfig.cache.set("path_to_amdar_data", str(amdar_dir))
+
     return amdar_dir
 
 
