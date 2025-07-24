@@ -429,9 +429,9 @@ class TurbulenceLauncher:
                 raise NotImplementedError("Comparing amdar data with calibration data not yet supported")
 
             assert result is not None, "Pydantic checks on config should prevent this assert from failing"
-            DiagnosticsAmdarLauncher(self._context.data_config, self._context.output_dir, self._context.name).launch(
-                result.suite
-            )
+            DiagnosticsAmdarLauncher(
+                self._context.data_config, self._context.output_dir, self._context.plots_dir, self._context.name
+            ).launch(result.suite)
 
         return result
 
@@ -444,10 +444,11 @@ class DiagnosticsAmdarLauncher:
     _strategies: list["DiagnosticsAmdarHarmonisationStrategyOptions"]
     _time_window: "Limits[datetime]"
     _output_filepath: "Path"
+    _plots_dir: "Path"
     _save_output: bool
     _validation_conditions: list["DiagnosticValidationCondition"]
 
-    def __init__(self, data_config: "DataConfig", output_dir: "Path", run_name: "RunName") -> None:
+    def __init__(self, data_config: "DataConfig", output_dir: "Path", plots_dir: "Path", run_name: "RunName") -> None:
         assert data_config.amdar_config is not None
         self._data_source = data_config.amdar_config.data_source
         self._path_to_files = str(data_config.amdar_config.data_dir.resolve() / data_config.amdar_config.glob_pattern)
@@ -473,6 +474,7 @@ class DiagnosticsAmdarLauncher:
             base_dir / f"{self._data_source}_{self._time_window.lower.strftime(time_format)}"
             f"_{self._time_window.upper.strftime(time_format)}.parquet"
         )
+        self.plots_dir = plots_dir
 
     def create_amdar_data_repository(self) -> "AmdarDataRepository":
         match self._data_source:
@@ -523,4 +525,6 @@ class DiagnosticsAmdarLauncher:
                 true_positives: dict[DiagnosticName, da.Array] = {
                     name: roc_result.true_positives for name, roc_result in by_diagnostic_roc.items()
                 }
-                plot_roc_curve(false_positives, true_positives, f"roc_{amdar_verification_col}.png")
+                plot_roc_curve(
+                    false_positives, true_positives, str(self._plots_dir / f"roc_{amdar_verification_col}.png")
+                )
