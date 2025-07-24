@@ -11,6 +11,8 @@ on:
       - .github/workflows/release.yml
       - .github/workflows/sphinx.yml
   pull_request:
+    types:
+      - ready_for_review
     branches: [ "master" , "dev" ]
     paths-ignore:
       - .github/workflows/cd.yml
