@@ -23,8 +23,18 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture(scope="module")
-def retrieve_era5_cat_data(tmp_path_factory) -> Path:
-    data_dir = tmp_path_factory.mktemp("met_data")
+def retrieve_era5_cat_data(pytestconfig) -> Path:
+    cached_era5_data = pytestconfig.cache.get("path_to_era5_cat_data", None)
+    if cached_era5_data is not None:
+        cached_data_dir = Path(cached_era5_data)
+        if (
+            (cached_data_dir / "2024-1-1.nc").is_file()
+            and (cached_data_dir / "2024-1-2.nc").is_file()
+            and (cached_data_dir / "2024-1-3.nc").is_file()
+        ):
+            return cached_data_dir
+
+    data_dir = pytestconfig.cache.mkdir("met_data")
     get_through_cli: Result = runner.invoke(
         app,
         [
@@ -46,7 +56,8 @@ def retrieve_era5_cat_data(tmp_path_factory) -> Path:
             "-n",
             "pressure-level",
             "--default-name",
-            "cat-o",
+            "cat",
+            "-o",
             str(data_dir),
         ],
     )
@@ -56,6 +67,8 @@ def retrieve_era5_cat_data(tmp_path_factory) -> Path:
     assert Path(data_dir / "2024-1-1.nc") in netcdf_files
     assert Path(data_dir / "2024-1-2.nc") in netcdf_files
     assert Path(data_dir / "2024-1-3.nc") in netcdf_files
+
+    pytestconfig.cache.set("path_to_era5_cat_data", str(data_dir))
 
     return data_dir
 

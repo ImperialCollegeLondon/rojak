@@ -166,3 +166,42 @@ def test_turbulence_evaluation_restore_from_file(
     result = TurbulenceLauncher(evaluation_config).launch()
     assert result is not None
     assert set(evaluation_config.turbulence_config.phases.evaluation_phases.phases) == set(result.phase_outcomes.keys())
+
+
+@pytest.mark.cdsapi
+def test_turbulence_calibration_and_evaluation(create_config_context, client, retrieve_era5_cat_data) -> None:
+    diagnostics: list[TurbulenceDiagnostics] = randomly_select_diagnostics(4)
+    turbulence_config = TurbulenceConfig(
+        chunks={"pressure_level": 3, "latitude": 721, "longitude": 1440, "valid_time": 3},
+        diagnostics=diagnostics,
+        phases=TurbulencePhases(
+            calibration_phases=TurbulenceCalibrationPhases(
+                phases=[
+                    TurbulenceCalibrationPhaseOption.THRESHOLDS,
+                    TurbulenceCalibrationPhaseOption.HISTOGRAM,
+                ],
+                calibration_config=TurbulenceCalibrationConfig(
+                    # calibration_data_dir=Path("tests/_static/"),
+                    calibration_data_dir=retrieve_era5_cat_data,
+                    percentile_thresholds=TurbulenceThresholds(light=0.97, light_to_moderate=98.0, moderate=99.0),
+                ),
+            ),
+            evaluation_phases=TurbulenceEvaluationPhases(
+                phases=[
+                    TurbulenceEvaluationPhaseOption.PROBABILITIES,
+                    TurbulenceEvaluationPhaseOption.EDR,
+                    TurbulenceEvaluationPhaseOption.TURBULENT_REGIONS,
+                    TurbulenceEvaluationPhaseOption.CORRELATION_BTW_PROBABILITIES,
+                    # TurbulenceEvaluationPhaseOption.CORRELATION_BTW_EDR,
+                    # TurbulenceEvaluationPhaseOption.REGIONAL_CORRELATION_PROBABILITIES,
+                    # TurbulenceEvaluationPhaseOption.REGIONAL_CORRELATION_EDR,
+                ],
+                evaluation_config=TurbulenceEvaluationConfig(
+                    # evaluation_data_dir=Path("tests/_static/"),
+                    evaluation_data_dir=retrieve_era5_cat_data,
+                ),
+            ),
+        ),
+    )
+    config = create_config_context("calibration_and_evaluation", turb_config=turbulence_config)
+    TurbulenceLauncher(config).launch()
