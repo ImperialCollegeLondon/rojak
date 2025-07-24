@@ -27,7 +27,7 @@ from rojak.core.distributed_tools import blocking_wait_futures
 from rojak.core.indexing import map_values_to_nearest_coordinate_index
 from rojak.orchestrator.configuration import DiagnosticsAmdarHarmonisationStrategyOptions
 from rojak.turbulence.diagnostic import EvaluationDiagnosticSuite
-from rojak.turbulence.metrics import BinaryClassificationResult, received_operating_characteristic
+from rojak.turbulence.metrics import BinaryClassificationResult, area_under_curve, received_operating_characteristic
 from rojak.utilities.types import Coordinate
 
 if TYPE_CHECKING:
@@ -410,11 +410,28 @@ def _observed_turbulence_aggregation(condition: "DiagnosticValidationCondition")
 
 @dataclasses.dataclass
 class RocVerificationResult:
+    # first key: amdar column name
+    # second key: diagnostic column name
     by_amdar_col_then_diagnostic: dict[str, dict[str, BinaryClassificationResult]]
+    _auc_by_amdar_then_diagnostic: dict[str, dict[str, float]] | None = None
 
     # define iterators and getters on this class
     def iterate_by_amdar_column(self) -> Generator[tuple[str, dict[str, BinaryClassificationResult]], None, None]:
         yield from self.by_amdar_col_then_diagnostic.items()
+
+    def _area_under_curve(self) -> dict[str, dict[str, float]]:
+        if self._auc_by_amdar_then_diagnostic is None:
+            auc = defaultdict(dict)
+            for column, by_diagnostic in self.by_amdar_col_then_diagnostic.items():
+                for diagnostic_name, roc_results in by_diagnostic.items():
+                    auc[column][diagnostic_name] = area_under_curve(
+                        roc_results.false_positives, roc_results.true_positives
+                    )
+            self._auc_by_amdar_then_diagnostic = dict(auc)
+        return self._auc_by_amdar_then_diagnostic
+
+    def auc_for_amdar_column(self, amdar_column: str) -> dict[str, float]:
+        return self._area_under_curve()[amdar_column]
 
 
 # Keep this extendable for verification against other forms of data??
@@ -528,11 +545,9 @@ class DiagnosticsAmdarVerification:
         logger.debug("Triggered spatio temporal aggregation")
         blocking_wait_futures(aggregated_data)
         logger.debug("Finished spatio temporal aggregation")
-        # result: dict[str, dict[str, BinaryClassificationResult]] = {}
         result: defaultdict[str, dict[str, BinaryClassificationResult]] = defaultdict(dict)
         for diagnostic_val_col in diagnostic_value_columns:
             # descending values
-            # result[diagnostic_val_col] = {}
             subset_df = aggregated_data[[*validation_columns, diagnostic_val_col]].sort_values(
                 diagnostic_val_col, ascending=False
             )

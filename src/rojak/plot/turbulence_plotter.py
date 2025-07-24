@@ -362,8 +362,11 @@ def plot_roc_curve(
     false_positive_rates: "Mapping[DiagnosticName, da.Array | NDArray]",
     true_positive_rates: "Mapping[DiagnosticName, da.Array | NDArray]",
     plot_name: str,
+    area_under_curve: "Mapping[str, float] | None" = None,
 ) -> None:
     assert set(false_positive_rates.keys()) == set(true_positive_rates.keys())
+    if area_under_curve is not None:
+        assert set(false_positive_rates.keys()).issubset(area_under_curve.keys())
     fpr: dict[DiagnosticName, NDArray] = {
         name: _evaluate_dask_collection(rate) for name, rate in false_positive_rates.items()
     }
@@ -379,7 +382,12 @@ def plot_roc_curve(
 
     fig: Figure = plt.figure(figsize=(8, 6))
     for name, colour in zip(fpr.keys(), line_colours, strict=False):
-        plt.plot(fpr[name], tpr[name], color=colour, label=name)
+        plt.plot(
+            fpr[name],
+            tpr[name],
+            color=colour,
+            label=name if area_under_curve is None else f"{name} - AUC: {area_under_curve[name]:.2f}",
+        )
     # Default line width is 1.5 according to docs
     plt.plot(np.linspace(0, 1, 500), np.linspace(0, 1, 500), color="black", linewidth=1, linestyle="--")
     plt.xlabel("False Positive Rate")
