@@ -528,3 +528,6 @@ class DiagnosticsAmdarLauncher:
                 plot_roc_curve(
                     false_positives, true_positives, str(self._plots_dir / f"roc_{amdar_verification_col}.png")
                 )
+                logger.debug("Created roc plot for %s AMDAR turbulence measure", amdar_verification_col)
+
+            logger.info("Finished validation of diagnostics with amdar data")
