@@ -455,6 +455,10 @@ class DiagnosticsAmdarVerification:
         ]
         target_columns = space_time_columns + validation_columns
         target_data: dd.DataFrame = self.data[target_columns]
+        dataframe_meta: dict[str, pd.Series] = {
+            col_name: pd.Series(dtype=col_dtype) for col_name, col_dtype in target_data.dtypes.to_dict().items()
+        }
+        dataframe_meta["level_index"] = pd.Series(dtype=int)
         target_data = target_data.map_partitions(
             lambda df: df.assign(
                 level_index=df.apply(
@@ -463,19 +467,22 @@ class DiagnosticsAmdarVerification:
                     ).argmin(),
                     axis=1,
                 )
-            )
+            ),
+            meta=dataframe_meta,
         )
+        dataframe_meta["lat_index"] = pd.Series(dtype=int)
+        dataframe_meta["lon_index"] = pd.Series(dtype=int)
         return target_data.map_partitions(
             lambda df: df.assign(
                 lat_index=map_values_to_nearest_coordinate_index(df.latitude, grid_prototype["latitude"].values),
                 lon_index=map_values_to_nearest_coordinate_index(df.longitude, grid_prototype["longitude"].values),
-            )
-        )
+            ),
+            meta=dd.from_pandas(pd.DataFrame(dataframe_meta)),
+        ).optimize()
 
     def _spatio_temporal_data_aggregation(
         self,
         target_data: "dd.DataFrame",
-        validation_columns: list[str],
         strategy_columns: list[str],
         validation_conditions: "list[DiagnosticValidationCondition]",
     ) -> "dd.DataFrame":
@@ -485,8 +492,8 @@ class DiagnosticsAmdarVerification:
             "level_index",
             self._data_harmoniser.common_time_column_name,
         ]
-        target_columns = group_by_columns + validation_columns + strategy_columns
-        grouped_by_space_time = target_data[target_columns].groupby(group_by_columns)
+        target_data = target_data.drop(columns=["level", "longitude", "latitude"])
+        grouped_by_space_time = target_data.groupby(group_by_columns)
 
         aggregation_spec: dict = {
             condition.observed_turbulence_column_name: _observed_turbulence_aggregation(condition)
@@ -516,7 +523,7 @@ class DiagnosticsAmdarVerification:
         )
         logger.debug("Added required columns for spatio temporal aggregating")
         aggregated_data = self._spatio_temporal_data_aggregation(
-            target_data, validation_columns, diagnostic_value_columns, validation_conditions
+            target_data, diagnostic_value_columns, validation_conditions
         ).persist()
         logger.debug("Triggered spatio temporal aggregation")
         blocking_wait_futures(aggregated_data)
