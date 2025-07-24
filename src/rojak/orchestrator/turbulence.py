@@ -474,7 +474,8 @@ class DiagnosticsAmdarLauncher:
             base_dir / f"{self._data_source}_{self._time_window.lower.strftime(time_format)}"
             f"_{self._time_window.upper.strftime(time_format)}.parquet"
         )
-        self._plots_dir = plots_dir
+        self._plots_dir = plots_dir / run_name
+        self._plots_dir.mkdir(parents=True, exist_ok=True)
 
     def create_amdar_data_repository(self) -> "AmdarDataRepository":
         match self._data_source:
