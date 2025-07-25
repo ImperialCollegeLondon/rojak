@@ -194,9 +194,12 @@ def binary_classification_curve(
         raise ValueError("values must be strictly decreasing")
     diff_values = da.abs(diff_values)
 
-    values_min: float = da.nanmin(sorted_values).compute()
-    values_max: float = da.nanmax(sorted_values).compute()
-    minimum_step_size: float = np.abs(values_max - values_min) / num_intervals
+    if num_intervals == -1:
+        minimum_step_size: float = 0.0
+    else:
+        values_min: float = da.nanmin(sorted_values).compute()
+        values_max: float = da.nanmax(sorted_values).compute()
+        minimum_step_size: float = np.abs(values_max - values_min) / num_intervals
 
     # As the values would be from the turbulence diagnostics, they are continuous
     # To reduce the data, use step_size to determine the minimum difference between two data points

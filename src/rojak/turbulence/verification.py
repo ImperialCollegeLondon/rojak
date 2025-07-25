@@ -555,6 +555,7 @@ class DiagnosticsAmdarVerification:
                 result[amdar_turbulence_col][diagnostic_val_col] = received_operating_characteristic(
                     subset_df[amdar_turbulence_col].values.compute_chunk_sizes(),  # noqa: PD011
                     subset_df[diagnostic_val_col].values.compute_chunk_sizes(),  # noqa: PD011
+                    num_intervals=-1,
                 )
         logger.debug("Finished computing ROC curves")
 
