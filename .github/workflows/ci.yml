@@ -38,6 +38,7 @@ jobs:
         python-version: [ "3.12", "3.13" ]
     environment:
       name: CI
+    if: ${{ !github.event.pull_request.draft }}
 
     steps:
       - uses: actions/checkout@v4
