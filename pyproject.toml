@@ -34,6 +34,11 @@ dependencies = [
     "xarray",
 ]
 
+[project.urls]
+repository = "https://github.com/ImperialCollegeLondon/rojak"
+documentation = "https://imperialcollegelondon.github.io/rojak/"
+issues = "https://github.com/ImperialCollegeLondon/rojak/issues"
+
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
@@ -94,3 +99,15 @@ packages = ["src/rojak"]
 
 [tool.hatch.version]
 source = "vcs"
+
+[tool.coverage.report]
+exclude_also = [
+    'def __repr__',
+    'raise AssertionError',
+    'raise NotImplementedError',
+    'if 0:',
+    'if __name__ == .__main__.:',
+    'if TYPE_CHECKING:',
+    '@(abc\.)?abstractmethod',
+    '^\s*(logger|logging)\.\w+\(.*\)', # ignore logging statements
+]

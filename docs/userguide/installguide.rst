@@ -20,7 +20,7 @@ There are a few way which ``rojak`` can be installed. The easiest is through ``p
 
 .. code-block::
 
-    $ pip install rojak_cat
+    $ pip install rojak-cat
     $ uv add rojak # if you use uv as your package manager
 
 ..

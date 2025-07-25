@@ -110,7 +110,7 @@ def received_operating_characteristic(
     )
 
 
-def check_lazy_sizes_equal[T: xr.DataArray | da.Array](first_array: T, second_array: T) -> int:
+def _check_lazy_sizes_equal[T: xr.DataArray | da.Array](first_array: T, second_array: T) -> int:
     assert is_dask_collection(first_array)
     assert is_dask_collection(second_array)
     sizes = dask.compute(first_array.size, second_array.size)  # pyright: ignore[reportPrivateImportUsage]
@@ -180,7 +180,7 @@ def binary_classification_curve(
     """
     if sorted_truth.ndim != 1 or sorted_values.ndim != 1:
         raise ValueError("sorted_truth and sorted_values must be 1D")
-    check_lazy_sizes_equal(sorted_truth, sorted_values)
+    _check_lazy_sizes_equal(sorted_truth, sorted_values)
 
     if sorted_truth.dtype != bool:
         if positive_classification_label is None:
@@ -194,9 +194,12 @@ def binary_classification_curve(
         raise ValueError("values must be strictly decreasing")
     diff_values = da.abs(diff_values)
 
-    values_min: float = da.nanmin(sorted_values).compute()
-    values_max: float = da.nanmax(sorted_values).compute()
-    minimum_step_size: float = np.abs(values_max - values_min) / num_intervals
+    if num_intervals == -1:
+        minimum_step_size: float = 0.0
+    else:
+        values_min: float = da.nanmin(sorted_values).compute()
+        values_max: float = da.nanmax(sorted_values).compute()
+        minimum_step_size: float = np.abs(values_max - values_min) / num_intervals
 
     # As the values would be from the turbulence diagnostics, they are continuous
     # To reduce the data, use step_size to determine the minimum difference between two data points
@@ -244,7 +247,7 @@ def _parallel_area_under_curve(x_values: da.Array | xr.DataArray, y_values: da.A
         assert is_dask_array(y_values)
         y_vals: da.Array = y_values
 
-    array_size = check_lazy_sizes_equal(x_vals, y_vals)
+    array_size = _check_lazy_sizes_equal(x_vals, y_vals)
     if array_size < 2:  # noqa: PLR2004
         raise ValueError("x_value and y_values must have at least 2 points to compute area under the curve")
 

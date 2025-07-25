@@ -15,13 +15,15 @@ from rojak.orchestrator.configuration import (
     AmdarConfig,
     AmdarDataSource,
     DataConfig,
+    DiagnosticsAmdarHarmonisationStrategyOptions,
+    DiagnosticValidationCondition,
+    DiagnosticValidationConfig,
     InvalidConfigurationError,
     SpatialDomain,
     TurbulenceSeverity,
     TurbulenceThresholdMode,
     TurbulenceThresholds,
 )
-from rojak.turbulence.verification import DiagnosticsAmdarHarmonisationStrategyOptions
 from rojak.utilities.types import Limits
 
 if TYPE_CHECKING:
@@ -592,6 +594,64 @@ def test_amdar_config(
         assert config.data_source == amdar_type
         assert config.glob_pattern == glob_pattern
         assert config.data_dir == tmp_path
+
+    if e != 0:
+        assert e.type is InvalidConfigurationError
+
+
+@pytest.mark.parametrize(
+    ("conditions", "data_source", "expectation"),
+    [
+        (
+            [DiagnosticValidationCondition(observed_turbulence_column_name="turbulence_degree", value_greater_than=0)],
+            AmdarDataSource.UKMO,
+            nullcontext(0),
+        ),
+        (
+            [DiagnosticValidationCondition(observed_turbulence_column_name="rando_name", value_greater_than=0)],
+            AmdarDataSource.UKMO,
+            pytest.raises(InvalidConfigurationError),
+        ),
+        (
+            [DiagnosticValidationCondition(observed_turbulence_column_name="maxEDR", value_greater_than=0)],
+            AmdarDataSource.MADIS,
+            nullcontext(0),
+        ),
+        (
+            [DiagnosticValidationCondition(observed_turbulence_column_name="maxEdr", value_greater_than=0)],
+            AmdarDataSource.MADIS,
+            pytest.raises(InvalidConfigurationError),
+        ),
+        (
+            [
+                DiagnosticValidationCondition(observed_turbulence_column_name="maxEDR", value_greater_than=0),
+                DiagnosticValidationCondition(observed_turbulence_column_name="maxTurbulence", value_greater_than=0),
+                DiagnosticValidationCondition(observed_turbulence_column_name="medEDR", value_greater_than=0),
+                DiagnosticValidationCondition(observed_turbulence_column_name="medTurbulence", value_greater_than=0),
+                DiagnosticValidationCondition(observed_turbulence_column_name="turbIndex", value_greater_than=0),
+                DiagnosticValidationCondition(observed_turbulence_column_name="vertGust", value_greater_than=0),
+            ],
+            AmdarDataSource.MADIS,
+            nullcontext(0),
+        ),
+    ],
+)
+def test_check_valid_diagnostic_conditions(
+    tmp_path: "Path", conditions: list[DiagnosticValidationCondition], data_source: AmdarDataSource, expectation
+) -> None:
+    with expectation as e:
+        print(data_source)
+        config = AmdarConfig(
+            data_dir=tmp_path,
+            data_source=data_source,
+            glob_pattern="*.parquet" if data_source == AmdarDataSource.MADIS else "*.csv",
+            time_window=Limits(datetime(1970, 1, 1), datetime(1980, 1, 1)),
+            harmonisation_strategies=[],
+            diagnostic_validation=DiagnosticValidationConfig(validation_conditions=conditions),
+        )
+
+        assert config.diagnostic_validation is not None
+        assert config.diagnostic_validation.validation_conditions == conditions
 
     if e != 0:
         assert e.type is InvalidConfigurationError

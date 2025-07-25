@@ -13,16 +13,21 @@
 #  limitations under the License.
 
 import datetime
+from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Any, Self, assert_never
+from typing import TYPE_CHECKING, Annotated, Any, Self, assert_never
 
 import numpy as np
 import yaml
 from pydantic import AfterValidator, BaseModel, Field, ValidationError, model_validator
 
-from rojak.turbulence.verification import DiagnosticsAmdarHarmonisationStrategyOptions
+from rojak.datalib.madis.amdar import AcarsAmdarTurbulenceData
+from rojak.datalib.ukmo.amdar import UkmoAmdarTurbulenceData
 from rojak.utilities.types import Limits
+
+if TYPE_CHECKING:
+    from rojak.core.data import AmdarTurbulenceData
 
 
 class InvalidConfigurationError(Exception):
@@ -452,6 +457,29 @@ class ContrailsConfig(BaseConfigModel):
     ...
 
 
+class DiagnosticValidationCondition(BaseConfigModel):
+    observed_turbulence_column_name: Annotated[
+        str, Field(description="Observed turbulence column name", frozen=True, repr=True, strict=True)
+    ]
+    value_greater_than: Annotated[
+        float, Field(description="Value greater than", repr=True, strict=True, ge=0.0, frozen=True)
+    ]
+
+    def __hash__(self) -> int:
+        return hash((self.observed_turbulence_column_name, self.value_greater_than))
+
+
+class DiagnosticValidationConfig(BaseConfigModel):
+    validation_conditions: list[DiagnosticValidationCondition]
+
+    @model_validator(mode="after")
+    def check_conditions_are_unique(self) -> Self:
+        assert len(set(self.validation_conditions)) == len(self.validation_conditions), (
+            "Validation conditions must be unique"
+        )
+        return self
+
+
 class SpatialDomain(BaseConfigModel):
     minimum_latitude: Annotated[float, Field(default=-90, description="Minimum latitude", ge=-90, le=90)]
     maximum_latitude: Annotated[float, Field(default=90, description="Maximum latitude", ge=-90, le=90)]
@@ -505,6 +533,35 @@ class BaseInputDataConfig[T: StrEnum](BaseConfigModel):
 class MeteorologyConfig(BaseInputDataConfig[MetDataSource]): ...
 
 
+class DiagnosticsAmdarHarmonisationStrategyOptions(StrEnum):
+    RAW_INDEX_VALUES = "raw"
+    INDEX_TURBULENCE_INTENSITY = "index_severity"
+    EDR = "edr"
+    EDR_TURBULENCE_INTENSITY = "edr_severity"
+
+    def column_name_method(self, severity: "TurbulenceSeverity | None" = None) -> Callable:
+        match self:
+            case (
+                DiagnosticsAmdarHarmonisationStrategyOptions.EDR
+                | DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES
+            ):
+                assert severity is None
+                return lambda name: f"{name}_{str(self)}"
+            case (
+                DiagnosticsAmdarHarmonisationStrategyOptions.INDEX_TURBULENCE_INTENSITY
+                | DiagnosticsAmdarHarmonisationStrategyOptions.EDR_TURBULENCE_INTENSITY
+            ):
+                assert severity is not None
+                return lambda name: f"{name}_{str(self)}_{str(severity)}"
+            case _ as unreachable:
+                assert_never(unreachable)
+
+
+class AmdarDiagnosticCmpSource(StrEnum):
+    CALIBRATION = "calibration"
+    EVALUATION = "evaluation"
+
+
 class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
     glob_pattern: Annotated[
         str, Field(description="Glob pattern to match to get the data files", repr=True, frozen=True)
@@ -514,12 +571,29 @@ class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
     ]
     # ASSUME FOR NOW ONLY USE FOR THIS IS DATA HARMONISATION
     harmonisation_strategies: Annotated[
-        list[DiagnosticsAmdarHarmonisationStrategyOptions],
-        Field(description="List of harmonisation strategies", repr=True, frozen=True),
-    ]
+        list[DiagnosticsAmdarHarmonisationStrategyOptions] | None,
+        Field(description="List of harmonisation strategies", repr=True, default=None),
+    ] = None
+    diagnostics_from: Annotated[
+        AmdarDiagnosticCmpSource,
+        Field(
+            description="Which data (thus diagnostics) should be amdar data be compared against",
+            repr=True,
+            frozen=True,
+            default=AmdarDiagnosticCmpSource.EVALUATION,
+        ),
+    ] = AmdarDiagnosticCmpSource.EVALUATION
     save_harmonised_data: Annotated[
         bool, Field(description="Save harmonised data", repr=True, frozen=True, default=True)
     ] = True
+    diagnostic_validation: Annotated[
+        DiagnosticValidationConfig | None,
+        Field(description="Diagnostic validation configuration", repr=True, frozen=True, default=None),
+    ] = None
+
+    def model_post_init(self, context: Any, /) -> None:  # noqa: ANN401
+        if self.harmonisation_strategies is None:
+            self.harmonisation_strategies = []
 
     @model_validator(mode="after")
     def check_valid_glob_pattern(self) -> Self:
@@ -545,24 +619,21 @@ class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
             raise InvalidConfigurationError("Time must be increasing from lower to upp")
         return self
 
-
-class DiagnosticValidationCondition(BaseConfigModel):
-    observed_turbulence_column_name: Annotated[
-        str, Field(description="Observed turbulence column name", frozen=True, repr=True, strict=True)
-    ]
-    value_greater_than: Annotated[
-        float, Field(description="Value greater than", repr=True, strict=True, ge=0.0, frozen=True)
-    ]
-
-
-class DiagnosticValidationConfig(BaseConfigModel):
-    validation_conditions: list[DiagnosticValidationCondition]
-
     @model_validator(mode="after")
-    def check_conditions_are_unique(self) -> Self:
-        assert len(set(self.validation_conditions)) == len(self.validation_conditions), (
-            "Validation conditions must be unique"
-        )
+    def check_valid_diagnostic_validation_conditions(self) -> Self:
+        if self.diagnostic_validation is not None:
+            # Update this once there is more than two classes
+            data_source_class: AmdarTurbulenceData = (
+                UkmoAmdarTurbulenceData if self.data_source == AmdarDataSource.UKMO else AcarsAmdarTurbulenceData
+            )  # pyright: ignore [reportAssignmentType]
+            print(data_source_class)
+            if not {
+                condition.observed_turbulence_column_name
+                for condition in self.diagnostic_validation.validation_conditions
+            }.issubset(data_source_class.turbulence_column_names()):
+                raise InvalidConfigurationError(
+                    "Diagnostic validation conditions must be one of the turbulence columns"
+                )
         return self
 
 
@@ -597,3 +668,28 @@ class Context(BaseConfigModel):
     turbulence_config: TurbulenceConfig | None = None
     contrails_config: ContrailsConfig | None = None
     data_config: DataConfig
+
+    @model_validator(mode="after")
+    def check_amdar_data_comparison_diagnostics_exists(self) -> Self:
+        if self.data_config.amdar_config is not None:
+            if self.turbulence_config is None:
+                raise InvalidConfigurationError("Amdar data has been specified but turbulence config is missing")
+
+            match self.data_config.amdar_config.diagnostics_from:
+                case AmdarDiagnosticCmpSource.CALIBRATION:
+                    if self.turbulence_config.phases.calibration_phases.calibration_config.calibration_data_dir is None:
+                        raise InvalidConfigurationError(
+                            "To compare amdar data against calibration, calibration data must be specified and "
+                            "cannot be restored from an earlier run"
+                        )
+                case AmdarDiagnosticCmpSource.EVALUATION:
+                    if self.turbulence_config.phases.evaluation_phases is None:
+                        raise InvalidConfigurationError(
+                            "To compare amdar data against evaluation, evaluation phases must be specified"
+                        )
+                    #  No need to check if evaluation data dir is specified as it is a required argument once
+                    #  evaluation_phases is specified
+                case _ as unreachable:
+                    assert_never(unreachable)
+
+        return self
