@@ -12,6 +12,9 @@ on:
       - .github/workflows/sphinx.yml
   pull_request:
     types:
+      - opened
+      - synchronize
+      - reopened
       - ready_for_review
     branches: [ "master" , "dev" ]
     paths-ignore:
