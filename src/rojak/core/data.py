@@ -122,7 +122,7 @@ class CATPrognosticData:
         if not set(dataset.coords.keys()).issuperset(self.required_coords):
             missing_coords = self.required_coords - dataset.coords.keys()
             raise ValueError(f"Attempting to instantiate CATPrognosticData with missing coords: {missing_coords}")
-        self._dataset = dataset.persist()
+        self._dataset = dataset.sortby("time").persist()
         blocking_wait_futures(self._dataset)
 
     def temperature(self) -> xr.DataArray:
@@ -495,8 +495,9 @@ class AmdarTurbulenceData(ABC):
     def _drop_manoeuvre_data_qc(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
         raise NotImplementedError("Method must be implemented by child class")
 
+    @staticmethod
     @abstractmethod
-    def turbulence_column_names(self) -> list[str]:
+    def turbulence_column_names() -> list[str]:
         raise NotImplementedError("Method must be implemented by child class")
 
     def __apply_quality_control(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":

@@ -11,12 +11,12 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
-
+import dataclasses
 import logging
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from collections.abc import Callable, Generator, Mapping
-from enum import StrEnum
-from typing import TYPE_CHECKING, ClassVar, NamedTuple, assert_never
+from typing import TYPE_CHECKING, ClassVar, NamedTuple
 
 import dask.dataframe as dd
 import numpy as np
@@ -25,7 +25,9 @@ import pandas as pd
 from rojak.core.calculations import bilinear_interpolation
 from rojak.core.distributed_tools import blocking_wait_futures
 from rojak.core.indexing import map_values_to_nearest_coordinate_index
-from rojak.turbulence.metrics import BinaryClassificationResult, received_operating_characteristic
+from rojak.orchestrator.configuration import DiagnosticsAmdarHarmonisationStrategyOptions
+from rojak.turbulence.diagnostic import EvaluationDiagnosticSuite
+from rojak.turbulence.metrics import BinaryClassificationResult, area_under_curve, received_operating_characteristic
 from rojak.utilities.types import Coordinate
 
 if TYPE_CHECKING:
@@ -33,8 +35,8 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
     from rojak.core.data import AmdarTurbulenceData
-    from rojak.orchestrator.configuration import DiagnosticValidationCondition, TurbulenceSeverity
-    from rojak.turbulence.diagnostic import EvaluationDiagnosticSuite
+    from rojak.orchestrator.configuration import DiagnosticValidationCondition
+    from rojak.turbulence.diagnostic import DiagnosticSuite
     from rojak.utilities.types import DiagnosticName, Limits
 
 
@@ -44,30 +46,6 @@ logger = logging.getLogger(__name__)
 class NotWithinTimeFrameError(Exception):
     def __init__(self, message: str) -> None:
         super().__init__(message)
-
-
-class DiagnosticsAmdarHarmonisationStrategyOptions(StrEnum):
-    RAW_INDEX_VALUES = "raw"
-    INDEX_TURBULENCE_INTENSITY = "index_severity"
-    EDR = "edr"
-    EDR_TURBULENCE_INTENSITY = "edr_severity"
-
-    def column_name_method(self, severity: "TurbulenceSeverity | None" = None) -> Callable:
-        match self:
-            case (
-                DiagnosticsAmdarHarmonisationStrategyOptions.EDR
-                | DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES
-            ):
-                assert severity is None
-                return lambda name: f"{name}_{str(self)}"
-            case (
-                DiagnosticsAmdarHarmonisationStrategyOptions.INDEX_TURBULENCE_INTENSITY
-                | DiagnosticsAmdarHarmonisationStrategyOptions.EDR_TURBULENCE_INTENSITY
-            ):
-                assert severity is not None
-                return lambda name: f"{name}_{str(self)}_{str(severity)}"
-            case _ as unreachable:
-                assert_never(unreachable)
 
 
 class SpatialTemporalIndex(NamedTuple):
@@ -191,9 +169,9 @@ class EdrSeveritiesStrategy(DiagnosticsAmdarHarmonisationStrategy):
 
 
 class DiagnosticsAmdarHarmonisationStrategyFactory:
-    _diagnostics_suite: "EvaluationDiagnosticSuite"
+    _diagnostics_suite: "DiagnosticSuite"
 
-    def __init__(self, diagnostics_suite: "EvaluationDiagnosticSuite") -> None:
+    def __init__(self, diagnostics_suite: "DiagnosticSuite") -> None:
         self._diagnostics_suite = diagnostics_suite
 
     def get_met_values(
@@ -204,6 +182,7 @@ class DiagnosticsAmdarHarmonisationStrategyFactory:
             DiagnosticsAmdarHarmonisationStrategyOptions.INDEX_TURBULENCE_INTENSITY,
         }:
             return self._diagnostics_suite.computed_values_as_dict()
+        assert isinstance(self._diagnostics_suite, EvaluationDiagnosticSuite)
         return dict(self._diagnostics_suite.edr)
 
     def create_strategies(
@@ -218,6 +197,7 @@ class DiagnosticsAmdarHarmonisationStrategyFactory:
                 case DiagnosticsAmdarHarmonisationStrategyOptions.EDR:
                     strategies.append(ValuesStrategy(option.column_name_method(), met_values))
                 case DiagnosticsAmdarHarmonisationStrategyOptions.INDEX_TURBULENCE_INTENSITY:
+                    assert isinstance(self._diagnostics_suite, EvaluationDiagnosticSuite)
                     for severity, threshold_mapping in self._diagnostics_suite.get_limits_for_severities():
                         strategies.append(
                             DiagnosticsSeveritiesStrategy(
@@ -227,6 +207,7 @@ class DiagnosticsAmdarHarmonisationStrategyFactory:
                             )
                         )
                 case DiagnosticsAmdarHarmonisationStrategyOptions.EDR_TURBULENCE_INTENSITY:
+                    assert isinstance(self._diagnostics_suite, EvaluationDiagnosticSuite)
                     for severity, edr_limits in self._diagnostics_suite.get_edr_bounds():
                         strategies.append(
                             EdrSeveritiesStrategy(option.column_name_method(severity=severity), met_values, edr_limits)
@@ -242,11 +223,11 @@ class DiagnosticsAmdarDataHarmoniser:
     """
 
     _amdar_data: "AmdarTurbulenceData"
-    _diagnostics_suite: "EvaluationDiagnosticSuite"
+    _diagnostics_suite: "DiagnosticSuite"
 
     TIME_WINDOW_DELTA: ClassVar[np.timedelta64] = np.timedelta64(3, "h")
 
-    def __init__(self, amdar_data: "AmdarTurbulenceData", diagnostics_suite: "EvaluationDiagnosticSuite") -> None:
+    def __init__(self, amdar_data: "AmdarTurbulenceData", diagnostics_suite: "DiagnosticSuite") -> None:
         self._amdar_data = amdar_data
         self._diagnostics_suite = diagnostics_suite
 
@@ -376,7 +357,7 @@ class DiagnosticsAmdarDataHarmoniser:
         methods: list[DiagnosticsAmdarHarmonisationStrategyOptions],
         time_window: "Limits[np.datetime64]",
     ) -> "dd.DataFrame":
-        a_computed_diagnostic: xr.DataArray = next(iter(self._diagnostics_suite.computed_values_as_dict().values()))
+        a_computed_diagnostic: xr.DataArray = self._diagnostics_suite.get_prototype_computed_diagnostic()
         self._check_time_window_within_met_data(time_window, a_computed_diagnostic)
         # self._check_grids_match(a_computed_diagnostic)
         logger.debug("Verified met data and AMDAR data can be harmonised")
@@ -427,8 +408,34 @@ def _observed_turbulence_aggregation(condition: "DiagnosticValidationCondition")
     )
 
 
+@dataclasses.dataclass
+class RocVerificationResult:
+    # first key: amdar column name
+    # second key: diagnostic column name
+    by_amdar_col_then_diagnostic: dict[str, dict[str, BinaryClassificationResult]]
+    _auc_by_amdar_then_diagnostic: dict[str, dict[str, float]] | None = None
+
+    # define iterators and getters on this class
+    def iterate_by_amdar_column(self) -> Generator[tuple[str, dict[str, BinaryClassificationResult]], None, None]:
+        yield from self.by_amdar_col_then_diagnostic.items()
+
+    def _area_under_curve(self) -> dict[str, dict[str, float]]:
+        if self._auc_by_amdar_then_diagnostic is None:
+            auc = defaultdict(dict)
+            for column, by_diagnostic in self.by_amdar_col_then_diagnostic.items():
+                for diagnostic_name, roc_results in by_diagnostic.items():
+                    auc[column][diagnostic_name] = area_under_curve(
+                        roc_results.false_positives, roc_results.true_positives
+                    )
+            self._auc_by_amdar_then_diagnostic = dict(auc)
+        return self._auc_by_amdar_then_diagnostic
+
+    def auc_for_amdar_column(self, amdar_column: str) -> dict[str, float]:
+        return self._area_under_curve()[amdar_column]
+
+
 # Keep this extendable for verification against other forms of data??
-class DiagnosticAmdarVerification:
+class DiagnosticsAmdarVerification:
     _data_harmoniser: "DiagnosticsAmdarDataHarmoniser"
     _harmonised_data: "dd.DataFrame | None"
     _time_window: "Limits[np.datetime64]"
@@ -454,6 +461,9 @@ class DiagnosticAmdarVerification:
         validation_columns: list[str],
         grid_prototype: "xr.DataArray",
     ) -> "dd.DataFrame":
+        if not set(validation_columns).issubset(self.data.columns):
+            raise ValueError("Validation columns must be present in the data")
+
         space_time_columns: list[str] = [
             self._data_harmoniser.common_time_column_name,
             "level",
@@ -462,6 +472,10 @@ class DiagnosticAmdarVerification:
         ]
         target_columns = space_time_columns + validation_columns
         target_data: dd.DataFrame = self.data[target_columns]
+        dataframe_meta: dict[str, pd.Series] = {
+            col_name: pd.Series(dtype=col_dtype) for col_name, col_dtype in target_data.dtypes.to_dict().items()
+        }
+        dataframe_meta["level_index"] = pd.Series(dtype=int)
         target_data = target_data.map_partitions(
             lambda df: df.assign(
                 level_index=df.apply(
@@ -470,19 +484,22 @@ class DiagnosticAmdarVerification:
                     ).argmin(),
                     axis=1,
                 )
-            )
+            ),
+            meta=dataframe_meta,
         )
+        dataframe_meta["lat_index"] = pd.Series(dtype=int)
+        dataframe_meta["lon_index"] = pd.Series(dtype=int)
         return target_data.map_partitions(
             lambda df: df.assign(
                 lat_index=map_values_to_nearest_coordinate_index(df.latitude, grid_prototype["latitude"].values),
                 lon_index=map_values_to_nearest_coordinate_index(df.longitude, grid_prototype["longitude"].values),
-            )
-        )
+            ),
+            meta=dd.from_pandas(pd.DataFrame(dataframe_meta)),
+        ).optimize()
 
     def _spatio_temporal_data_aggregation(
         self,
         target_data: "dd.DataFrame",
-        validation_columns: list[str],
         strategy_columns: list[str],
         validation_conditions: "list[DiagnosticValidationCondition]",
     ) -> "dd.DataFrame":
@@ -492,8 +509,8 @@ class DiagnosticAmdarVerification:
             "level_index",
             self._data_harmoniser.common_time_column_name,
         ]
-        target_columns = group_by_columns + validation_columns + strategy_columns
-        grouped_by_space_time = target_data[target_columns].groupby(group_by_columns)
+        target_data = target_data.drop(columns=["level", "longitude", "latitude"])
+        grouped_by_space_time = target_data.groupby(group_by_columns)
 
         aggregation_spec: dict = {
             condition.observed_turbulence_column_name: _observed_turbulence_aggregation(condition)
@@ -507,9 +524,9 @@ class DiagnosticAmdarVerification:
         self,
         validation_conditions: "list[DiagnosticValidationCondition]",
         prototype_diagnostic_array: "xr.DataArray",
-    ) -> dict[str, dict[str, BinaryClassificationResult]]:
+    ) -> RocVerificationResult:
         assert {"pressure_level", "longitude", "latitude", "time"}.issubset(prototype_diagnostic_array.coords)
-        strategy_columns: list[str] = list(
+        diagnostic_value_columns: list[str] = list(
             self._data_harmoniser.strategy_values_columns(
                 [DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES]
             )
@@ -518,25 +535,28 @@ class DiagnosticAmdarVerification:
             condition.observed_turbulence_column_name for condition in validation_conditions
         ]
         target_data = self._add_nearest_grid_indices(
-            validation_columns + strategy_columns,
+            validation_columns + diagnostic_value_columns,
             prototype_diagnostic_array,
         )
+        logger.debug("Added required columns for spatio temporal aggregating")
         aggregated_data = self._spatio_temporal_data_aggregation(
-            target_data, validation_columns, strategy_columns, validation_conditions
-        )
+            target_data, diagnostic_value_columns, validation_conditions
+        ).persist()
+        logger.debug("Triggered spatio temporal aggregation")
         blocking_wait_futures(aggregated_data)
-
-        result: dict[str, dict[str, BinaryClassificationResult]] = {}
-        for strategy_column in strategy_columns:
+        logger.debug("Finished spatio temporal aggregation")
+        result: defaultdict[str, dict[str, BinaryClassificationResult]] = defaultdict(dict)
+        for diagnostic_val_col in diagnostic_value_columns:
             # descending values
-            result[strategy_column] = {}
-            subset_df = aggregated_data[[*validation_columns, strategy_column]].sort_values(
-                strategy_column, ascending=False
+            subset_df = aggregated_data[[*validation_columns, diagnostic_val_col]].sort_values(
+                diagnostic_val_col, ascending=False
             )
-            for column in validation_columns:
-                result[strategy_column][column] = received_operating_characteristic(
-                    subset_df[column].values.compute_chunk_sizes(),  # noqa: PD011
-                    subset_df[strategy_column].values.compute_chunk_sizes(),  # noqa: PD011
+            for amdar_turbulence_col in validation_columns:
+                result[amdar_turbulence_col][diagnostic_val_col] = received_operating_characteristic(
+                    subset_df[amdar_turbulence_col].values.compute_chunk_sizes(),  # noqa: PD011
+                    subset_df[diagnostic_val_col].values.compute_chunk_sizes(),  # noqa: PD011
+                    num_intervals=-1,
                 )
+        logger.debug("Finished computing ROC curves")
 
-        return result
+        return RocVerificationResult(dict(result))

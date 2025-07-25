@@ -4,12 +4,17 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from rojak.orchestrator.configuration import TurbulenceDiagnostics, TurbulenceSeverity
+from rojak.core.data import AmdarTurbulenceData
+from rojak.orchestrator.configuration import (
+    DiagnosticsAmdarHarmonisationStrategyOptions,
+    TurbulenceDiagnostics,
+    TurbulenceSeverity,
+)
+from rojak.turbulence.diagnostic import DiagnosticSuite, EvaluationDiagnosticSuite
 from rojak.turbulence.verification import (
     DiagnosticsAmdarDataHarmoniser,
     DiagnosticsAmdarHarmonisationStrategy,
     DiagnosticsAmdarHarmonisationStrategyFactory,
-    DiagnosticsAmdarHarmonisationStrategyOptions,
     DiagnosticsSeveritiesStrategy,
     EdrSeveritiesStrategy,
     NotWithinTimeFrameError,
@@ -32,10 +37,10 @@ if TYPE_CHECKING:
 def test_diagnostic_amdar_data_harmoniser_execute_harmonisation_fail_time_window(
     mocker: "MockerFixture", make_dummy_cat_data, time_window: Limits
 ) -> None:
-    amdar_data_mock = mocker.Mock()
-    suite_mock = mocker.Mock()
+    amdar_data_mock = mocker.Mock(spec=AmdarTurbulenceData)
+    suite_mock = mocker.Mock(spec=DiagnosticSuite)
     computed_vals_mock = mocker.patch.object(
-        suite_mock, "computed_values_as_dict", return_value={"unused_key": make_dummy_cat_data({})}
+        suite_mock, "get_prototype_computed_diagnostic", return_value=make_dummy_cat_data({})
     )
 
     harmoniser = DiagnosticsAmdarDataHarmoniser(amdar_data_mock, suite_mock)
@@ -103,7 +108,7 @@ def test_diagnostic_amdar_data_harmoniser_execute_harmonisation_fail_time_window
 def test_diagnostic_amdar_harmonisation_strategy_factory_get_met_values(
     mocker: "MockerFixture", method_to_mock: str, option: DiagnosticsAmdarHarmonisationStrategyOptions
 ) -> None:
-    suite_mock = mocker.Mock()
+    suite_mock = mocker.Mock(spec=EvaluationDiagnosticSuite)
     return_val: dict = {
         "stallion-boat-tingly": xr.DataArray(
             data=generate_array_data((10, 10), True), coords={"dim0": np.arange(10), "dim1": np.arange(10)}
@@ -155,7 +160,7 @@ def test_diagnostic_amdar_harmonisation_strategy_factory_create_strategies_value
 def test_diagnostic_amdar_harmonisation_strategy_factory_create_strategies_non_values_trivial(
     mocker: "MockerFixture", method_to_mock: str, option: DiagnosticsAmdarHarmonisationStrategyOptions
 ) -> None:
-    suite_mock = mocker.Mock()
+    suite_mock = mocker.Mock(spec=EvaluationDiagnosticSuite)
     factory = DiagnosticsAmdarHarmonisationStrategyFactory(suite_mock)
     get_met_mock = mocker.patch.object(factory, "get_met_values", return_value={"key": "value"})
     method_mock = mocker.patch.object(suite_mock, method_to_mock, return_value={})
@@ -201,7 +206,7 @@ def test_diagnostic_amdar_harmonisation_strategy_factory_create_strategies_non_v
     option: DiagnosticsAmdarHarmonisationStrategyOptions,
     child_strategy_class: type,
 ) -> None:
-    suite_mock = mocker.Mock()
+    suite_mock = mocker.Mock(spec=EvaluationDiagnosticSuite)
     factory = DiagnosticsAmdarHarmonisationStrategyFactory(suite_mock)
     get_met_mock = mocker.patch.object(factory, "get_met_values", return_value={"key": "value"})
 

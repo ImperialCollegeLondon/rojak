@@ -103,5 +103,6 @@ class UkmoAmdarTurbulenceData(AmdarTurbulenceData):
         # roll_angle is NA in entire month of Jan and May in 2024
         return data_frame
 
-    def turbulence_column_names(self) -> list[str]:
+    @staticmethod
+    def turbulence_column_names() -> list[str]:
         return ["turbulence_degree"]
