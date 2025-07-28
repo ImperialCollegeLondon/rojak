@@ -216,6 +216,10 @@ class DiagnosticsAmdarHarmonisationStrategyFactory:
         return strategies
 
 
+def get_dataframe_dtypes(data_frame: "dd.DataFrame") -> dict[str, pd.Series]:
+    return {col_name: pd.Series(dtype=col_dtype) for col_name, col_dtype in data_frame.dtypes.to_dict().items()}
+
+
 class DiagnosticsAmdarDataHarmoniser:
     """
     Class brings together the turbulence diagnostics computed from meteorological data and AMDAR observational data
@@ -351,6 +355,76 @@ class DiagnosticsAmdarDataHarmoniser:
     @property
     def grid_box_column_name(self) -> str:
         return "index_right"
+
+    def nearest_diagnostic_value(self, time_window: "Limits[np.datetime64]") -> "dd.DataFrame":
+        grid_prototype: xr.DataArray = self._diagnostics_suite.get_prototype_computed_diagnostic()
+        self._check_time_window_within_met_data(time_window, grid_prototype)
+
+        observational_data: dd.DataFrame = self._amdar_data.clip_to_time_window(time_window)
+        dataframe_meta: dict[str, pd.Series] = get_dataframe_dtypes(observational_data)
+        dataframe_meta["level_index"] = pd.Series(dtype=int)
+        observational_data = observational_data.map_partitions(
+            lambda df: df.assign(
+                level_index=df.apply(
+                    lambda row, pressure_level=grid_prototype["pressure_level"].values: np.abs(  # noqa: PD011
+                        row.level - pressure_level
+                    ).argmin(),
+                    axis=1,
+                )
+            ),
+            meta=pd.DataFrame(dataframe_meta),
+        )
+        dataframe_meta["lat_index"] = pd.Series(dtype=int)
+        dataframe_meta["lon_index"] = pd.Series(dtype=int)
+        dataframe_meta["time_index"] = pd.Series(dtype=int)
+        observational_data = observational_data.map_partitions(
+            lambda df: df.assign(
+                lat_index=map_values_to_nearest_coordinate_index(df.latitude, grid_prototype["latitude"].values),
+                lon_index=map_values_to_nearest_coordinate_index(df.longitude, grid_prototype["longitude"].values),
+                time_index=map_values_to_nearest_coordinate_index(
+                    df.datetime,
+                    grid_prototype["time"].values,
+                    valid_window=self.TIME_WINDOW_DELTA,
+                ),
+            ),
+            meta=dd.from_pandas(pd.DataFrame(dataframe_meta), npartitions=observational_data.npartitions),
+        ).persist()
+        blocking_wait_futures(observational_data)
+
+        for name in self._diagnostics_suite.diagnostic_names():
+            dataframe_meta[name] = pd.Series(dtype=float)
+
+        def _get_diagnostic_value(row: dd.Series) -> pd.Series:
+            this_time: np.datetime64 = np.datetime64(row["datetime"])
+            new_row = {
+                "datetime": this_time,
+                "level": row["level"],
+                "geometry": row["geometry"],
+                self.grid_box_column_name: row[self.grid_box_column_name],
+                "latitude": row["latitude"],
+                "longitude": row["longitude"],
+                self.common_time_column_name: row[self.common_time_column_name],
+            }
+
+            indexer_dict = {
+                "latitude": row["lat_index"],
+                "longitude": row["lon_index"],
+                "time": row["time_index"],
+                "pressure_level": row["level_index"],
+            }
+            for diagnostic_name, computed_diagnostic in self._diagnostics_suite.computed_values(""):
+                # .compute() guarantees it is evaluated
+                # .data gets the underlying numpy array
+                # .item() gets the single value inside the numpy array as a python float
+                new_row[diagnostic_name] = computed_diagnostic[indexer_dict].compute().data.item()
+
+            return pd.Series(new_row)
+
+        return observational_data.apply(
+            _get_diagnostic_value,
+            axis=1,
+            meta=dd.from_pandas(pd.DataFrame(dataframe_meta), npartitions=observational_data.npartitions),
+        )
 
     def execute_harmonisation(
         self,
