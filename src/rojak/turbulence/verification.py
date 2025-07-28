@@ -301,7 +301,7 @@ class DiagnosticsAmdarDataHarmoniser:
             lambda strat: strat
             in {
                 DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES,
-                DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES,
+                DiagnosticsAmdarHarmonisationStrategyOptions.EDR,
             },
             strategies,
         ):
