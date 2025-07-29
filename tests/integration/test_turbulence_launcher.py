@@ -3,6 +3,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
+import dask.dataframe as dd
 import pytest
 
 from rojak.orchestrator.configuration import (
@@ -178,6 +179,15 @@ def test_turbulence_evaluation_restore_from_file(
 @pytest.mark.cdsapi
 def test_turbulence_calibration_and_evaluation(create_config_context, client, retrieve_era5_cat_data) -> None:
     diagnostics: list[TurbulenceDiagnostics] = randomly_select_diagnostics(4)
+    eval_phases = [
+        TurbulenceEvaluationPhaseOption.PROBABILITIES,
+        TurbulenceEvaluationPhaseOption.EDR,
+        TurbulenceEvaluationPhaseOption.TURBULENT_REGIONS,
+        TurbulenceEvaluationPhaseOption.CORRELATION_BTW_PROBABILITIES,
+        # TurbulenceEvaluationPhaseOption.CORRELATION_BTW_EDR,
+        # TurbulenceEvaluationPhaseOption.REGIONAL_CORRELATION_PROBABILITIES,
+        # TurbulenceEvaluationPhaseOption.REGIONAL_CORRELATION_EDR,
+    ]
     turbulence_config = TurbulenceConfig(
         chunks={"pressure_level": 3, "latitude": 721, "longitude": 1440, "valid_time": 3},
         diagnostics=diagnostics,
@@ -194,15 +204,7 @@ def test_turbulence_calibration_and_evaluation(create_config_context, client, re
                 ),
             ),
             evaluation_phases=TurbulenceEvaluationPhases(
-                phases=[
-                    TurbulenceEvaluationPhaseOption.PROBABILITIES,
-                    TurbulenceEvaluationPhaseOption.EDR,
-                    TurbulenceEvaluationPhaseOption.TURBULENT_REGIONS,
-                    TurbulenceEvaluationPhaseOption.CORRELATION_BTW_PROBABILITIES,
-                    # TurbulenceEvaluationPhaseOption.CORRELATION_BTW_EDR,
-                    # TurbulenceEvaluationPhaseOption.REGIONAL_CORRELATION_PROBABILITIES,
-                    # TurbulenceEvaluationPhaseOption.REGIONAL_CORRELATION_EDR,
-                ],
+                phases=eval_phases,
                 evaluation_config=TurbulenceEvaluationConfig(
                     # evaluation_data_dir=Path("tests/_static/"),
                     evaluation_data_dir=retrieve_era5_cat_data,
@@ -211,7 +213,9 @@ def test_turbulence_calibration_and_evaluation(create_config_context, client, re
         ),
     )
     config = create_config_context("calibration_and_evaluation", turb_config=turbulence_config)
-    TurbulenceLauncher(config).launch()
+    launcher_result = TurbulenceLauncher(config).launch()
+    assert launcher_result is not None
+    assert set(eval_phases) == set(launcher_result.phase_outcomes.keys())
 
 
 @pytest.mark.cdsapi
@@ -252,13 +256,23 @@ def test_turbulence_amdar_acars_harmonisation(
             time_window=Limits(
                 datetime.datetime(2024, month=1, day=1), datetime.datetime(2024, month=1, day=1, hour=18)
             ),
+            save_harmonised_data=True,
             harmonisation_strategies=[
                 DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES,
                 DiagnosticsAmdarHarmonisationStrategyOptions.EDR,
             ],
         ),
     )
-    config = create_config_context(
+    config: ConfigContext = create_config_context(
         "diagnostic_amdar_harmonisation_acars", turb_config=turbulence_config, data_config=data_config
     )
-    TurbulenceLauncher(config).launch()
+    launcher_result = TurbulenceLauncher(config).launch()
+    assert launcher_result is not None
+
+    harmonisation_output_dir = config.output_dir / config.name / "data_harmonisation"
+    assert harmonisation_output_dir.exists()
+    assert harmonisation_output_dir.is_dir()
+    parquet_files = harmonisation_output_dir.glob("*.parquet")
+    assert parquet_files  # check list is not empty
+    loaded_output_data = dd.read_parquet(f"{str(harmonisation_output_dir)}/**/*.parquet")
+    loaded_output_data.head()  # evaluate the first few rows to check it is valid
