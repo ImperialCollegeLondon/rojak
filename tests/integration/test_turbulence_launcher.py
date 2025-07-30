@@ -1,4 +1,5 @@
 import datetime
+import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
@@ -177,6 +178,7 @@ def test_turbulence_evaluation_restore_from_file(
 
 
 @pytest.mark.cdsapi
+@pytest.mark.skipif(os.getenv("CI") is not None, reason="Test is so slow, runners time out")
 def test_turbulence_calibration_and_evaluation(create_config_context, client, retrieve_era5_cat_data) -> None:
     diagnostics: list[TurbulenceDiagnostics] = randomly_select_diagnostics(4)
     eval_phases = [
@@ -219,6 +221,7 @@ def test_turbulence_calibration_and_evaluation(create_config_context, client, re
 
 
 @pytest.mark.cdsapi
+@pytest.mark.skipif(os.getenv("CI") is not None, reason="Test is so slow, runners time out")
 def test_turbulence_amdar_acars_harmonisation(
     create_config_context, client, retrieve_era5_cat_data, retrieve_single_day_madis_data
 ) -> None:
