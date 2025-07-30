@@ -338,9 +338,11 @@ class AmdarDataRepository(ABC):
     """
 
     _path_to_files: str | list
+    _use_min_turbulence_vars: bool
 
-    def __init__(self, path_to_files: str | list) -> None:
+    def __init__(self, path_to_files: str | list, is_minimal_turb_vars: bool) -> None:
         self._path_to_files = path_to_files
+        self._use_min_turbulence_vars = is_minimal_turb_vars
 
     @abstractmethod
     def load(self) -> "dd.DataFrame":
