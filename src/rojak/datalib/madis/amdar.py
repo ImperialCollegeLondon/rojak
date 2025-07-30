@@ -19,7 +19,7 @@ import tempfile
 from collections.abc import Iterable
 from ftplib import FTP
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import dask.dataframe as dd
 import xarray as xr
@@ -242,11 +242,31 @@ class AcarsRetriever(DataRetriever):
 
 
 class AcarsAmdarRepository(AmdarDataRepository):
+    _MINIMAL_DATA_VARS: ClassVar[set[str]] = {
+        "altitude",
+        # "baroAltitude",
+        "latitude",
+        "longitude",
+        "timeObs",
+        # "mach",
+        "phaseFlight",
+        "maxEDR",
+        "medEDR",
+        "maxTurbulence",
+        "medTurbulence",
+        "turbIndex",
+        "vertAccel",
+        "vertGust",
+    }
+
     def __init__(self, path_to_files: str | list) -> None:
-        super().__init__(path_to_files)
+        super().__init__(path_to_files, True)
 
     def load(self) -> "dd.DataFrame":
-        return dd.read_parquet(self._path_to_files)
+        target_columns: list[str] | None = (
+            list(AcarsAmdarRepository._MINIMAL_DATA_VARS) if self._use_min_turbulence_vars else None
+        )
+        return dd.read_parquet(self._path_to_files, columns=target_columns)
 
     def _call_compute_closest_pressure_level(
         self, data_frame: "dd.DataFrame", pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]"
