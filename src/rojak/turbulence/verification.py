@@ -367,17 +367,26 @@ class DiagnosticsAmdarDataHarmoniser:
         observational_data: dd.DataFrame = self._amdar_data.clip_to_time_window(time_window).persist()
         dataframe_meta: dict[str, pd.Series] = get_dataframe_dtypes(observational_data)
         dataframe_meta["level_index"] = pd.Series(dtype=int)
-        observational_data = observational_data.map_partitions(
-            lambda df: df.assign(
-                level_index=df.apply(
-                    lambda row, pressure_level=grid_prototype["pressure_level"].values: np.abs(  # noqa: PD011
-                        row.level - pressure_level
-                    ).argmin(),
-                    axis=1,
-                )
+        observational_data = observational_data.assign(
+            level_index=observational_data["level"].apply(
+                lambda row, pressure_level=grid_prototype["pressure_level"].values: np.abs(  # noqa: PD011
+                    row - pressure_level
+                ).argmin(),
+                meta=("level_index", int),
             ),
-            meta=pd.DataFrame(dataframe_meta),
+            meta=pd.Series(dtype=int),
         ).persist()
+        # observational_data = observational_data.map_partitions(
+        #     lambda df: df.assign(
+        #         level_index=df["level"].apply(
+        #             lambda row, pressure_level=grid_prototype["pressure_level"].values: np.abs(  # noqa: PD011
+        #                 row - pressure_level
+        #             ).argmin(),
+        #         ),
+        #         meta=pd.Series(dtype=int),
+        #     ),
+        #     meta=pd.DataFrame(dataframe_meta),
+        # ).persist()
         dataframe_meta["lat_index"] = pd.Series(dtype=int)
         dataframe_meta["lon_index"] = pd.Series(dtype=int)
         dataframe_meta["time_index"] = pd.Series(dtype=int)
@@ -398,6 +407,7 @@ class DiagnosticsAmdarDataHarmoniser:
         columns_to_keep = {
             "datetime",
             "level",
+            "level_index",
             "geometry",
             self.grid_box_column_name,
             "latitude",
@@ -413,6 +423,7 @@ class DiagnosticsAmdarDataHarmoniser:
             new_row = {
                 "datetime": this_time,
                 "level": row["level"],
+                "level_index": row["level_index"],
                 "geometry": row["geometry"],
                 self.grid_box_column_name: row[self.grid_box_column_name],
                 "latitude": row["latitude"],
@@ -488,7 +499,7 @@ def _observed_turbulence_aggregation(condition: "DiagnosticValidationCondition")
     def aggregate_chunks(chunk_maxes: "pd.Series") -> float:
         return chunk_maxes.max()
 
-    def apply_condition(maxima: float) -> float:
+    def apply_condition(maxima: float) -> bool:
         return maxima > condition.value_greater_than
 
     return dd.Aggregation(
@@ -625,6 +636,7 @@ class DiagnosticsAmdarVerification:
         ]
         space_time_columns: list[str] = [
             self._data_harmoniser.grid_box_column_name,
+            "level_index",
             self._data_harmoniser.common_time_column_name,
         ]
         target_columns: list[str] = space_time_columns + turbulence_diagnostics + validation_columns
@@ -648,8 +660,8 @@ class DiagnosticsAmdarVerification:
             )
             for amdar_turbulence_col in validation_columns:
                 result[amdar_turbulence_col][diagnostic_val_col] = received_operating_characteristic(
-                    subset_df[amdar_turbulence_col].values.compute_chunk_sizes(),  # noqa: PD011
-                    subset_df[diagnostic_val_col].values.compute_chunk_sizes(),  # noqa: PD011
+                    subset_df[amdar_turbulence_col].values.compute_chunk_sizes().persist(),  # noqa: PD011
+                    subset_df[diagnostic_val_col].values.compute_chunk_sizes().persist(),  # noqa: PD011
                     num_intervals=-1,
                 )
         return RocVerificationResult(dict(result))
