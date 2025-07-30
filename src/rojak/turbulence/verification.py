@@ -356,6 +356,10 @@ class DiagnosticsAmdarDataHarmoniser:
     def grid_box_column_name(self) -> str:
         return "index_right"
 
+    @property
+    def harmonised_diagnostics(self) -> list[str]:
+        return self._diagnostics_suite.diagnostic_names()
+
     def nearest_diagnostic_value(self, time_window: "Limits[np.datetime64]") -> "dd.DataFrame":
         grid_prototype: xr.DataArray = self._diagnostics_suite.get_prototype_computed_diagnostic()
         self._check_time_window_within_met_data(time_window, grid_prototype)
@@ -607,6 +611,48 @@ class DiagnosticsAmdarVerification:
         for strategy_column in strategy_columns:
             aggregation_spec[strategy_column] = "mean"
         return grouped_by_space_time.aggregate(aggregation_spec)
+
+    def nearest_value_roc(
+        self,
+        validation_conditions: "list[DiagnosticValidationCondition]",
+        prototype_diagnostic_array: "xr.DataArray",
+    ) -> RocVerificationResult:
+        assert {"pressure_level", "longitude", "latitude", "time"}.issubset(prototype_diagnostic_array.coords)
+        turbulence_diagnostics = self._data_harmoniser.harmonised_diagnostics
+        target_data = self._data_harmoniser.nearest_diagnostic_value(self._time_window).persist()
+        validation_columns: list[str] = [
+            condition.observed_turbulence_column_name for condition in validation_conditions
+        ]
+        space_time_columns: list[str] = [
+            self._data_harmoniser.grid_box_column_name,
+            self._data_harmoniser.common_time_column_name,
+        ]
+        target_columns: list[str] = space_time_columns + turbulence_diagnostics + validation_columns
+        target_data = target_data[target_columns]
+        grouped_by_space_time = target_data.groupby(space_time_columns)
+        aggregation_spec: dict = {
+            condition.observed_turbulence_column_name: _observed_turbulence_aggregation(condition)
+            for condition in validation_conditions
+        }
+        for diagnostic_column in turbulence_diagnostics:
+            aggregation_spec[diagnostic_column] = "mean"
+        aggregated_data = grouped_by_space_time.aggregate(aggregation_spec).persist()
+
+        result: defaultdict[str, dict[str, BinaryClassificationResult]] = defaultdict(dict)
+        for diagnostic_val_col in turbulence_diagnostics:
+            # descending values
+            subset_df = (
+                aggregated_data[[*validation_columns, diagnostic_val_col]]
+                .sort_values(diagnostic_val_col, ascending=False)
+                .persist()
+            )
+            for amdar_turbulence_col in validation_columns:
+                result[amdar_turbulence_col][diagnostic_val_col] = received_operating_characteristic(
+                    subset_df[amdar_turbulence_col].values.compute_chunk_sizes(),  # noqa: PD011
+                    subset_df[diagnostic_val_col].values.compute_chunk_sizes(),  # noqa: PD011
+                    num_intervals=-1,
+                )
+        return RocVerificationResult(dict(result))
 
     def compute_roc_curve(
         self,

@@ -540,7 +540,7 @@ class DiagnosticsAmdarLauncher:
         if self._validation_conditions:
             logger.info("Starting validation of diagnostics with amdar data")
             verifier = DiagnosticsAmdarVerification(harmoniser, time_window_as_np_datetime)
-            roc: RocVerificationResult = verifier.compute_roc_curve(
+            roc: RocVerificationResult = verifier.nearest_value_roc(
                 self._validation_conditions, diagnostic_suite.get_prototype_computed_diagnostic()
             )
             for amdar_verification_col, by_diagnostic_roc in roc.iterate_by_amdar_column():
