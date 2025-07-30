@@ -93,9 +93,9 @@ def received_operating_characteristic(
 
     # Make curve start at 0
     zero_array = da.zeros(1)
-    true_positive = da.hstack((zero_array, classification_result.true_positives.compute_chunk_sizes()))  # pyright: ignore[reportAttributeAccessIssue]
-    false_positive = da.hstack((zero_array, classification_result.false_positives.compute_chunk_sizes()))  # pyright: ignore[reportAttributeAccessIssue]
-    thresholds = da.hstack((da.asarray([np.inf]), classification_result.thresholds.compute_chunk_sizes()))  # pyright: ignore[reportAttributeAccessIssue]
+    true_positive = da.hstack((zero_array, classification_result.true_positives.compute_chunk_sizes())).persist()  # pyright: ignore[reportAttributeAccessIssue]
+    false_positive = da.hstack((zero_array, classification_result.false_positives.compute_chunk_sizes())).persist()  # pyright: ignore[reportAttributeAccessIssue]
+    thresholds = da.hstack((da.asarray([np.inf]), classification_result.thresholds.compute_chunk_sizes())).persist()  # pyright: ignore[reportAttributeAccessIssue]
 
     if false_positive[-1] < 0:
         raise ValueError("false positives cannot be negative")
