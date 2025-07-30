@@ -364,7 +364,7 @@ class DiagnosticsAmdarDataHarmoniser:
         grid_prototype: xr.DataArray = self._diagnostics_suite.get_prototype_computed_diagnostic()
         self._check_time_window_within_met_data(time_window, grid_prototype)
 
-        observational_data: dd.DataFrame = self._amdar_data.clip_to_time_window(time_window)
+        observational_data: dd.DataFrame = self._amdar_data.clip_to_time_window(time_window).persist()
         dataframe_meta: dict[str, pd.Series] = get_dataframe_dtypes(observational_data)
         dataframe_meta["level_index"] = pd.Series(dtype=int)
         observational_data = observational_data.map_partitions(
@@ -377,7 +377,7 @@ class DiagnosticsAmdarDataHarmoniser:
                 )
             ),
             meta=pd.DataFrame(dataframe_meta),
-        )
+        ).persist()
         dataframe_meta["lat_index"] = pd.Series(dtype=int)
         dataframe_meta["lon_index"] = pd.Series(dtype=int)
         dataframe_meta["time_index"] = pd.Series(dtype=int)
@@ -441,7 +441,7 @@ class DiagnosticsAmdarDataHarmoniser:
             _get_diagnostic_value,
             axis=1,
             meta=dd.from_pandas(pd.DataFrame(output_df_meta), npartitions=observational_data.npartitions),
-        )
+        ).persist()
 
     def execute_harmonisation(
         self,
