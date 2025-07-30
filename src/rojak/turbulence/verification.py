@@ -594,7 +594,10 @@ class DiagnosticsAmdarVerification:
             "level_index",
             self._data_harmoniser.common_time_column_name,
         ]
-        target_data = target_data.drop(columns=["level", "longitude", "latitude"])
+        assert set(group_by_columns).issubset(target_data.columns)
+        columns_to_drop: list[str] = ["level", "longitude", "latitude"]
+        assert set(columns_to_drop).issubset(target_data.columns)
+        target_data = target_data.drop(columns=columns_to_drop)
         grouped_by_space_time = target_data.groupby(group_by_columns)
 
         aggregation_spec: dict = {
