@@ -391,8 +391,18 @@ class DiagnosticsAmdarDataHarmoniser:
         ).persist()
         blocking_wait_futures(observational_data)
 
+        columns_to_keep = {
+            "datetime",
+            "level",
+            "geometry",
+            self.grid_box_column_name,
+            "latitude",
+            "longitude",
+            self.common_time_column_name,
+        } | set(self._amdar_data.turbulence_column_names())
+        output_df_meta = {key: value for key, value in dataframe_meta.items() if key in columns_to_keep}
         for name in self._diagnostics_suite.diagnostic_names():
-            dataframe_meta[name] = pd.Series(dtype=float)
+            output_df_meta[name] = pd.Series(dtype=float)
 
         def _get_diagnostic_value(row: dd.Series) -> pd.Series:
             this_time: np.datetime64 = np.datetime64(row["datetime"])
@@ -405,6 +415,9 @@ class DiagnosticsAmdarDataHarmoniser:
                 "longitude": row["longitude"],
                 self.common_time_column_name: row[self.common_time_column_name],
             }
+
+            for turbulence_col in self._amdar_data.turbulence_column_names():
+                new_row[turbulence_col] = row[turbulence_col]
 
             indexer_dict = {
                 "latitude": row["lat_index"],
@@ -423,7 +436,7 @@ class DiagnosticsAmdarDataHarmoniser:
         return observational_data.apply(
             _get_diagnostic_value,
             axis=1,
-            meta=dd.from_pandas(pd.DataFrame(dataframe_meta), npartitions=observational_data.npartitions),
+            meta=dd.from_pandas(pd.DataFrame(output_df_meta), npartitions=observational_data.npartitions),
         )
 
     def execute_harmonisation(
@@ -546,9 +559,7 @@ class DiagnosticsAmdarVerification:
         ]
         target_columns = space_time_columns + validation_columns
         target_data: dd.DataFrame = self.data[target_columns]
-        dataframe_meta: dict[str, pd.Series] = {
-            col_name: pd.Series(dtype=col_dtype) for col_name, col_dtype in target_data.dtypes.to_dict().items()
-        }
+        dataframe_meta: dict[str, pd.Series] = get_dataframe_dtypes(target_data)
         dataframe_meta["level_index"] = pd.Series(dtype=int)
         target_data = target_data.map_partitions(
             lambda df: df.assign(
