@@ -428,9 +428,19 @@ class TurbulenceLauncher:
                 # I will figure out the plumbing for this later
                 raise NotImplementedError("Comparing amdar data with calibration data not yet supported")
 
+            assert self._context.turbulence_config is not None
+            assert self._context.turbulence_config.phases.evaluation_phases is not None, (
+                "Code path should not be possible"
+            )
+
             assert result is not None, "Pydantic checks on config should prevent this assert from failing"
+            # if evaluation phases are empty, trigger pre-compute
             DiagnosticsAmdarLauncher(
-                self._context.data_config, self._context.output_dir, self._context.plots_dir, self._context.name
+                self._context.data_config,
+                self._context.output_dir,
+                self._context.plots_dir,
+                self._context.name,
+                not self._context.turbulence_config.phases.evaluation_phases.phases,
             ).launch(result.suite)
 
         return result
@@ -447,8 +457,16 @@ class DiagnosticsAmdarLauncher:
     _plots_dir: "Path"
     _save_output: bool
     _validation_conditions: list["DiagnosticValidationCondition"]
+    _trigger_diagnostics_compute: bool
 
-    def __init__(self, data_config: "DataConfig", output_dir: "Path", plots_dir: "Path", run_name: "RunName") -> None:
+    def __init__(
+        self,
+        data_config: "DataConfig",
+        output_dir: "Path",
+        plots_dir: "Path",
+        run_name: "RunName",
+        trigger_diagnostic_compute: bool,
+    ) -> None:
         assert data_config.amdar_config is not None
         self._data_source = data_config.amdar_config.data_source
         self._path_to_files = str(data_config.amdar_config.data_dir.resolve() / data_config.amdar_config.glob_pattern)
@@ -464,6 +482,7 @@ class DiagnosticsAmdarLauncher:
             if data_config.amdar_config.diagnostic_validation is None
             else data_config.amdar_config.diagnostic_validation.validation_conditions
         )
+        self._trigger_diagnostics_compute = trigger_diagnostic_compute
 
         self._save_output = data_config.amdar_config.save_harmonised_data
         base_dir = output_dir / run_name / "data_harmonisation"
@@ -500,6 +519,11 @@ class DiagnosticsAmdarLauncher:
         time_window_as_np_datetime: Limits[np.datetime64] = Limits(
             np.datetime64(self._time_window.lower), np.datetime64(self._time_window.upper)
         )
+
+        if self._trigger_diagnostics_compute:
+            for diagnostic_name, _ in diagnostic_suite.computed_values("Trigger computation of turbulence diagnostics"):
+                logger.debug("Computed CAT diagnostic %s", diagnostic_name)
+
         if self._strategies:
             result: dd.DataFrame = harmoniser.execute_harmonisation(
                 self._strategies,
