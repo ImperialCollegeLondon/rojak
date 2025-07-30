@@ -38,6 +38,7 @@ jobs:
         python-version: [ "3.12", "3.13" ]
     environment:
       name: CI
+    if: ${{ !github.event.pull_request.draft }}
 
     steps:
       - uses: actions/checkout@v4
@@ -60,6 +61,11 @@ jobs:
       - name: Test with pytest
         run: |
           uv run pytest --cov=rojak --cov-branch --cov-report=xml -n auto
+        env:
+          # CDSAPI will look for these env vars before loading from ~/.cdsapirc
+          # See https://github.com/ecmwf/cdsapi/blob/72d7cec0b611c2f71c1a69da4668368df5118cdb/cdsapi/api.py#L48
+          CDSAPI_URL: ${{ secrets.CDSAPI_URL }}
+          CDSAPI_KEY: ${{ secrets.CDSAPI_KEY }}
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         with:

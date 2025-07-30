@@ -191,7 +191,7 @@ class DiagnosticHistogramDistribution(PostProcessor):
         flattened_array = self._computed_diagnostic.stack(all=[...])
         flattened_array = flattened_array[flattened_array > 0]
         log_of_diagnostic = np.log(flattened_array)
-        min_and_max = np.percentile(flattened_array, [0, 100])
+        min_and_max = np.percentile(log_of_diagnostic, [0, 100])
         h, bins = np.histogram(
             log_of_diagnostic,
             bins=self._NUM_HIST_BINS,
@@ -204,7 +204,7 @@ class DiagnosticHistogramDistribution(PostProcessor):
         flattened_array = da.asarray(self._computed_diagnostic).flatten()
         flattened_array = flattened_array[flattened_array > 0]
         log_of_diagnostic = da.log(flattened_array)
-        min_and_max = da.percentile(flattened_array, [0, 100]).compute()
+        min_and_max = da.percentile(log_of_diagnostic, [0, 100], internal_method="tdigest").compute()
         h, bins = da.histogram(  # pyright: ignore [reportGeneralTypeIssues]
             log_of_diagnostic, bins=self._NUM_HIST_BINS, range=(min_and_max[0], min_and_max[1]), density=True
         )

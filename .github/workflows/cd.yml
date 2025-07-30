@@ -19,7 +19,9 @@ jobs:
       pages: write # To push to a GitHub Pages site
       id-token: write # To update the deployment status
     uses: ./.github/workflows/sphinx.yml
+    if: ${{ !github.event.pull_request.draft }}
   call-release-workflow:
     permissions:
       id-token: write
     uses: ./.github/workflows/release.yml
+    if: ${{ !github.event.pull_request.draft }}
