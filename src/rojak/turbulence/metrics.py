@@ -204,9 +204,9 @@ def binary_classification_curve(
     # As the values would be from the turbulence diagnostics, they are continuous
     # To reduce the data, use step_size to determine the minimum difference between two data points
     bucketed_value_indices = da.nonzero(diff_values > minimum_step_size)[0]
-    threshold_indices = da.hstack((bucketed_value_indices, da.asarray([sorted_truth.size - 1])))
+    threshold_indices = da.hstack((bucketed_value_indices, da.asarray([sorted_truth.size - 1]))).persist()
 
-    true_positive = da.cumsum(sorted_truth)[threshold_indices]
+    true_positive = da.cumsum(sorted_truth)[threshold_indices].persist()
     # Magical equation from scikit-learn which means another cumsum is avoided
     # https://github.com/scikit-learn/scikit-learn/blob/da08f3d99194565caaa2b6757a3816eef258cd70/sklearn/metrics/_ranking.py#L907
     false_positive = 1 + threshold_indices - true_positive
