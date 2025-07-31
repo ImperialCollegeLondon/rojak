@@ -7,10 +7,13 @@ from typing import TYPE_CHECKING, NamedTuple
 import dask.dataframe as dd
 import pytest
 
+from rojak.datalib.madis.amdar import AcarsAmdarTurbulenceData
 from rojak.orchestrator.configuration import (
     AmdarConfig,
     AmdarDataSource,
     DataConfig,
+    DiagnosticValidationCondition,
+    DiagnosticValidationConfig,
     SpatialDomain,
     TurbulenceCalibrationConfig,
     TurbulenceCalibrationPhaseOption,
@@ -279,3 +282,62 @@ def test_turbulence_amdar_acars_harmonisation(
     assert parquet_files  # check list is not empty
     loaded_output_data = dd.read_parquet(f"{str(harmonisation_output_dir)}/**/*.parquet")
     loaded_output_data.head()  # evaluate the first few rows to check it is valid
+
+
+@pytest.mark.cdsapi
+def test_turbulence_amdar_roc(
+    create_config_context, client, retrieve_era5_cat_data, retrieve_single_day_madis_data
+) -> None:
+    diagnostics: list[TurbulenceDiagnostics] = randomly_select_diagnostics(5)
+    turbulence_config = TurbulenceConfig(
+        chunks={"pressure_level": 3, "latitude": 721, "longitude": 1440, "valid_time": 3},
+        diagnostics=diagnostics,
+        phases=TurbulencePhases(
+            calibration_phases=TurbulenceCalibrationPhases(
+                phases=[
+                    TurbulenceCalibrationPhaseOption.THRESHOLDS,
+                ],
+                calibration_config=TurbulenceCalibrationConfig(
+                    calibration_data_dir=retrieve_era5_cat_data,
+                    percentile_thresholds=TurbulenceThresholds(light=0.97),
+                ),
+            ),
+            evaluation_phases=TurbulenceEvaluationPhases(
+                phases=[],
+                evaluation_config=TurbulenceEvaluationConfig(
+                    evaluation_data_dir=retrieve_era5_cat_data,
+                ),
+            ),
+        ),
+    )
+    validation_conditions = [
+        DiagnosticValidationCondition(observed_turbulence_column_name=col_name, value_greater_than=0.1)
+        for col_name in AcarsAmdarTurbulenceData.turbulence_column_names()
+    ]
+    data_config = DataConfig(
+        spatial_domain=SpatialDomain(
+            minimum_latitude=25, maximum_latitude=54, minimum_longitude=-125, maximum_longitude=2, grid_size=0.25
+        ),
+        amdar_config=AmdarConfig(
+            data_dir=retrieve_single_day_madis_data,
+            data_source=AmdarDataSource.MADIS,
+            glob_pattern="**/*.parquet",
+            time_window=Limits(
+                datetime.datetime(2024, month=1, day=1), datetime.datetime(2024, month=1, day=1, hour=18)
+            ),
+            diagnostic_validation=DiagnosticValidationConfig(validation_conditions=validation_conditions),
+        ),
+    )
+    config: ConfigContext = create_config_context(
+        "diagnostic_amdar_acars_roc", turb_config=turbulence_config, data_config=data_config
+    )
+    _ = TurbulenceLauncher(config).launch()
+
+    roc_plots_dir = config.plots_dir / config.name / "madis"
+    assert roc_plots_dir.exists()
+    assert roc_plots_dir.is_dir()
+
+    for condition in validation_conditions:
+        plot_file = roc_plots_dir / f"roc_{condition.observed_turbulence_column_name}.png"
+        assert plot_file.exists()
+        assert plot_file.is_file()
