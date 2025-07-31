@@ -361,6 +361,40 @@ class DiagnosticsAmdarDataHarmoniser:
     def harmonised_diagnostics(self) -> list[str]:
         return self._diagnostics_suite.diagnostic_names()
 
+    def _create_diagnostic_value_series(
+        self, grid_prototype: "xr.DataArray", observational_data: dd.DataFrame, dataframe_meta: dict[str, pd.Series]
+    ) -> dict["DiagnosticName", dd.Series]:
+        axis_nums: tuple[int, ...] = grid_prototype.get_axis_num(["longitude", "latitude", "pressure_level", "time"])
+        name_of_index_columns: list[str] = ["lon_index", "lat_index", "level_index", "time_index"]
+        indexing_columns: list[da.Array] = [
+            # Linter thinks this is a pandas array. Using .values on a dask dataframe converts it to
+            # a dask array. Therefore, ignore linter warning
+            observational_data[col_name].values.compute_chunk_sizes().persist()  # noqa: PD011
+            for col_name in name_of_index_columns
+        ]
+        as_coords: list = [None] * 4
+        for axis_num, coord_for_that_axis in zip(axis_nums, indexing_columns, strict=False):
+            as_coords[axis_num] = coord_for_that_axis
+        coordinates: da.Array = da.stack(as_coords, axis=1)
+        flattened_index: da.Array = da.ravel_multi_index(coordinates.T, grid_prototype.shape).persist()
+        for name in self.harmonised_diagnostics:
+            dataframe_meta[name] = pd.Series(dtype=float)
+
+        return {
+            diagnostic_name: da.ravel(computed_diagnostic.data)[flattened_index]
+            .compute_chunk_sizes()
+            .to_dask_dataframe(
+                meta=pd.DataFrame({diagnostic_name: pd.Series(dtype=float)}),
+                index=observational_data.index,
+                columns=diagnostic_name,
+            )
+            .repartition(npartitions=observational_data.npartitions)
+            .persist()
+            for diagnostic_name, computed_diagnostic in self._diagnostics_suite.computed_values(
+                "Vectorised indexing to get diagnostic value for observation"
+            )
+        }
+
     def nearest_diagnostic_value(self, time_window: "Limits[np.datetime64]") -> "dd.DataFrame":
         grid_prototype: xr.DataArray = self._diagnostics_suite.get_prototype_computed_diagnostic()
         self._check_time_window_within_met_data(time_window, grid_prototype)
@@ -404,36 +438,7 @@ class DiagnosticsAmdarDataHarmoniser:
             meta=dd.from_pandas(pd.DataFrame(dataframe_meta), npartitions=observational_data.npartitions),
         ).persist()
 
-        axis_nums: tuple[int, ...] = grid_prototype.get_axis_num(["longitude", "latitude", "pressure_level", "time"])
-        name_of_index_columns: list[str] = ["lon_index", "lat_index", "level_index", "time_index"]
-        indexing_columns: list[da.Array] = [
-            # Linter thinks this is a pandas array. Using .values on a dask dataframe converts it to
-            # a dask array. Therefore, ignore linter warning
-            observational_data[col_name].values.compute_chunk_sizes().persist()  # noqa: PD011
-            for col_name in name_of_index_columns
-        ]
-        as_coords: list = [None] * 4
-        for axis_num, coord_for_that_axis in zip(axis_nums, indexing_columns, strict=False):
-            as_coords[axis_num] = coord_for_that_axis
-        coordinates: da.Array = da.stack(as_coords, axis=1)
-        flattened_index: da.Array = da.ravel_multi_index(coordinates.T, grid_prototype.shape).persist()
-        for name in self.harmonised_diagnostics:
-            dataframe_meta[name] = pd.Series(dtype=float)
-
-        diagnostics_columns = {
-            diagnostic_name: da.ravel(computed_diagnostic.data)[flattened_index]
-            .compute_chunk_sizes()
-            .to_dask_dataframe(
-                meta=pd.DataFrame({diagnostic_name: pd.Series(dtype=float)}),
-                index=observational_data.index,
-                columns=diagnostic_name,
-            )
-            .repartition(npartitions=observational_data.npartitions)
-            .persist()
-            for diagnostic_name, computed_diagnostic in self._diagnostics_suite.computed_values(
-                "Vectorised indexing to get diagnostic value for observation"
-            )
-        }
+        diagnostics_columns = self._create_diagnostic_value_series(grid_prototype, observational_data, dataframe_meta)
         for diagnostic_col_name, as_column in diagnostics_columns.items():
             observational_data = dd.map_partitions(
                 lambda base_df, new_col, col_name=diagnostic_col_name: base_df.assign(**{col_name: new_col}),
