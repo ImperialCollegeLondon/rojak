@@ -18,6 +18,7 @@ from collections import defaultdict
 from collections.abc import Callable, Generator, Mapping
 from typing import TYPE_CHECKING, ClassVar, NamedTuple
 
+import dask.array as da
 import dask.dataframe as dd
 import numpy as np
 import pandas as pd
@@ -402,57 +403,44 @@ class DiagnosticsAmdarDataHarmoniser:
             ),
             meta=dd.from_pandas(pd.DataFrame(dataframe_meta), npartitions=observational_data.npartitions),
         ).persist()
-        blocking_wait_futures(observational_data)
 
-        columns_to_keep = {
-            "datetime",
-            "level",
-            "level_index",
-            "geometry",
-            self.grid_box_column_name,
-            "latitude",
-            "longitude",
-            self.common_time_column_name,
-        } | set(self._amdar_data.turbulence_column_names())
-        output_df_meta = {key: value for key, value in dataframe_meta.items() if key in columns_to_keep}
-        for name in self._diagnostics_suite.diagnostic_names():
-            output_df_meta[name] = pd.Series(dtype=float)
+        axis_nums: tuple[int, ...] = grid_prototype.get_axis_num(["longitude", "latitude", "pressure_level", "time"])
+        name_of_index_columns: list[str] = ["lon_index", "lat_index", "level_index", "time_index"]
+        indexing_columns: list[da.Array] = [
+            # Linter thinks this is a pandas array. Using .values on a dask dataframe converts it to
+            # a dask array. Therefore, ignore linter warning
+            observational_data[col_name].values.compute_chunk_sizes().persist()  # noqa: PD011
+            for col_name in name_of_index_columns
+        ]
+        as_coords: list = [None] * 4
+        for axis_num, coord_for_that_axis in zip(axis_nums, indexing_columns, strict=False):
+            as_coords[axis_num] = coord_for_that_axis
+        coordinates: da.Array = da.stack(as_coords, axis=1)
+        flattened_index: da.Array = da.ravel_multi_index(coordinates.T, grid_prototype.shape).persist()
+        for name in self.harmonised_diagnostics:
+            dataframe_meta[name] = pd.Series(dtype=float)
 
-        def _get_diagnostic_value(row: dd.Series) -> pd.Series:
-            this_time: np.datetime64 = np.datetime64(row["datetime"])
-            new_row = {
-                "datetime": this_time,
-                "level": row["level"],
-                "level_index": row["level_index"],
-                "geometry": row["geometry"],
-                self.grid_box_column_name: row[self.grid_box_column_name],
-                "latitude": row["latitude"],
-                "longitude": row["longitude"],
-                self.common_time_column_name: row[self.common_time_column_name],
-            }
-
-            for turbulence_col in self._amdar_data.turbulence_column_names():
-                new_row[turbulence_col] = row[turbulence_col]
-
-            indexer_dict = {
-                "latitude": row["lat_index"],
-                "longitude": row["lon_index"],
-                "time": row["time_index"],
-                "pressure_level": row["level_index"],
-            }
-            for diagnostic_name, computed_diagnostic in self._diagnostics_suite.computed_values(""):
-                # .compute() guarantees it is evaluated
-                # .data gets the underlying numpy array
-                # .item() gets the single value inside the numpy array as a python float
-                new_row[diagnostic_name] = computed_diagnostic[indexer_dict].compute().data.item()
-
-            return pd.Series(new_row)
-
-        return observational_data.apply(
-            _get_diagnostic_value,
-            axis=1,
-            meta=dd.from_pandas(pd.DataFrame(output_df_meta), npartitions=observational_data.npartitions),
-        ).persist()
+        diagnostics_columns = {
+            diagnostic_name: da.ravel(computed_diagnostic.data)[flattened_index]
+            .compute_chunk_sizes()
+            .to_dask_dataframe(
+                meta=pd.DataFrame({diagnostic_name: pd.Series(dtype=float)}),
+                index=observational_data.index,
+                columns=diagnostic_name,
+            )
+            .repartition(npartitions=observational_data.npartitions)
+            .persist()
+            for diagnostic_name, computed_diagnostic in self._diagnostics_suite.computed_values(
+                "Vectorised indexing to get diagnostic value for observation"
+            )
+        }
+        for diagnostic_col_name, as_column in diagnostics_columns.items():
+            observational_data = dd.map_partitions(
+                lambda base_df, new_col, col_name=diagnostic_col_name: base_df.assign(**{col_name: new_col}),
+                observational_data,
+                as_column,
+            ).persist()
+        return observational_data
 
     def execute_harmonisation(
         self,
