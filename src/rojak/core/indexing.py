@@ -164,3 +164,25 @@ def map_values_to_nearest_coordinate_index[T: np.datetime64 | np.number | np.ine
     approximate_index = (series - coordinate[0]) / spacing  # pyright: ignore[reportOperatorIssue]
     # rint - rounds to the closest integer => gives closest index
     return np.rint(approximate_index).astype(int)
+
+
+def map_order[T](on: list[T], by: list[int]) -> list[T]:
+    length: int = len(by)
+    by_as_set: set = set(by)
+
+    if len(on) != length:
+        raise ValueError("Order mapping must be on lists of the same length")
+    if len(by_as_set) != length:
+        raise ValueError("Order of items must have unique values")
+    if max(by) != length - 1:
+        raise ValueError(f"Maximum value of the order to impose must be length - 1 not {max(by)}")
+    if min(by) != 0:
+        raise ValueError("Minimum value of the order to impose must be 0")
+    if set(range(length)) != by_as_set:
+        raise ValueError("Order of items must be increasing by 1 from 0 to length")
+
+    in_order: list = [None] * length
+    for position, value in zip(by, on, strict=True):
+        in_order[position] = value
+
+    return in_order

@@ -25,7 +25,7 @@ import pandas as pd
 
 from rojak.core.calculations import bilinear_interpolation
 from rojak.core.distributed_tools import blocking_wait_futures
-from rojak.core.indexing import map_values_to_nearest_coordinate_index
+from rojak.core.indexing import map_order, map_values_to_nearest_coordinate_index
 from rojak.orchestrator.configuration import DiagnosticsAmdarHarmonisationStrategyOptions
 from rojak.turbulence.diagnostic import EvaluationDiagnosticSuite
 from rojak.turbulence.metrics import BinaryClassificationResult, area_under_curve, received_operating_characteristic
@@ -364,31 +364,39 @@ class DiagnosticsAmdarDataHarmoniser:
     def _create_diagnostic_value_series(
         self, grid_prototype: "xr.DataArray", observational_data: dd.DataFrame, dataframe_meta: dict[str, pd.Series]
     ) -> dict["DiagnosticName", dd.Series]:
-        axis_nums: tuple[int, ...] = grid_prototype.get_axis_num(["longitude", "latitude", "pressure_level", "time"])
+        coordinate_axes: list[str] = ["longitude", "latitude", "pressure_level", "time"]
+        assert set(coordinate_axes).issubset(grid_prototype.coords)
+        axis_order: tuple[int, ...] = grid_prototype.get_axis_num(coordinate_axes)
         name_of_index_columns: list[str] = ["lon_index", "lat_index", "level_index", "time_index"]
+        assert set(name_of_index_columns).issubset(observational_data)
+
+        # Retrieves the index for each row of data and stores them as dask arrays
         indexing_columns: list[da.Array] = [
             # Linter thinks this is a pandas array. Using .values on a dask dataframe converts it to
             # a dask array. Therefore, ignore linter warning
             observational_data[col_name].values.compute_chunk_sizes().persist()  # noqa: PD011
             for col_name in name_of_index_columns
         ]
-        as_coords: list = [None] * 4
-        for axis_num, coord_for_that_axis in zip(axis_nums, indexing_columns, strict=False):
-            as_coords[axis_num] = coord_for_that_axis
-        coordinates: da.Array = da.stack(as_coords, axis=1)
+        # Order of coordinate axes are not known beforehand. Therefore, use the axis order so that the index
+        # values matches the dimension of the array
+        in_order_of_array_coords: list[da.Array] = map_order(indexing_columns, list(axis_order))
+        # Combine them such that coordinates contains [(x1, y1, z1, t1), ..., (xn, yn, zn, tn)] which are the
+        # values to slices from the computed diagnostic
+        coordinates: da.Array = da.stack(in_order_of_array_coords, axis=1)  # shape = (4, n)
+        # da.Array doesn't support np advanced indexing such that coordinates can be used directly
+        #   => index into it as a contiguous array
         flattened_index: da.Array = da.ravel_multi_index(coordinates.T, grid_prototype.shape).persist()
         for name in self.harmonised_diagnostics:
             dataframe_meta[name] = pd.Series(dtype=float)
 
         return {
             diagnostic_name: da.ravel(computed_diagnostic.data)[flattened_index]
-            .compute_chunk_sizes()
+            # .compute_chunk_sizes()
             .to_dask_dataframe(
                 meta=pd.DataFrame({diagnostic_name: pd.Series(dtype=float)}),
-                index=observational_data.index,
+                index=observational_data.index,  # ensures it matches observational_data.index
                 columns=diagnostic_name,
             )
-            .repartition(npartitions=observational_data.npartitions)
             .persist()
             for diagnostic_name, computed_diagnostic in self._diagnostics_suite.computed_values(
                 "Vectorised indexing to get diagnostic value for observation"
