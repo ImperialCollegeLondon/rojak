@@ -185,8 +185,8 @@ class Frontogenesis3D(Diagnostic):
         dtheta_dy = theta_horz_gradient["dfdy"]
         dtheta_dz = altitude_derivative_on_pressure_level(self._potential_temperature, self._geopotential)
 
-        inverse_mag_grad_theta: xr.DataArray = 1 / np.sqrt(
-            dtheta_dx * dtheta_dx + dtheta_dy * dtheta_dy + dtheta_dz * dtheta_dz
+        inverse_mag_grad_theta: xr.DataArray = np.reciprocal(
+            np.sqrt(np.square(dtheta_dx) + np.square(dtheta_dy) + np.square(dtheta_dz))
         )  # pyright: ignore[reportAssignmentType]
         # If potential field has no changes, then there will be a division by zero
         inverse_mag_grad_theta = inverse_mag_grad_theta.fillna(0)
@@ -258,13 +258,13 @@ class Frontogenesis2D(Diagnostic):
         dtheta: dict[SpatialGradientKeys, xr.DataArray] = spatial_gradient(
             self._potential_temperature, "deg", GradientMode.GEOSPATIAL
         )
-        inverse_mag_grad_theta: xr.DataArray = -1 / magnitude_of_vector(dtheta["dfdx"], dtheta["dfdy"])
+        inverse_mag_grad_theta: xr.DataArray = -np.reciprocal(magnitude_of_vector(dtheta["dfdx"], dtheta["dfdy"]))  # pyright: ignore[reportAssignmentType]
         # If potential field has no changes, then there will be a division by zero
         inverse_mag_grad_theta = inverse_mag_grad_theta.fillna(0)
 
         return inverse_mag_grad_theta * (
-            dtheta["dfdx"] * dtheta["dfdx"] * self._du_dx
-            + dtheta["dfdy"] * dtheta["dfdy"] * self._dv_dy
+            np.square(dtheta["dfdx"]) * self._du_dx
+            + np.square(dtheta["dfdy"]) * self._dv_dy
             + dtheta["dfdx"] * dtheta["dfdy"] * self._dv_dy
             + dtheta["dfdx"] * dtheta["dfdy"] * self._du_dy
         )
@@ -555,7 +555,7 @@ class ColsonPanofsky(Diagnostic):
         vws: xr.DataArray = vertical_wind_shear(
             self._u_wind, self._v_wind, geopotential=self._geopotential, is_abs_velocities=True, is_vws_squared=True
         )
-        return (self._length_scale * self._length_scale) * vws * self._richardson_term
+        return vws * np.square(self._length_scale) * self._richardson_term
 
 
 class UBF(Diagnostic):
@@ -745,7 +745,7 @@ class DeformationSquared(Diagnostic):
         self._total_deformation = total_deformation
 
     def _compute(self) -> xr.DataArray:
-        return self._total_deformation * self._total_deformation
+        return np.square(self._total_deformation)  # pyright: ignore[reportReturnType]
 
 
 class WindDirection(Diagnostic):
@@ -849,7 +849,7 @@ class VerticalVorticitySquared(Diagnostic):
         self._vorticity = vorticity
 
     def _compute(self) -> xr.DataArray:
-        return self._vorticity * self._vorticity
+        return np.square(self._vorticity)  # pyright: ignore[reportReturnType]
 
 
 class DirectionalShear(Diagnostic):
@@ -971,16 +971,22 @@ class BrownIndex1(Diagnostic):
     """
 
     _vorticity: xr.DataArray
-    _total_deformation: xr.DataArray
+    _shear_deformation: xr.DataArray
+    _stretch_deformation: xr.DataArray
 
-    def __init__(self, total_deformation: xr.DataArray, vorticity: xr.DataArray) -> None:
+    def __init__(
+        self, shear_deformation: xr.DataArray, stretch_deformation: xr.DataArray, vorticity: xr.DataArray
+    ) -> None:
         super().__init__("Brown1")
-        self._total_deformation = total_deformation
+        self._shear_deformation = shear_deformation
+        self._stretch_deformation = stretch_deformation
         self._vorticity = vorticity
 
     def _compute(self) -> xr.DataArray:
         abs_vorticity: xr.DataArray = absolute_vorticity(self._vorticity)
-        return np.sqrt(0.3 * abs_vorticity + self._total_deformation)  # pyright: ignore[reportReturnType]
+        return np.sqrt(
+            0.3 * np.square(abs_vorticity) + np.square(self._shear_deformation) + np.square(self._stretch_deformation)
+        )  # pyright: ignore[reportReturnType]
 
 
 class BrownIndex2(Diagnostic):
@@ -1023,7 +1029,7 @@ class BrownIndex2(Diagnostic):
 
     def _compute(self) -> xr.DataArray:
         vws: xr.DataArray = vertical_wind_shear(self._u_wind, self._v_wind, geopotential=self._geopotential)
-        return (1 / 24) * self._brown_index_1 * vws * vws
+        return (1 / 24) * self._brown_index_1 * np.square(vws)
 
 
 class NegativeVorticityAdvection(Diagnostic):
@@ -1183,8 +1189,9 @@ class EDRLunnon(Diagnostic):
         du_dp: xr.DataArray = self._u_wind.differentiate("pressure_level")
         dv_dp: xr.DataArray = self._v_wind.differentiate("pressure_level")
         return (
-            (dv_dp * dv_dp) - (du_dp * du_dp)
-        ) * self._stretching_deformation - 2 * du_dp * dv_dp * self._shear_deformation
+            self._stretching_deformation * (np.square(dv_dp) - np.square(du_dp))
+            - 2 * du_dp * dv_dp * self._shear_deformation
+        )
 
 
 class DiagnosticFactory:
@@ -1298,7 +1305,9 @@ class DiagnosticFactory:
                     self._data.temperature(), self._data.geopotential(), self._data.total_deformation()
                 )
             case TurbulenceDiagnostics.BROWN1:
-                return BrownIndex1(self._data.vorticity(), self._data.total_deformation())
+                return BrownIndex1(
+                    self._data.shear_deformation(), self._data.stretching_deformation(), self._data.vorticity()
+                )
             case TurbulenceDiagnostics.BROWN2:
                 brown1: Diagnostic = self.create(TurbulenceDiagnostics.BROWN1)
                 return BrownIndex2(
