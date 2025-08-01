@@ -541,6 +541,7 @@ class DiagnosticsAmdarLauncher:
             roc: RocVerificationResult = verifier.nearest_value_roc(
                 self._validation_conditions, diagnostic_suite.get_prototype_computed_diagnostic()
             )
+            chained_names: str = _chain_diagnostic_names(harmoniser.harmonised_diagnostics)
             for amdar_verification_col, by_diagnostic_roc in roc.iterate_by_amdar_column():
                 false_positives: dict[DiagnosticName, da.Array] = {
                     name: roc_result.false_positives for name, roc_result in by_diagnostic_roc.items()
@@ -551,7 +552,7 @@ class DiagnosticsAmdarLauncher:
                 plot_roc_curve(
                     false_positives,
                     true_positives,
-                    str(self._plots_dir / f"roc_{amdar_verification_col}.png"),
+                    str(self._plots_dir / f"roc_{amdar_verification_col}_on_{chained_names}.png"),
                     area_under_curve=roc.auc_for_amdar_column(amdar_verification_col),
                 )
                 logger.debug("Created roc plot for %s AMDAR turbulence measure", amdar_verification_col)
