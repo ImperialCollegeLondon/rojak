@@ -94,7 +94,7 @@ def magnitude_of_vector(
     x_component = np.abs(x_component) if is_abs else x_component  # pyright: ignore[reportAssignmentType]
     y_component = np.abs(y_component) if is_abs else y_component  # pyright: ignore[reportAssignmentType]
 
-    return (x_component * x_component + y_component * y_component) if is_squared else np.hypot(x_component, y_component)  # pyright: ignore[reportReturnType]
+    return (np.square(x_component) + np.square(y_component)) if is_squared else np.hypot(x_component, y_component)  # pyright: ignore[reportReturnType]
 
 
 def vertical_component_vorticity(dvdx: xr.DataArray, dudy: xr.DataArray) -> xr.DataArray:
