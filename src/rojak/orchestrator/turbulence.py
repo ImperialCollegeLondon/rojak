@@ -22,7 +22,6 @@ import xarray as xr
 from pydantic import TypeAdapter
 
 from rojak.core import data
-from rojak.core.distributed_tools import blocking_wait_futures
 from rojak.datalib.ecmwf.era5 import Era5Data
 from rojak.datalib.madis.amdar import AcarsAmdarRepository
 from rojak.datalib.ukmo.amdar import UkmoAmdarRepository
@@ -505,7 +504,6 @@ class DiagnosticsAmdarLauncher:
                 self._strategies,
                 time_window_as_np_datetime,
             ).persist()
-            blocking_wait_futures(result)
             logger.info("Finished Turbulence Amdar Harmonisation")
             if self._save_output:
                 logger.info("Saving results to %s", self._output_filepath)
