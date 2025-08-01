@@ -416,7 +416,6 @@ class DiagnosticsAmdarDataHarmoniser:
                 ).argmin(),
                 meta=("level_index", int),
             ),
-            meta=pd.Series(dtype=int),
         ).persist()
         # observational_data = observational_data.map_partitions(
         #     lambda df: df.assign(
