@@ -460,7 +460,6 @@ class AmdarDataRepository(ABC):
             level=self._call_compute_closest_pressure_level(
                 raw_data_frame, np.asarray(target_pressure_levels, dtype=np.float64)
             ),
-            meta=pd.Series(dtype=float),
         ).persist()
 
         grid: dgpd.GeoDataFrame = create_grid_data_frame(target_region, grid_size)
