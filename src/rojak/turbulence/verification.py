@@ -18,12 +18,13 @@ from collections import defaultdict
 from collections.abc import Callable, Generator, Mapping
 from typing import TYPE_CHECKING, ClassVar, NamedTuple
 
+import dask.array as da
 import dask.dataframe as dd
 import numpy as np
 import pandas as pd
 
 from rojak.core.calculations import bilinear_interpolation
-from rojak.core.indexing import map_values_to_nearest_coordinate_index
+from rojak.core.indexing import map_order, map_values_to_nearest_coordinate_index
 from rojak.orchestrator.configuration import DiagnosticsAmdarHarmonisationStrategyOptions
 from rojak.turbulence.diagnostic import EvaluationDiagnosticSuite
 from rojak.turbulence.metrics import BinaryClassificationResult, area_under_curve, received_operating_characteristic
@@ -215,6 +216,10 @@ class DiagnosticsAmdarHarmonisationStrategyFactory:
         return strategies
 
 
+def get_dataframe_dtypes(data_frame: "dd.DataFrame") -> dict[str, pd.Series]:
+    return {col_name: pd.Series(dtype=col_dtype) for col_name, col_dtype in data_frame.dtypes.to_dict().items()}
+
+
 class DiagnosticsAmdarDataHarmoniser:
     """
     Class brings together the turbulence diagnostics computed from meteorological data and AMDAR observational data
@@ -300,7 +305,7 @@ class DiagnosticsAmdarDataHarmoniser:
             lambda strat: strat
             in {
                 DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES,
-                DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES,
+                DiagnosticsAmdarHarmonisationStrategyOptions.EDR,
             },
             strategies,
         ):
@@ -351,6 +356,103 @@ class DiagnosticsAmdarDataHarmoniser:
     def grid_box_column_name(self) -> str:
         return "index_right"
 
+    @property
+    def harmonised_diagnostics(self) -> list[str]:
+        return self._diagnostics_suite.diagnostic_names()
+
+    def _create_diagnostic_value_series(
+        self, grid_prototype: "xr.DataArray", observational_data: dd.DataFrame, dataframe_meta: dict[str, pd.Series]
+    ) -> dict["DiagnosticName", dd.Series]:
+        coordinate_axes: list[str] = ["longitude", "latitude", "pressure_level", "time"]
+        assert set(coordinate_axes).issubset(grid_prototype.coords)
+        axis_order: tuple[int, ...] = grid_prototype.get_axis_num(coordinate_axes)
+        name_of_index_columns: list[str] = ["lon_index", "lat_index", "level_index", "time_index"]
+        assert set(name_of_index_columns).issubset(observational_data)
+
+        # Retrieves the index for each row of data and stores them as dask arrays
+        indexing_columns: list[da.Array] = [
+            # Linter thinks this is a pandas array. Using .values on a dask dataframe converts it to
+            # a dask array. Therefore, ignore linter warning
+            observational_data[col_name].values.compute_chunk_sizes().persist()  # noqa: PD011
+            for col_name in name_of_index_columns
+        ]
+        # Order of coordinate axes are not known beforehand. Therefore, use the axis order so that the index
+        # values matches the dimension of the array
+        in_order_of_array_coords: list[da.Array] = map_order(indexing_columns, list(axis_order))
+        # Combine them such that coordinates contains [(x1, y1, z1, t1), ..., (xn, yn, zn, tn)] which are the
+        # values to slices from the computed diagnostic
+        coordinates: da.Array = da.stack(in_order_of_array_coords, axis=1)  # shape = (4, n)
+        # da.Array doesn't support np advanced indexing such that coordinates can be used directly
+        #   => index into it as a contiguous array
+        flattened_index: da.Array = da.ravel_multi_index(coordinates.T, grid_prototype.shape).persist()
+        for name in self.harmonised_diagnostics:
+            dataframe_meta[name] = pd.Series(dtype=float)
+
+        return {
+            diagnostic_name: da.ravel(computed_diagnostic.data)[flattened_index]
+            # .compute_chunk_sizes()
+            .to_dask_dataframe(
+                meta=pd.DataFrame({diagnostic_name: pd.Series(dtype=float)}),
+                index=observational_data.index,  # ensures it matches observational_data.index
+                columns=diagnostic_name,
+            )
+            .persist()
+            for diagnostic_name, computed_diagnostic in self._diagnostics_suite.computed_values(
+                "Vectorised indexing to get diagnostic value for observation"
+            )
+        }
+
+    def nearest_diagnostic_value(self, time_window: "Limits[np.datetime64]") -> "dd.DataFrame":
+        grid_prototype: xr.DataArray = self._diagnostics_suite.get_prototype_computed_diagnostic()
+        self._check_time_window_within_met_data(time_window, grid_prototype)
+
+        observational_data: dd.DataFrame = self._amdar_data.clip_to_time_window(time_window).persist()
+        dataframe_meta: dict[str, pd.Series] = get_dataframe_dtypes(observational_data)
+        dataframe_meta["level_index"] = pd.Series(dtype=int)
+        observational_data = observational_data.assign(
+            level_index=observational_data["level"].apply(
+                lambda row, pressure_level=grid_prototype["pressure_level"].values: np.abs(  # noqa: PD011
+                    row - pressure_level
+                ).argmin(),
+                meta=("level_index", int),
+            ),
+        ).persist()
+        # observational_data = observational_data.map_partitions(
+        #     lambda df: df.assign(
+        #         level_index=df["level"].apply(
+        #             lambda row, pressure_level=grid_prototype["pressure_level"].values: np.abs(  # noqa: PD011
+        #                 row - pressure_level
+        #             ).argmin(),
+        #         ),
+        #         meta=pd.Series(dtype=int),
+        #     ),
+        #     meta=pd.DataFrame(dataframe_meta),
+        # ).persist()
+        dataframe_meta["lat_index"] = pd.Series(dtype=int)
+        dataframe_meta["lon_index"] = pd.Series(dtype=int)
+        dataframe_meta["time_index"] = pd.Series(dtype=int)
+        observational_data = observational_data.map_partitions(
+            lambda df: df.assign(
+                lat_index=map_values_to_nearest_coordinate_index(df.latitude, grid_prototype["latitude"].values),
+                lon_index=map_values_to_nearest_coordinate_index(df.longitude, grid_prototype["longitude"].values),
+                time_index=map_values_to_nearest_coordinate_index(
+                    df.datetime,
+                    grid_prototype["time"].values,
+                    valid_window=self.TIME_WINDOW_DELTA,
+                ),
+            ),
+            meta=dd.from_pandas(pd.DataFrame(dataframe_meta), npartitions=observational_data.npartitions),
+        ).persist()
+
+        diagnostics_columns = self._create_diagnostic_value_series(grid_prototype, observational_data, dataframe_meta)
+        for diagnostic_col_name, as_column in diagnostics_columns.items():
+            observational_data = dd.map_partitions(
+                lambda base_df, new_col, col_name=diagnostic_col_name: base_df.assign(**{col_name: new_col}),
+                observational_data,
+                as_column,
+            ).persist()
+        return observational_data
+
     def execute_harmonisation(
         self,
         methods: list[DiagnosticsAmdarHarmonisationStrategyOptions],
@@ -395,7 +497,7 @@ def _observed_turbulence_aggregation(condition: "DiagnosticValidationCondition")
     def aggregate_chunks(chunk_maxes: "pd.Series") -> float:
         return chunk_maxes.max()
 
-    def apply_condition(maxima: float) -> float:
+    def apply_condition(maxima: float) -> bool:
         return maxima > condition.value_greater_than
 
     return dd.Aggregation(
@@ -469,9 +571,7 @@ class DiagnosticsAmdarVerification:
         ]
         target_columns = space_time_columns + validation_columns
         target_data: dd.DataFrame = self.data[target_columns]
-        dataframe_meta: dict[str, pd.Series] = {
-            col_name: pd.Series(dtype=col_dtype) for col_name, col_dtype in target_data.dtypes.to_dict().items()
-        }
+        dataframe_meta: dict[str, pd.Series] = get_dataframe_dtypes(target_data)
         dataframe_meta["level_index"] = pd.Series(dtype=int)
         target_data = target_data.map_partitions(
             lambda df: df.assign(
@@ -506,7 +606,10 @@ class DiagnosticsAmdarVerification:
             "level_index",
             self._data_harmoniser.common_time_column_name,
         ]
-        target_data = target_data.drop(columns=["level", "longitude", "latitude"])
+        assert set(group_by_columns).issubset(target_data.columns)
+        columns_to_drop: list[str] = ["level", "longitude", "latitude"]
+        assert set(columns_to_drop).issubset(target_data.columns)
+        target_data = target_data.drop(columns=columns_to_drop)
         grouped_by_space_time = target_data.groupby(group_by_columns)
 
         aggregation_spec: dict = {
@@ -516,6 +619,49 @@ class DiagnosticsAmdarVerification:
         for strategy_column in strategy_columns:
             aggregation_spec[strategy_column] = "mean"
         return grouped_by_space_time.aggregate(aggregation_spec)
+
+    def nearest_value_roc(
+        self,
+        validation_conditions: "list[DiagnosticValidationCondition]",
+        prototype_diagnostic_array: "xr.DataArray",
+    ) -> RocVerificationResult:
+        assert {"pressure_level", "longitude", "latitude", "time"}.issubset(prototype_diagnostic_array.coords)
+        turbulence_diagnostics = self._data_harmoniser.harmonised_diagnostics
+        target_data = self._data_harmoniser.nearest_diagnostic_value(self._time_window).persist()
+        validation_columns: list[str] = [
+            condition.observed_turbulence_column_name for condition in validation_conditions
+        ]
+        space_time_columns: list[str] = [
+            self._data_harmoniser.grid_box_column_name,
+            "level_index",
+            self._data_harmoniser.common_time_column_name,
+        ]
+        target_columns: list[str] = space_time_columns + turbulence_diagnostics + validation_columns
+        target_data = target_data[target_columns]
+        grouped_by_space_time = target_data.groupby(space_time_columns)
+        aggregation_spec: dict = {
+            condition.observed_turbulence_column_name: _observed_turbulence_aggregation(condition)
+            for condition in validation_conditions
+        }
+        for diagnostic_column in turbulence_diagnostics:
+            aggregation_spec[diagnostic_column] = "mean"
+        aggregated_data = grouped_by_space_time.aggregate(aggregation_spec).persist()
+
+        result: defaultdict[str, dict[str, BinaryClassificationResult]] = defaultdict(dict)
+        for diagnostic_val_col in turbulence_diagnostics:
+            # descending values
+            subset_df = (
+                aggregated_data[[*validation_columns, diagnostic_val_col]]
+                .sort_values(diagnostic_val_col, ascending=False)
+                .persist()
+            )
+            for amdar_turbulence_col in validation_columns:
+                result[amdar_turbulence_col][diagnostic_val_col] = received_operating_characteristic(
+                    subset_df[amdar_turbulence_col].values.compute_chunk_sizes().persist(),  # noqa: PD011
+                    subset_df[diagnostic_val_col].values.compute_chunk_sizes().persist(),  # noqa: PD011
+                    num_intervals=-1,
+                )
+        return RocVerificationResult(dict(result))
 
     def compute_roc_curve(
         self,

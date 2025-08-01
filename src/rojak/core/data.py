@@ -456,10 +456,11 @@ class AmdarDataRepository(ABC):
 
         """
         raw_data_frame: dd.DataFrame = self.load()
-
-        raw_data_frame["level"] = self._call_compute_closest_pressure_level(
-            raw_data_frame, np.asarray(target_pressure_levels, dtype=np.float64)
-        )
+        raw_data_frame = raw_data_frame.assign(
+            level=self._call_compute_closest_pressure_level(
+                raw_data_frame, np.asarray(target_pressure_levels, dtype=np.float64)
+            ),
+        ).persist()
 
         grid: dgpd.GeoDataFrame = create_grid_data_frame(target_region, grid_size)
         within_region: dgpd.GeoDataFrame = as_geo_dataframe(raw_data_frame).sjoin(grid).optimize()

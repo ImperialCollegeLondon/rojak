@@ -129,4 +129,4 @@ class UkmoAmdarTurbulenceData(AmdarTurbulenceData):
 
     @staticmethod
     def turbulence_column_names() -> list[str]:
-        return ["turbulence_degree"]
+        return ["turbulence_degree", "vert_gust_velocity", "vert_gust_acceleration"]

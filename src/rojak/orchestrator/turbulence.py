@@ -427,9 +427,19 @@ class TurbulenceLauncher:
                 # I will figure out the plumbing for this later
                 raise NotImplementedError("Comparing amdar data with calibration data not yet supported")
 
+            assert self._context.turbulence_config is not None
+            assert self._context.turbulence_config.phases.evaluation_phases is not None, (
+                "Code path should not be possible"
+            )
+
             assert result is not None, "Pydantic checks on config should prevent this assert from failing"
+            # if evaluation phases are empty, trigger pre-compute
             DiagnosticsAmdarLauncher(
-                self._context.data_config, self._context.output_dir, self._context.plots_dir, self._context.name
+                self._context.data_config,
+                self._context.output_dir,
+                self._context.plots_dir,
+                self._context.name,
+                not self._context.turbulence_config.phases.evaluation_phases.phases,
             ).launch(result.suite)
 
         return result
@@ -446,8 +456,16 @@ class DiagnosticsAmdarLauncher:
     _plots_dir: "Path"
     _save_output: bool
     _validation_conditions: list["DiagnosticValidationCondition"]
+    _trigger_diagnostics_compute: bool
 
-    def __init__(self, data_config: "DataConfig", output_dir: "Path", plots_dir: "Path", run_name: "RunName") -> None:
+    def __init__(
+        self,
+        data_config: "DataConfig",
+        output_dir: "Path",
+        plots_dir: "Path",
+        run_name: "RunName",
+        trigger_diagnostic_compute: bool,
+    ) -> None:
         assert data_config.amdar_config is not None
         self._data_source = data_config.amdar_config.data_source
         self._path_to_files = str(data_config.amdar_config.data_dir.resolve() / data_config.amdar_config.glob_pattern)
@@ -463,6 +481,7 @@ class DiagnosticsAmdarLauncher:
             if data_config.amdar_config.diagnostic_validation is None
             else data_config.amdar_config.diagnostic_validation.validation_conditions
         )
+        self._trigger_diagnostics_compute = trigger_diagnostic_compute
 
         self._save_output = data_config.amdar_config.save_harmonised_data
         base_dir = output_dir / run_name / "data_harmonisation"
@@ -473,7 +492,7 @@ class DiagnosticsAmdarLauncher:
             base_dir / f"{self._data_source}_{self._time_window.lower.strftime(time_format)}"
             f"_{self._time_window.upper.strftime(time_format)}.parquet"
         )
-        self._plots_dir = plots_dir / run_name
+        self._plots_dir = plots_dir / run_name / str(self._data_source)
         self._plots_dir.mkdir(parents=True, exist_ok=True)
 
     def create_amdar_data_repository(self) -> "AmdarDataRepository":
@@ -499,6 +518,11 @@ class DiagnosticsAmdarLauncher:
         time_window_as_np_datetime: Limits[np.datetime64] = Limits(
             np.datetime64(self._time_window.lower), np.datetime64(self._time_window.upper)
         )
+
+        if self._trigger_diagnostics_compute:
+            for diagnostic_name, _ in diagnostic_suite.computed_values("Trigger computation of turbulence diagnostics"):
+                logger.debug("Computed CAT diagnostic %s", diagnostic_name)
+
         if self._strategies:
             result: dd.DataFrame = harmoniser.execute_harmonisation(
                 self._strategies,
@@ -514,9 +538,10 @@ class DiagnosticsAmdarLauncher:
         if self._validation_conditions:
             logger.info("Starting validation of diagnostics with amdar data")
             verifier = DiagnosticsAmdarVerification(harmoniser, time_window_as_np_datetime)
-            roc: RocVerificationResult = verifier.compute_roc_curve(
+            roc: RocVerificationResult = verifier.nearest_value_roc(
                 self._validation_conditions, diagnostic_suite.get_prototype_computed_diagnostic()
             )
+            chained_names: str = _chain_diagnostic_names(harmoniser.harmonised_diagnostics)
             for amdar_verification_col, by_diagnostic_roc in roc.iterate_by_amdar_column():
                 false_positives: dict[DiagnosticName, da.Array] = {
                     name: roc_result.false_positives for name, roc_result in by_diagnostic_roc.items()
@@ -527,7 +552,7 @@ class DiagnosticsAmdarLauncher:
                 plot_roc_curve(
                     false_positives,
                     true_positives,
-                    str(self._plots_dir / f"roc_{amdar_verification_col}.png"),
+                    str(self._plots_dir / f"roc_{amdar_verification_col}_on_{chained_names}.png"),
                     area_under_curve=roc.auc_for_amdar_column(amdar_verification_col),
                 )
                 logger.debug("Created roc plot for %s AMDAR turbulence measure", amdar_verification_col)

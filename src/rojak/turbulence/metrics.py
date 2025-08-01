@@ -93,9 +93,9 @@ def received_operating_characteristic(
 
     # Make curve start at 0
     zero_array = da.zeros(1)
-    true_positive = da.hstack((zero_array, classification_result.true_positives.compute_chunk_sizes()))  # pyright: ignore[reportAttributeAccessIssue]
-    false_positive = da.hstack((zero_array, classification_result.false_positives.compute_chunk_sizes()))  # pyright: ignore[reportAttributeAccessIssue]
-    thresholds = da.hstack((da.asarray([np.inf]), classification_result.thresholds.compute_chunk_sizes()))  # pyright: ignore[reportAttributeAccessIssue]
+    true_positive = da.hstack((zero_array, classification_result.true_positives.compute_chunk_sizes())).persist()  # pyright: ignore[reportAttributeAccessIssue]
+    false_positive = da.hstack((zero_array, classification_result.false_positives.compute_chunk_sizes())).persist()  # pyright: ignore[reportAttributeAccessIssue]
+    thresholds = da.hstack((da.asarray([np.inf]), classification_result.thresholds.compute_chunk_sizes())).persist()  # pyright: ignore[reportAttributeAccessIssue]
 
     if false_positive[-1] < 0:
         raise ValueError("false positives cannot be negative")
@@ -190,7 +190,7 @@ def binary_classification_curve(
         sorted_truth = sorted_truth == positive_classification_label
 
     diff_values: da.Array = da.diff(sorted_values)
-    if not da.all(diff_values < 0).compute():
+    if not da.all(diff_values <= 0).compute():
         raise ValueError("values must be strictly decreasing")
     diff_values = da.abs(diff_values)
 
@@ -204,9 +204,9 @@ def binary_classification_curve(
     # As the values would be from the turbulence diagnostics, they are continuous
     # To reduce the data, use step_size to determine the minimum difference between two data points
     bucketed_value_indices = da.nonzero(diff_values > minimum_step_size)[0]
-    threshold_indices = da.hstack((bucketed_value_indices, da.asarray([sorted_truth.size - 1])))
+    threshold_indices = da.hstack((bucketed_value_indices, da.asarray([sorted_truth.size - 1]))).persist()
 
-    true_positive = da.cumsum(sorted_truth)[threshold_indices]
+    true_positive = da.cumsum(sorted_truth)[threshold_indices].persist()
     # Magical equation from scikit-learn which means another cumsum is avoided
     # https://github.com/scikit-learn/scikit-learn/blob/da08f3d99194565caaa2b6757a3816eef258cd70/sklearn/metrics/_ranking.py#L907
     false_positive = 1 + threshold_indices - true_positive
