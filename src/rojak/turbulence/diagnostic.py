@@ -971,16 +971,22 @@ class BrownIndex1(Diagnostic):
     """
 
     _vorticity: xr.DataArray
-    _total_deformation: xr.DataArray
+    _shear_deformation: xr.DataArray
+    _stretch_deformation: xr.DataArray
 
-    def __init__(self, total_deformation: xr.DataArray, vorticity: xr.DataArray) -> None:
+    def __init__(
+        self, shear_deformation: xr.DataArray, stretch_deformation: xr.DataArray, vorticity: xr.DataArray
+    ) -> None:
         super().__init__("Brown1")
-        self._total_deformation = total_deformation
+        self._shear_deformation = shear_deformation
+        self._stretch_deformation = stretch_deformation
         self._vorticity = vorticity
 
     def _compute(self) -> xr.DataArray:
         abs_vorticity: xr.DataArray = absolute_vorticity(self._vorticity)
-        return np.sqrt(0.3 * abs_vorticity + self._total_deformation)  # pyright: ignore[reportReturnType]
+        return np.sqrt(
+            0.3 * np.square(abs_vorticity) + np.square(self._shear_deformation) + np.square(self._stretch_deformation)
+        )  # pyright: ignore[reportReturnType]
 
 
 class BrownIndex2(Diagnostic):
@@ -1298,7 +1304,9 @@ class DiagnosticFactory:
                     self._data.temperature(), self._data.geopotential(), self._data.total_deformation()
                 )
             case TurbulenceDiagnostics.BROWN1:
-                return BrownIndex1(self._data.vorticity(), self._data.total_deformation())
+                return BrownIndex1(
+                    self._data.shear_deformation(), self._data.stretching_deformation(), self._data.vorticity()
+                )
             case TurbulenceDiagnostics.BROWN2:
                 brown1: Diagnostic = self.create(TurbulenceDiagnostics.BROWN1)
                 return BrownIndex2(
