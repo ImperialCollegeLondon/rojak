@@ -31,7 +31,6 @@ from rojak.core import derivatives
 from rojak.core.calculations import pressure_to_altitude_icao
 from rojak.core.constants import MAX_LONGITUDE
 from rojak.core.derivatives import VelocityDerivative
-from rojak.core.distributed_tools import blocking_wait_futures
 from rojak.core.geometric import create_grid_data_frame
 from rojak.core.indexing import make_value_based_slice
 from rojak.turbulence import calculations as turb_calc
@@ -123,7 +122,6 @@ class CATPrognosticData:
             missing_coords = self.required_coords - dataset.coords.keys()
             raise ValueError(f"Attempting to instantiate CATPrognosticData with missing coords: {missing_coords}")
         self._dataset = dataset.sortby("time").persist()
-        blocking_wait_futures(self._dataset)
 
     def temperature(self) -> xr.DataArray:
         return self._dataset["temperature"]
@@ -170,7 +168,6 @@ class CATData(CATPrognosticData):
             self._potential_temperature = turb_calc.potential_temperature(
                 self.temperature(), self.temperature()["pressure_level"]
             ).persist()
-            blocking_wait_futures(self._potential_temperature)
         return self._potential_temperature
 
     def velocity_derivatives(self) -> dict[VelocityDerivative, xr.DataArray]:
@@ -194,7 +191,6 @@ class CATData(CATPrognosticData):
                 self.specific_velocity_derivative(VelocityDerivative.DV_DX),
                 self.specific_velocity_derivative(VelocityDerivative.DU_DY),
             ).persist()
-            blocking_wait_futures(self._shear_deformation)
         return self._shear_deformation
 
     def stretching_deformation(self) -> xr.DataArray:
@@ -203,7 +199,6 @@ class CATData(CATPrognosticData):
                 self.specific_velocity_derivative(VelocityDerivative.DU_DX),
                 self.specific_velocity_derivative(VelocityDerivative.DV_DY),
             ).persist()
-            blocking_wait_futures(self._stretching_deformation)
         return self._stretching_deformation
 
     def total_deformation(self) -> xr.DataArray:
@@ -474,7 +469,7 @@ class AmdarDataRepository(ABC):
         if self._time_column_rename_mapping():
             within_region = within_region.rename(columns=self._time_column_rename_mapping())
 
-        return self._instantiate_amdar_turbulence_data_class(within_region.optimize(), grid)
+        return self._instantiate_amdar_turbulence_data_class(within_region.persist(), grid)
 
 
 class AmdarTurbulenceData(ABC):
@@ -488,7 +483,7 @@ class AmdarTurbulenceData(ABC):
         assert required_columns.issubset(data_frame.columns), (
             f"Columns {required_columns - set(data_frame.columns)} from missing the data frame"
         )
-        self._data_frame = self.__apply_quality_control(data_frame)
+        self._data_frame = self.__apply_quality_control(data_frame).persist()
         self._grid = grid
 
     @abstractmethod

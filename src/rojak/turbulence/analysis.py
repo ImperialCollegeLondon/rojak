@@ -26,7 +26,6 @@ from numpy.typing import NDArray
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 
 from rojak.core.analysis import PostProcessor
-from rojak.core.distributed_tools import blocking_wait_futures
 from rojak.orchestrator.configuration import TurbulenceSeverity, TurbulenceThresholdMode, TurbulenceThresholds
 from rojak.utilities.types import Limits
 
@@ -341,7 +340,6 @@ class TransformToEDR(PostProcessor):
         # return exponent_term * (np.sign(self.computed_value()) * (np.abs(self.computed_value()) ** scaling))
         # e^a x^b
         mapped_index: xr.DataArray = (np.exp(offset) * (unmapped_index**scaling)).persist()
-        blocking_wait_futures(mapped_index)
         return mapped_index
 
 

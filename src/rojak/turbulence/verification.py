@@ -24,7 +24,6 @@ import numpy as np
 import pandas as pd
 
 from rojak.core.calculations import bilinear_interpolation
-from rojak.core.distributed_tools import blocking_wait_futures
 from rojak.core.indexing import map_order, map_values_to_nearest_coordinate_index
 from rojak.orchestrator.configuration import DiagnosticsAmdarHarmonisationStrategyOptions
 from rojak.turbulence.diagnostic import EvaluationDiagnosticSuite
@@ -476,7 +475,6 @@ class DiagnosticsAmdarDataHarmoniser:
         ).persist()
         logger.debug("Observational data successfully prepared to be harmonised")
         # https://docs.dask.org/en/stable/user-interfaces.html#combining-interfaces
-        blocking_wait_futures(observational_data)
         logger.debug("Futures from persisting observational data have completed successfully")
 
         strategies: list[DiagnosticsAmdarHarmonisationStrategy] = DiagnosticsAmdarHarmonisationStrategyFactory(
@@ -555,7 +553,6 @@ class DiagnosticsAmdarVerification:
                 [DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES], self._time_window
             ).persist()  # Need to do this assignment to make pyright happy
             self._harmonised_data = data
-            blocking_wait_futures(self._harmonised_data)
             return self._harmonised_data
         return self._harmonised_data
 
@@ -690,7 +687,6 @@ class DiagnosticsAmdarVerification:
             target_data, diagnostic_value_columns, validation_conditions
         ).persist()
         logger.debug("Triggered spatio temporal aggregation")
-        blocking_wait_futures(aggregated_data)
         logger.debug("Finished spatio temporal aggregation")
         result: defaultdict[str, dict[str, BinaryClassificationResult]] = defaultdict(dict)
         for diagnostic_val_col in diagnostic_value_columns:
