@@ -185,8 +185,8 @@ class Frontogenesis3D(Diagnostic):
         dtheta_dy = theta_horz_gradient["dfdy"]
         dtheta_dz = altitude_derivative_on_pressure_level(self._potential_temperature, self._geopotential)
 
-        inverse_mag_grad_theta: xr.DataArray = 1 / np.sqrt(
-            np.square(dtheta_dx) + np.square(dtheta_dy) + np.square(dtheta_dz)
+        inverse_mag_grad_theta: xr.DataArray = np.reciprocal(
+            np.sqrt(np.square(dtheta_dx) + np.square(dtheta_dy) + np.square(dtheta_dz))
         )  # pyright: ignore[reportAssignmentType]
         # If potential field has no changes, then there will be a division by zero
         inverse_mag_grad_theta = inverse_mag_grad_theta.fillna(0)
@@ -258,7 +258,7 @@ class Frontogenesis2D(Diagnostic):
         dtheta: dict[SpatialGradientKeys, xr.DataArray] = spatial_gradient(
             self._potential_temperature, "deg", GradientMode.GEOSPATIAL
         )
-        inverse_mag_grad_theta: xr.DataArray = -1 / magnitude_of_vector(dtheta["dfdx"], dtheta["dfdy"])
+        inverse_mag_grad_theta: xr.DataArray = -np.reciprocal(magnitude_of_vector(dtheta["dfdx"], dtheta["dfdy"]))  # pyright: ignore[reportAssignmentType]
         # If potential field has no changes, then there will be a division by zero
         inverse_mag_grad_theta = inverse_mag_grad_theta.fillna(0)
 
@@ -1189,8 +1189,9 @@ class EDRLunnon(Diagnostic):
         du_dp: xr.DataArray = self._u_wind.differentiate("pressure_level")
         dv_dp: xr.DataArray = self._v_wind.differentiate("pressure_level")
         return (
-            (dv_dp * dv_dp) - (du_dp * du_dp)
-        ) * self._stretching_deformation - 2 * du_dp * dv_dp * self._shear_deformation
+            self._stretching_deformation * (np.square(dv_dp) - np.square(du_dp))
+            - 2 * du_dp * dv_dp * self._shear_deformation
+        )
 
 
 class DiagnosticFactory:
