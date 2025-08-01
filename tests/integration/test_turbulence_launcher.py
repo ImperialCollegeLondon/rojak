@@ -338,6 +338,5 @@ def test_turbulence_amdar_roc(
     assert roc_plots_dir.is_dir()
 
     for condition in validation_conditions:
-        plot_file = roc_plots_dir / f"roc_{condition.observed_turbulence_column_name}.png"
-        assert plot_file.exists()
-        assert plot_file.is_file()
+        matching_files = list(roc_plots_dir.glob(f"roc_{condition.observed_turbulence_column_name}_*.png"))
+        assert len(matching_files) == 1
