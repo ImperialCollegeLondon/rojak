@@ -36,7 +36,7 @@ class _PressureToAltitudeConstantsICAO:
     tropopause_temperature: float = 216.66  # T^* in K
     lapse_rate: float = 0.0065  # a in K / m
     n_value: float = 5.2561  # n = G/aR dimensionless
-    inverse_n: float = 1 / 5.2621  # 1/n (dimensionless) where n = G / aR
+    inverse_n: float = 1 / 5.2561  # 1/n (dimensionless) where n = G / aR
     geopotential_dimensional_constant: float = 9.80665  # G
 
     @property
