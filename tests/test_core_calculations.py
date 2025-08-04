@@ -101,7 +101,7 @@ def test_pressure_to_altitude_fails_checks(
 def test_pressure_to_altitude_troposphere_and_vice_versa(wrap_in_data_array: bool, is_2d: bool) -> None:
     # Values from Metric Table I in section 5 of NACA3182
     pressure = np.asarray(
-        [1013.25, 794.95, 701.08, 616.40, 577.28, 478.81, 449.60, 410.61, 330.99, 350.88, 300.62, 250.50]
+        [1013.25, 794.95, 701.08, 616.40, 577.28, 471.81, 452.72, 410.61, 330.99, 350.88, 300.62, 250.50]
     )
     altitude_from_table = np.asarray([0, 2000, 3000, 4000, 4500, 6000, 6300, 7000, 8500, 8100, 9150, 10350])
 
@@ -169,8 +169,8 @@ def test_pressure_to_altitude_icao(wrap_in_data_array) -> None:
             701.08,
             616.40,
             577.28,
-            478.81,
-            449.60,
+            471.81,
+            452.72,
             410.61,
             330.99,
             350.88,
