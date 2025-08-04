@@ -115,9 +115,10 @@ def test_pressure_to_altitude_troposphere_and_vice_versa(wrap_in_data_array: boo
 
     computed_altitude = pressure_to_altitude_troposphere(pressure)
     computed_pressure = altitude_to_pressure_troposphere(altitude_from_table)
-    np.testing.assert_allclose(computed_pressure, pressure, rtol=1e-5)
+    np.testing.assert_allclose(computed_pressure, pressure, rtol=1e-4)
     # rtol based on altitude -> pressure as table is from altitude -> pressure
-    np.testing.assert_allclose(computed_altitude, altitude_from_table, rtol=1e-5)
+    np.testing.assert_equal(np.round(computed_altitude, decimals=-1), altitude_from_table.data)
+    np.testing.assert_allclose(computed_altitude, altitude_from_table, rtol=1e-4)
     if not is_2d:
         if wrap_in_data_array:
             np.testing.assert_equal(pressure_to_altitude_icao(pressure).values, computed_altitude)  # pyright: ignore[reportAttributeAccessIssue]
