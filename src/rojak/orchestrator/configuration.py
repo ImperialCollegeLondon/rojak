@@ -18,6 +18,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Self, assert_never
 
+import dask.dataframe as dd
 import numpy as np
 import yaml
 from pydantic import AfterValidator, BaseModel, Field, ValidationError, model_validator
@@ -27,6 +28,8 @@ from rojak.datalib.ukmo.amdar import UkmoAmdarTurbulenceData
 from rojak.utilities.types import Limits
 
 if TYPE_CHECKING:
+    import pandas as pd
+
     from rojak.core.data import AmdarTurbulenceData
 
 
@@ -467,6 +470,51 @@ class DiagnosticValidationCondition(BaseConfigModel):
 
     def __hash__(self) -> int:
         return hash((self.observed_turbulence_column_name, self.value_greater_than))
+
+    def grid_point_auc_agg(self) -> dd.Aggregation:
+        def apply_condition(on_chunk: "pd.api.typing.SeriesGroupBy") -> "pd.Series":
+            return on_chunk.apply(lambda row: row > self.value_greater_than)
+
+        def aggregate_with_cumsum(on_partition: "pd.api.typing.SeriesGroupBy") -> "pd.Series":
+            # See https://docs.dask.org/en/latest/dataframe-groupby.html#aggregate
+            # The example for nunique has this groupby
+            # My understanding is that it forces the partition into the original groups, on which, I am applying
+            # the cumsum => result is still separated based on the groups
+            return on_partition.obj.groupby(level=list(range(on_partition.obj.index.nlevels))).cumsum()
+
+        def compute_auc_from_cumsum(on_group: "pd.Series") -> float:
+            group_size: int = on_group.size
+            true_positive_rate = on_group.to_numpy()
+            false_positive_rate = 1 + np.arange(group_size) - true_positive_rate
+
+            if group_size == 1:
+                return true_positive_rate[0]
+
+            if true_positive_rate[-1] < 0:
+                raise ValueError("true_positives must not be negative")
+            if false_positive_rate[-1] < 0:
+                raise ValueError("false_positives must not be negative")
+
+            # Prevent NaN values from being returned when there are no positive observations
+            if true_positive_rate[-1] == 0:
+                return 0
+
+            true_positive_rate = np.hstack((np.zeros(1), true_positive_rate)) / true_positive_rate[-1]
+            false_positive_rate = np.hstack((np.zeros(1), false_positive_rate)) / false_positive_rate[-1]
+
+            return np.trapezoid(true_positive_rate, x=false_positive_rate)
+
+        def finalise(on_aggregation_result: "pd.Series") -> "pd.Series":
+            return on_aggregation_result.groupby(level=list(range(on_aggregation_result.index.nlevels))).apply(
+                compute_auc_from_cumsum
+            )
+
+        return dd.Aggregation(
+            name=f"auc_on_{self.observed_turbulence_column_name}_{self.value_greater_than:0.2f}",
+            chunk=apply_condition,
+            agg=aggregate_with_cumsum,
+            finalize=finalise,
+        )
 
 
 class DiagnosticValidationConfig(BaseConfigModel):

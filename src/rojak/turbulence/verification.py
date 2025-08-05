@@ -620,6 +620,51 @@ class DiagnosticsAmdarVerification:
             aggregation_spec[strategy_column] = "mean"
         return grouped_by_space_time.aggregate(aggregation_spec)
 
+    def compute_grid_point_auc(
+        self, validation_conditions: "list[DiagnosticValidationCondition]", prototype_diagnostic_array: "xr.DataArray"
+    ) -> dict[str, dd.DataFrame]:
+        assert {"pressure_level", "longitude", "latitude", "time"}.issubset(prototype_diagnostic_array.coords)
+        target_data: dd.DataFrame = self._data_harmoniser.nearest_diagnostic_value(self._time_window).persist()
+        space_columns = [self._data_harmoniser.grid_box_column_name, "level_index"]
+
+        # 1) Use the columns that will be used to spatially group the data as the index of the dataframe
+        #    Without a column as the index, the aggregation to compute AUC fails with,
+        #       ValueError: If using all scalar values, you must pass an index
+        target_data["multi_index"] = (
+            target_data[self._data_harmoniser.grid_box_column_name].astype(str)
+            + "_"
+            + target_data["level_index"].astype(str)
+        )
+        # Dask doesn't support multi-index so we've got to use a "poor man's" multi-index
+        target_data = target_data.set_index("multi_index")
+
+        validation_columns = self._get_validation_column_names(validation_conditions)
+        aggregation_spec: dict = {
+            condition.observed_turbulence_column_name: condition.grid_point_auc_agg()
+            for condition in validation_conditions
+        }
+        auc_by_diagnostic: dict[str, dd.DataFrame] = {}
+        for diagnostic_name in self._data_harmoniser.harmonised_diagnostics:
+            columns_for_diagnostic: list[str] = space_columns + [diagnostic_name] + validation_columns
+            data_for_diagnostic: dd.DataFrame = target_data[columns_for_diagnostic]
+            # 2) Sort values so that diagnostic is in descending order as required by the ROC calculation
+            #    The set_index() operation performs a sort => need to do sort after and for each diagnostic
+            data_for_diagnostic = data_for_diagnostic.sort_values(by=diagnostic_name, ascending=False)
+
+            grid_point_auc: dd.DataFrame = data_for_diagnostic.groupby(space_columns).aggregate(aggregation_spec)
+            index_right_col: dd.Index = grid_point_auc.index.map_partitions(
+                lambda partition: partition.get_level_values(self._data_harmoniser.grid_box_column_name)
+            )
+            level_col: dd.Index = grid_point_auc.index.map_partitions(
+                lambda partition: partition.get_level_values("level_index")
+            )
+            grid_point_auc.index = index_right_col
+            grid_point_auc["level_index"] = level_col
+
+            auc_by_diagnostic[diagnostic_name] = grid_point_auc.persist()
+
+        return auc_by_diagnostic
+
     def nearest_value_roc(
         self,
         validation_conditions: "list[DiagnosticValidationCondition]",
