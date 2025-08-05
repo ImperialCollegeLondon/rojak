@@ -628,9 +628,7 @@ class DiagnosticsAmdarVerification:
         assert {"pressure_level", "longitude", "latitude", "time"}.issubset(prototype_diagnostic_array.coords)
         turbulence_diagnostics = self._data_harmoniser.harmonised_diagnostics
         target_data = self._data_harmoniser.nearest_diagnostic_value(self._time_window).persist()
-        validation_columns: list[str] = [
-            condition.observed_turbulence_column_name for condition in validation_conditions
-        ]
+        validation_columns = self._get_validation_column_names(validation_conditions)
         space_time_columns: list[str] = [
             self._data_harmoniser.grid_box_column_name,
             "level_index",
@@ -663,6 +661,10 @@ class DiagnosticsAmdarVerification:
                 )
         return RocVerificationResult(dict(result))
 
+    @staticmethod
+    def _get_validation_column_names(validation_conditions: "list[DiagnosticValidationCondition]") -> list[str]:
+        return [condition.observed_turbulence_column_name for condition in validation_conditions]
+
     def compute_roc_curve(
         self,
         validation_conditions: "list[DiagnosticValidationCondition]",
@@ -674,9 +676,7 @@ class DiagnosticsAmdarVerification:
                 [DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES]
             )
         )
-        validation_columns: list[str] = [
-            condition.observed_turbulence_column_name for condition in validation_conditions
-        ]
+        validation_columns = self._get_validation_column_names(validation_conditions)
         target_data = self._add_nearest_grid_indices(
             validation_columns + diagnostic_value_columns,
             prototype_diagnostic_array,
