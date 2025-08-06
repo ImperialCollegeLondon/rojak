@@ -626,6 +626,9 @@ class DiagnosticsAmdarVerification:
         assert {"pressure_level", "longitude", "latitude", "time"}.issubset(prototype_diagnostic_array.coords)
         target_data: dd.DataFrame = self._data_harmoniser.nearest_diagnostic_value(self._time_window).persist()
         space_columns = [self._data_harmoniser.grid_box_column_name, "level_index"]
+        validation_columns = self._get_validation_column_names(validation_conditions)
+        target_cols = space_columns + validation_columns + self._data_harmoniser.harmonised_diagnostics
+        target_data = target_data[target_cols]
 
         # 1) Use the columns that will be used to spatially group the data as the index of the dataframe
         #    Without a column as the index, the aggregation to compute AUC fails with,
@@ -636,9 +639,8 @@ class DiagnosticsAmdarVerification:
             + target_data["level_index"].astype(str)
         )
         # Dask doesn't support multi-index so we've got to use a "poor man's" multi-index
-        target_data = target_data.set_index("multi_index")
+        target_data = target_data.set_index("multi_index").persist()
 
-        validation_columns = self._get_validation_column_names(validation_conditions)
         aggregation_spec: dict = {
             condition.observed_turbulence_column_name: condition.grid_point_auc_agg()
             for condition in validation_conditions
@@ -650,8 +652,13 @@ class DiagnosticsAmdarVerification:
             # 2) Sort values so that diagnostic is in descending order as required by the ROC calculation
             #    The set_index() operation performs a sort => need to do sort after and for each diagnostic
             data_for_diagnostic = data_for_diagnostic.sort_values(by=diagnostic_name, ascending=False)
+            data_for_diagnostic = data_for_diagnostic.drop(columns=[diagnostic_name]).persist()
 
-            grid_point_auc: dd.DataFrame = data_for_diagnostic.groupby(space_columns).aggregate(aggregation_spec)
+            # Specify sort=False to get better performance
+            # See https://docs.dask.org/en/latest/generated/dask.dataframe.DataFrame.groupby.html#dask-dataframe-dataframe-groupby
+            grid_point_auc: dd.DataFrame = data_for_diagnostic.groupby(space_columns, sort=False).aggregate(
+                aggregation_spec, meta={col: pd.Series(dtype=float) for col in validation_columns}
+            )
             index_right_col: dd.Index = grid_point_auc.index.map_partitions(
                 lambda partition: partition.get_level_values(self._data_harmoniser.grid_box_column_name)
             )

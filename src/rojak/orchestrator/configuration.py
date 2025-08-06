@@ -500,7 +500,12 @@ class DiagnosticValidationCondition(BaseConfigModel):
                 return 0
 
             true_positive_rate = np.hstack((np.zeros(1), true_positive_rate)) / true_positive_rate[-1]
-            false_positive_rate = np.hstack((np.zeros(1), false_positive_rate)) / false_positive_rate[-1]
+            # Prevent divisions by zero
+            false_positive_rate = (
+                np.hstack((np.zeros(1), false_positive_rate)) / false_positive_rate[-1]
+                if false_positive_rate[-1] != 0
+                else np.zeros_like(true_positive_rate)
+            )
 
             return np.trapezoid(true_positive_rate, x=false_positive_rate)
 
