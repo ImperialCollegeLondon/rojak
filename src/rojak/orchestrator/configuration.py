@@ -476,11 +476,7 @@ class DiagnosticValidationCondition(BaseConfigModel):
             return on_chunk.apply(lambda row: row > self.value_greater_than)
 
         def aggregate_with_cumsum(on_partition: "pd.api.typing.SeriesGroupBy") -> "pd.Series":
-            # See https://docs.dask.org/en/latest/dataframe-groupby.html#aggregate
-            # The example for nunique has this groupby
-            # My understanding is that it forces the partition into the original groups, on which, I am applying
-            # the cumsum => result is still separated based on the groups
-            return on_partition.obj.groupby(level=list(range(on_partition.obj.index.nlevels))).cumsum()
+            return on_partition.cumsum()
 
         def compute_auc_from_cumsum(on_group: "pd.Series") -> float:
             group_size: int = on_group.size
@@ -510,6 +506,10 @@ class DiagnosticValidationCondition(BaseConfigModel):
             return np.trapezoid(true_positive_rate, x=false_positive_rate)
 
         def finalise(on_aggregation_result: "pd.Series") -> "pd.Series":
+            # See https://docs.dask.org/en/latest/dataframe-groupby.html#aggregate
+            # The example for nunique has this groupby
+            # My understanding is that it forces the partition into the original groups, on which, I am applying
+            # the cumsum => result is still separated based on the groups
             return on_aggregation_result.groupby(level=list(range(on_aggregation_result.index.nlevels))).apply(
                 compute_auc_from_cumsum
             )
