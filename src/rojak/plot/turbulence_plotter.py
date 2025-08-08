@@ -494,3 +494,16 @@ def create_interactive_heatmap_polygon_plot(
     coast: gv.element.geo.Feature = gv.feature.coastline.opts(line_color="gray", line_width=1)  # pyright: ignore[reportAssignmentType]
 
     return grid_boxes * coast
+
+
+def create_interactive_point_plot(
+    data_frame: dd.DataFrame,
+    col_to_plot: str,
+    opts_kwargs: dict | None = None,
+) -> "Overlay":
+    _check_is_col_in_dataframe(col_to_plot, data_frame)
+    data_frame = make_into_geodataframe(data_frame)
+
+    return data_frame.compute().hvplot.points(
+        x="longitude", y="latitude", geo=True, **(opts_kwargs if opts_kwargs is not None else {}), s=2
+    )
