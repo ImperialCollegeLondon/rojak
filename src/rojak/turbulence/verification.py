@@ -553,6 +553,10 @@ class DiagnosticsAmdarVerification:
             return self._harmonised_data
         return self._harmonised_data
 
+    def _grid_spatial_columns(self) -> list[str]:
+        return [self._data_harmoniser.grid_box_column_name, "level_index"]
+        # return ["lat_index", "lon_index", "level_index"]
+
     def _add_nearest_grid_indices(
         self,
         validation_columns: list[str],
@@ -617,6 +621,39 @@ class DiagnosticsAmdarVerification:
         for strategy_column in strategy_columns:
             aggregation_spec[strategy_column] = "mean"
         return grouped_by_space_time.aggregate(aggregation_spec)
+
+    def num_obs_per_grid_point(self, validation_conditions: "list[DiagnosticValidationCondition]") -> dd.DataFrame:
+        target_data: dd.DataFrame = self._spatial_data_grouping(validation_conditions)
+        turbulence_col: str = validation_conditions[0].observed_turbulence_column_name
+        minimum_columns: list[str] = self._grid_spatial_columns() + [turbulence_col]
+        num_obs = target_data[minimum_columns].groupby(self._grid_spatial_columns()).count()
+
+        index_right_col: dd.Index = num_obs.index.map_partitions(
+            lambda partition: partition.get_level_values(self._data_harmoniser.grid_box_column_name)
+        )
+        level_col: dd.Index = num_obs.index.map_partitions(lambda partition: partition.get_level_values("level_index"))
+
+        num_obs.index = index_right_col
+        num_obs["level_index"] = level_col
+        return num_obs.rename(columns={turbulence_col: "num_obs"})
+
+    def _spatial_data_grouping(self, validation_conditions: "list[DiagnosticValidationCondition]") -> dd.DataFrame:
+        target_data: dd.DataFrame = self.data
+        space_columns = self._grid_spatial_columns()
+        validation_columns = self._get_validation_column_names(validation_conditions)
+        target_cols = space_columns + validation_columns + self._data_harmoniser.harmonised_diagnostics
+        target_data = target_data[target_cols]
+
+        # 1) Use the columns that will be used to spatially group the data as the index of the dataframe
+        #    Without a column as the index, the aggregation to compute AUC fails with,
+        #       ValueError: If using all scalar values, you must pass an index
+        target_data["multi_index"] = (
+            target_data[self._data_harmoniser.grid_box_column_name].astype(str)
+            + "_"
+            + target_data["level_index"].astype(str)
+        )
+        # Dask doesn't support multi-index so we've got to use a "poor man's" multi-index
+        return target_data.set_index("multi_index").persist()
 
     def compute_grid_point_auc(
         self, validation_conditions: "list[DiagnosticValidationCondition]", prototype_diagnostic_array: "xr.DataArray"
