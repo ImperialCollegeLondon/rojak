@@ -502,8 +502,9 @@ def create_interactive_point_plot(
     opts_kwargs: dict | None = None,
 ) -> "Overlay":
     _check_is_col_in_dataframe(col_to_plot, data_frame)
-    data_frame = make_into_geodataframe(data_frame)
+    if "geometry" not in data_frame.columns and not {"latitude", "longitude"}.issubset(data_frame.columns):
+        raise ValueError("Dataframe either have geometry column or latitude/longitude columns")
 
-    return data_frame.compute().hvplot.points(
-        x="longitude", y="latitude", geo=True, **(opts_kwargs if opts_kwargs is not None else {}), s=2
+    return data_frame.hvplot.points(  # pyright: ignore[reportAttributeAccessIssue]
+        x="longitude", y="latitude", c=col_to_plot, geo=True, **(opts_kwargs if opts_kwargs is not None else {}), s=2
     )

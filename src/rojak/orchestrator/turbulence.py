@@ -11,12 +11,15 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+import functools
 import itertools
+import operator
 import sys
 from collections.abc import Iterable, Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, Final, NamedTuple, assert_never
 
+import dask_geopandas as dgpd
 import numpy as np
 import xarray as xr
 from pydantic import TypeAdapter
@@ -38,9 +41,11 @@ from rojak.orchestrator.configuration import (
 )
 from rojak.plot.turbulence_plotter import (
     create_diagnostic_correlation_plot,
+    create_interactive_heatmap_polygon_plot,
     create_multi_region_correlation_plot,
     create_multi_turbulence_diagnotics_probability_plot,
     plot_roc_curve,
+    save_hv_plot,
 )
 from rojak.turbulence.analysis import (
     CorrelationBetweenDiagnostics,
@@ -538,9 +543,47 @@ class DiagnosticsAmdarLauncher:
         if self._validation_conditions:
             logger.info("Starting validation of diagnostics with amdar data")
             verifier = DiagnosticsAmdarVerification(harmoniser, time_window_as_np_datetime)
-            roc: RocVerificationResult = verifier.nearest_value_roc(
-                self._validation_conditions, diagnostic_suite.get_prototype_computed_diagnostic()
+            grid_point_auc: dict[str, dd.DataFrame] = verifier.compute_grid_box_auc(self._validation_conditions)
+            num_observations = verifier.num_obs_per_grid_point(self._validation_conditions)
+            # num_pressure_levels: int = diagnostic_suite.get_prototype_computed_diagnostic()["pressure_level"].size
+            target_level = 1
+            num_obs_on_level = num_observations.loc[num_observations["level_index"] == target_level].join(
+                amdar_data.grid, on="index_right"
             )
+            for diagnostic_name, regional_auc in grid_point_auc.items():
+                # for level_index in range(num_pressure_levels):
+                geodf = dgpd.from_dask_dataframe(
+                    regional_auc.loc[regional_auc["level_index"] == target_level].join(
+                        amdar_data.grid, on=harmoniser.grid_box_column_name
+                    )
+                )
+                plots = [
+                    create_interactive_heatmap_polygon_plot(
+                        geodf,
+                        condition.observed_turbulence_column_name,
+                        opts_kwargs={
+                            "width": 800,
+                            "height": 600,
+                            "title": f"AUC for {diagnostic_name} on {condition.observed_turbulence_column_name}",
+                        },
+                    )
+                    for condition in self._validation_conditions
+                ]
+                plots.append(
+                    create_interactive_heatmap_polygon_plot(
+                        num_obs_on_level,
+                        "num_obs",
+                        opts_kwargs={"width": 800, "height": 600, "title": "Number of Observations"},
+                    )
+                )
+                save_hv_plot(
+                    functools.reduce(operator.add, plots),
+                    str(self._plots_dir / f"{diagnostic_name}_regional_auc"),
+                    "png",
+                    savefig_kwargs={"dpi": 400},
+                )
+
+            roc: RocVerificationResult = verifier.nearest_value_roc(self._validation_conditions)
             chained_names: str = _chain_diagnostic_names(harmoniser.harmonised_diagnostics)
             for amdar_verification_col, by_diagnostic_roc in roc.iterate_by_amdar_column():
                 false_positives: dict[DiagnosticName, da.Array] = {
