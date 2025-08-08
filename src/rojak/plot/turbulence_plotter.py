@@ -456,30 +456,39 @@ def plot_roc_curve(
     plt.close(fig)
 
 
-def create_interactive_heatmap_plot(
+def _check_is_col_in_dataframe(col_to_check: str, data_frame: dd.DataFrame | dgpd.GeoDataFrame) -> None:
+    if col_to_check not in data_frame.columns:
+        raise ValueError("Column to plot not in dataframe")
+
+
+def make_into_geodataframe(data_frame: dd.DataFrame | dgpd.GeoDataFrame) -> dgpd.GeoDataFrame:
+    if isinstance(data_frame, dd.DataFrame):
+        if "geometry" not in data_frame.columns:
+            raise ValueError("Dataframe must have geometry column")
+        return dgpd.from_dask_dataframe(data_frame)
+    return data_frame
+
+
+def create_interactive_heatmap_polygon_plot(
     data_frame: dd.DataFrame | dgpd.GeoDataFrame,
     col_to_plot: str,
     opts_kwargs: dict | None = None,
     new_col_name: str | None = None,
+    is_matplotlib: bool = True,
 ) -> "Overlay":
-    if col_to_plot not in data_frame.columns:
-        raise ValueError("Column to plot not in dataframe")
-
-    if isinstance(data_frame, dd.DataFrame):
-        if "geometry" not in data_frame.columns:
-            raise ValueError("Dataframe must have geometry column")
-        data_frame = dgpd.from_dask_dataframe(data_frame)
+    _check_is_col_in_dataframe(col_to_plot, data_frame)
+    data_frame = make_into_geodataframe(data_frame)
 
     dimension = hv.Dimension(col_to_plot, label=new_col_name if new_col_name is not None else col_to_plot)
     geodf = data_frame.compute()
+    line_style = {"linewidth": 0.5} if is_matplotlib else {"line_color": "black", "line_width": 0.5}
     grid_boxes: gv.element.geo.Polygons = gv.Polygons(geodf, vdims=[dimension]).opts(
         color=dimension,
         colorbar=True,
         cmap=pypalettes.load_cmap("cancri", cmap_type="continuous", reverse=True),
-        line_color="black",
-        line_width=0.5,
         tools=["hover"],
         alpha=0.7,
+        **line_style,
         **(opts_kwargs if opts_kwargs is not None else {}),
     )  # pyright: ignore[reportAssignmentType]
     coast: gv.element.geo.Feature = gv.feature.coastline.opts(line_color="gray", line_width=1)  # pyright: ignore[reportAssignmentType]
