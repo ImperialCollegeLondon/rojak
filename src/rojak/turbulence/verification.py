@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 
 from rojak.core.calculations import bilinear_interpolation
-from rojak.core.indexing import map_order, map_values_to_nearest_coordinate_index
+from rojak.core.indexing import map_index_to_coordinate_value, map_order, map_values_to_nearest_coordinate_index
 from rojak.orchestrator.configuration import DiagnosticsAmdarHarmonisationStrategyOptions
 from rojak.turbulence.diagnostic import EvaluationDiagnosticSuite
 from rojak.turbulence.metrics import BinaryClassificationResult, area_under_curve, received_operating_characteristic
@@ -548,12 +548,14 @@ class DiagnosticsAmdarVerification:
     @property
     def data(self) -> "dd.DataFrame":
         if self._harmonised_data is None:
-            data: dd.DataFrame = self._data_harmoniser.execute_harmonisation(
-                [DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES], self._time_window
-            ).persist()  # Need to do this assignment to make pyright happy
+            data: dd.DataFrame = self._data_harmoniser.nearest_diagnostic_value(self._time_window).persist()
             self._harmonised_data = data
             return self._harmonised_data
         return self._harmonised_data
+
+    def _grid_spatial_columns(self) -> list[str]:
+        return [self._data_harmoniser.grid_box_column_name, "level_index"]
+        # return ["lat_index", "lon_index", "level_index"]
 
     def _add_nearest_grid_indices(
         self,
@@ -620,19 +622,162 @@ class DiagnosticsAmdarVerification:
             aggregation_spec[strategy_column] = "mean"
         return grouped_by_space_time.aggregate(aggregation_spec)
 
+    def num_obs_per_grid_point(self, validation_conditions: "list[DiagnosticValidationCondition]") -> dd.DataFrame:
+        target_data: dd.DataFrame = self._spatial_data_grouping(validation_conditions)
+        turbulence_col: str = validation_conditions[0].observed_turbulence_column_name
+        minimum_columns: list[str] = self._grid_spatial_columns() + [turbulence_col]
+        num_obs = target_data[minimum_columns].groupby(self._grid_spatial_columns()).count()
+
+        index_right_col: dd.Index = num_obs.index.map_partitions(
+            lambda partition: partition.get_level_values(self._data_harmoniser.grid_box_column_name)
+        )
+        level_col: dd.Index = num_obs.index.map_partitions(lambda partition: partition.get_level_values("level_index"))
+
+        num_obs.index = index_right_col
+        num_obs["level_index"] = level_col
+        return num_obs.rename(columns={turbulence_col: "num_obs"})
+
+    def _spatial_data_grouping(self, validation_conditions: "list[DiagnosticValidationCondition]") -> dd.DataFrame:
+        target_data: dd.DataFrame = self.data
+        space_columns = self._grid_spatial_columns()
+        validation_columns = self._get_validation_column_names(validation_conditions)
+        target_cols = space_columns + validation_columns + self._data_harmoniser.harmonised_diagnostics
+        target_data = target_data[target_cols]
+
+        # 1) Use the columns that will be used to spatially group the data as the index of the dataframe
+        #    Without a column as the index, the aggregation to compute AUC fails with,
+        #       ValueError: If using all scalar values, you must pass an index
+        target_data["multi_index"] = (
+            target_data[self._data_harmoniser.grid_box_column_name].astype(str)
+            + "_"
+            + target_data["level_index"].astype(str)
+        )
+        # Dask doesn't support multi-index so we've got to use a "poor man's" multi-index
+        return target_data.set_index("multi_index").persist()
+
+    def compute_grid_point_auc(
+        self, validation_conditions: "list[DiagnosticValidationCondition]", prototype_diagnostic: "xr.DataArray"
+    ) -> dict[str, dd.DataFrame]:
+        target_data: dd.DataFrame = self.data
+        space_columns = ["lat_index", "lon_index", "level_index"]
+        validation_columns = self._get_validation_column_names(validation_conditions)
+        target_cols = space_columns + validation_columns + self._data_harmoniser.harmonised_diagnostics
+        target_data = target_data[target_cols]
+
+        # 1) Use the columns that will be used to spatially group the data as the index of the dataframe
+        #    Without a column as the index, the aggregation to compute AUC fails with,
+        #       ValueError: If using all scalar values, you must pass an index
+        target_data["multi_index"] = (
+            target_data["lat_index"].astype(str)
+            + "_"
+            + target_data["lon_index"].astype(str)
+            + "_"
+            + target_data["level_index"].astype(str)
+        )
+        # Dask doesn't support multi-index so we've got to use a "poor man's" multi-index
+        target_data = target_data.set_index("multi_index").persist()
+        # target_data: dd.DataFrame = self._spatial_data_grouping(validation_conditions)
+
+        aggregation_spec: dict = {
+            condition.observed_turbulence_column_name: condition.grid_point_auc_agg()
+            for condition in validation_conditions
+        }
+        auc_by_diagnostic: dict[str, dd.DataFrame] = {}
+        for diagnostic_name in self._data_harmoniser.harmonised_diagnostics:
+            columns_for_diagnostic: list[str] = space_columns + [diagnostic_name] + validation_columns
+            data_for_diagnostic: dd.DataFrame = target_data[columns_for_diagnostic]
+            # 2) Sort values so that diagnostic is in descending order as required by the ROC calculation
+            #    The set_index() operation performs a sort => need to do sort after and for each diagnostic
+            data_for_diagnostic = data_for_diagnostic.sort_values(by=diagnostic_name, ascending=False)
+            data_for_diagnostic = data_for_diagnostic.drop(columns=[diagnostic_name])
+
+            # Specify sort=False to get better performance
+            # See https://docs.dask.org/en/latest/generated/dask.dataframe.DataFrame.groupby.html#dask-dataframe-dataframe-groupby
+            grid_point_auc: dd.DataFrame = data_for_diagnostic.groupby(space_columns, sort=False).aggregate(
+                aggregation_spec, meta={col: pd.Series(dtype=float) for col in validation_columns}
+            )
+
+            grid_point_auc["level_index"] = grid_point_auc.index.map_partitions(
+                lambda partition: partition.get_level_values("level_index")
+            )
+            grid_point_auc["lat_index"] = grid_point_auc.index.map_partitions(
+                lambda partition: partition.get_level_values("lat_index")
+            )
+            grid_point_auc["lon_index"] = grid_point_auc.index.map_partitions(
+                lambda partition: partition.get_level_values("lon_index")
+            )
+            grid_point_auc = grid_point_auc.reset_index(drop=True)
+
+            data_frame_dtypes = get_dataframe_dtypes(grid_point_auc)
+            for name in ["latitude", "longitude", "level"]:
+                data_frame_dtypes[name] = pd.Series(dtype=float)
+            grid_point_auc = grid_point_auc.map_partitions(
+                lambda df: df.assign(
+                    latitude=map_index_to_coordinate_value(df.lat_index, prototype_diagnostic["latitude"].to_numpy()),
+                    longitude=map_index_to_coordinate_value(df.lon_index, prototype_diagnostic["longitude"].to_numpy()),
+                    level=map_index_to_coordinate_value(
+                        df.level_index, prototype_diagnostic["pressure_level"].to_numpy()
+                    ),
+                ),
+                meta=pd.DataFrame(data_frame_dtypes),
+            )
+
+            grid_point_auc = grid_point_auc.drop(columns=["lat_index", "lon_index", "level_index"])
+
+            auc_by_diagnostic[diagnostic_name] = grid_point_auc.persist()
+
+        return auc_by_diagnostic
+
+    def compute_grid_box_auc(
+        self, validation_conditions: "list[DiagnosticValidationCondition]"
+    ) -> dict[str, dd.DataFrame]:
+        # target_data: dd.DataFrame = self._data_harmoniser.nearest_diagnostic_value(self._time_window).persist()
+        space_columns = self._grid_spatial_columns()
+        validation_columns = self._get_validation_column_names(validation_conditions)
+        target_data: dd.DataFrame = self._spatial_data_grouping(validation_conditions)
+
+        aggregation_spec: dict = {
+            condition.observed_turbulence_column_name: condition.grid_point_auc_agg()
+            for condition in validation_conditions
+        }
+        auc_by_diagnostic: dict[str, dd.DataFrame] = {}
+        for diagnostic_name in self._data_harmoniser.harmonised_diagnostics:
+            columns_for_diagnostic: list[str] = space_columns + [diagnostic_name] + validation_columns
+            data_for_diagnostic: dd.DataFrame = target_data[columns_for_diagnostic]
+            # 2) Sort values so that diagnostic is in descending order as required by the ROC calculation
+            #    The set_index() operation performs a sort => need to do sort after and for each diagnostic
+            data_for_diagnostic = data_for_diagnostic.sort_values(by=diagnostic_name, ascending=False)
+            data_for_diagnostic = data_for_diagnostic.drop(columns=[diagnostic_name])
+
+            # Specify sort=False to get better performance
+            # See https://docs.dask.org/en/latest/generated/dask.dataframe.DataFrame.groupby.html#dask-dataframe-dataframe-groupby
+            grid_point_auc: dd.DataFrame = data_for_diagnostic.groupby(space_columns, sort=False).aggregate(
+                aggregation_spec, meta={col: pd.Series(dtype=float) for col in validation_columns}
+            )
+            index_right_col: dd.Index = grid_point_auc.index.map_partitions(
+                lambda partition: partition.get_level_values(self._data_harmoniser.grid_box_column_name)
+            )
+            level_col: dd.Index = grid_point_auc.index.map_partitions(
+                lambda partition: partition.get_level_values("level_index")
+            )
+            grid_point_auc.index = index_right_col
+            grid_point_auc["level_index"] = level_col
+
+            auc_by_diagnostic[diagnostic_name] = grid_point_auc.persist()
+
+        return auc_by_diagnostic
+
     def nearest_value_roc(
         self,
         validation_conditions: "list[DiagnosticValidationCondition]",
-        prototype_diagnostic_array: "xr.DataArray",
     ) -> RocVerificationResult:
-        assert {"pressure_level", "longitude", "latitude", "time"}.issubset(prototype_diagnostic_array.coords)
         turbulence_diagnostics = self._data_harmoniser.harmonised_diagnostics
-        target_data = self._data_harmoniser.nearest_diagnostic_value(self._time_window).persist()
-        validation_columns: list[str] = [
-            condition.observed_turbulence_column_name for condition in validation_conditions
-        ]
+        target_data = self.data
+        validation_columns = self._get_validation_column_names(validation_conditions)
         space_time_columns: list[str] = [
-            self._data_harmoniser.grid_box_column_name,
+            # self._data_harmoniser.grid_box_column_name,
+            "lat_index",
+            "lon_index",
             "level_index",
             self._data_harmoniser.common_time_column_name,
         ]
@@ -663,42 +808,44 @@ class DiagnosticsAmdarVerification:
                 )
         return RocVerificationResult(dict(result))
 
-    def compute_roc_curve(
-        self,
-        validation_conditions: "list[DiagnosticValidationCondition]",
-        prototype_diagnostic_array: "xr.DataArray",
-    ) -> RocVerificationResult:
-        assert {"pressure_level", "longitude", "latitude", "time"}.issubset(prototype_diagnostic_array.coords)
-        diagnostic_value_columns: list[str] = list(
-            self._data_harmoniser.strategy_values_columns(
-                [DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES]
-            )
-        )
-        validation_columns: list[str] = [
-            condition.observed_turbulence_column_name for condition in validation_conditions
-        ]
-        target_data = self._add_nearest_grid_indices(
-            validation_columns + diagnostic_value_columns,
-            prototype_diagnostic_array,
-        )
-        logger.debug("Added required columns for spatio temporal aggregating")
-        aggregated_data = self._spatio_temporal_data_aggregation(
-            target_data, diagnostic_value_columns, validation_conditions
-        ).persist()
-        logger.debug("Triggered spatio temporal aggregation")
-        logger.debug("Finished spatio temporal aggregation")
-        result: defaultdict[str, dict[str, BinaryClassificationResult]] = defaultdict(dict)
-        for diagnostic_val_col in diagnostic_value_columns:
-            # descending values
-            subset_df = aggregated_data[[*validation_columns, diagnostic_val_col]].sort_values(
-                diagnostic_val_col, ascending=False
-            )
-            for amdar_turbulence_col in validation_columns:
-                result[amdar_turbulence_col][diagnostic_val_col] = received_operating_characteristic(
-                    subset_df[amdar_turbulence_col].values.compute_chunk_sizes(),  # noqa: PD011
-                    subset_df[diagnostic_val_col].values.compute_chunk_sizes(),  # noqa: PD011
-                    num_intervals=-1,
-                )
-        logger.debug("Finished computing ROC curves")
+    @staticmethod
+    def _get_validation_column_names(validation_conditions: "list[DiagnosticValidationCondition]") -> list[str]:
+        return [condition.observed_turbulence_column_name for condition in validation_conditions]
 
-        return RocVerificationResult(dict(result))
+    # def compute_roc_curve(
+    #     self,
+    #     validation_conditions: "list[DiagnosticValidationCondition]",
+    #     prototype_diagnostic_array: "xr.DataArray",
+    # ) -> RocVerificationResult:
+    #     assert {"pressure_level", "longitude", "latitude", "time"}.issubset(prototype_diagnostic_array.coords)
+    #     diagnostic_value_columns: list[str] = list(
+    #         self._data_harmoniser.strategy_values_columns(
+    #             [DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES]
+    #         )
+    #     )
+    #     validation_columns = self._get_validation_column_names(validation_conditions)
+    #     target_data = self._add_nearest_grid_indices(
+    #         validation_columns + diagnostic_value_columns,
+    #         prototype_diagnostic_array,
+    #     )
+    #     logger.debug("Added required columns for spatio temporal aggregating")
+    #     aggregated_data = self._spatio_temporal_data_aggregation(
+    #         target_data, diagnostic_value_columns, validation_conditions
+    #     ).persist()
+    #     logger.debug("Triggered spatio temporal aggregation")
+    #     logger.debug("Finished spatio temporal aggregation")
+    #     result: defaultdict[str, dict[str, BinaryClassificationResult]] = defaultdict(dict)
+    #     for diagnostic_val_col in diagnostic_value_columns:
+    #         # descending values
+    #         subset_df = aggregated_data[[*validation_columns, diagnostic_val_col]].sort_values(
+    #             diagnostic_val_col, ascending=False
+    #         )
+    #         for amdar_turbulence_col in validation_columns:
+    #             result[amdar_turbulence_col][diagnostic_val_col] = received_operating_characteristic(
+    #                 subset_df[amdar_turbulence_col].values.compute_chunk_sizes(),  # noqa: PD011
+    #                 subset_df[diagnostic_val_col].values.compute_chunk_sizes(),  # noqa: PD011
+    #                 num_intervals=-1,
+    #             )
+    #     logger.debug("Finished computing ROC curves")
+    #
+    #     return RocVerificationResult(dict(result))

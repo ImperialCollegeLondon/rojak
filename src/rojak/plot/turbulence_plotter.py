@@ -12,9 +12,19 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+import functools
+import operator
 from typing import TYPE_CHECKING, cast
 
 import cartopy.crs as ccrs
+import dask.array as da
+import dask.dataframe as dd
+import dask_geopandas as dgpd
+import geoviews as gv
+import holoviews as hv
+import hvplot.dask  # noqa
+import hvplot.pandas  # noqa
+import hvplot.xarray  # noqa
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
@@ -33,16 +43,21 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
 
-    import dask.array as da
     from cartopy.mpl.geoaxes import GeoAxes
+    from holoviews.core.overlay import Overlay
+    from holoviews.element.chart import Curve
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
     from matplotlib.image import AxesImage
     from numpy.typing import NDArray
 
+    from rojak.turbulence.verification import RocVerificationResult
     from rojak.utilities.types import DiagnosticName
 
 _PLATE_CARREE: "ccrs.Projection" = ccrs.PlateCarree()
+
+hv.extension("matplotlib")  # pyright: ignore[reportCallIssue]
+hvplot.extension("matplotlib", compatibility="bokeh")  # pyright: ignore[reportCallIssue]
 
 
 def xarray_plot_wrapper(
@@ -358,6 +373,48 @@ def _evaluate_dask_collection(array: "da.Array | NDArray") -> "NDArray":
     return array
 
 
+def create_interactive_roc_curve_plot(
+    roc: "RocVerificationResult", area_under_curve: "Mapping[str, float] | None" = None
+) -> dict[str, "Overlay"]:
+    plots: dict[str, Overlay] = {}
+    for amdar_verification_col, by_diagnostic_roc in roc.iterate_by_amdar_column():
+        plots_for_col: list[Curve] = [
+            dd.from_dask_array(
+                da.stack([roc_for_diagnostic.false_positives, roc_for_diagnostic.true_positives], axis=1),
+                columns=["POFD", "POD"],
+            ).hvplot.line(  # pyright: ignore[reportAttributeAccessIssue]
+                x="POFD",
+                y="POD",
+                label=diagnostic_name
+                if area_under_curve is None
+                else f"{diagnostic_name} - AUC: {area_under_curve[diagnostic_name]:.2f}",
+            )
+            for diagnostic_name, roc_for_diagnostic in by_diagnostic_roc.items()
+        ]
+        plots_for_col.append(
+            dd.from_dask_array(
+                da.stack([da.linspace(0, 1, 500), da.linspace(0, 1, 500)], axis=1), columns=["POFD", "POD"]
+            ).hvplot.line(x="POFD", y="POD", color="black", line_width=1, line_dash="dashed")  # pyright: ignore[reportAttributeAccessIssue]
+        )
+        plots[amdar_verification_col] = functools.reduce(operator.mul, plots_for_col)
+
+    return plots
+
+
+def save_hv_plot(
+    holoviews_obj: object,
+    figure_name: str,
+    figure_format: str,
+    render_kwargs: dict | None = None,
+    savefig_kwargs: dict | None = None,
+) -> None:
+    fig = hv.render(holoviews_obj, backend="matplotlib", **(render_kwargs if render_kwargs is not None else {}))
+    fig.savefig(
+        f"{figure_name}.{figure_format}", bbox_inches="tight", **(savefig_kwargs if savefig_kwargs is not None else {})
+    )
+    plt.close(fig)
+
+
 def plot_roc_curve(
     false_positive_rates: "Mapping[DiagnosticName, da.Array | NDArray]",
     true_positive_rates: "Mapping[DiagnosticName, da.Array | NDArray]",
@@ -397,3 +454,34 @@ def plot_roc_curve(
     fig.tight_layout()
     plt.savefig(plot_name)
     plt.close(fig)
+
+
+def create_interactive_heatmap_plot(
+    data_frame: dd.DataFrame | dgpd.GeoDataFrame,
+    col_to_plot: str,
+    opts_kwargs: dict | None = None,
+    new_col_name: str | None = None,
+) -> "Overlay":
+    if col_to_plot not in data_frame.columns:
+        raise ValueError("Column to plot not in dataframe")
+
+    if isinstance(data_frame, dd.DataFrame):
+        if "geometry" not in data_frame.columns:
+            raise ValueError("Dataframe must have geometry column")
+        data_frame = dgpd.from_dask_dataframe(data_frame)
+
+    dimension = hv.Dimension(col_to_plot, label=new_col_name if new_col_name is not None else col_to_plot)
+    geodf = data_frame.compute()
+    grid_boxes: gv.element.geo.Polygons = gv.Polygons(geodf, vdims=[dimension]).opts(
+        color=dimension,
+        colorbar=True,
+        cmap=pypalettes.load_cmap("cancri", cmap_type="continuous", reverse=True),
+        line_color="black",
+        line_width=0.5,
+        tools=["hover"],
+        alpha=0.7,
+        **(opts_kwargs if opts_kwargs is not None else {}),
+    )  # pyright: ignore[reportAssignmentType]
+    coast: gv.element.geo.Feature = gv.feature.coastline.opts(line_color="gray", line_width=1)  # pyright: ignore[reportAssignmentType]
+
+    return grid_boxes * coast

@@ -16,12 +16,12 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import dask.dataframe as dd
+import numpy as np
 
 from rojak.core.data import AmdarDataRepository, AmdarTurbulenceData
 
 if TYPE_CHECKING:
     import dask_geopandas as dgpd
-    import numpy as np
 
 
 class UkmoAmdarRepository(AmdarDataRepository):
@@ -74,6 +74,12 @@ class UkmoAmdarRepository(AmdarDataRepository):
         assert col_names.issuperset(UkmoAmdarRepository.TIME_COLUMNS), "Columns must contain all the time column names"
         assert "turbulence_degree" in col_names, "Turbulence degree must be in column names"
 
+        col_dtypes: dict[str, object] = dict.fromkeys(column_names, np.float64)
+        if "call_sign" in col_dtypes:
+            col_dtypes["call_sign"] = str
+        if "registration_number" in col_dtypes:
+            col_dtypes["registration_number"] = str
+
         # encoding - from utf-8 to cp1252 (legacy windows byte encoding) as UnicodeDecodeError: 'utf-8' codec can't
         # decode byte: invalid start byte is occasionally thrown when reading in the data
         data: dd.DataFrame = dd.read_csv(
@@ -84,6 +90,7 @@ class UkmoAmdarRepository(AmdarDataRepository):
             header=0,
             names=column_names,
             encoding="cp1252",
+            dtype=col_dtypes,
         )
         data = data.fillna(value={"second": 0})  # Prevents NaNs from making valid datetime a NaT
         data["datetime"] = dd.to_datetime(data[["year", "month", "day", "hour", "minute", "second"]])

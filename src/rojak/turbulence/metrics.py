@@ -332,3 +332,37 @@ def area_under_curve(
     assert is_np_array(y_values)
 
     return _serial_area_under_curve(x_values, y_values)
+
+
+def _check_roc_curve_input_validity(roc_curve: BinaryClassificationResult) -> None:
+    if roc_curve.true_positives[0] != 0 or roc_curve.false_positives[0] != 0:
+        raise ValueError("First value of POD and POFD must be 0")
+    if da.max(roc_curve.true_positives).compute() > 1:
+        raise ValueError("Maximum value of POD must be less than or equal to 1")
+    if da.min(roc_curve.true_positives).compute() < 0:
+        raise ValueError("Minimum value of POD must be greater than or equal to 0")
+
+
+def true_skill_score(roc_curve: BinaryClassificationResult) -> da.Array:
+    """
+    True Skill Score (TSS) statistic
+
+    The TSS is defined in `Wikipedia <https://en.wikipedia.org/wiki/Youden%27s_J_statistic#Definition>`__ as:
+
+    .. math::
+        \\begin{align}
+            TSS &= \\text{sensitivity} + \\text{specificity} - 1 \\
+            &= \\frac{\\text{TP}}{\\text{TP} + \\text{FP}} + \\frac{\\text{TN}}{\\text{TN} + \\text{FP}} - 1
+        \\end{align}
+
+    where :math:`TP` is the number of true positives, :math:`TN` the number of true negatives,
+    :math:`FP` the number of false positives, :math:`FN` the number of false negatives.
+
+    This is also the definition used in [Sharman2006]_
+
+    """
+    _check_roc_curve_input_validity(roc_curve)
+
+    sensitivity = roc_curve.true_positives
+    specificity = roc_curve.false_positives
+    return sensitivity + specificity - 1
