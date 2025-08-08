@@ -548,9 +548,7 @@ class DiagnosticsAmdarVerification:
     @property
     def data(self) -> "dd.DataFrame":
         if self._harmonised_data is None:
-            data: dd.DataFrame = self._data_harmoniser.execute_harmonisation(
-                [DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES], self._time_window
-            ).persist()  # Need to do this assignment to make pyright happy
+            data: dd.DataFrame = self._data_harmoniser.nearest_diagnostic_value(self._time_window).persist()
             self._harmonised_data = data
             return self._harmonised_data
         return self._harmonised_data
@@ -679,7 +677,7 @@ class DiagnosticsAmdarVerification:
     ) -> RocVerificationResult:
         assert {"pressure_level", "longitude", "latitude", "time"}.issubset(prototype_diagnostic_array.coords)
         turbulence_diagnostics = self._data_harmoniser.harmonised_diagnostics
-        target_data = self._data_harmoniser.nearest_diagnostic_value(self._time_window).persist()
+        target_data = self.data
         validation_columns = self._get_validation_column_names(validation_conditions)
         space_time_columns: list[str] = [
             self._data_harmoniser.grid_box_column_name,
@@ -717,40 +715,40 @@ class DiagnosticsAmdarVerification:
     def _get_validation_column_names(validation_conditions: "list[DiagnosticValidationCondition]") -> list[str]:
         return [condition.observed_turbulence_column_name for condition in validation_conditions]
 
-    def compute_roc_curve(
-        self,
-        validation_conditions: "list[DiagnosticValidationCondition]",
-        prototype_diagnostic_array: "xr.DataArray",
-    ) -> RocVerificationResult:
-        assert {"pressure_level", "longitude", "latitude", "time"}.issubset(prototype_diagnostic_array.coords)
-        diagnostic_value_columns: list[str] = list(
-            self._data_harmoniser.strategy_values_columns(
-                [DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES]
-            )
-        )
-        validation_columns = self._get_validation_column_names(validation_conditions)
-        target_data = self._add_nearest_grid_indices(
-            validation_columns + diagnostic_value_columns,
-            prototype_diagnostic_array,
-        )
-        logger.debug("Added required columns for spatio temporal aggregating")
-        aggregated_data = self._spatio_temporal_data_aggregation(
-            target_data, diagnostic_value_columns, validation_conditions
-        ).persist()
-        logger.debug("Triggered spatio temporal aggregation")
-        logger.debug("Finished spatio temporal aggregation")
-        result: defaultdict[str, dict[str, BinaryClassificationResult]] = defaultdict(dict)
-        for diagnostic_val_col in diagnostic_value_columns:
-            # descending values
-            subset_df = aggregated_data[[*validation_columns, diagnostic_val_col]].sort_values(
-                diagnostic_val_col, ascending=False
-            )
-            for amdar_turbulence_col in validation_columns:
-                result[amdar_turbulence_col][diagnostic_val_col] = received_operating_characteristic(
-                    subset_df[amdar_turbulence_col].values.compute_chunk_sizes(),  # noqa: PD011
-                    subset_df[diagnostic_val_col].values.compute_chunk_sizes(),  # noqa: PD011
-                    num_intervals=-1,
-                )
-        logger.debug("Finished computing ROC curves")
-
-        return RocVerificationResult(dict(result))
+    # def compute_roc_curve(
+    #     self,
+    #     validation_conditions: "list[DiagnosticValidationCondition]",
+    #     prototype_diagnostic_array: "xr.DataArray",
+    # ) -> RocVerificationResult:
+    #     assert {"pressure_level", "longitude", "latitude", "time"}.issubset(prototype_diagnostic_array.coords)
+    #     diagnostic_value_columns: list[str] = list(
+    #         self._data_harmoniser.strategy_values_columns(
+    #             [DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES]
+    #         )
+    #     )
+    #     validation_columns = self._get_validation_column_names(validation_conditions)
+    #     target_data = self._add_nearest_grid_indices(
+    #         validation_columns + diagnostic_value_columns,
+    #         prototype_diagnostic_array,
+    #     )
+    #     logger.debug("Added required columns for spatio temporal aggregating")
+    #     aggregated_data = self._spatio_temporal_data_aggregation(
+    #         target_data, diagnostic_value_columns, validation_conditions
+    #     ).persist()
+    #     logger.debug("Triggered spatio temporal aggregation")
+    #     logger.debug("Finished spatio temporal aggregation")
+    #     result: defaultdict[str, dict[str, BinaryClassificationResult]] = defaultdict(dict)
+    #     for diagnostic_val_col in diagnostic_value_columns:
+    #         # descending values
+    #         subset_df = aggregated_data[[*validation_columns, diagnostic_val_col]].sort_values(
+    #             diagnostic_val_col, ascending=False
+    #         )
+    #         for amdar_turbulence_col in validation_columns:
+    #             result[amdar_turbulence_col][diagnostic_val_col] = received_operating_characteristic(
+    #                 subset_df[amdar_turbulence_col].values.compute_chunk_sizes(),  # noqa: PD011
+    #                 subset_df[diagnostic_val_col].values.compute_chunk_sizes(),  # noqa: PD011
+    #                 num_intervals=-1,
+    #             )
+    #     logger.debug("Finished computing ROC curves")
+    #
+    #     return RocVerificationResult(dict(result))
