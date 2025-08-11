@@ -373,11 +373,10 @@ def _evaluate_dask_collection(array: "da.Array | NDArray") -> "NDArray":
     return array
 
 
-def create_interactive_roc_curve_plot(
-    roc: "RocVerificationResult", area_under_curve: "Mapping[str, float] | None" = None
-) -> dict[str, "Overlay"]:
+def create_interactive_roc_curve_plot(roc: "RocVerificationResult") -> dict[str, "Overlay"]:
     plots: dict[str, Overlay] = {}
     for amdar_verification_col, by_diagnostic_roc in roc.iterate_by_amdar_column():
+        auc_for_col = roc.auc_for_amdar_column(amdar_verification_col)
         plots_for_col: list[Curve] = [
             dd.from_dask_array(
                 da.stack([roc_for_diagnostic.false_positives, roc_for_diagnostic.true_positives], axis=1),
@@ -385,9 +384,7 @@ def create_interactive_roc_curve_plot(
             ).hvplot.line(  # pyright: ignore[reportAttributeAccessIssue]
                 x="POFD",
                 y="POD",
-                label=diagnostic_name
-                if area_under_curve is None
-                else f"{diagnostic_name} - AUC: {area_under_curve[diagnostic_name]:.2f}",
+                label=f"{diagnostic_name} - AUC: {auc_for_col[diagnostic_name]:.2f}",
             )
             for diagnostic_name, roc_for_diagnostic in by_diagnostic_roc.items()
         ]
