@@ -469,7 +469,7 @@ def make_into_geodataframe(data_frame: dd.DataFrame | dgpd.GeoDataFrame) -> dgpd
     return data_frame
 
 
-def create_interactive_heatmap_polygon_plot(
+def create_interactive_heatmap_plot(
     data_frame: dd.DataFrame | dgpd.GeoDataFrame,
     col_to_plot: str,
     opts_kwargs: dict | None = None,
@@ -477,34 +477,29 @@ def create_interactive_heatmap_polygon_plot(
     is_matplotlib: bool = True,
 ) -> "Overlay":
     _check_is_col_in_dataframe(col_to_plot, data_frame)
-    data_frame = make_into_geodataframe(data_frame)
+    is_points_data: bool = {"latitude", "longitude"}.issubset(data_frame.columns)
+    if not is_points_data and "geometry" not in data_frame.columns:
+        raise ValueError("Dataframe must have geometry column or latitude/longitude columns")
 
-    dimension = hv.Dimension(col_to_plot, label=new_col_name if new_col_name is not None else col_to_plot)
-    geodf = data_frame.compute()
-    line_style = {"linewidth": 0.5} if is_matplotlib else {"line_color": "black", "line_width": 0.5}
-    grid_boxes: gv.element.geo.Polygons = gv.Polygons(geodf, vdims=[dimension]).opts(
+    dimension: hv.Dimension = hv.Dimension(col_to_plot, label=new_col_name if new_col_name is not None else col_to_plot)
+    if not is_matplotlib:
+        if opts_kwargs is None:
+            opts_kwargs = {"tools": ["hover"]}
+        elif "tools" not in opts_kwargs:
+            opts_kwargs["tools"] = ["hover"]
+
+    gv_element: gv.element.geo.Polygons | gv.element.geo.Points = (
+        gv.Points(data_frame, kdims=["longitude", "latitude"], vdims=[dimension], crs=ccrs.PlateCarree())
+        if is_points_data
+        else gv.Polygons(data_frame, vdims=[dimension])
+    ).opts(
         color=dimension,
         colorbar=True,
         cmap=pypalettes.load_cmap("cancri", cmap_type="continuous", reverse=True),
-        tools=["hover"],
-        alpha=0.7,
-        **line_style,
+        alpha=0.8,
         **(opts_kwargs if opts_kwargs is not None else {}),
     )  # pyright: ignore[reportAssignmentType]
-    coast: gv.element.geo.Feature = gv.feature.coastline.opts(line_color="gray", line_width=1)  # pyright: ignore[reportAssignmentType]
+    coast_ls = {"linewidth": 1, "edgecolor": "gray"} if is_matplotlib else {"line_color": "black", "line_width": 0.5}
+    coast: gv.element.geo.Feature = gv.feature.coastline.opts(coast_ls)  # pyright: ignore[reportAssignmentType]
 
-    return grid_boxes * coast
-
-
-def create_interactive_point_plot(
-    data_frame: dd.DataFrame,
-    col_to_plot: str,
-    opts_kwargs: dict | None = None,
-) -> "Overlay":
-    _check_is_col_in_dataframe(col_to_plot, data_frame)
-    if "geometry" not in data_frame.columns and not {"latitude", "longitude"}.issubset(data_frame.columns):
-        raise ValueError("Dataframe either have geometry column or latitude/longitude columns")
-
-    return data_frame.hvplot.points(  # pyright: ignore[reportAttributeAccessIssue]
-        x="longitude", y="latitude", c=col_to_plot, geo=True, **(opts_kwargs if opts_kwargs is not None else {}), s=2
-    )
+    return gv_element * coast
