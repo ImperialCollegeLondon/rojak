@@ -588,13 +588,20 @@ class DiagnosticsAmdarVerification:
     def _grid_spatial_columns(self, group_by_strategy: GroupByStrategy) -> list[str]:
         match group_by_strategy:
             case GroupByStrategy.GRID_BOX:
-                return [self._data_harmoniser.grid_box_column_name, "level_index"]
+                return [
+                    self._data_harmoniser.grid_box_column_name,
+                    self._data_harmoniser.vertical_coordinate_index_column,
+                ]
             case GroupByStrategy.GRID_POINT:
-                return ["lat_index", "lon_index", "level_index"]
+                return [
+                    self._data_harmoniser.latitude_index_column,
+                    self._data_harmoniser.longitude_index_column,
+                    self._data_harmoniser.vertical_coordinate_index_column,
+                ]
             case GroupByStrategy.HORIZONTAL_BOX:
                 return [self._data_harmoniser.grid_box_column_name]
             case GroupByStrategy.HORIZONTAL_POINT:
-                return ["lat_index", "lon_index"]
+                return [self._data_harmoniser.latitude_index_column, self._data_harmoniser.longitude_index_column]
             case _ as unreachable:
                 assert_never(unreachable)
 
@@ -667,6 +674,67 @@ class DiagnosticsAmdarVerification:
     def _get_partition_level_values(partition: pd.Index, level_name: str) -> pd.Index:
         return partition.get_level_values(level_name)
 
+    @staticmethod
+    def _concat_columns_as_str(data_frame: dd.DataFrame, column_names: list[str], separator: str = "_") -> dd.Series:
+        multi_index_columns = [data_frame[col_name].astype(str) for col_name in column_names]
+        return functools.reduce(lambda left, right: left + separator + right, multi_index_columns)
+
+    def _retrieve_grouped_columns(
+        self, data_frame: dd.DataFrame, grouped_columns: list[str], trigger_reset_index: bool
+    ) -> dd.DataFrame:
+        for grouped_column in grouped_columns:
+            data_frame[grouped_column] = data_frame.index.map_partitions(
+                self._get_partition_level_values, grouped_column
+            )
+
+        if trigger_reset_index:
+            data_frame = data_frame.reset_index(drop=True)
+        return data_frame
+
+    def _retrieve_index_column_values(
+        self,
+        data_frame: dd.DataFrame,
+        grouped_columns: list[str],
+        prototype_array: "xr.DataArray",
+        drop_index_cols: bool,
+    ) -> dd.DataFrame:
+        assert {"pressure_level", "longitude", "latitude"}.issubset(prototype_array.coords)
+        index_columns: set[str] = {
+            self._data_harmoniser.longitude_index_column,
+            self._data_harmoniser.latitude_index_column,
+            self._data_harmoniser.vertical_coordinate_index_column,
+        }.intersection(grouped_columns)
+        if not index_columns:  # set is empty
+            return data_frame
+
+        col_name_mapping: dict[str, str] = {
+            self._data_harmoniser.longitude_index_column: "longitude",
+            self._data_harmoniser.latitude_index_column: "latitude",
+            self._data_harmoniser.vertical_coordinate_index_column: "pressure_level",
+        }
+
+        data_frame_dtypes = get_dataframe_dtypes(data_frame)
+        for index_col_name in index_columns:
+            value_col_name = col_name_mapping[index_col_name]
+            data_frame_dtypes[value_col_name] = pd.Series(dtype=float)
+
+        data_frame = data_frame.map_partitions(
+            lambda df: df.assign(
+                **{
+                    col_name_mapping[col_name]: map_index_to_coordinate_value(
+                        df[col_name], prototype_array[col_name_mapping[col_name]].to_numpy()
+                    )
+                    for col_name in index_columns
+                }
+            ),
+            meta=pd.DataFrame(data_frame_dtypes),
+        )
+
+        if drop_index_cols:
+            return data_frame.drop(columns=index_columns)
+
+        return data_frame
+
     def num_obs_per(
         self, validation_conditions: "list[DiagnosticValidationCondition]", group_by_strategy: GroupByStrategy
     ) -> dd.DataFrame:
@@ -675,11 +743,7 @@ class DiagnosticsAmdarVerification:
         groupby_columns: list[str] = self._grid_spatial_columns(group_by_strategy)
         minimum_columns: list[str] = groupby_columns + [turbulence_col]
         num_obs = target_data[minimum_columns].groupby(groupby_columns).count()
-
-        for grouped_column in groupby_columns:
-            num_obs[grouped_column] = num_obs.index.map_partitions(self._get_partition_level_values, grouped_column)
-
-        num_obs = num_obs.reset_index(drop=True)
+        num_obs = self._retrieve_grouped_columns(num_obs, groupby_columns, True)
         return num_obs.rename(columns={turbulence_col: "num_obs"})
 
     def _spatial_data_grouping(
@@ -694,34 +758,20 @@ class DiagnosticsAmdarVerification:
         # 1) Use the columns that will be used to spatially group the data as the index of the dataframe
         #    Without a column as the index, the aggregation to compute AUC fails with,
         #       ValueError: If using all scalar values, you must pass an index
-        multi_index_columns = [target_data[col].astype(str) for col in space_columns]
-        target_data["multi_index"] = functools.reduce(lambda left, right: left + "_" + right, multi_index_columns)
+        target_data["multi_index"] = self._concat_columns_as_str(target_data, space_columns)
 
         # Dask doesn't support multi-index so we've got to use a "poor man's" multi-index
         return target_data.set_index("multi_index").persist()
 
     def compute_grid_point_auc(
-        self, validation_conditions: "list[DiagnosticValidationCondition]", prototype_diagnostic: "xr.DataArray"
+        self,
+        validation_conditions: "list[DiagnosticValidationCondition]",
+        prototype_diagnostic: "xr.DataArray",
+        group_by_strategy: GroupByStrategy,
     ) -> dict[str, dd.DataFrame]:
-        target_data: dd.DataFrame = self.data
-        space_columns = ["lat_index", "lon_index", "level_index"]
+        space_columns = self._grid_spatial_columns(group_by_strategy)
         validation_columns = self._get_validation_column_names(validation_conditions)
-        target_cols = space_columns + validation_columns + self._data_harmoniser.harmonised_diagnostics
-        target_data = target_data[target_cols]
-
-        # 1) Use the columns that will be used to spatially group the data as the index of the dataframe
-        #    Without a column as the index, the aggregation to compute AUC fails with,
-        #       ValueError: If using all scalar values, you must pass an index
-        target_data["multi_index"] = (
-            target_data["lat_index"].astype(str)
-            + "_"
-            + target_data["lon_index"].astype(str)
-            + "_"
-            + target_data["level_index"].astype(str)
-        )
-        # Dask doesn't support multi-index so we've got to use a "poor man's" multi-index
-        target_data = target_data.set_index("multi_index").persist()
-        # target_data: dd.DataFrame = self._spatial_data_grouping(validation_conditions)
+        target_data: dd.DataFrame = self._spatial_data_grouping(validation_conditions, group_by_strategy)
 
         aggregation_spec: dict = {
             condition.observed_turbulence_column_name: condition.grid_point_auc_agg()
@@ -742,72 +792,10 @@ class DiagnosticsAmdarVerification:
                 aggregation_spec, meta={col: pd.Series(dtype=float) for col in validation_columns}
             )
 
-            grid_point_auc["level_index"] = grid_point_auc.index.map_partitions(
-                lambda partition: partition.get_level_values("level_index")
+            grid_point_auc = self._retrieve_grouped_columns(grid_point_auc, space_columns, True)
+            grid_point_auc = self._retrieve_index_column_values(
+                grid_point_auc, space_columns, prototype_diagnostic, True
             )
-            grid_point_auc["lat_index"] = grid_point_auc.index.map_partitions(
-                lambda partition: partition.get_level_values("lat_index")
-            )
-            grid_point_auc["lon_index"] = grid_point_auc.index.map_partitions(
-                lambda partition: partition.get_level_values("lon_index")
-            )
-            grid_point_auc = grid_point_auc.reset_index(drop=True)
-
-            data_frame_dtypes = get_dataframe_dtypes(grid_point_auc)
-            for name in ["latitude", "longitude", "level"]:
-                data_frame_dtypes[name] = pd.Series(dtype=float)
-            grid_point_auc = grid_point_auc.map_partitions(
-                lambda df: df.assign(
-                    latitude=map_index_to_coordinate_value(df.lat_index, prototype_diagnostic["latitude"].to_numpy()),
-                    longitude=map_index_to_coordinate_value(df.lon_index, prototype_diagnostic["longitude"].to_numpy()),
-                    level=map_index_to_coordinate_value(
-                        df.level_index, prototype_diagnostic["pressure_level"].to_numpy()
-                    ),
-                ),
-                meta=pd.DataFrame(data_frame_dtypes),
-            )
-
-            grid_point_auc = grid_point_auc.drop(columns=["lat_index", "lon_index", "level_index"])
-
-            auc_by_diagnostic[diagnostic_name] = grid_point_auc.persist()
-
-        return auc_by_diagnostic
-
-    def compute_grid_box_auc(
-        self, validation_conditions: "list[DiagnosticValidationCondition]"
-    ) -> dict[str, dd.DataFrame]:
-        # target_data: dd.DataFrame = self._data_harmoniser.nearest_diagnostic_value(self._time_window).persist()
-        space_columns = self._grid_spatial_columns(GroupByStrategy.GRID_BOX)
-        validation_columns = self._get_validation_column_names(validation_conditions)
-        target_data: dd.DataFrame = self._spatial_data_grouping(validation_conditions, GroupByStrategy.GRID_BOX)
-
-        aggregation_spec: dict = {
-            condition.observed_turbulence_column_name: condition.grid_point_auc_agg()
-            for condition in validation_conditions
-        }
-        auc_by_diagnostic: dict[str, dd.DataFrame] = {}
-        for diagnostic_name in self._data_harmoniser.harmonised_diagnostics:
-            columns_for_diagnostic: list[str] = space_columns + [diagnostic_name] + validation_columns
-            data_for_diagnostic: dd.DataFrame = target_data[columns_for_diagnostic]
-            # 2) Sort values so that diagnostic is in descending order as required by the ROC calculation
-            #    The set_index() operation performs a sort => need to do sort after and for each diagnostic
-            data_for_diagnostic = data_for_diagnostic.sort_values(by=diagnostic_name, ascending=False)
-            data_for_diagnostic = data_for_diagnostic.drop(columns=[diagnostic_name])
-
-            # Specify sort=False to get better performance
-            # See https://docs.dask.org/en/latest/generated/dask.dataframe.DataFrame.groupby.html#dask-dataframe-dataframe-groupby
-            grid_point_auc: dd.DataFrame = data_for_diagnostic.groupby(space_columns, sort=False).aggregate(
-                aggregation_spec, meta={col: pd.Series(dtype=float) for col in validation_columns}
-            )
-            index_right_col: dd.Index = grid_point_auc.index.map_partitions(
-                lambda partition: partition.get_level_values(self._data_harmoniser.grid_box_column_name)
-            )
-            level_col: dd.Index = grid_point_auc.index.map_partitions(
-                lambda partition: partition.get_level_values("level_index")
-            )
-            grid_point_auc.index = index_right_col
-            grid_point_auc["level_index"] = level_col
-
             auc_by_diagnostic[diagnostic_name] = grid_point_auc.persist()
 
         return auc_by_diagnostic
