@@ -359,6 +359,18 @@ class DiagnosticsAmdarDataHarmoniser:
         return "index_right"
 
     @property
+    def latitude_index_column(self) -> str:
+        return "lat_index"
+
+    @property
+    def longitude_index_column(self) -> str:
+        return "lon_index"
+
+    @property
+    def vertical_coordinate_index_column(self) -> str:
+        return "level_index"
+
+    @property
     def harmonised_diagnostics(self) -> list[str]:
         return self._diagnostics_suite.diagnostic_names()
 
@@ -368,7 +380,12 @@ class DiagnosticsAmdarDataHarmoniser:
         coordinate_axes: list[str] = ["longitude", "latitude", "pressure_level", "time"]
         assert set(coordinate_axes).issubset(grid_prototype.coords)
         axis_order: tuple[int, ...] = grid_prototype.get_axis_num(coordinate_axes)
-        name_of_index_columns: list[str] = ["lon_index", "lat_index", "level_index", "time_index"]
+        name_of_index_columns: list[str] = [
+            self.longitude_index_column,
+            self.latitude_index_column,
+            self.vertical_coordinate_index_column,
+            self.common_time_column_name,
+        ]
         assert set(name_of_index_columns).issubset(observational_data)
 
         # Retrieves the index for each row of data and stores them as dask arrays
@@ -430,18 +447,24 @@ class DiagnosticsAmdarDataHarmoniser:
         #     ),
         #     meta=pd.DataFrame(dataframe_meta),
         # ).persist()
-        dataframe_meta["lat_index"] = pd.Series(dtype=int)
-        dataframe_meta["lon_index"] = pd.Series(dtype=int)
-        dataframe_meta["time_index"] = pd.Series(dtype=int)
+        dataframe_meta[self.latitude_index_column] = pd.Series(dtype=int)
+        dataframe_meta[self.longitude_index_column] = pd.Series(dtype=int)
+        dataframe_meta[self.common_time_column_name] = pd.Series(dtype=int)
         observational_data = observational_data.map_partitions(
             lambda df: df.assign(
-                lat_index=map_values_to_nearest_coordinate_index(df.latitude, grid_prototype["latitude"].values),
-                lon_index=map_values_to_nearest_coordinate_index(df.longitude, grid_prototype["longitude"].values),
-                time_index=map_values_to_nearest_coordinate_index(
-                    df.datetime,
-                    grid_prototype["time"].values,
-                    valid_window=self.TIME_WINDOW_DELTA,
-                ),
+                **{
+                    self.latitude_index_column: map_values_to_nearest_coordinate_index(
+                        df.latitude, grid_prototype["latitude"].values
+                    ),
+                    self.longitude_index_column: map_values_to_nearest_coordinate_index(
+                        df.longitude, grid_prototype["longitude"].values
+                    ),
+                    self.common_time_column_name: map_values_to_nearest_coordinate_index(
+                        df.datetime,
+                        grid_prototype["time"].values,
+                        valid_window=self.TIME_WINDOW_DELTA,
+                    ),
+                }
             ),
             meta=dd.from_pandas(pd.DataFrame(dataframe_meta), npartitions=observational_data.npartitions),
         ).persist()
