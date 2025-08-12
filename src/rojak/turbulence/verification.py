@@ -763,7 +763,7 @@ class DiagnosticsAmdarVerification:
         # Dask doesn't support multi-index so we've got to use a "poor man's" multi-index
         return target_data.set_index("multi_index").persist()
 
-    def compute_grid_point_auc(
+    def aggregate_by_auc(
         self,
         validation_conditions: "list[DiagnosticValidationCondition]",
         prototype_diagnostic: "xr.DataArray",
