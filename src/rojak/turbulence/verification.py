@@ -575,70 +575,70 @@ class DiagnosticsAmdarVerification:
             case _ as unreachable:
                 assert_never(unreachable)
 
-    def _add_nearest_grid_indices(
-        self,
-        validation_columns: list[str],
-        grid_prototype: "xr.DataArray",
-    ) -> "dd.DataFrame":
-        if not set(validation_columns).issubset(self.data.columns):
-            raise ValueError("Validation columns must be present in the data")
+    # def _add_nearest_grid_indices(
+    #     self,
+    #     validation_columns: list[str],
+    #     grid_prototype: "xr.DataArray",
+    # ) -> "dd.DataFrame":
+    #     if not set(validation_columns).issubset(self.data.columns):
+    #         raise ValueError("Validation columns must be present in the data")
+    #
+    #     space_time_columns: list[str] = [
+    #         self._data_harmoniser.common_time_column_name,
+    #         "level",
+    #         "longitude",
+    #         "latitude",
+    #     ]
+    #     target_columns = space_time_columns + validation_columns
+    #     target_data: dd.DataFrame = self.data[target_columns]
+    #     dataframe_meta: dict[str, pd.Series] = get_dataframe_dtypes(target_data)
+    #     dataframe_meta["level_index"] = pd.Series(dtype=int)
+    #     target_data = target_data.map_partitions(
+    #         lambda df: df.assign(
+    #             level_index=df.apply(
+    #                 lambda row, pressure_level=grid_prototype["pressure_level"].values: np.abs(  # noqa: PD011
+    #                     row.level - pressure_level
+    #                 ).argmin(),
+    #                 axis=1,
+    #             )
+    #         ),
+    #         meta=dataframe_meta,
+    #     )
+    #     dataframe_meta["lat_index"] = pd.Series(dtype=int)
+    #     dataframe_meta["lon_index"] = pd.Series(dtype=int)
+    #     return target_data.map_partitions(
+    #         lambda df: df.assign(
+    #             lat_index=map_values_to_nearest_coordinate_index(df.latitude, grid_prototype["latitude"].values),
+    #             lon_index=map_values_to_nearest_coordinate_index(df.longitude, grid_prototype["longitude"].values),
+    #         ),
+    #         meta=dd.from_pandas(pd.DataFrame(dataframe_meta)),
+    #     ).optimize()
 
-        space_time_columns: list[str] = [
-            self._data_harmoniser.common_time_column_name,
-            "level",
-            "longitude",
-            "latitude",
-        ]
-        target_columns = space_time_columns + validation_columns
-        target_data: dd.DataFrame = self.data[target_columns]
-        dataframe_meta: dict[str, pd.Series] = get_dataframe_dtypes(target_data)
-        dataframe_meta["level_index"] = pd.Series(dtype=int)
-        target_data = target_data.map_partitions(
-            lambda df: df.assign(
-                level_index=df.apply(
-                    lambda row, pressure_level=grid_prototype["pressure_level"].values: np.abs(  # noqa: PD011
-                        row.level - pressure_level
-                    ).argmin(),
-                    axis=1,
-                )
-            ),
-            meta=dataframe_meta,
-        )
-        dataframe_meta["lat_index"] = pd.Series(dtype=int)
-        dataframe_meta["lon_index"] = pd.Series(dtype=int)
-        return target_data.map_partitions(
-            lambda df: df.assign(
-                lat_index=map_values_to_nearest_coordinate_index(df.latitude, grid_prototype["latitude"].values),
-                lon_index=map_values_to_nearest_coordinate_index(df.longitude, grid_prototype["longitude"].values),
-            ),
-            meta=dd.from_pandas(pd.DataFrame(dataframe_meta)),
-        ).optimize()
-
-    def _spatio_temporal_data_aggregation(
-        self,
-        target_data: "dd.DataFrame",
-        strategy_columns: list[str],
-        validation_conditions: "list[DiagnosticValidationCondition]",
-    ) -> "dd.DataFrame":
-        group_by_columns: list[str] = [
-            "lat_index",
-            "lon_index",
-            "level_index",
-            self._data_harmoniser.common_time_column_name,
-        ]
-        assert set(group_by_columns).issubset(target_data.columns)
-        columns_to_drop: list[str] = ["level", "longitude", "latitude"]
-        assert set(columns_to_drop).issubset(target_data.columns)
-        target_data = target_data.drop(columns=columns_to_drop)
-        grouped_by_space_time = target_data.groupby(group_by_columns)
-
-        aggregation_spec: dict = {
-            condition.observed_turbulence_column_name: _observed_turbulence_aggregation(condition)
-            for condition in validation_conditions
-        }
-        for strategy_column in strategy_columns:
-            aggregation_spec[strategy_column] = "mean"
-        return grouped_by_space_time.aggregate(aggregation_spec)
+    # def _spatio_temporal_data_aggregation(
+    #     self,
+    #     target_data: "dd.DataFrame",
+    #     strategy_columns: list[str],
+    #     validation_conditions: "list[DiagnosticValidationCondition]",
+    # ) -> "dd.DataFrame":
+    #     group_by_columns: list[str] = [
+    #         "lat_index",
+    #         "lon_index",
+    #         "level_index",
+    #         self._data_harmoniser.common_time_column_name,
+    #     ]
+    #     assert set(group_by_columns).issubset(target_data.columns)
+    #     columns_to_drop: list[str] = ["level", "longitude", "latitude"]
+    #     assert set(columns_to_drop).issubset(target_data.columns)
+    #     target_data = target_data.drop(columns=columns_to_drop)
+    #     grouped_by_space_time = target_data.groupby(group_by_columns)
+    #
+    #     aggregation_spec: dict = {
+    #         condition.observed_turbulence_column_name: _observed_turbulence_aggregation(condition)
+    #         for condition in validation_conditions
+    #     }
+    #     for strategy_column in strategy_columns:
+    #         aggregation_spec[strategy_column] = "mean"
+    #     return grouped_by_space_time.aggregate(aggregation_spec)
 
     @staticmethod
     def _get_partition_level_values(partition: pd.Index, level_name: str) -> pd.Index:
