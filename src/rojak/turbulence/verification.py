@@ -559,7 +559,7 @@ class RocVerificationResult:
         return self._area_under_curve()[amdar_column]
 
 
-class GroupByStrategy(StrEnum):
+class SpatialGroupByStrategy(StrEnum):
     GRID_BOX = "grid_box"
     GRID_POINT = "grid_point"
     HORIZONTAL_BOX = "horizontal_box"
@@ -585,22 +585,22 @@ class DiagnosticsAmdarVerification:
             return self._harmonised_data
         return self._harmonised_data
 
-    def _grid_spatial_columns(self, group_by_strategy: GroupByStrategy) -> list[str]:
+    def _grid_spatial_columns(self, group_by_strategy: SpatialGroupByStrategy) -> list[str]:
         match group_by_strategy:
-            case GroupByStrategy.GRID_BOX:
+            case SpatialGroupByStrategy.GRID_BOX:
                 return [
                     self._data_harmoniser.grid_box_column_name,
                     self._data_harmoniser.vertical_coordinate_index_column,
                 ]
-            case GroupByStrategy.GRID_POINT:
+            case SpatialGroupByStrategy.GRID_POINT:
                 return [
                     self._data_harmoniser.latitude_index_column,
                     self._data_harmoniser.longitude_index_column,
                     self._data_harmoniser.vertical_coordinate_index_column,
                 ]
-            case GroupByStrategy.HORIZONTAL_BOX:
+            case SpatialGroupByStrategy.HORIZONTAL_BOX:
                 return [self._data_harmoniser.grid_box_column_name]
-            case GroupByStrategy.HORIZONTAL_POINT:
+            case SpatialGroupByStrategy.HORIZONTAL_POINT:
                 return [self._data_harmoniser.latitude_index_column, self._data_harmoniser.longitude_index_column]
             case _ as unreachable:
                 assert_never(unreachable)
@@ -736,7 +736,7 @@ class DiagnosticsAmdarVerification:
         return data_frame
 
     def num_obs_per(
-        self, validation_conditions: "list[DiagnosticValidationCondition]", group_by_strategy: GroupByStrategy
+        self, validation_conditions: "list[DiagnosticValidationCondition]", group_by_strategy: SpatialGroupByStrategy
     ) -> dd.DataFrame:
         target_data: dd.DataFrame = self._spatial_data_grouping(validation_conditions, group_by_strategy)
         turbulence_col: str = validation_conditions[0].observed_turbulence_column_name
@@ -747,7 +747,7 @@ class DiagnosticsAmdarVerification:
         return num_obs.rename(columns={turbulence_col: "num_obs"})
 
     def _spatial_data_grouping(
-        self, validation_conditions: "list[DiagnosticValidationCondition]", group_by_strategy: GroupByStrategy
+        self, validation_conditions: "list[DiagnosticValidationCondition]", group_by_strategy: SpatialGroupByStrategy
     ) -> dd.DataFrame:
         target_data: dd.DataFrame = self.data
         space_columns = self._grid_spatial_columns(group_by_strategy)
@@ -767,7 +767,7 @@ class DiagnosticsAmdarVerification:
         self,
         validation_conditions: "list[DiagnosticValidationCondition]",
         prototype_diagnostic: "xr.DataArray",
-        group_by_strategy: GroupByStrategy,
+        group_by_strategy: SpatialGroupByStrategy,
     ) -> dict[str, dd.DataFrame]:
         space_columns = self._grid_spatial_columns(group_by_strategy)
         validation_columns = self._get_validation_column_names(validation_conditions)
