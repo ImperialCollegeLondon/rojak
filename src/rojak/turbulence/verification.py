@@ -12,11 +12,13 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 import dataclasses
+import functools
 import logging
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from collections.abc import Callable, Generator, Mapping
-from typing import TYPE_CHECKING, ClassVar, NamedTuple
+from enum import StrEnum
+from typing import TYPE_CHECKING, ClassVar, NamedTuple, assert_never
 
 import dask.array as da
 import dask.dataframe as dd
@@ -534,6 +536,13 @@ class RocVerificationResult:
         return self._area_under_curve()[amdar_column]
 
 
+class GroupByStrategy(StrEnum):
+    GRID_BOX = "grid_box"
+    GRID_POINT = "grid_point"
+    HORIZONTAL_BOX = "horizontal_box"
+    HORIZONTAL_POINT = "horizontal_point"
+
+
 # Keep this extendable for verification against other forms of data??
 class DiagnosticsAmdarVerification:
     _data_harmoniser: "DiagnosticsAmdarDataHarmoniser"
@@ -553,9 +562,18 @@ class DiagnosticsAmdarVerification:
             return self._harmonised_data
         return self._harmonised_data
 
-    def _grid_spatial_columns(self) -> list[str]:
-        return [self._data_harmoniser.grid_box_column_name, "level_index"]
-        # return ["lat_index", "lon_index", "level_index"]
+    def _grid_spatial_columns(self, group_by_strategy: GroupByStrategy) -> list[str]:
+        match group_by_strategy:
+            case GroupByStrategy.GRID_BOX:
+                return [self._data_harmoniser.grid_box_column_name, "level_index"]
+            case GroupByStrategy.GRID_POINT:
+                return ["lat_index", "lon_index", "level_index"]
+            case GroupByStrategy.HORIZONTAL_BOX:
+                return [self._data_harmoniser.grid_box_column_name]
+            case GroupByStrategy.HORIZONTAL_POINT:
+                return ["lat_index", "lon_index"]
+            case _ as unreachable:
+                assert_never(unreachable)
 
     def _add_nearest_grid_indices(
         self,
@@ -622,24 +640,30 @@ class DiagnosticsAmdarVerification:
             aggregation_spec[strategy_column] = "mean"
         return grouped_by_space_time.aggregate(aggregation_spec)
 
-    def num_obs_per_grid_point(self, validation_conditions: "list[DiagnosticValidationCondition]") -> dd.DataFrame:
-        target_data: dd.DataFrame = self._spatial_data_grouping(validation_conditions)
+    @staticmethod
+    def _get_partition_level_values(partition: pd.Index, level_name: str) -> pd.Index:
+        return partition.get_level_values(level_name)
+
+    def num_obs_per(
+        self, validation_conditions: "list[DiagnosticValidationCondition]", group_by_strategy: GroupByStrategy
+    ) -> dd.DataFrame:
+        target_data: dd.DataFrame = self._spatial_data_grouping(validation_conditions, group_by_strategy)
         turbulence_col: str = validation_conditions[0].observed_turbulence_column_name
-        minimum_columns: list[str] = self._grid_spatial_columns() + [turbulence_col]
-        num_obs = target_data[minimum_columns].groupby(self._grid_spatial_columns()).count()
+        groupby_columns: list[str] = self._grid_spatial_columns(group_by_strategy)
+        minimum_columns: list[str] = groupby_columns + [turbulence_col]
+        num_obs = target_data[minimum_columns].groupby(groupby_columns).count()
 
-        index_right_col: dd.Index = num_obs.index.map_partitions(
-            lambda partition: partition.get_level_values(self._data_harmoniser.grid_box_column_name)
-        )
-        level_col: dd.Index = num_obs.index.map_partitions(lambda partition: partition.get_level_values("level_index"))
+        for grouped_column in groupby_columns:
+            num_obs[grouped_column] = num_obs.index.map_partitions(self._get_partition_level_values, grouped_column)
 
-        num_obs.index = index_right_col
-        num_obs["level_index"] = level_col
+        num_obs = num_obs.reset_index(drop=True)
         return num_obs.rename(columns={turbulence_col: "num_obs"})
 
-    def _spatial_data_grouping(self, validation_conditions: "list[DiagnosticValidationCondition]") -> dd.DataFrame:
+    def _spatial_data_grouping(
+        self, validation_conditions: "list[DiagnosticValidationCondition]", group_by_strategy: GroupByStrategy
+    ) -> dd.DataFrame:
         target_data: dd.DataFrame = self.data
-        space_columns = self._grid_spatial_columns()
+        space_columns = self._grid_spatial_columns(group_by_strategy)
         validation_columns = self._get_validation_column_names(validation_conditions)
         target_cols = space_columns + validation_columns + self._data_harmoniser.harmonised_diagnostics
         target_data = target_data[target_cols]
@@ -647,11 +671,9 @@ class DiagnosticsAmdarVerification:
         # 1) Use the columns that will be used to spatially group the data as the index of the dataframe
         #    Without a column as the index, the aggregation to compute AUC fails with,
         #       ValueError: If using all scalar values, you must pass an index
-        target_data["multi_index"] = (
-            target_data[self._data_harmoniser.grid_box_column_name].astype(str)
-            + "_"
-            + target_data["level_index"].astype(str)
-        )
+        multi_index_columns = [target_data[col].astype(str) for col in space_columns]
+        target_data["multi_index"] = functools.reduce(lambda left, right: left + "_" + right, multi_index_columns)
+
         # Dask doesn't support multi-index so we've got to use a "poor man's" multi-index
         return target_data.set_index("multi_index").persist()
 
@@ -732,9 +754,9 @@ class DiagnosticsAmdarVerification:
         self, validation_conditions: "list[DiagnosticValidationCondition]"
     ) -> dict[str, dd.DataFrame]:
         # target_data: dd.DataFrame = self._data_harmoniser.nearest_diagnostic_value(self._time_window).persist()
-        space_columns = self._grid_spatial_columns()
+        space_columns = self._grid_spatial_columns(GroupByStrategy.GRID_BOX)
         validation_columns = self._get_validation_column_names(validation_conditions)
-        target_data: dd.DataFrame = self._spatial_data_grouping(validation_conditions)
+        target_data: dd.DataFrame = self._spatial_data_grouping(validation_conditions, GroupByStrategy.GRID_BOX)
 
         aggregation_spec: dict = {
             condition.observed_turbulence_column_name: condition.grid_point_auc_agg()
