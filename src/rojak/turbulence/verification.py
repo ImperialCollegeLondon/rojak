@@ -699,11 +699,13 @@ class DiagnosticsAmdarVerification:
         drop_index_cols: bool,
     ) -> dd.DataFrame:
         assert {"pressure_level", "longitude", "latitude"}.issubset(prototype_array.coords)
-        index_columns: set[str] = {
-            self._data_harmoniser.longitude_index_column,
-            self._data_harmoniser.latitude_index_column,
-            self._data_harmoniser.vertical_coordinate_index_column,
-        }.intersection(grouped_columns)
+        index_columns: list[str] = list(
+            {
+                self._data_harmoniser.longitude_index_column,
+                self._data_harmoniser.latitude_index_column,
+                self._data_harmoniser.vertical_coordinate_index_column,
+            }.intersection(grouped_columns)
+        )
         if not index_columns:  # set is empty
             return data_frame
 
