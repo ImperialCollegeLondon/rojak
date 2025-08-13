@@ -234,7 +234,16 @@ def pressure_to_altitude_icao(pressure: "NumpyOrDataArray") -> "NumpyOrDataArray
         pressure[mask] = pressure_to_altitude_troposphere(pressures_within_troposphere)
         pressure[~mask] = pressure_to_altitude_stratosphere(pressures_within_stratosphere)
     else:
-        pressure.loc[mask] = pressure_to_altitude_troposphere(pressures_within_troposphere)
+        # Handle edge case that test suite could not capture
+        # When data from real ERA5 data that ends up in this case, the setting of values using the `loc` operator
+        # fails due to a TypeError which doesn't allow updating the values directly so a copy is required
+        try:
+            pressure.loc[mask] = pressure_to_altitude_troposphere(pressures_within_troposphere)
+        except TypeError as error:
+            # Check message of error matches the specific edge case
+            if error.args[0] == "IndexVariable values cannot be modified":
+                return pressure.copy(data=pressure_to_altitude_icao(pressure.to_numpy()))
+            raise error
         pressure.loc[~mask] = pressure_to_altitude_stratosphere(pressures_within_stratosphere)
 
     return pressure
