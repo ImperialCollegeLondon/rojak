@@ -11,9 +11,7 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
-import functools
 import itertools
-import operator
 import sys
 from collections.abc import Iterable, Mapping
 from datetime import datetime
@@ -31,20 +29,16 @@ from rojak.datalib.ukmo.amdar import UkmoAmdarRepository
 from rojak.orchestrator.configuration import (
     AmdarDataSource,
     AmdarDiagnosticCmpSource,
-    DiagnosticsAmdarHarmonisationStrategyOptions,
-    DiagnosticValidationCondition,
     TurbulenceCalibrationPhaseOption,
-    TurbulenceEvaluationConfig,
     TurbulenceEvaluationPhaseOption,
-    TurbulenceEvaluationPhases,
     TurbulenceThresholds,
 )
 from rojak.plot.turbulence_plotter import (
     create_diagnostic_correlation_plot,
-    create_interactive_heatmap_polygon_plot,
+    create_interactive_aggregated_auc_plots,
+    create_interactive_roc_curve_plot,
     create_multi_region_correlation_plot,
     create_multi_turbulence_diagnotics_probability_plot,
-    plot_roc_curve,
     save_hv_plot,
 )
 from rojak.turbulence.analysis import (
@@ -61,24 +55,28 @@ from rojak.turbulence.diagnostic import (
 from rojak.turbulence.verification import (
     DiagnosticsAmdarDataHarmoniser,
     DiagnosticsAmdarVerification,
+    SpatialGroupByStrategy,
 )
 from rojak.utilities.types import DistributionParameters, Limits
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    import dask.array as da
     import dask.dataframe as dd
 
     from rojak.core.data import AmdarDataRepository, CATData
     from rojak.orchestrator.configuration import Context as ConfigContext
     from rojak.orchestrator.configuration import (
         DataConfig,
+        DiagnosticsAmdarHarmonisationStrategyOptions,
+        DiagnosticValidationCondition,
         SpatialDomain,
         TurbulenceCalibrationConfig,
         TurbulenceCalibrationPhases,
         TurbulenceConfig,
         TurbulenceDiagnostics,
+        TurbulenceEvaluationConfig,
+        TurbulenceEvaluationPhases,
     )
     from rojak.turbulence.verification import (
         RocVerificationResult,
@@ -543,61 +541,43 @@ class DiagnosticsAmdarLauncher:
         if self._validation_conditions:
             logger.info("Starting validation of diagnostics with amdar data")
             verifier = DiagnosticsAmdarVerification(harmoniser, time_window_as_np_datetime)
-            grid_point_auc: dict[str, dd.DataFrame] = verifier.compute_grid_box_auc(self._validation_conditions)
-            num_observations = verifier.num_obs_per_grid_point(self._validation_conditions)
-            # num_pressure_levels: int = diagnostic_suite.get_prototype_computed_diagnostic()["pressure_level"].size
-            target_level = 1
-            num_obs_on_level = num_observations.loc[num_observations["level_index"] == target_level].join(
-                amdar_data.grid, on="index_right"
+            chained_names: str = _chain_diagnostic_names(harmoniser.harmonised_diagnostics)
+            group_by_strategy = SpatialGroupByStrategy.HORIZONTAL_BOX
+            grid_auc = verifier.aggregate_by_auc(
+                self._validation_conditions,
+                diagnostic_suite.get_prototype_computed_diagnostic(),
+                group_by_strategy,
             )
-            for diagnostic_name, regional_auc in grid_point_auc.items():
-                # for level_index in range(num_pressure_levels):
-                geodf = dgpd.from_dask_dataframe(
-                    regional_auc.loc[regional_auc["level_index"] == target_level].join(
-                        amdar_data.grid, on=harmoniser.grid_box_column_name
+            is_agg_by_point: bool = group_by_strategy in {
+                SpatialGroupByStrategy.GRID_POINT,
+                SpatialGroupByStrategy.HORIZONTAL_POINT,
+            }
+            if not is_agg_by_point:
+                for diagnostic_name in grid_auc:
+                    grid_auc[diagnostic_name] = (
+                        dgpd.from_dask_dataframe(
+                            grid_auc[diagnostic_name].join(amdar_data.grid, on=harmoniser.grid_box_column_name)
+                        )
+                        .set_crs(4326)
+                        .drop(columns=[harmoniser.grid_box_column_name])
                     )
-                )
-                plots = [
-                    create_interactive_heatmap_polygon_plot(
-                        geodf,
-                        condition.observed_turbulence_column_name,
-                        opts_kwargs={
-                            "width": 800,
-                            "height": 600,
-                            "title": f"AUC for {diagnostic_name} on {condition.observed_turbulence_column_name}",
-                        },
-                    )
-                    for condition in self._validation_conditions
-                ]
-                plots.append(
-                    create_interactive_heatmap_polygon_plot(
-                        num_obs_on_level,
-                        "num_obs",
-                        opts_kwargs={"width": 800, "height": 600, "title": "Number of Observations"},
-                    )
-                )
-                save_hv_plot(
-                    functools.reduce(operator.add, plots),
-                    str(self._plots_dir / f"{diagnostic_name}_regional_auc"),
-                    "png",
-                    savefig_kwargs={"dpi": 400},
-                )
+            auc_plots = create_interactive_aggregated_auc_plots(
+                grid_auc,
+                self._validation_conditions,
+                is_agg_by_point,
+            ).opts(vspace=1.1)
+            save_hv_plot(
+                auc_plots,
+                str(self._plots_dir / f"regional_auc_{chained_names}_on_{str(group_by_strategy)}"),
+                "png",
+                savefig_kwargs={"dpi": 400},
+            )
 
             roc: RocVerificationResult = verifier.nearest_value_roc(self._validation_conditions)
+            roc_curve_plots: dict = create_interactive_roc_curve_plot(roc)
             chained_names: str = _chain_diagnostic_names(harmoniser.harmonised_diagnostics)
-            for amdar_verification_col, by_diagnostic_roc in roc.iterate_by_amdar_column():
-                false_positives: dict[DiagnosticName, da.Array] = {
-                    name: roc_result.false_positives for name, roc_result in by_diagnostic_roc.items()
-                }
-                true_positives: dict[DiagnosticName, da.Array] = {
-                    name: roc_result.true_positives for name, roc_result in by_diagnostic_roc.items()
-                }
-                plot_roc_curve(
-                    false_positives,
-                    true_positives,
-                    str(self._plots_dir / f"roc_{amdar_verification_col}_on_{chained_names}.png"),
-                    area_under_curve=roc.auc_for_amdar_column(amdar_verification_col),
-                )
-                logger.debug("Created roc plot for %s AMDAR turbulence measure", amdar_verification_col)
+            for amdar_col, plot_for_col in roc_curve_plots.items():
+                save_hv_plot(plot_for_col, f"roc_{amdar_col}_on_{chained_names}", "png")
+                logger.debug("Saved roc plot for %s AMDAR turbulence measure", amdar_col)
 
             logger.info("Finished validation of diagnostics with amdar data")

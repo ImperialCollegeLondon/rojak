@@ -51,6 +51,9 @@ if TYPE_CHECKING:
     from matplotlib.image import AxesImage
     from numpy.typing import NDArray
 
+    from rojak.orchestrator.configuration import (
+        DiagnosticValidationCondition,
+    )
     from rojak.turbulence.verification import RocVerificationResult
     from rojak.utilities.types import DiagnosticName
 
@@ -500,3 +503,32 @@ def create_interactive_heatmap_plot(
     coast: gv.element.geo.Feature = gv.feature.coastline.opts(**coast_ls)  # pyright: ignore[reportAssignmentType]
 
     return gv_element * coast
+
+
+def create_interactive_aggregated_auc_plots(
+    aggregated_by_auc: "dict[DiagnosticName, dd.DataFrame]",
+    validation_conditions: list["DiagnosticValidationCondition"],
+    is_point_data: bool,
+) -> hv.Layout:
+    num_conditions: int = len(validation_conditions)
+
+    all_plots = []
+    for diagnostic_name, regional_auc in aggregated_by_auc.items():
+        for condition in validation_conditions:
+            options_kwargs = {
+                "fig_size": 400,
+                "title": f"{diagnostic_name} on {condition.observed_turbulence_column_name}",
+                "lw": 0,
+            }
+            if is_point_data:
+                options_kwargs["s"] = 5
+            all_plots.append(
+                create_interactive_heatmap_plot(
+                    regional_auc if is_point_data else regional_auc.compute(),
+                    condition.observed_turbulence_column_name,
+                    opts_kwargs=options_kwargs,
+                    new_col_name="AUC",
+                )
+            )
+
+    return hv.Layout(all_plots).cols(num_conditions)
