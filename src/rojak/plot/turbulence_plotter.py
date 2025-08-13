@@ -502,7 +502,7 @@ def create_interactive_heatmap_plot(
     coast_ls = {"linewidth": 1, "edgecolor": "gray"} if is_matplotlib else {"line_color": "black", "line_width": 0.5}
     coast: gv.element.geo.Feature = gv.feature.coastline.opts(**coast_ls)  # pyright: ignore[reportAssignmentType]
 
-    return gv_element * coast
+    return coast * gv_element
 
 
 def create_interactive_aggregated_auc_plots(
