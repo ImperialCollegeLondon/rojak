@@ -36,6 +36,7 @@ from rojak.orchestrator.configuration import (
 from rojak.plot.turbulence_plotter import (
     create_diagnostic_correlation_plot,
     create_interactive_aggregated_auc_plots,
+    create_interactive_heatmap_plot,
     create_interactive_roc_curve_plot,
     create_multi_region_correlation_plot,
     create_multi_turbulence_diagnotics_probability_plot,
@@ -548,6 +549,7 @@ class DiagnosticsAmdarLauncher:
                 diagnostic_suite.get_prototype_computed_diagnostic(),
                 group_by_strategy,
             )
+            num_observations = verifier.num_obs_per(self._validation_conditions, group_by_strategy)
             is_agg_by_point: bool = group_by_strategy in {
                 SpatialGroupByStrategy.GRID_POINT,
                 SpatialGroupByStrategy.HORIZONTAL_POINT,
@@ -561,14 +563,28 @@ class DiagnosticsAmdarLauncher:
                         .set_crs(4326)
                         .drop(columns=[harmoniser.grid_box_column_name])
                     )
+                num_observations = dgpd.from_dask_dataframe(
+                    num_observations.join(amdar_data.grid, on=harmoniser.grid_box_column_name)
+                ).set_crs(4326)[["num_obs", "geometry"]]
             auc_plots = create_interactive_aggregated_auc_plots(
                 grid_auc,
                 self._validation_conditions,
                 is_agg_by_point,
-            ).opts(vspace=1.1)
+            )
             save_hv_plot(
                 auc_plots,
                 str(self._plots_dir / f"regional_auc_{chained_names}_on_{str(group_by_strategy)}"),
+                "png",
+                savefig_kwargs={"dpi": 400},
+            )
+
+            save_hv_plot(
+                create_interactive_heatmap_plot(
+                    num_observations if is_agg_by_point else num_observations.compute(),
+                    "num_obs",
+                    opts_kwargs={"fig_size": 400, "title": "Total Number of Observations", "lw": 0},
+                ),
+                str(self._plots_dir / f"num_observations_for_{str(group_by_strategy)}"),
                 "png",
                 savefig_kwargs={"dpi": 400},
             )
@@ -577,7 +593,7 @@ class DiagnosticsAmdarLauncher:
             roc_curve_plots: dict = create_interactive_roc_curve_plot(roc)
             chained_names: str = _chain_diagnostic_names(harmoniser.harmonised_diagnostics)
             for amdar_col, plot_for_col in roc_curve_plots.items():
-                save_hv_plot(plot_for_col, f"roc_{amdar_col}_on_{chained_names}", "png")
+                save_hv_plot(plot_for_col, str(self._plots_dir / f"roc_{amdar_col}_on_{chained_names}"), "png")
                 logger.debug("Saved roc plot for %s AMDAR turbulence measure", amdar_col)
 
             logger.info("Finished validation of diagnostics with amdar data")
