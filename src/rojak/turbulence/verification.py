@@ -687,8 +687,15 @@ class DiagnosticsAmdarVerification:
                 self._get_partition_level_values, grouped_column
             )
 
-        if trigger_reset_index:
+        if self._data_harmoniser.grid_box_column_name in set(grouped_columns) and trigger_reset_index:
+            # set_index is an expensive operation due to the shuffles it triggers
+            #   However, this cost has been undertaken as it means that the data can be joined INTO a GeoPandas
+            #   grid turning the entire thing into a GeoDataFrame without having to invoke dgpd.from_dask_dataframe.
+            #   It also means that the crs will be inherited and not require manual intervention
+            data_frame = data_frame.set_index(data_frame[self._data_harmoniser.grid_box_column_name], drop=True)
+        elif trigger_reset_index:
             data_frame = data_frame.reset_index(drop=True)
+
         return data_frame
 
     def _retrieve_index_column_values(

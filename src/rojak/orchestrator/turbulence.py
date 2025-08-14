@@ -17,7 +17,6 @@ from collections.abc import Iterable, Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, Final, NamedTuple, assert_never
 
-import dask_geopandas as dgpd
 import numpy as np
 import xarray as xr
 from pydantic import TypeAdapter
@@ -556,16 +555,10 @@ class DiagnosticsAmdarLauncher:
             }
             if not is_agg_by_point:
                 for diagnostic_name in grid_auc:
-                    grid_auc[diagnostic_name] = (
-                        dgpd.from_dask_dataframe(
-                            grid_auc[diagnostic_name].join(amdar_data.grid, on=harmoniser.grid_box_column_name)
-                        )
-                        .set_crs(4326)
-                        .drop(columns=[harmoniser.grid_box_column_name])
+                    grid_auc[diagnostic_name] = amdar_data.grid.join(grid_auc[diagnostic_name], how="right").drop(
+                        columns=[harmoniser.grid_box_column_name]
                     )
-                num_observations = dgpd.from_dask_dataframe(
-                    num_observations.join(amdar_data.grid, on=harmoniser.grid_box_column_name)
-                ).set_crs(4326)[["num_obs", "geometry"]]
+                num_observations = amdar_data.grid.join(num_observations, how="right")
             auc_plots = create_interactive_aggregated_auc_plots(
                 grid_auc,
                 self._validation_conditions,
