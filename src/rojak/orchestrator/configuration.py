@@ -571,7 +571,7 @@ class SpatialDomain(BaseConfigModel):
 
     def use_hemisphere_projection(self) -> bool:
         is_start_or_end_at_equator = self.minimum_latitude == 0 or self.maximum_latitude == 0
-        return is_start_or_end_at_equator and (self.minimum_latitude + self.maximum_latitude) / 2 >= 45  # noqa: PLR2004
+        return is_start_or_end_at_equator and abs(self.minimum_latitude + self.maximum_latitude) >= 45  # noqa: PLR2004
 
 
 class MetDataSource(StrEnum):
