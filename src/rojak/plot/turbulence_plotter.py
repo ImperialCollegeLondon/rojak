@@ -14,7 +14,7 @@
 
 import functools
 import operator
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import cartopy.crs as ccrs
 import dask.array as da
@@ -59,8 +59,12 @@ if TYPE_CHECKING:
 
 _PLATE_CARREE: "ccrs.Projection" = ccrs.PlateCarree()
 
-hv.extension("matplotlib")  # pyright: ignore[reportCallIssue]
-hvplot.extension("matplotlib")  # pyright: ignore[reportCallIssue]
+
+def _set_extension(is_matplotlib: bool) -> None:
+    extension_name: Literal["matplotlib", "bokeh"] = "matplotlib" if is_matplotlib else "bokeh"
+    gv.extension(extension_name)  # pyright: ignore[reportCallIssue]
+    hv.extension(extension_name)  # pyright: ignore[reportCallIssue]
+    hvplot.extension(extension_name)  # pyright: ignore[reportCallIssue]
 
 
 def _auc_cmap() -> mcolors.ListedColormap:
@@ -389,6 +393,7 @@ def _evaluate_dask_collection(array: "da.Array | NDArray") -> "NDArray":
 
 
 def create_interactive_roc_curve_plot(roc: "RocVerificationResult", is_matplotlib: bool = True) -> dict[str, "Overlay"]:
+    _set_extension(is_matplotlib)
     plots: dict[str, Overlay] = {}
     for amdar_verification_col, by_diagnostic_roc in roc.iterate_by_amdar_column():
         auc_for_col = roc.auc_for_amdar_column(amdar_verification_col)
@@ -505,6 +510,7 @@ def create_interactive_heatmap_plot(
     is_matplotlib: bool = True,
 ) -> "Overlay":
     _check_is_col_in_dataframe(col_to_plot, data_frame)
+    _set_extension(is_matplotlib)
     is_points_data: bool = {"latitude", "longitude"}.issubset(data_frame.columns)
     if not is_points_data and "geometry" not in data_frame.columns:
         raise ValueError("Dataframe must have geometry column or latitude/longitude columns")
