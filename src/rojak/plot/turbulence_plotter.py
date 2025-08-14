@@ -554,7 +554,7 @@ def create_interactive_aggregated_auc_plots(
     for diagnostic_name, regional_auc in aggregated_by_auc.items():
         for condition in validation_conditions:
             options_kwargs = {
-                "fig_size": 600,
+                "fig_size": 800,
                 "title": f"{diagnostic_name} on {condition.observed_turbulence_column_name}",
                 "linewidth": 0,
                 "cmap": _auc_cmap(),
@@ -570,4 +570,4 @@ def create_interactive_aggregated_auc_plots(
                 )
             )
 
-    return hv.Layout(all_plots).cols(num_conditions)
+    return hv.Layout(all_plots).opts(fig_size=200).cols(num_conditions)  # pyright: ignore[reportAttributeAccessIssue, reportOptionalMemberAccess]
