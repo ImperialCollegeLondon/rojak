@@ -388,7 +388,7 @@ def _evaluate_dask_collection(array: "da.Array | NDArray") -> "NDArray":
     return array
 
 
-def create_interactive_roc_curve_plot(roc: "RocVerificationResult") -> dict[str, "Overlay"]:
+def create_interactive_roc_curve_plot(roc: "RocVerificationResult", is_matplotlib: bool = True) -> dict[str, "Overlay"]:
     plots: dict[str, Overlay] = {}
     for amdar_verification_col, by_diagnostic_roc in roc.iterate_by_amdar_column():
         auc_for_col = roc.auc_for_amdar_column(amdar_verification_col)
@@ -400,13 +400,29 @@ def create_interactive_roc_curve_plot(roc: "RocVerificationResult") -> dict[str,
                 x="POFD",
                 y="POD",
                 label=f"{diagnostic_name} - AUC: {auc_for_col[diagnostic_name]:.2f}",
+                xlim=(0, 1),
+                ylim=(0, 1),
+                grid=True,
+                aspect="equal",
+                height=700,
             )
             for diagnostic_name, roc_for_diagnostic in by_diagnostic_roc.items()
         ]
+        line_style = {"linewidth": 1, "linestyle": "--"} if is_matplotlib else {"line_width": 1, "line_dash": "dashed"}
         plots_for_col.append(
             dd.from_dask_array(
                 da.stack([da.linspace(0, 1, 500), da.linspace(0, 1, 500)], axis=1), columns=["POFD", "POD"]
-            ).hvplot.line(x="POFD", y="POD", color="black", line_width=1, line_dash="dashed")  # pyright: ignore[reportAttributeAccessIssue]
+            ).hvplot.line(  # pyright: ignore[reportAttributeAccessIssue]
+                x="POFD",
+                y="POD",
+                color="black",
+                xlim=(0, 1),
+                ylim=(0, 1),
+                grid=True,
+                aspect="equal",
+                height=700,
+                **line_style,
+            )
         )
         plots[amdar_verification_col] = functools.reduce(operator.mul, plots_for_col)
 
@@ -500,6 +516,11 @@ def create_interactive_heatmap_plot(
         elif "tools" not in opts_kwargs:
             opts_kwargs["tools"] = ["hover"]
 
+    if opts_kwargs is None:
+        opts_kwargs = {"cmap": pypalettes.load_cmap("cancri", cmap_type="continuous", reverse=True)}
+    elif "cmap" not in opts_kwargs:
+        opts_kwargs["cmap"] = pypalettes.load_cmap("cancri", cmap_type="continuous", reverse=True)
+
     gv_element: gv.element.geo.Polygons | gv.element.geo.Points = (
         gv.Points(data_frame, kdims=["longitude", "latitude"], vdims=[dimension], crs=ccrs.PlateCarree())
         if is_points_data
@@ -507,7 +528,6 @@ def create_interactive_heatmap_plot(
     ).opts(
         color=dimension,
         colorbar=True,
-        cmap=pypalettes.load_cmap("cancri", cmap_type="continuous", reverse=True),
         alpha=0.8,
         **(opts_kwargs if opts_kwargs is not None else {}),
     )  # pyright: ignore[reportAssignmentType]
