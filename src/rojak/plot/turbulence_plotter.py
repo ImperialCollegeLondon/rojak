@@ -60,7 +60,19 @@ if TYPE_CHECKING:
 _PLATE_CARREE: "ccrs.Projection" = ccrs.PlateCarree()
 
 hv.extension("matplotlib")  # pyright: ignore[reportCallIssue]
-hvplot.extension("matplotlib", compatibility="bokeh")  # pyright: ignore[reportCallIssue]
+hvplot.extension("matplotlib")  # pyright: ignore[reportCallIssue]
+
+
+def _auc_cmap() -> mcolors.ListedColormap:
+    # This works in the python console and is in the docs for pypalettes
+    blue_to_orange_colours = pypalettes.load_cmap("BluetoOrange_10").colors  # pyright: ignore[reportAttributeAccessIssue]
+    assert isinstance(blue_to_orange_colours, list)
+    blue = list(reversed(blue_to_orange_colours[0:5]))
+    orange_reversed = blue_to_orange_colours[5:]
+    blue_to_orange_rev = orange_reversed + blue
+    cmap = pypalettes.create_cmap(colors=blue_to_orange_rev, cmap_type="discrete", name="BlueToOrange10Reversed")
+    assert isinstance(cmap, mcolors.ListedColormap)
+    return cmap
 
 
 def xarray_plot_wrapper(
@@ -516,9 +528,10 @@ def create_interactive_aggregated_auc_plots(
     for diagnostic_name, regional_auc in aggregated_by_auc.items():
         for condition in validation_conditions:
             options_kwargs = {
-                "fig_size": 400,
+                "fig_size": 600,
                 "title": f"{diagnostic_name} on {condition.observed_turbulence_column_name}",
-                "lw": 0,
+                "linewidth": 0,
+                "cmap": _auc_cmap(),
             }
             if is_point_data:
                 options_kwargs["s"] = 5
