@@ -546,6 +546,7 @@ class SpatialDomain(BaseConfigModel):
     def check_valid_ranges(self) -> Self:
         if self.minimum_latitude > self.maximum_latitude:
             raise ValueError("Maximum latitude must be greater than minimum latitude")
+        # TODO: Handle ranges that cross the anti-meridian (i.e. 180 degrees)
         if self.minimum_longitude > self.maximum_longitude:
             raise ValueError("Maximum longitude must be greater than minimum longitude")
         if self.minimum_latitude == self.maximum_latitude:
@@ -559,6 +560,18 @@ class SpatialDomain(BaseConfigModel):
         ):
             raise ValueError("Minimum level must be less than maximum level")
         return self
+
+    def central_latitude(self, use_int_division: bool = False) -> float | int:
+        latitude_range: float = self.minimum_latitude + self.maximum_latitude
+        return latitude_range // 2 if use_int_division else latitude_range / 2
+
+    def central_longitude(self, use_int_division: bool = False) -> float | int:
+        longitude_range: float = self.minimum_longitude + self.maximum_longitude
+        return longitude_range // 2 if use_int_division else longitude_range / 2
+
+    def use_hemisphere_projection(self) -> bool:
+        is_start_or_end_at_equator = self.minimum_latitude == 0 or self.maximum_latitude == 0
+        return is_start_or_end_at_equator and (self.minimum_latitude + self.maximum_latitude) / 2 >= 45  # noqa: PLR2004
 
 
 class MetDataSource(StrEnum):
