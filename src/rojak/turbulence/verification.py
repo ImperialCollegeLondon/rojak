@@ -18,18 +18,24 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from collections.abc import Callable, Generator, Mapping
 from enum import StrEnum
-from typing import TYPE_CHECKING, ClassVar, NamedTuple, assert_never
+from typing import TYPE_CHECKING, ClassVar, Literal, NamedTuple, assert_never
 
 import dask.array as da
 import dask.dataframe as dd
 import numpy as np
 import pandas as pd
+from scipy import integrate
 
 from rojak.core.calculations import bilinear_interpolation
 from rojak.core.indexing import map_index_to_coordinate_value, map_order, map_values_to_nearest_coordinate_index
 from rojak.orchestrator.configuration import DiagnosticsAmdarHarmonisationStrategyOptions
 from rojak.turbulence.diagnostic import EvaluationDiagnosticSuite
-from rojak.turbulence.metrics import BinaryClassificationResult, area_under_curve, received_operating_characteristic
+from rojak.turbulence.metrics import (
+    BinaryClassificationResult,
+    area_under_curve,
+    binary_classification_rate_from_cumsum,
+    received_operating_characteristic,
+)
 from rojak.utilities.types import Coordinate
 
 if TYPE_CHECKING:
@@ -39,6 +45,7 @@ if TYPE_CHECKING:
     from rojak.core.data import AmdarTurbulenceData
     from rojak.orchestrator.configuration import DiagnosticValidationCondition
     from rojak.turbulence.diagnostic import DiagnosticSuite
+    from rojak.turbulence.metrics import BinaryClassificationRateFromLabels
     from rojak.utilities.types import DiagnosticName, Limits
 
 
@@ -533,6 +540,85 @@ def _observed_turbulence_aggregation(condition: "DiagnosticValidationCondition")
     )
 
 
+class AggregationMetricOption(StrEnum):
+    AUC = "auc"
+    TSS = "tss"
+
+
+def metric_based_aggregation(
+    condition: "DiagnosticValidationCondition",
+    minimum_group_size: int,
+    aggregation_function: AggregationMetricOption,
+    integration_scheme: Literal["trapz", "simpson"] = "simpson",
+) -> dd.Aggregation:
+    assert minimum_group_size > 0, "Minimum group size must be positive"
+
+    def apply_condition(on_chunk: "pd.api.typing.SeriesGroupBy") -> "pd.Series":
+        return on_chunk.apply(lambda row: row > condition.value_greater_than)
+
+    def aggregate_with_cumsum(on_partition: "pd.api.typing.SeriesGroupBy") -> "pd.Series":
+        return on_partition.cumsum()
+
+    def compute_tss_from_cumsum(on_group: "pd.Series") -> float:
+        group_size: int = on_group.size
+        if group_size < minimum_group_size:
+            return np.nan
+
+        binary_classification: BinaryClassificationRateFromLabels | None = binary_classification_rate_from_cumsum(
+            on_group
+        )
+        if binary_classification is None:
+            return 0
+
+        tss: NDArray = binary_classification.true_positives_rate + binary_classification.false_positives_rate - 1
+        return tss.max()
+
+    def compute_auc_from_cumsum(on_group: "pd.Series") -> float:
+        group_size: int = on_group.size
+        if group_size < minimum_group_size:
+            return np.nan
+
+        binary_classification: BinaryClassificationRateFromLabels | None = binary_classification_rate_from_cumsum(
+            on_group
+        )
+        if binary_classification is None:
+            return 0
+
+        if integration_scheme == "trapz":
+            return float(
+                np.trapezoid(binary_classification.true_positives_rate, x=binary_classification.false_positives_rate)
+            )
+        return float(
+            integrate.simpson(binary_classification.true_positives_rate, x=binary_classification.false_positives_rate)
+        )
+
+    def auc_finaliser(on_aggregation_result: "pd.Series") -> "pd.Series":
+        # See https://docs.dask.org/en/latest/dataframe-groupby.html#aggregate
+        # The example for nunique has this groupby
+        # My understanding is that it forces the partition into the original groups, on which, I am applying
+        # the cumsum => result is still separated based on the groups
+        return on_aggregation_result.groupby(level=list(range(on_aggregation_result.index.nlevels))).apply(
+            compute_auc_from_cumsum
+        )
+
+    def tss_finaliser(on_aggregation_result: "pd.Series") -> "pd.Series":
+        return on_aggregation_result.groupby(level=list(range(on_aggregation_result.index.nlevels))).apply(
+            compute_tss_from_cumsum
+        )
+
+    finaliser_functions: dict[AggregationMetricOption, Callable[[pd.Series], pd.Series]] = {
+        AggregationMetricOption.AUC: auc_finaliser,
+        AggregationMetricOption.TSS: tss_finaliser,
+    }
+
+    return dd.Aggregation(
+        name=f"{aggregation_function}_on_{condition.observed_turbulence_column_name}_{condition.value_greater_than:0.2f}",
+        chunk=apply_condition,
+        agg=aggregate_with_cumsum,
+        finalize=finaliser_functions[aggregation_function],
+    )
+
+
 @dataclasses.dataclass
 class RocVerificationResult:
     # first key: amdar column name
@@ -784,7 +870,9 @@ class DiagnosticsAmdarVerification:
         target_data: dd.DataFrame = self._spatial_data_grouping(validation_conditions, group_by_strategy)
 
         aggregation_spec: dict = {
-            condition.observed_turbulence_column_name: condition.grid_point_auc_agg(minimum_group_size)
+            condition.observed_turbulence_column_name: metric_based_aggregation(
+                condition, minimum_group_size, AggregationMetricOption.AUC
+            )
             for condition in validation_conditions
         }
         auc_by_diagnostic: dict[str, dd.DataFrame] = {}
