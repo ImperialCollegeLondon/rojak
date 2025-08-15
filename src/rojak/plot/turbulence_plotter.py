@@ -553,11 +553,16 @@ def create_interactive_aggregated_auc_plots(
     all_plots = []
     for diagnostic_name, regional_auc in aggregated_by_auc.items():
         for condition in validation_conditions:
+            subplot_title = (
+                f"{diagnostic_name} on {condition.observed_turbulence_column_name} > {condition.value_greater_than}"
+            )
             options_kwargs = {
                 "fig_size": 800,
-                "title": f"{diagnostic_name} on {condition.observed_turbulence_column_name}",
+                "title": subplot_title,
                 "linewidth": 0,
                 "cmap": _auc_cmap(),
+                "clim": (0, 1),
+                "clipping_colors": {"NaN": "#cecece"},  # slightly lighter: dbdbdb
             }
             if is_point_data:
                 options_kwargs["s"] = 5

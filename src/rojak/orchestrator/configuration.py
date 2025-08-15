@@ -22,6 +22,7 @@ import dask.dataframe as dd
 import numpy as np
 import yaml
 from pydantic import AfterValidator, BaseModel, Field, ValidationError, model_validator
+from pydantic.types import PositiveInt
 
 from rojak.datalib.madis.amdar import AcarsAmdarTurbulenceData
 from rojak.datalib.ukmo.amdar import UkmoAmdarTurbulenceData
@@ -467,6 +468,9 @@ class DiagnosticValidationCondition(BaseConfigModel):
     value_greater_than: Annotated[
         float, Field(description="Value greater than", repr=True, strict=True, ge=0.0, frozen=True)
     ]
+    min_group_size: Annotated[
+        PositiveInt, Field(description="Minimum group size for aggregation", repr=True, strict=True, default=20)
+    ] = 20
 
     def __hash__(self) -> int:
         return hash((self.observed_turbulence_column_name, self.value_greater_than))
@@ -483,8 +487,8 @@ class DiagnosticValidationCondition(BaseConfigModel):
             true_positive_rate = on_group.to_numpy()
             false_positive_rate = 1 + np.arange(group_size) - true_positive_rate
 
-            if group_size == 1:
-                return true_positive_rate[0]
+            if group_size < self.min_group_size:
+                return np.nan
 
             if true_positive_rate[-1] < 0:
                 raise ValueError("true_positives must not be negative")
