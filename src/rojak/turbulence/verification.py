@@ -521,22 +521,30 @@ class DiagnosticsAmdarDataHarmoniser:
         )
 
 
-def _observed_turbulence_aggregation(condition: "DiagnosticValidationCondition") -> dd.Aggregation:
-    # See https://docs.dask.org/en/latest/dataframe-groupby.html#dataframe-groupby-aggregate
-    def on_chunk(within_partition: "pd.Series") -> float:
-        return within_partition.max()
+# def _observed_turbulence_aggregation(condition: "DiagnosticValidationCondition") -> dd.Aggregation:
+#     # See https://docs.dask.org/en/latest/dataframe-groupby.html#dataframe-groupby-aggregate
+#     def on_chunk(within_partition: "pd.Series") -> float:
+#         return within_partition.max()
+#
+#     def aggregate_chunks(chunk_maxes: "pd.Series") -> float:
+#         return chunk_maxes.max()
+#
+#     def apply_condition(maxima: float) -> bool:
+#         return maxima > condition.value_greater_than
+#
+#     return dd.Aggregation(
+#         name=f"has_turbulence_{condition.observed_turbulence_column_name}_{condition.value_greater_than:0.2f}",
+#         chunk=on_chunk,
+#         agg=aggregate_chunks,
+#         finalize=apply_condition,
+#     )
 
-    def aggregate_chunks(chunk_maxes: "pd.Series") -> float:
-        return chunk_maxes.max()
 
-    def apply_condition(maxima: float) -> bool:
-        return maxima > condition.value_greater_than
-
+def _any_aggregation() -> dd.Aggregation:
     return dd.Aggregation(
-        name=f"has_turbulence_{condition.observed_turbulence_column_name}_{condition.value_greater_than:0.2f}",
-        chunk=on_chunk,
-        agg=aggregate_chunks,
-        finalize=apply_condition,
+        name="aggregate_by_any",
+        chunk=lambda within_partition: within_partition.any(),
+        agg=lambda across_partitions: across_partitions.any(),
     )
 
 
@@ -914,10 +922,15 @@ class DiagnosticsAmdarVerification:
         ]
         target_columns: list[str] = space_time_columns + turbulence_diagnostics + validation_columns
         target_data = target_data[target_columns]
+
+        # Apply condition so that any can be used at the groupby stage
+        for condition in validation_conditions:
+            target_data[condition.observed_turbulence_column_name] = (
+                target_data[condition.observed_turbulence_column_name] > condition.value_greater_than
+            )
         grouped_by_space_time = target_data.groupby(space_time_columns)
         aggregation_spec: dict = {
-            condition.observed_turbulence_column_name: _observed_turbulence_aggregation(condition)
-            for condition in validation_conditions
+            condition.observed_turbulence_column_name: _any_aggregation() for condition in validation_conditions
         }
         for diagnostic_column in turbulence_diagnostics:
             aggregation_spec[diagnostic_column] = "mean"
