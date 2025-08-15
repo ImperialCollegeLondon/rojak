@@ -521,25 +521,6 @@ class DiagnosticsAmdarDataHarmoniser:
         )
 
 
-# def _observed_turbulence_aggregation(condition: "DiagnosticValidationCondition") -> dd.Aggregation:
-#     # See https://docs.dask.org/en/latest/dataframe-groupby.html#dataframe-groupby-aggregate
-#     def on_chunk(within_partition: "pd.Series") -> float:
-#         return within_partition.max()
-#
-#     def aggregate_chunks(chunk_maxes: "pd.Series") -> float:
-#         return chunk_maxes.max()
-#
-#     def apply_condition(maxima: float) -> bool:
-#         return maxima > condition.value_greater_than
-#
-#     return dd.Aggregation(
-#         name=f"has_turbulence_{condition.observed_turbulence_column_name}_{condition.value_greater_than:0.2f}",
-#         chunk=on_chunk,
-#         agg=aggregate_chunks,
-#         finalize=apply_condition,
-#     )
-
-
 def _any_aggregation() -> dd.Aggregation:
     return dd.Aggregation(
         name="aggregate_by_any",
@@ -698,71 +679,6 @@ class DiagnosticsAmdarVerification:
                 return [self._data_harmoniser.latitude_index_column, self._data_harmoniser.longitude_index_column]
             case _ as unreachable:
                 assert_never(unreachable)
-
-    # def _add_nearest_grid_indices(
-    #     self,
-    #     validation_columns: list[str],
-    #     grid_prototype: "xr.DataArray",
-    # ) -> "dd.DataFrame":
-    #     if not set(validation_columns).issubset(self.data.columns):
-    #         raise ValueError("Validation columns must be present in the data")
-    #
-    #     space_time_columns: list[str] = [
-    #         self._data_harmoniser.common_time_column_name,
-    #         "level",
-    #         "longitude",
-    #         "latitude",
-    #     ]
-    #     target_columns = space_time_columns + validation_columns
-    #     target_data: dd.DataFrame = self.data[target_columns]
-    #     dataframe_meta: dict[str, pd.Series] = get_dataframe_dtypes(target_data)
-    #     dataframe_meta["level_index"] = pd.Series(dtype=int)
-    #     target_data = target_data.map_partitions(
-    #         lambda df: df.assign(
-    #             level_index=df.apply(
-    #                 lambda row, pressure_level=grid_prototype["pressure_level"].values: np.abs(  # noqa: PD011
-    #                     row.level - pressure_level
-    #                 ).argmin(),
-    #                 axis=1,
-    #             )
-    #         ),
-    #         meta=dataframe_meta,
-    #     )
-    #     dataframe_meta["lat_index"] = pd.Series(dtype=int)
-    #     dataframe_meta["lon_index"] = pd.Series(dtype=int)
-    #     return target_data.map_partitions(
-    #         lambda df: df.assign(
-    #             lat_index=map_values_to_nearest_coordinate_index(df.latitude, grid_prototype["latitude"].values),
-    #             lon_index=map_values_to_nearest_coordinate_index(df.longitude, grid_prototype["longitude"].values),
-    #         ),
-    #         meta=dd.from_pandas(pd.DataFrame(dataframe_meta)),
-    #     ).optimize()
-
-    # def _spatio_temporal_data_aggregation(
-    #     self,
-    #     target_data: "dd.DataFrame",
-    #     strategy_columns: list[str],
-    #     validation_conditions: "list[DiagnosticValidationCondition]",
-    # ) -> "dd.DataFrame":
-    #     group_by_columns: list[str] = [
-    #         "lat_index",
-    #         "lon_index",
-    #         "level_index",
-    #         self._data_harmoniser.common_time_column_name,
-    #     ]
-    #     assert set(group_by_columns).issubset(target_data.columns)
-    #     columns_to_drop: list[str] = ["level", "longitude", "latitude"]
-    #     assert set(columns_to_drop).issubset(target_data.columns)
-    #     target_data = target_data.drop(columns=columns_to_drop)
-    #     grouped_by_space_time = target_data.groupby(group_by_columns)
-    #
-    #     aggregation_spec: dict = {
-    #         condition.observed_turbulence_column_name: _observed_turbulence_aggregation(condition)
-    #         for condition in validation_conditions
-    #     }
-    #     for strategy_column in strategy_columns:
-    #         aggregation_spec[strategy_column] = "mean"
-    #     return grouped_by_space_time.aggregate(aggregation_spec)
 
     @staticmethod
     def _get_partition_level_values(partition: pd.Index, level_name: str) -> pd.Index:
@@ -955,41 +871,3 @@ class DiagnosticsAmdarVerification:
     @staticmethod
     def _get_validation_column_names(validation_conditions: "list[DiagnosticValidationCondition]") -> list[str]:
         return [condition.observed_turbulence_column_name for condition in validation_conditions]
-
-    # def compute_roc_curve(
-    #     self,
-    #     validation_conditions: "list[DiagnosticValidationCondition]",
-    #     prototype_diagnostic_array: "xr.DataArray",
-    # ) -> RocVerificationResult:
-    #     assert {"pressure_level", "longitude", "latitude", "time"}.issubset(prototype_diagnostic_array.coords)
-    #     diagnostic_value_columns: list[str] = list(
-    #         self._data_harmoniser.strategy_values_columns(
-    #             [DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES]
-    #         )
-    #     )
-    #     validation_columns = self._get_validation_column_names(validation_conditions)
-    #     target_data = self._add_nearest_grid_indices(
-    #         validation_columns + diagnostic_value_columns,
-    #         prototype_diagnostic_array,
-    #     )
-    #     logger.debug("Added required columns for spatio temporal aggregating")
-    #     aggregated_data = self._spatio_temporal_data_aggregation(
-    #         target_data, diagnostic_value_columns, validation_conditions
-    #     ).persist()
-    #     logger.debug("Triggered spatio temporal aggregation")
-    #     logger.debug("Finished spatio temporal aggregation")
-    #     result: defaultdict[str, dict[str, BinaryClassificationResult]] = defaultdict(dict)
-    #     for diagnostic_val_col in diagnostic_value_columns:
-    #         # descending values
-    #         subset_df = aggregated_data[[*validation_columns, diagnostic_val_col]].sort_values(
-    #             diagnostic_val_col, ascending=False
-    #         )
-    #         for amdar_turbulence_col in validation_columns:
-    #             result[amdar_turbulence_col][diagnostic_val_col] = received_operating_characteristic(
-    #                 subset_df[amdar_turbulence_col].values.compute_chunk_sizes(),  # noqa: PD011
-    #                 subset_df[diagnostic_val_col].values.compute_chunk_sizes(),  # noqa: PD011
-    #                 num_intervals=-1,
-    #             )
-    #     logger.debug("Finished computing ROC curves")
-    #
-    #     return RocVerificationResult(dict(result))
