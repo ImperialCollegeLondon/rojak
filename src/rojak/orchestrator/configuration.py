@@ -16,13 +16,14 @@ import datetime
 from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Self, assert_never
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, assert_never
 
 import dask.dataframe as dd
 import numpy as np
 import yaml
 from pydantic import AfterValidator, BaseModel, Field, ValidationError, model_validator
 from pydantic.types import PositiveInt
+from scipy import integrate
 
 from rojak.datalib.madis.amdar import AcarsAmdarTurbulenceData
 from rojak.datalib.ukmo.amdar import UkmoAmdarTurbulenceData
@@ -468,14 +469,15 @@ class DiagnosticValidationCondition(BaseConfigModel):
     value_greater_than: Annotated[
         float, Field(description="Value greater than", repr=True, strict=True, ge=0.0, frozen=True)
     ]
-    min_group_size: Annotated[
-        PositiveInt, Field(description="Minimum group size for aggregation", repr=True, strict=True, default=20)
-    ] = 20
 
     def __hash__(self) -> int:
         return hash((self.observed_turbulence_column_name, self.value_greater_than))
 
-    def grid_point_auc_agg(self) -> dd.Aggregation:
+    def grid_point_auc_agg(
+        self, minimum_group_size: int, integration_scheme: Literal["trapz", "simpson"] = "simpson"
+    ) -> dd.Aggregation:
+        assert minimum_group_size > 0, "Minimum group size must be positive"
+
         def apply_condition(on_chunk: "pd.api.typing.SeriesGroupBy") -> "pd.Series":
             return on_chunk.apply(lambda row: row > self.value_greater_than)
 
@@ -487,7 +489,7 @@ class DiagnosticValidationCondition(BaseConfigModel):
             true_positive_rate = on_group.to_numpy()
             false_positive_rate = 1 + np.arange(group_size) - true_positive_rate
 
-            if group_size < self.min_group_size:
+            if group_size < minimum_group_size:
                 return np.nan
 
             if true_positive_rate[-1] < 0:
@@ -507,7 +509,9 @@ class DiagnosticValidationCondition(BaseConfigModel):
                 else np.zeros_like(true_positive_rate)
             )
 
-            return np.trapezoid(true_positive_rate, x=false_positive_rate)
+            if integration_scheme == "trapz":
+                return np.trapezoid(true_positive_rate, x=false_positive_rate)
+            return float(integrate.simpson(true_positive_rate, x=false_positive_rate))
 
         def finalise(on_aggregation_result: "pd.Series") -> "pd.Series":
             # See https://docs.dask.org/en/latest/dataframe-groupby.html#aggregate
@@ -528,6 +532,9 @@ class DiagnosticValidationCondition(BaseConfigModel):
 
 class DiagnosticValidationConfig(BaseConfigModel):
     validation_conditions: list[DiagnosticValidationCondition]
+    min_group_size: Annotated[
+        PositiveInt, Field(description="Minimum group size for aggregation", repr=True, strict=True, default=20)
+    ] = 20
 
     @model_validator(mode="after")
     def check_conditions_are_unique(self) -> Self:

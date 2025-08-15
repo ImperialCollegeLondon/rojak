@@ -777,13 +777,14 @@ class DiagnosticsAmdarVerification:
         validation_conditions: "list[DiagnosticValidationCondition]",
         prototype_diagnostic: "xr.DataArray",
         group_by_strategy: SpatialGroupByStrategy,
+        minimum_group_size: int,
     ) -> dict[str, dd.DataFrame]:
         space_columns = self._grid_spatial_columns(group_by_strategy)
         validation_columns = self._get_validation_column_names(validation_conditions)
         target_data: dd.DataFrame = self._spatial_data_grouping(validation_conditions, group_by_strategy)
 
         aggregation_spec: dict = {
-            condition.observed_turbulence_column_name: condition.grid_point_auc_agg()
+            condition.observed_turbulence_column_name: condition.grid_point_auc_agg(minimum_group_size)
             for condition in validation_conditions
         }
         auc_by_diagnostic: dict[str, dd.DataFrame] = {}

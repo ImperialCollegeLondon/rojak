@@ -460,6 +460,7 @@ class DiagnosticsAmdarLauncher:
     _save_output: bool
     _validation_conditions: list["DiagnosticValidationCondition"]
     _trigger_diagnostics_compute: bool
+    _min_group_size: int
 
     def __init__(
         self,
@@ -479,11 +480,13 @@ class DiagnosticsAmdarLauncher:
             else []
         )
         self._time_window = data_config.amdar_config.time_window
-        self._validation_conditions = (
-            []
-            if data_config.amdar_config.diagnostic_validation is None
-            else data_config.amdar_config.diagnostic_validation.validation_conditions
-        )
+        if data_config.amdar_config.diagnostic_validation is None:
+            self._validation_conditions = []
+            self._min_group_size = -1
+        else:
+            self._validation_conditions = data_config.amdar_config.diagnostic_validation.validation_conditions
+            self._min_group_size = data_config.amdar_config.diagnostic_validation.min_group_size
+
         self._trigger_diagnostics_compute = trigger_diagnostic_compute
 
         self._save_output = data_config.amdar_config.save_harmonised_data
@@ -547,6 +550,7 @@ class DiagnosticsAmdarLauncher:
                 self._validation_conditions,
                 diagnostic_suite.get_prototype_computed_diagnostic(),
                 group_by_strategy,
+                self._min_group_size,
             )
             num_observations = verifier.num_obs_per(self._validation_conditions, group_by_strategy)
             is_agg_by_point: bool = group_by_strategy in {
