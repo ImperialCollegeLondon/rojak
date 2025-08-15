@@ -11,12 +11,13 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
-
+from functools import singledispatch
 from typing import TYPE_CHECKING, NamedTuple
 
 import dask
 import dask.array as da
 import numpy as np
+import pandas as pd
 import xarray as xr
 from dask.base import is_dask_collection
 from scipy import integrate
@@ -33,6 +34,11 @@ class BinaryClassificationResult(NamedTuple):
     false_positives: "da.Array"
     true_positives: "da.Array"
     thresholds: "da.Array"
+
+
+class BinaryClassificationRateFromLabels(NamedTuple):
+    true_positives_rate: "NDArray"
+    false_positives_rate: "NDArray"
 
 
 # Modified from scikit-learn.metrics roc_curve() method
@@ -216,6 +222,62 @@ def binary_classification_curve(
     )
 
 
+@singledispatch
+def binary_classification_rate_from_cumsum(
+    cumsum_for_group: pd.Series | np.ndarray,
+) -> BinaryClassificationRateFromLabels | None:
+    """
+    Binary classification curve with cumulative sum on labels
+
+    Assumes that labels have already been sorted such that the values are increasing. Moreover, the cumulative sum
+    has been performed on boolean truth labels such that it represents the number of true positives (or positive
+    observations). The main use case for this function is on a given group from a Pandas GroupBy object.
+
+    Args:
+        cumsum_for_group: Cumulative sum on boolean truth labels
+
+    Returns:
+        True positive and false positive rate. If there are no true positives, returns None
+    """
+
+
+@binary_classification_rate_from_cumsum.register
+def _(
+    cumsum_for_group: pd.Series,
+) -> BinaryClassificationRateFromLabels | None:
+    return _binary_classification_from_cumsum(cumsum_for_group.to_numpy())
+
+
+@binary_classification_rate_from_cumsum.register
+def _binary_classification_from_cumsum(cumsum_for_group: np.ndarray) -> BinaryClassificationRateFromLabels | None:
+    group_size: int = cumsum_for_group.size
+    true_positive_rate = cumsum_for_group
+    false_positive_rate = 1 + np.arange(group_size) - true_positive_rate
+
+    num_true_positives: int = true_positive_rate[-1]
+    num_false_positives: int = false_positive_rate[-1]
+
+    if num_true_positives < 0:
+        raise ValueError("num_true_positives must not be negative")
+    if num_false_positives < 0:
+        raise ValueError("num_false_positives must not be negative")
+
+    if num_true_positives == 0:
+        return None
+
+    true_positive_rate = np.hstack((np.zeros(1), true_positive_rate)) / num_true_positives
+    # Prevent divisions by zero
+    false_positive_rate = (
+        np.hstack((np.zeros(1), false_positive_rate)) / num_false_positives
+        if num_false_positives != 0
+        else np.zeros_like(true_positive_rate)
+    )
+
+    return BinaryClassificationRateFromLabels(
+        true_positives_rate=true_positive_rate, false_positives_rate=false_positive_rate
+    )
+
+
 def _serial_area_under_curve(x_values: "NDArray", y_values: "NDArray") -> float:
     if x_values.size != y_values.size:
         raise ValueError("x_values and y_values must have same size")
@@ -235,14 +297,15 @@ def _serial_area_under_curve(x_values: "NDArray", y_values: "NDArray") -> float:
 def _parallel_area_under_curve(x_values: da.Array | xr.DataArray, y_values: da.Array | xr.DataArray) -> float:
     if is_xr_data_array(x_values):
         assert is_dask_array(x_values.values)
-        x_vals: da.Array = x_values.values
+        # Import pandas into is throwing up incorrect linting
+        x_vals: da.Array = x_values.values  # noqa: PD011
     else:
         assert is_dask_array(x_values)
         x_vals: da.Array = x_values
 
     if is_xr_data_array(y_values):
         assert is_dask_array(y_values.values)
-        y_vals: da.Array = y_values.values
+        y_vals: da.Array = y_values.values  # noqa: PD011
     else:
         assert is_dask_array(y_values)
         y_vals: da.Array = y_values
