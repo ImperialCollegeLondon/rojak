@@ -860,10 +860,11 @@ class DiagnosticsAmdarVerification:
                 .sort_values(diagnostic_val_col, ascending=False)
                 .persist()
             )
+            diagnostic_col_as_array: da.Array = subset_df[diagnostic_val_col].to_dask_array(lengths=True).persist()
             for amdar_turbulence_col in validation_columns:
                 result[amdar_turbulence_col][diagnostic_val_col] = received_operating_characteristic(
-                    subset_df[amdar_turbulence_col].values.compute_chunk_sizes().persist(),  # noqa: PD011
-                    subset_df[diagnostic_val_col].values.compute_chunk_sizes().persist(),  # noqa: PD011
+                    subset_df[amdar_turbulence_col].to_dask_array(lengths=diagnostic_col_as_array.chunks[0]).persist(),  # noqa: PD011
+                    diagnostic_col_as_array,
                     num_intervals=-1,
                 )
         return RocVerificationResult(dict(result))
