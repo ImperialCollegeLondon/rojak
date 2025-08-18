@@ -529,9 +529,12 @@ def _any_aggregation() -> dd.Aggregation:
     )
 
 
+# To visualise relationship between the different statistics, wikipedia has a useful diagram
+# see https://en.wikipedia.org/wiki/Sensitivity_and_specificity#Confusion_matrix
 class AggregationMetricOption(StrEnum):
     AUC = "auc"
     TSS = "tss"
+    PREVALENCE = "prevalence"
 
 
 def metric_based_aggregation(
@@ -548,7 +551,14 @@ def metric_based_aggregation(
     def aggregate_with_cumsum(on_partition: "pd.api.typing.SeriesGroupBy") -> "pd.Series":
         return on_partition.cumsum()
 
-    def compute_tss_from_cumsum(on_group: "pd.Series") -> float:
+    def prevalence_from_cumsum(on_group: "pd.Series") -> float:
+        group_size: int = on_group.size
+        if group_size < minimum_group_size:
+            return np.nan
+
+        return float(on_group.to_numpy()[-1] / group_size)
+
+    def tss_from_cumsum(on_group: "pd.Series") -> float:
         group_size: int = on_group.size
         if group_size < minimum_group_size:
             return np.nan
@@ -557,12 +567,12 @@ def metric_based_aggregation(
             on_group
         )
         if binary_classification is None:
-            return 0
+            return -1
 
         tss: NDArray = binary_classification.true_positives_rate + binary_classification.false_positives_rate - 1
         return tss.max()
 
-    def compute_auc_from_cumsum(on_group: "pd.Series") -> float:
+    def auc_from_cumsum(on_group: "pd.Series") -> float:
         group_size: int = on_group.size
         if group_size < minimum_group_size:
             return np.nan
@@ -571,7 +581,7 @@ def metric_based_aggregation(
             on_group
         )
         if binary_classification is None:
-            return 0
+            return -1
 
         if integration_scheme == "trapz":
             return float(
@@ -581,30 +591,23 @@ def metric_based_aggregation(
             integrate.simpson(binary_classification.true_positives_rate, x=binary_classification.false_positives_rate)
         )
 
-    def auc_finaliser(on_aggregation_result: "pd.Series") -> "pd.Series":
-        # See https://docs.dask.org/en/latest/dataframe-groupby.html#aggregate
-        # The example for nunique has this groupby
-        # My understanding is that it forces the partition into the original groups, on which, I am applying
-        # the cumsum => result is still separated based on the groups
-        return on_aggregation_result.groupby(level=list(range(on_aggregation_result.index.nlevels))).apply(
-            compute_auc_from_cumsum
-        )
-
-    def tss_finaliser(on_aggregation_result: "pd.Series") -> "pd.Series":
-        return on_aggregation_result.groupby(level=list(range(on_aggregation_result.index.nlevels))).apply(
-            compute_tss_from_cumsum
-        )
-
-    finaliser_functions: dict[AggregationMetricOption, Callable[[pd.Series], pd.Series]] = {
-        AggregationMetricOption.AUC: auc_finaliser,
-        AggregationMetricOption.TSS: tss_finaliser,
+    finalisers: dict[AggregationMetricOption, Callable[[pd.Series], float]] = {
+        AggregationMetricOption.AUC: auc_from_cumsum,
+        AggregationMetricOption.TSS: tss_from_cumsum,
+        AggregationMetricOption.PREVALENCE: prevalence_from_cumsum,
     }
 
     return dd.Aggregation(
         name=f"{aggregation_function}_on_{condition.observed_turbulence_column_name}_{condition.value_greater_than:0.2f}",
         chunk=apply_condition,
         agg=aggregate_with_cumsum,
-        finalize=finaliser_functions[aggregation_function],
+        # See https://docs.dask.org/en/latest/dataframe-groupby.html#aggregate
+        # The example for nunique has this groupby
+        # My understanding is that it forces the partition into the original groups, on which, I am applying
+        # the cumsum => result is still separated based on the groups
+        finalize=lambda on_aggregation_result: on_aggregation_result.groupby(
+            level=list(range(on_aggregation_result.index.nlevels))
+        ).apply(finalisers[aggregation_function]),
     )
 
 
