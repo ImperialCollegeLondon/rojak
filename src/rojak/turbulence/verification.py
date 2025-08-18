@@ -816,6 +816,10 @@ class DiagnosticsAmdarVerification:
             grid_point_auc: dd.DataFrame = data_for_diagnostic.groupby(space_columns, sort=False).aggregate(
                 aggregation_spec, meta={col: pd.Series(dtype=float) for col in validation_columns}
             )
+            # 3) Drop values which do not meet the minimum number of observations
+            grid_point_auc = grid_point_auc.dropna()
+            # 4) Make values < 0 (another form of invalid values, e.g. no positive observations) into NaNs
+            grid_point_auc = grid_point_auc.where(grid_point_auc >= 0, other=np.nan)
 
             grid_point_auc = self._retrieve_grouped_columns(grid_point_auc, space_columns, True)
             grid_point_auc = self._retrieve_index_column_values(
