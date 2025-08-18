@@ -59,6 +59,8 @@ if TYPE_CHECKING:
 
 _PLATE_CARREE: "ccrs.Projection" = ccrs.PlateCarree()
 
+GREY_HEX_CODE: str = "#cecece"  # slightly lighter: dbdbdb
+
 
 def _set_extension(is_matplotlib: bool) -> None:
     extension_name: Literal["matplotlib", "bokeh"] = "matplotlib" if is_matplotlib else "bokeh"
@@ -395,6 +397,9 @@ def _evaluate_dask_collection(array: "da.Array | NDArray") -> "NDArray":
 def create_interactive_roc_curve_plot(roc: "RocVerificationResult", is_matplotlib: bool = True) -> dict[str, "Overlay"]:
     _set_extension(is_matplotlib)
     plots: dict[str, Overlay] = {}
+    line_colours: list = cast(
+        "list", cast("mcolors.ListedColormap", pypalettes.load_cmap(["tol", "royal", "prism_light"])).colors
+    )
     for amdar_verification_col, by_diagnostic_roc in roc.iterate_by_amdar_column():
         auc_for_col = roc.auc_for_amdar_column(amdar_verification_col)
         plots_for_col: list[Curve] = [
@@ -408,10 +413,13 @@ def create_interactive_roc_curve_plot(roc: "RocVerificationResult", is_matplotli
                 xlim=(0, 1),
                 ylim=(0, 1),
                 grid=True,
+                color=colour,
                 aspect="equal",
                 height=700,
             )
-            for diagnostic_name, roc_for_diagnostic in by_diagnostic_roc.items()
+            for (diagnostic_name, roc_for_diagnostic), colour in zip(
+                by_diagnostic_roc.items(), line_colours, strict=False
+            )
         ]
         line_style = {"linewidth": 1, "linestyle": "--"} if is_matplotlib else {"line_width": 1, "line_dash": "dashed"}
         plots_for_col.append(
@@ -534,10 +542,10 @@ def create_interactive_heatmap_plot(
     ).opts(
         color=dimension,
         colorbar=True,
-        alpha=0.8,
+        alpha=0.6,
         **(opts_kwargs if opts_kwargs is not None else {}),
     )  # pyright: ignore[reportAssignmentType]
-    coast_ls = {"linewidth": 1, "edgecolor": "gray"} if is_matplotlib else {"line_color": "black", "line_width": 0.5}
+    coast_ls = {"linewidth": 1, "edgecolor": "gray"} if is_matplotlib else {"line_color": "gray", "line_width": 0.5}
     coast: gv.element.geo.Feature = gv.feature.coastline.opts(**coast_ls)  # pyright: ignore[reportAssignmentType]
 
     return coast * gv_element
@@ -562,7 +570,7 @@ def create_interactive_aggregated_auc_plots(
                 "linewidth": 0,
                 "cmap": _auc_cmap(),
                 "clim": (0, 1),
-                "clipping_colors": {"NaN": "#cecece"},  # slightly lighter: dbdbdb
+                "clipping_colors": {"NaN": GREY_HEX_CODE},
             }
             if is_point_data:
                 options_kwargs["s"] = 5
@@ -576,3 +584,17 @@ def create_interactive_aggregated_auc_plots(
             )
 
     return hv.Layout(all_plots).opts(fig_size=200).cols(num_conditions)  # pyright: ignore[reportAttributeAccessIssue, reportOptionalMemberAccess]
+
+
+def create_histogram_n_obs(
+    num_observations: dd.DataFrame | dgpd.GeoDataFrame, hist_kwargs: dict | None = None
+) -> hv.element.chart.Histogram:
+    return num_observations["num_obs"].hvplot.hist(  # pyright: ignore[reportAttributeAccessIssue]
+        "num_obs",
+        bins=100,
+        alpha=0.6,
+        height=500,
+        xlabel="Number of Observations",
+        xlim=(0, None),
+        **(hist_kwargs if hist_kwargs is not None else {}),
+    )

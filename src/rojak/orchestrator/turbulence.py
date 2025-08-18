@@ -33,7 +33,9 @@ from rojak.orchestrator.configuration import (
     TurbulenceThresholds,
 )
 from rojak.plot.turbulence_plotter import (
+    GREY_HEX_CODE,
     create_diagnostic_correlation_plot,
+    create_histogram_n_obs,
     create_interactive_aggregated_auc_plots,
     create_interactive_heatmap_plot,
     create_interactive_roc_curve_plot,
@@ -579,16 +581,36 @@ class DiagnosticsAmdarLauncher:
                 create_interactive_heatmap_plot(
                     num_observations if is_agg_by_point else num_observations.compute(),
                     "num_obs",
-                    opts_kwargs={"fig_size": 400, "title": "Total Number of Observations", "lw": 0},
+                    opts_kwargs={
+                        "fig_size": 400,
+                        "title": f"Total Number of Observations (min = {self._min_group_size})",
+                        "lw": 0,
+                        "clim": (self._min_group_size, None),
+                        "clipping_colors": {"min": GREY_HEX_CODE},
+                    },
                 ),
                 str(self._plots_dir / f"num_observations_for_{str(group_by_strategy)}"),
                 "png",
                 savefig_kwargs={"dpi": 400},
             )
 
+            save_hv_plot(
+                create_histogram_n_obs(num_observations, hist_kwargs={"normed": True, "ylabel": "Density"}),
+                str(self._plots_dir / f"num_obs_histogram_for_{str(group_by_strategy)}"),
+                "png",
+                savefig_kwargs={"dpi": 400},
+            )
+
+            bottom_counts: float = num_observations["num_obs"].quantile(q=0.25, method="tdigest").compute()
+            save_hv_plot(
+                create_histogram_n_obs(num_observations.loc[num_observations["num_obs"] <= bottom_counts]),
+                str(self._plots_dir / f"num_obs_histogram_for_{str(group_by_strategy)}"),
+                "png",
+                savefig_kwargs={"dpi": 400},
+            )
+
             roc: RocVerificationResult = verifier.nearest_value_roc(self._validation_conditions)
             roc_curve_plots: dict = create_interactive_roc_curve_plot(roc)
-            chained_names: str = _chain_diagnostic_names(harmoniser.harmonised_diagnostics)
             for amdar_col, plot_for_col in roc_curve_plots.items():
                 save_hv_plot(plot_for_col, str(self._plots_dir / f"roc_{amdar_col}_on_{chained_names}"), "png")
                 logger.debug("Saved roc plot for %s AMDAR turbulence measure", amdar_col)
