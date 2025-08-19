@@ -520,7 +520,7 @@ class DiagnosticsAmdarLauncher:
         amdar_data = self.create_amdar_data_repository().to_amdar_turbulence_data(
             self._spatial_domain,
             self._spatial_domain.grid_size,
-            diagnostic_suite.get_prototype_computed_diagnostic()["pressure_level"].data,
+            diagnostic_suite.get_prototype_computed_diagnostic()["pressure_level"].to_numpy().tolist(),
         )
         harmoniser = DiagnosticsAmdarDataHarmoniser(amdar_data, diagnostic_suite)
         time_window_as_np_datetime: Limits[np.datetime64] = Limits(

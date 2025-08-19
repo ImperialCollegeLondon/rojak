@@ -152,7 +152,7 @@ class Era5Data(MetData):
         target_data = target_data.assign_coords(
             altitude=(
                 "pressure_level",
-                pressure_to_altitude_icao(target_data["pressure_level"]).data,
+                pressure_to_altitude_icao(target_data["pressure_level"].to_numpy()),
             ),
         )
         target_data = target_data.transpose("latitude", "longitude", "time", "pressure_level")

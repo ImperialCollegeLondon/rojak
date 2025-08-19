@@ -1,3 +1,4 @@
+import copy
 import dataclasses
 from typing import TYPE_CHECKING
 
@@ -207,12 +208,13 @@ def pressure_to_altitude_stratosphere(pressure: "NumpyOrDataArray") -> "NumpyOrD
     )
 
 
-def pressure_to_altitude_icao(pressure: "NumpyOrDataArray") -> "NumpyOrDataArray":
+def pressure_to_altitude_icao(pressure: "NumpyOrDataArray", in_place: bool = False) -> "NumpyOrDataArray":
     """
     Convert pressure to altitude for ICAO standard atmosphere up to 80 km [NACA3182]_
 
     Args:
         pressure: One dimensional array of pressure in hPa
+        in_place: Boolean to control if conversion should be in-place
 
     Returns:
         One dimensional array of altitude in m
@@ -220,6 +222,9 @@ def pressure_to_altitude_icao(pressure: "NumpyOrDataArray") -> "NumpyOrDataArray
     """
     if pressure.ndim > 1:
         raise NotImplementedError("Multidimensional pressure not yet supported")
+
+    if not in_place:
+        pressure = copy.deepcopy(pressure)
 
     mask = pressure > _icao_constants.tropopause_pressure
     pressures_within_troposphere = pressure[mask]
