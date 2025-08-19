@@ -16,7 +16,6 @@ import logging
 from typing import TYPE_CHECKING, ClassVar, Literal
 
 import cdsapi
-from dask.base import is_dask_collection
 from rich.progress import track
 
 from rojak.core.calculations import pressure_to_altitude_icao
@@ -157,6 +156,4 @@ class Era5Data(MetData):
             ),
         )
         target_data = target_data.transpose("latitude", "longitude", "time", "pressure_level")
-        if is_dask_collection(target_data):
-            target_data = target_data.drop_vars("expver")
         return CATData(target_data)
