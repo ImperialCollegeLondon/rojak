@@ -397,10 +397,7 @@ class DiagnosticsAmdarDataHarmoniser:
 
         # Retrieves the index for each row of data and stores them as dask arrays
         indexing_columns: list[da.Array] = [
-            # Linter thinks this is a pandas array. Using .values on a dask dataframe converts it to
-            # a dask array. Therefore, ignore linter warning
-            observational_data[col_name].values.compute_chunk_sizes().persist()  # noqa: PD011
-            for col_name in name_of_index_columns
+            observational_data[col_name].to_dask_array(lengths=True).persist() for col_name in name_of_index_columns
         ]
         # Order of coordinate axes are not known beforehand. Therefore, use the axis order so that the index
         # values matches the dimension of the array
