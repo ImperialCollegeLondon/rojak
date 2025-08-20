@@ -444,7 +444,6 @@ class TurbulenceLauncher:
                 self._context.output_dir,
                 self._context.plots_dir,
                 self._context.name,
-                not self._context.turbulence_config.phases.evaluation_phases.phases,
             ).launch(result.suite)
 
         return result
@@ -461,7 +460,6 @@ class DiagnosticsAmdarLauncher:
     _plots_dir: "Path"
     _save_output: bool
     _validation_conditions: list["DiagnosticValidationCondition"]
-    _trigger_diagnostics_compute: bool
     _min_group_size: int
 
     def __init__(
@@ -470,7 +468,6 @@ class DiagnosticsAmdarLauncher:
         output_dir: "Path",
         plots_dir: "Path",
         run_name: "RunName",
-        trigger_diagnostic_compute: bool,
     ) -> None:
         assert data_config.amdar_config is not None
         self._data_source = data_config.amdar_config.data_source
@@ -488,8 +485,6 @@ class DiagnosticsAmdarLauncher:
         else:
             self._validation_conditions = data_config.amdar_config.diagnostic_validation.validation_conditions
             self._min_group_size = data_config.amdar_config.diagnostic_validation.min_group_size
-
-        self._trigger_diagnostics_compute = trigger_diagnostic_compute
 
         self._save_output = data_config.amdar_config.save_harmonised_data
         base_dir = output_dir / run_name / "data_harmonisation"
@@ -526,10 +521,6 @@ class DiagnosticsAmdarLauncher:
         time_window_as_np_datetime: Limits[np.datetime64] = Limits(
             np.datetime64(self._time_window.lower), np.datetime64(self._time_window.upper)
         )
-
-        if self._trigger_diagnostics_compute:
-            for diagnostic_name, _ in diagnostic_suite.computed_values("Trigger computation of turbulence diagnostics"):
-                logger.debug("Computed CAT diagnostic %s", diagnostic_name)
 
         if self._strategies:
             result: dd.DataFrame = harmoniser.execute_harmonisation(
