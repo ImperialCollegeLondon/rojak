@@ -23,7 +23,7 @@ affiliations:
   - index: 2
     name: Department of Physics, Imperial College London, United Kingdom
     ror: 041kmwe10
-date: XX June 2025
+date: 22 July 2025
 bibliography: paper.bib
 ---
 
@@ -55,6 +55,7 @@ Given the inherent complexity of CAT diagnostics and the variability in how thes
 Moreover, the parallelised nature of `rojak` and its architecture, which keeps it open to extensions, positions it as as an indispensable resource to bridging this gap.
 
 ![Probability of encountering light turbulence during the months December, January, February from 2018 to 2024 at 200 hPa for the three-dimensional frontogenesis (F3D) and turbulence index 1 (TI1) diagnostics \label{fig:probability_light_turbulence}](multi_diagnostic_f3d_ti1_on_200_light.png)
+
 \autoref{fig:probability_light_turbulence} demonstrates the application of `rojak` for characterising CAT's response to climate change.
 Depicted in the figure is the global climatological distribution of the probability of encountering light turbulence for the boreal winter months (i.e., December, January and February) from 2018 to 2024 at 200 hPa based on the two turbulence diagnostics --- the three-dimensional frontogenesis equation and turbulence index 1. This was computed using ERA5 data at 6-hourly intervals with three pressure levels (175 hPa, 200 hPa and 225 hPa) for the aforementioned time period.
 This required processing 85GB of ERA5 data.
