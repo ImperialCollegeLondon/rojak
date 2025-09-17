@@ -41,6 +41,8 @@ from rojak.turbulence.diagnostic import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from rojak.core.data import CATData
 
 
@@ -142,3 +144,30 @@ def test_turbulence_diagnostics_serial_and_distributed_are_equivalent(
 def test_diagnostic_names(create_diagnostic_suite: Callable, is_parallel: bool, is_calibration: bool, client) -> None:
     suite = create_diagnostic_suite([e.value for e in TurbulenceDiagnostics], is_parallel, is_calibration)
     assert suite.diagnostic_names() == [str(e.value) for e in TurbulenceDiagnostics]
+
+
+@pytest.mark.parametrize("is_parallel", [True, False])
+@pytest.mark.parametrize("is_calibration", [True, False])
+def test_to_and_from_zarr(
+    client, create_diagnostic_suite, tmp_path_factory, is_calibration: bool, is_parallel: bool
+) -> None:
+    target_diagnostics = [
+        TurbulenceDiagnostics.DEF,
+        TurbulenceDiagnostics.F3D,
+        TurbulenceDiagnostics.BROWN2,
+        TurbulenceDiagnostics.TI1,
+    ]
+    suite: DiagnosticSuite = create_diagnostic_suite(target_diagnostics, is_parallel, is_calibration)
+    output_dir: Path = tmp_path_factory.mktemp("as_zarr")
+
+    zarr_store = suite.export_as_zarr(output_dir)
+    zarr_store.close()
+    suite_from_zarr: DiagnosticSuite = DiagnosticSuite.load_from_zarr(output_dir, target_diagnostics)
+
+    assert set(target_diagnostics) == set(suite_from_zarr.diagnostic_names())
+    suite_diagnostics: dict[str, xr.DataArray] = suite.computed_values_as_dict()
+    restored_diagnostics: dict[str, xr.DataArray] = suite_from_zarr.computed_values_as_dict()
+    for diagnostic_name in target_diagnostics:
+        xr.testing.assert_equal(suite_diagnostics[diagnostic_name], restored_diagnostics[diagnostic_name])
+
+    client.close()

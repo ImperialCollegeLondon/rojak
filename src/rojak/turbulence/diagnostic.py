@@ -15,6 +15,7 @@
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Generator, Mapping
+from functools import singledispatchmethod
 from typing import TYPE_CHECKING, assert_never
 
 import numpy as np
@@ -57,6 +58,8 @@ from rojak.turbulence.calculations import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from rojak.core.data import CATData
     from rojak.core.derivatives import SpatialGradientKeys
     from rojak.orchestrator.configuration import TurbulenceSeverity
@@ -89,6 +92,16 @@ class Diagnostic(ABC):
     def computed_value(self) -> xr.DataArray:
         if self._computed_value is None:
             self._computed_value = self._compute().persist()
+        return self._computed_value
+
+
+class LoadedFromZarr(Diagnostic):
+    def __init__(self, name: str, computed_value: xr.DataArray) -> None:
+        super().__init__(name)
+        self._computed_value = computed_value
+
+    def _compute(self) -> xr.DataArray:
+        assert self._computed_value is not None
         return self._computed_value
 
 
@@ -1331,10 +1344,25 @@ class DiagnosticFactory:
 class DiagnosticSuite:
     _diagnostics: dict["DiagnosticName", Diagnostic]
 
-    def __init__(self, factory: DiagnosticFactory, diagnostics: list[TurbulenceDiagnostics]) -> None:
+    @singledispatchmethod
+    def __init__(self, factory: DiagnosticFactory | xr.Dataset, diagnostics: list[TurbulenceDiagnostics]) -> None:
+        raise TypeError("factory must be an instance of DiagnosticFactory or None")
+
+    @__init__.register(DiagnosticFactory)
+    def _(self, factory: DiagnosticFactory, diagnostics: list[TurbulenceDiagnostics]) -> None:
         self._diagnostics: dict[DiagnosticName, Diagnostic] = {
             str(diagnostic): factory.create(diagnostic)
             for diagnostic in diagnostics  # TurbulenceDiagnostic
+        }
+
+    @__init__.register(xr.Dataset)
+    def _(self, factory: xr.Dataset, diagnostics: list[TurbulenceDiagnostics]) -> None:
+        target_diagnostics: set[TurbulenceDiagnostics] = set(diagnostics)
+        assert target_diagnostics.issubset(factory.keys())
+        self._diagnostics: dict[DiagnosticName, Diagnostic] = {
+            str(name): LoadedFromZarr(str(name), computed_diagnostic)
+            for (name, computed_diagnostic) in factory.items()
+            if name in target_diagnostics
         }
 
     def computed_values(
@@ -1357,9 +1385,28 @@ class DiagnosticSuite:
         _, prototype = next(self.computed_values(""))
         return prototype
 
+    @classmethod
+    def load_from_zarr(
+        cls, path: "Path", target_diagnostics: list[TurbulenceDiagnostics], *, open_zarr_kwargs: dict | None = None
+    ) -> "DiagnosticSuite":
+        if not path.exists():
+            raise FileNotFoundError(f"{path} does not exist")
+        if not path.is_dir():
+            raise NotADirectoryError(f"{path} is not a directory")
+
+        return DiagnosticSuite(
+            xr.open_zarr(path, **(open_zarr_kwargs if open_zarr_kwargs is not None else {})), target_diagnostics
+        )
+
+    def export_as_zarr(self, output_path: "Path") -> xr.backends.ZarrStore:  # pyright: ignore[reportAttributeAccessIssue]
+        as_dataset = xr.Dataset(data_vars=self.computed_values_as_dict())
+        output_path.mkdir(parents=True, exist_ok=True)
+        return as_dataset.to_zarr(store=output_path, mode="w")
+
 
 class CalibrationDiagnosticSuite(DiagnosticSuite):
-    def __init__(self, factory: DiagnosticFactory, diagnostics: list[TurbulenceDiagnostics]) -> None:
+    # I think the pyright warning is a false positive?
+    def __init__(self, factory: DiagnosticFactory | xr.Dataset, diagnostics: list[TurbulenceDiagnostics]) -> None:  # pyright: ignore [reportIncompatibleVariableOverride]
         super().__init__(factory, diagnostics)
 
     def compute_thresholds(
@@ -1393,7 +1440,8 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
     _threshold_mode: TurbulenceThresholdMode | None
     _distribution_parameters: Mapping["DiagnosticName", "DistributionParameters"] | None
 
-    def __init__(  # noqa: PLR0913
+    # I think the pyright warning is a false positive?
+    def __init__(  # noqa: PLR0913  # pyright: ignore [reportIncompatibleVariableOverride]
         self,
         factory: DiagnosticFactory,
         diagnostics: list[TurbulenceDiagnostics],
