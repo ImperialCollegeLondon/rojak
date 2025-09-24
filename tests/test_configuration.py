@@ -726,7 +726,7 @@ def test_turbulence_calibration_phases(phases, expectation, tmp_path) -> None:
         )
         assert config.phases == phases
     if phases is None:
-        assert e.type is expectation.expected_exception
+        assert e.type is expectation.expected_exceptions[0]
 
 
 @pytest.fixture
