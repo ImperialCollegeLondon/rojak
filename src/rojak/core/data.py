@@ -374,10 +374,13 @@ class AmdarDataRepository(ABC):
             .persist()
         )
         closest_pressure: da.Array = da.from_array(pressure_levels)[closest_index]
+
+        # pyright as it is throwing up a false positive that da.Array.to_dask_dataframe() doesn't exist
+
         # Divisions need to be cleared as the dataframe it is added to doesn't have divisions
         # So, when this series is added to the dataframe and the dataframe is optimised, it panics as the dataframe
         # does not have any divisions while this series does.
-        return closest_pressure.to_dask_dataframe(columns="level").clear_divisions().persist()
+        return closest_pressure.to_dask_dataframe(columns="level").clear_divisions().persist()  # pyright: ignore[reportAttributeAccessIssue]
 
     @abstractmethod
     def _call_compute_closest_pressure_level(
