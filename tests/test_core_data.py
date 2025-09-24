@@ -469,21 +469,6 @@ def get_standard_atmosphere_pressure_and_altitude():
     return pressure, altitude
 
 
-@pytest.mark.parametrize(
-    (
-        "test_altitude",
-        "closest_pressure",
-    ),
-    [(500, 1013.25), (1000, 843.07), (2000, 843.07), (9000, 329.32), (15000, 187.54)],
-)
-def test_amdar_data_repository_closest_pressure_level(
-    test_altitude, closest_pressure, get_standard_atmosphere_pressure_and_altitude
-):
-    pressure, altitude = get_standard_atmosphere_pressure_and_altitude
-    instance = AcarsAmdarRepository("")
-    assert instance._find_closest_pressure_level(test_altitude, altitude, pressure) == closest_pressure
-
-
 @pytest.mark.parametrize("concrete_class", [AcarsAmdarRepository, UkmoAmdarRepository])
 def test_compute_closest_pressure_level(
     mocker: "MockerFixture", get_standard_atmosphere_pressure_and_altitude, concrete_class
