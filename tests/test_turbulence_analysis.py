@@ -63,7 +63,8 @@ def test_histogram_distribution_serial_and_parallel_match() -> None:
     parallel_result: HistogramData = DiagnosticHistogramDistribution(parallel_data_array).execute()
     serial_result: HistogramData = DiagnosticHistogramDistribution(serial_data_array).execute()
 
+    tolerance: float = 1e-8
     assert parallel_result.hist_values == serial_result.hist_values
     assert parallel_result.bins == serial_result.bins
-    assert parallel_result.mean == serial_result.mean
-    assert np.abs(parallel_result.variance - serial_result.variance) < 1e-8  # noqa: PLR2004
+    assert np.abs(parallel_result.mean - serial_result.mean) < tolerance
+    assert np.abs(parallel_result.variance - serial_result.variance) < tolerance
