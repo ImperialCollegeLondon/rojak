@@ -367,11 +367,11 @@ class AmdarDataRepository(ABC):
             dd.Series: New series with the closest pressure level
         """
         altitudes = pressure_to_altitude_icao(pressure_levels)
+        # Optimize is necessary to handle an edge case where nchunks != npartitions when converting to a dask array
+        obs_altitudes = data_frame[altitude_column].optimize()
         # Computing the chunks through lengths=True will introduce divisions into the resulting dd.dataframe
         closest_index: da.Array = (
-            np.abs(data_frame[altitude_column].to_dask_array(lengths=True)[:, None] - altitudes)
-            .argmin(axis=1)
-            .persist()
+            np.abs(obs_altitudes.to_dask_array(lengths=True)[:, None] - altitudes).argmin(axis=1).persist()
         )
         closest_pressure: da.Array = da.from_array(pressure_levels)[closest_index]
 
