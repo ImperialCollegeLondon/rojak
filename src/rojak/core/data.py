@@ -20,6 +20,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple
 
+import dask.array as da
 import dask_geopandas as dgpd
 import distributed
 import numpy as np
@@ -41,7 +42,6 @@ if TYPE_CHECKING:
 
     import dask.dataframe as dd
     from distributed import Future
-    from numpy.typing import NDArray
     from shapely.geometry import Polygon
 
     from rojak.orchestrator.configuration import SpatialDomain
@@ -350,25 +350,7 @@ class AmdarDataRepository(ABC):
         ...
 
     @staticmethod
-    def _find_closest_pressure_level(
-        current_altitude: float, altitudes: "NDArray", pressures: "np.ndarray[Any, np.dtype[np.float64]]"
-    ) -> float:
-        """
-        Method to find the closest pressure level for a given altitude.
-
-        Args:
-            current_altitude (float): Altitude for a given data point in meters
-            pressures (np.ndarray[Any, np.dtype[np.float]]): Pressure levels in hPa
-            altitudes: Pressure levels converted to altitude using standard atmosphere in meters
-
-        Returns:
-            float: Closest pressure level
-        """
-        index = np.abs(altitudes - current_altitude).argmin()
-        return pressures[index]
-
     def _compute_closest_pressure_level(
-        self,
         data_frame: "dd.DataFrame",
         pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]",
         altitude_column: str,
@@ -385,9 +367,23 @@ class AmdarDataRepository(ABC):
             dd.Series: New series with the closest pressure level
         """
         altitudes = pressure_to_altitude_icao(pressure_levels)
-        return data_frame[altitude_column].apply(
-            self._find_closest_pressure_level, args=(altitudes, pressure_levels), meta=("level", float)
+        # Optimize is necessary to handle an edge case where nchunks != npartitions when converting to a dask array
+        obs_altitudes = data_frame[altitude_column].optimize()
+        # Computing the chunks through lengths=True will introduce divisions into the resulting dd.dataframe
+        closest_index: da.Array = (
+            np.abs(obs_altitudes.to_dask_array(lengths=True)[:, None] - altitudes).argmin(axis=1).persist()
         )
+        closest_pressure: da.Array = da.from_array(pressure_levels)[closest_index]
+
+        # pyright as it is throwing up a false positive that da.Array.to_dask_dataframe() doesn't exist
+        into_dask_series: dd.Series = closest_pressure.to_dask_dataframe(columns="level")  # pyright: ignore[reportAttributeAccessIssue]
+        if data_frame.divisions[0] is None:
+            # Divisions need to be cleared as the dataframe it is added to doesn't have divisions
+            # So, when this series is added to the dataframe and the dataframe is optimised, it panics as the dataframe
+            # does not have any divisions while this series does.
+            into_dask_series = into_dask_series.clear_divisions()
+
+        return into_dask_series.persist()
 
     @abstractmethod
     def _call_compute_closest_pressure_level(
