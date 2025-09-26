@@ -167,10 +167,11 @@ def binary_classification_curve(
 
     >>> classification = binary_classification_curve(y, scores, positive_classification_label=2)
     >>> classification
-    BinaryClassificationResult(false_positives=dask.array<sub, shape=(nan,), dtype=int64, chunksize=(nan,),
-    chunktype=numpy.ndarray>, true_positives=dask.array<slice_with_int_dask_array_aggregate, shape=(nan,), dtype=int64,
-    chunksize=(nan,), chunktype=numpy.ndarray>, thresholds=dask.array<slice_with_int_dask_array_aggregate, shape=(nan,),
-    dtype=float64, chunksize=(nan,), chunktype=numpy.ndarray>)
+    BinaryClassificationResult(false_positives=dask.array<sub, shape=(4,), dtype=int64, chunksize=(3,),
+    chunktype=numpy.ndarray>, true_positives=dask.array<slice_with_int_dask_array_aggregate, shape=(4,), dtype=int64,
+    chunksize=(3,), chunktype=numpy.ndarray>, thresholds=dask.array<slice_with_int_dask_array_aggregate, shape=(4,),
+    dtype=float64, chunksize=(3,), chunktype=numpy.ndarray>)
+
 
     The method returns a named tuple :py:class:`BinaryClassificationResult` containing `dask.array.Array`. To get the
     values, `compute()` must be invoked on them evaluate the lazy collection.

@@ -433,24 +433,11 @@ class DiagnosticsAmdarDataHarmoniser:
         dataframe_meta: dict[str, pd.Series] = get_dataframe_dtypes(observational_data)
         dataframe_meta["level_index"] = pd.Series(dtype=int)
         observational_data = observational_data.assign(
-            level_index=observational_data["level"].apply(
-                lambda row, pressure_level=grid_prototype["pressure_level"].values: np.abs(  # noqa: PD011
-                    row - pressure_level
-                ).argmin(),
-                meta=("level_index", int),
-            ),
+            level_index=da.abs(
+                observational_data["level"].to_dask_array(lengths=True)[:, np.newaxis]
+                - grid_prototype["pressure_level"].values  # noqa: PD011
+            ).argmin(axis=1)
         ).persist()
-        # observational_data = observational_data.map_partitions(
-        #     lambda df: df.assign(
-        #         level_index=df["level"].apply(
-        #             lambda row, pressure_level=grid_prototype["pressure_level"].values: np.abs(  # noqa: PD011
-        #                 row - pressure_level
-        #             ).argmin(),
-        #         ),
-        #         meta=pd.Series(dtype=int),
-        #     ),
-        #     meta=pd.DataFrame(dataframe_meta),
-        # ).persist()
         dataframe_meta[self.latitude_index_column] = pd.Series(dtype=int)
         dataframe_meta[self.longitude_index_column] = pd.Series(dtype=int)
         dataframe_meta[self.common_time_column_name] = pd.Series(dtype=int)
