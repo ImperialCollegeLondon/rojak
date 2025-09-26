@@ -831,7 +831,6 @@ class DiagnosticsAmdarVerification:
         validation_conditions: "list[DiagnosticValidationCondition]",
     ) -> RocVerificationResult:
         turbulence_diagnostics = self._data_harmoniser.harmonised_diagnostics
-        target_data = self.data
         validation_columns = self._get_validation_column_names(validation_conditions)
         space_time_columns: list[str] = [
             # self._data_harmoniser.grid_box_column_name,
@@ -841,7 +840,7 @@ class DiagnosticsAmdarVerification:
             self._data_harmoniser.common_time_column_name,
         ]
         target_columns: list[str] = space_time_columns + turbulence_diagnostics + validation_columns
-        target_data = target_data[target_columns]
+        target_data = self.data[target_columns]
 
         # Apply condition so that any can be used at the groupby stage
         for condition in validation_conditions:
