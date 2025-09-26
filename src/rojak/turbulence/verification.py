@@ -679,10 +679,14 @@ class DiagnosticsAmdarVerification:
     def _retrieve_grouped_columns(
         self, data_frame: dd.DataFrame, grouped_columns: list[str], trigger_reset_index: bool
     ) -> dd.DataFrame:
-        for grouped_column in grouped_columns:
-            data_frame[grouped_column] = data_frame.index.map_partitions(
-                self._get_partition_level_values, grouped_column
+        data_frame = data_frame.map_partitions(
+            lambda df: df.assign(
+                **{
+                    grouped_column: self._get_partition_level_values(df.index, grouped_column)
+                    for grouped_column in grouped_columns
+                }
             )
+        )
 
         if self._data_harmoniser.grid_box_column_name in set(grouped_columns) and trigger_reset_index:
             # set_index is an expensive operation due to the shuffles it triggers
@@ -693,7 +697,7 @@ class DiagnosticsAmdarVerification:
         elif trigger_reset_index:
             data_frame = data_frame.reset_index(drop=True)
 
-        return data_frame
+        return data_frame.persist()
 
     def _retrieve_index_column_values(
         self,
