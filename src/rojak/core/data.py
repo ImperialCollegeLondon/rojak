@@ -507,6 +507,15 @@ class AmdarTurbulenceData(ABC):
     def grid(self) -> "dgpd.GeoDataFrame":
         return self._grid
 
+    def turbulence_frequency_statistics(self, column_name: str, greater_than: float) -> dict:
+        num_observations: int = self.data_frame[column_name].count().compute()
+        num_turb_obs: int = (self.data_frame[column_name] > greater_than).sum().compute()
+        return {
+            "num_turb_obs": num_turb_obs,
+            "num_observations": num_observations,
+            "frequency": num_turb_obs / num_observations,
+        }
+
     def clip_to_time_window(self, window: Limits[np.datetime64]) -> "dd.DataFrame":
         return self.data_frame.loc[
             (self.data_frame["datetime"] >= window.lower) & (self.data_frame["datetime"] <= window.upper)
