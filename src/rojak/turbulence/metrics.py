@@ -250,7 +250,9 @@ def _(
 
 
 @binary_classification_rate_from_cumsum.register
-def _binary_classification_from_cumsum(cumsum_for_group: np.ndarray) -> BinaryClassificationRateFromLabels | None:
+def _binary_classification_from_cumsum(
+    cumsum_for_group: np.ndarray, min_true_positives: int = 2
+) -> BinaryClassificationRateFromLabels | None:
     group_size: int = cumsum_for_group.size
     true_positive_rate = cumsum_for_group
     false_positive_rate = 1 + np.arange(group_size) - true_positive_rate
@@ -263,7 +265,7 @@ def _binary_classification_from_cumsum(cumsum_for_group: np.ndarray) -> BinaryCl
     if num_false_positives < 0:
         raise ValueError("num_false_positives must not be negative")
 
-    if num_true_positives == 0:
+    if num_true_positives < min_true_positives:
         return None
 
     true_positive_rate = np.hstack((np.zeros(1), true_positive_rate)) / num_true_positives
