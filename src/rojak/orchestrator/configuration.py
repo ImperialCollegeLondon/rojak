@@ -470,17 +470,50 @@ class DiagnosticValidationCondition(BaseConfigModel):
         return hash((self.observed_turbulence_column_name, self.value_greater_than))
 
 
+# To visualise relationship between the different statistics, wikipedia has a useful diagram
+# see https://en.wikipedia.org/wiki/Sensitivity_and_specificity#Confusion_matrix
+class AggregationMetricOption(StrEnum):
+    AUC = "auc"
+    TSS = "tss"
+    PREVALENCE = "prevalence"
+
+
+class SpatialGroupByStrategy(StrEnum):
+    GRID_BOX = "grid_box"
+    GRID_POINT = "grid_point"
+    HORIZONTAL_BOX = "horizontal_box"
+    HORIZONTAL_POINT = "horizontal_point"
+
+
 class DiagnosticValidationConfig(BaseConfigModel):
     validation_conditions: list[DiagnosticValidationCondition]
     min_group_size: Annotated[
         PositiveInt, Field(description="Minimum group size for aggregation", repr=True, strict=True, default=20)
     ] = 20
+    spatial_group_by_strategy: Annotated[
+        SpatialGroupByStrategy | None, Field(description="Spatial group by strategy", repr=True, default=None)
+    ] = None
+    aggregation_metric: Annotated[
+        AggregationMetricOption | None, Field(description="Aggregation metric", repr=True, default=None)
+    ] = None
 
     @model_validator(mode="after")
     def check_conditions_are_unique(self) -> Self:
         assert len(set(self.validation_conditions)) == len(self.validation_conditions), (
             "Validation conditions must be unique"
         )
+        return self
+
+    @model_validator(mode="after")
+    def check_all_groupby_settings_are_specified(self) -> Self:
+        if self.spatial_group_by_strategy is None and self.aggregation_metric is not None:
+            raise InvalidConfigurationError(
+                "If spatial group by strategy is specified, aggregation metric must be specified"
+            )
+        if self.spatial_group_by_strategy is not None and self.aggregation_metric is None:
+            raise InvalidConfigurationError(
+                "If aggregation metric is specified, spatial group by strategy must be specified"
+            )
         return self
 
 

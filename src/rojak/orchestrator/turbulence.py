@@ -28,6 +28,7 @@ from rojak.datalib.ukmo.amdar import UkmoAmdarRepository
 from rojak.orchestrator.configuration import (
     AmdarDataSource,
     AmdarDiagnosticCmpSource,
+    SpatialGroupByStrategy,
     TurbulenceCalibrationPhaseOption,
     TurbulenceEvaluationPhaseOption,
     TurbulenceThresholds,
@@ -57,7 +58,6 @@ from rojak.turbulence.diagnostic import (
 from rojak.turbulence.verification import (
     DiagnosticsAmdarDataHarmoniser,
     DiagnosticsAmdarVerification,
-    SpatialGroupByStrategy,
 )
 from rojak.utilities.types import DistributionParameters, Limits
 
@@ -67,8 +67,8 @@ if TYPE_CHECKING:
     import dask.dataframe as dd
 
     from rojak.core.data import AmdarDataRepository, CATData
-    from rojak.orchestrator.configuration import Context as ConfigContext
     from rojak.orchestrator.configuration import (
+        AggregationMetricOption,
         DataConfig,
         DiagnosticsAmdarHarmonisationStrategyOptions,
         DiagnosticValidationCondition,
@@ -80,6 +80,7 @@ if TYPE_CHECKING:
         TurbulenceEvaluationConfig,
         TurbulenceEvaluationPhases,
     )
+    from rojak.orchestrator.configuration import Context as ConfigContext
     from rojak.turbulence.verification import (
         RocVerificationResult,
     )
@@ -461,6 +462,8 @@ class DiagnosticsAmdarLauncher:
     _save_output: bool
     _validation_conditions: list["DiagnosticValidationCondition"]
     _min_group_size: int
+    _group_by_strategy: SpatialGroupByStrategy | None
+    _aggregation_metric: "AggregationMetricOption | None"
 
     def __init__(
         self,
@@ -482,9 +485,13 @@ class DiagnosticsAmdarLauncher:
         if data_config.amdar_config.diagnostic_validation is None:
             self._validation_conditions = []
             self._min_group_size = -1
+            self._group_by_strategy = None
+            self._aggregation_metric = None
         else:
             self._validation_conditions = data_config.amdar_config.diagnostic_validation.validation_conditions
             self._min_group_size = data_config.amdar_config.diagnostic_validation.min_group_size
+            self._group_by_strategy = data_config.amdar_config.diagnostic_validation.spatial_group_by_strategy
+            self._aggregation_metric = data_config.amdar_config.diagnostic_validation.aggregation_metric
 
         self._save_output = data_config.amdar_config.save_harmonised_data
         base_dir = output_dir / run_name / "data_harmonisation"
@@ -538,67 +545,75 @@ class DiagnosticsAmdarLauncher:
             logger.info("Starting validation of diagnostics with amdar data")
             verifier = DiagnosticsAmdarVerification(harmoniser, time_window_as_np_datetime)
             chained_names: str = _chain_diagnostic_names(harmoniser.harmonised_diagnostics)
-            group_by_strategy = SpatialGroupByStrategy.HORIZONTAL_BOX
-            grid_auc = verifier.aggregate_by_auc(
-                self._validation_conditions,
-                diagnostic_suite.get_prototype_computed_diagnostic(),
-                group_by_strategy,
-                self._min_group_size,
-            )
-            num_observations = verifier.num_obs_per(self._validation_conditions, group_by_strategy)
-            is_agg_by_point: bool = group_by_strategy in {
-                SpatialGroupByStrategy.GRID_POINT,
-                SpatialGroupByStrategy.HORIZONTAL_POINT,
-            }
-            if not is_agg_by_point:
-                for diagnostic_name in grid_auc:
-                    grid_auc[diagnostic_name] = amdar_data.grid.join(grid_auc[diagnostic_name], how="right").drop(
-                        columns=[harmoniser.grid_box_column_name]
-                    )
-                num_observations = amdar_data.grid.join(num_observations, how="right")
-            auc_plots = create_interactive_aggregated_auc_plots(
-                grid_auc,
-                self._validation_conditions,
-                is_agg_by_point,
-            )
-            save_hv_plot(
-                auc_plots,
-                str(self._plots_dir / f"regional_auc_{chained_names}_on_{str(group_by_strategy)}"),
-                "png",
-                savefig_kwargs={"dpi": 400},
-            )
 
-            save_hv_plot(
-                create_interactive_heatmap_plot(
-                    num_observations if is_agg_by_point else num_observations.compute(),
-                    "num_obs",
-                    opts_kwargs={
-                        "fig_size": 400,
-                        "title": f"Total Number of Observations (min = {self._min_group_size})",
-                        "lw": 0,
-                        "clim": (self._min_group_size, None),
-                        "clipping_colors": {"min": GREY_HEX_CODE},
-                    },
-                ),
-                str(self._plots_dir / f"num_observations_for_{str(group_by_strategy)}"),
-                "png",
-                savefig_kwargs={"dpi": 400},
-            )
+            if self._group_by_strategy is not None:
+                assert self._aggregation_metric is not None
+                grid_auc = verifier.aggregate_by_auc(
+                    self._validation_conditions,
+                    diagnostic_suite.get_prototype_computed_diagnostic(),
+                    self._group_by_strategy,
+                    self._min_group_size,
+                    self._aggregation_metric,
+                )
+                logger.debug("Finished aggregating on groups")
+                num_observations = verifier.num_obs_per(self._validation_conditions, self._group_by_strategy)
+                logger.debug("Finished computing number of observations per group")
+                is_agg_by_point: bool = self._group_by_strategy in {
+                    SpatialGroupByStrategy.GRID_POINT,
+                    SpatialGroupByStrategy.HORIZONTAL_POINT,
+                }
+                if not is_agg_by_point:
+                    for diagnostic_name in grid_auc:
+                        grid_auc[diagnostic_name] = amdar_data.grid.join(grid_auc[diagnostic_name], how="right").drop(
+                            columns=[harmoniser.grid_box_column_name]
+                        )
+                    num_observations = amdar_data.grid.join(num_observations, how="right")
+                auc_plots = create_interactive_aggregated_auc_plots(
+                    grid_auc,
+                    self._validation_conditions,
+                    is_agg_by_point,
+                )
+                save_hv_plot(
+                    auc_plots,
+                    str(
+                        self._plots_dir
+                        / f"regional_{self._aggregation_metric}_{chained_names}_on_{str(self._group_by_strategy)}"
+                    ),
+                    "png",
+                    savefig_kwargs={"dpi": 400},
+                )
 
-            save_hv_plot(
-                create_histogram_n_obs(num_observations, hist_kwargs={"normed": True, "ylabel": "Density"}),
-                str(self._plots_dir / f"num_obs_histogram_for_{str(group_by_strategy)}"),
-                "png",
-                savefig_kwargs={"dpi": 400},
-            )
+                save_hv_plot(
+                    create_interactive_heatmap_plot(
+                        num_observations if is_agg_by_point else num_observations.compute(),
+                        "num_obs",
+                        opts_kwargs={
+                            "fig_size": 400,
+                            "title": f"Total Number of Observations (min = {self._min_group_size})",
+                            "lw": 0,
+                            "clim": (self._min_group_size, None),
+                            "clipping_colors": {"min": GREY_HEX_CODE},
+                        },
+                    ),
+                    str(self._plots_dir / f"num_observations_for_{str(self._group_by_strategy)}"),
+                    "png",
+                    savefig_kwargs={"dpi": 400},
+                )
 
-            bottom_counts: float = num_observations["num_obs"].quantile(q=0.25, method="tdigest").compute()
-            save_hv_plot(
-                create_histogram_n_obs(num_observations.loc[num_observations["num_obs"] <= bottom_counts]),
-                str(self._plots_dir / f"num_obs_histogram_for_{str(group_by_strategy)}"),
-                "png",
-                savefig_kwargs={"dpi": 400},
-            )
+                save_hv_plot(
+                    create_histogram_n_obs(num_observations, hist_kwargs={"normed": True, "ylabel": "Density"}),
+                    str(self._plots_dir / f"num_obs_histogram_for_{str(self._group_by_strategy)}"),
+                    "png",
+                    savefig_kwargs={"dpi": 400},
+                )
+
+                bottom_counts: float = num_observations["num_obs"].quantile(q=0.25, method="tdigest").compute()
+                save_hv_plot(
+                    create_histogram_n_obs(num_observations.loc[num_observations["num_obs"] <= bottom_counts]),
+                    str(self._plots_dir / f"num_obs_histogram_for_{str(self._group_by_strategy)}"),
+                    "png",
+                    savefig_kwargs={"dpi": 400},
+                )
 
             roc: RocVerificationResult = verifier.nearest_value_roc(self._validation_conditions)
             roc_curve_plots: dict = create_interactive_roc_curve_plot(roc)

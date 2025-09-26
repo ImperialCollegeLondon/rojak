@@ -17,7 +17,6 @@ import logging
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from collections.abc import Callable, Generator, Mapping
-from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar, Literal, NamedTuple, assert_never
 
 import dask.array as da
@@ -28,7 +27,11 @@ from scipy import integrate
 
 from rojak.core.calculations import bilinear_interpolation
 from rojak.core.indexing import map_index_to_coordinate_value, map_order, map_values_to_nearest_coordinate_index
-from rojak.orchestrator.configuration import DiagnosticsAmdarHarmonisationStrategyOptions
+from rojak.orchestrator.configuration import (
+    AggregationMetricOption,
+    DiagnosticsAmdarHarmonisationStrategyOptions,
+    SpatialGroupByStrategy,
+)
 from rojak.turbulence.diagnostic import EvaluationDiagnosticSuite
 from rojak.turbulence.metrics import (
     BinaryClassificationResult,
@@ -513,14 +516,6 @@ def _any_aggregation() -> dd.Aggregation:
     )
 
 
-# To visualise relationship between the different statistics, wikipedia has a useful diagram
-# see https://en.wikipedia.org/wiki/Sensitivity_and_specificity#Confusion_matrix
-class AggregationMetricOption(StrEnum):
-    AUC = "auc"
-    TSS = "tss"
-    PREVALENCE = "prevalence"
-
-
 def metric_based_aggregation(
     condition: "DiagnosticValidationCondition",
     minimum_group_size: int,
@@ -619,13 +614,6 @@ class RocVerificationResult:
 
     def auc_for_amdar_column(self, amdar_column: str) -> dict[str, float]:
         return self._area_under_curve()[amdar_column]
-
-
-class SpatialGroupByStrategy(StrEnum):
-    GRID_BOX = "grid_box"
-    GRID_POINT = "grid_point"
-    HORIZONTAL_BOX = "horizontal_box"
-    HORIZONTAL_POINT = "horizontal_point"
 
 
 # Keep this extendable for verification against other forms of data??
@@ -779,6 +767,7 @@ class DiagnosticsAmdarVerification:
         prototype_diagnostic: "xr.DataArray",
         group_by_strategy: SpatialGroupByStrategy,
         minimum_group_size: int,
+        aggregation_metric: AggregationMetricOption,
     ) -> dict[str, dd.DataFrame]:
         space_columns = self._grid_spatial_columns(group_by_strategy)
         validation_columns = self._get_validation_column_names(validation_conditions)
@@ -786,7 +775,9 @@ class DiagnosticsAmdarVerification:
 
         aggregation_spec: dict = {
             condition.observed_turbulence_column_name: metric_based_aggregation(
-                condition, minimum_group_size, AggregationMetricOption.AUC
+                condition,
+                minimum_group_size,
+                aggregation_metric,
             )
             for condition in validation_conditions
         }
