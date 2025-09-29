@@ -273,7 +273,7 @@ class AcarsAmdarRepository(AmdarDataRepository):
             # Based on netCDF file, values range from 0 <= turbIndex <= 20. A value of 63 => missing and 64 => none
             # reported. To account for the potential of junk values, anything outside the valid range is converted
             # to NaNs
-            turb_index_col = turb_index_col.where(turb_index_col <= self._MAX_VALID_TURB_INDEX, np.nan)
+            turb_index_col = turb_index_col.where(turb_index_col <= self._MAX_VALID_TURB_INDEX, np.nan)  # pyright: ignore [reportOperatorIssue]
             amdar_data["turbIndex"] = turb_index_col
 
         return amdar_data
