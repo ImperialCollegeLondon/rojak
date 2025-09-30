@@ -32,7 +32,6 @@ from rojak.orchestrator.configuration import (
     Context as ConfigContext,
 )
 from rojak.orchestrator.turbulence import DISTRIBUTION_PARAMS_TYPE_ADAPTER, THRESHOLDS_TYPE_ADAPTER, TurbulenceLauncher
-from rojak.turbulence.verification import DiagnosticsAmdarHarmonisationStrategyOptions
 from rojak.utilities.types import Limits
 from tests.integration.conftest import randomly_select_diagnostics
 
@@ -226,7 +225,7 @@ def test_turbulence_calibration_and_evaluation(create_config_context, client, re
 
 
 @pytest.mark.cdsapi
-@pytest.mark.skipif(os.getenv("CI") is not None, reason="Test is so slow, runners time out")
+@pytest.mark.xfail(reason="The code path within the launcher to invoke the harmonisation has been removed")
 def test_turbulence_amdar_acars_harmonisation(
     create_config_context, client, retrieve_era5_cat_data, retrieve_single_day_madis_data
 ) -> None:
@@ -265,10 +264,6 @@ def test_turbulence_amdar_acars_harmonisation(
                 datetime.datetime(2024, month=1, day=1), datetime.datetime(2024, month=1, day=1, hour=18)
             ),
             save_harmonised_data=True,
-            harmonisation_strategies=[
-                DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES,
-                DiagnosticsAmdarHarmonisationStrategyOptions.EDR,
-            ],
         ),
     )
     config: ConfigContext = create_config_context(
@@ -281,7 +276,7 @@ def test_turbulence_amdar_acars_harmonisation(
     assert harmonisation_output_dir.exists()
     assert harmonisation_output_dir.is_dir()
     parquet_files = harmonisation_output_dir.glob("*.parquet")
-    assert parquet_files  # check list is not empty
+    assert list(parquet_files)  # check list is not empty
     loaded_output_data = dd.read_parquet(f"{str(harmonisation_output_dir)}/**/*.parquet")
     loaded_output_data.head()  # evaluate the first few rows to check it is valid
 

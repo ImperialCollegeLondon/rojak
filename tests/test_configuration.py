@@ -16,7 +16,6 @@ from rojak.orchestrator.configuration import (
     AmdarConfig,
     AmdarDataSource,
     DataConfig,
-    DiagnosticsAmdarHarmonisationStrategyOptions,
     DiagnosticValidationCondition,
     DiagnosticValidationConfig,
     InvalidConfigurationError,
@@ -591,7 +590,6 @@ def test_amdar_config(
             data_source=amdar_type,
             glob_pattern=glob_pattern,
             time_window=time_window,
-            harmonisation_strategies=[DiagnosticsAmdarHarmonisationStrategyOptions.EDR],
         )
         assert config.data_source == amdar_type
         assert config.glob_pattern == glob_pattern
@@ -648,7 +646,6 @@ def test_check_valid_diagnostic_conditions(
             data_source=data_source,
             glob_pattern="*.parquet" if data_source == AmdarDataSource.MADIS else "*.csv",
             time_window=Limits(datetime(1970, 1, 1), datetime(1980, 1, 1)),
-            harmonisation_strategies=[],
             diagnostic_validation=DiagnosticValidationConfig(validation_conditions=conditions),
         )
 
