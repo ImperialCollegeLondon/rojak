@@ -83,8 +83,17 @@ amdar = [
 ]
 plot = [
     "cartopy",
+    "geoviews",
+    "holoviews",
+    "hvplot", # Adds support to plotting dask-backed objects
     "matplotlib",
     "pypalettes",
+]
+jupyter = [
+    "dask-labextension",
+    "jupyter-bokeh",
+    "jupyter-server-proxy",
+    "jupyterlab",
 ]
 
 [tool.pyright]

@@ -199,6 +199,14 @@ def test_pressure_to_altitude_icao(wrap_in_data_array) -> None:
     np.testing.assert_allclose(converted_pressure, altitude_from_table, rtol=1e-4)
 
 
+def test_pressure_to_altitude_icao_era5_data(make_dummy_cat_data) -> None:
+    dummy_data = make_dummy_cat_data({"pressure_level": [300.62, 250.50, 226.32, 199.50]})
+    altitude_from_table = np.asarray([9150, 10350, 11000, 11800])
+    computed_altitude = pressure_to_altitude_icao(dummy_data["pressure_level"])
+    np.testing.assert_equal(np.round(computed_altitude, decimals=-1), altitude_from_table)
+    np.testing.assert_allclose(computed_altitude, altitude_from_table, rtol=1e-4)
+
+
 def linear_function(x_vals, y_vals):
     return x_vals + y_vals
 

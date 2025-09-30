@@ -135,7 +135,7 @@ def test_turbulence_diagnostics_serial_and_distributed_are_equivalent(
     assert distributed_diagnostic != serial_diagnostic
 
     serial_result = serial_diagnostic.computed_value.compute()
-    serial_result = serial_result.drop_vars("expver")
+    # serial_result = serial_result.drop_vars("expver")
     xr.testing.assert_equal(distributed_diagnostic.computed_value.compute(), serial_result)
 
 
