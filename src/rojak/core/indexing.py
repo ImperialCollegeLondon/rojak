@@ -16,10 +16,10 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 import numpy as np
+import pandas as pd
 
 if TYPE_CHECKING:
     import dask.dataframe as dd
-    import pandas as pd
     from numpy.typing import NDArray
 
 
@@ -164,6 +164,33 @@ def map_values_to_nearest_coordinate_index[T: np.datetime64 | np.number | np.ine
     approximate_index = (series - coordinate[0]) / spacing  # pyright: ignore[reportOperatorIssue]
     # rint - rounds to the closest integer => gives closest index
     return np.rint(approximate_index).astype(int)
+
+
+def map_index_to_coordinate_value(
+    indices: "pd.Series | pd.Index", coordinate: "NDArray", series_name: str | None = None
+) -> "pd.Series":
+    """
+    Retrieve original value based on index
+
+    This function is the inverse of :py:func`map_values_to_nearest_coordinate_index`
+
+    Args:
+        indices: Indices of the values to map
+        coordinate: Values which the indices correspond to
+        series_name: Name of the new pandas series
+
+    Returns: new pandas series with values
+
+    """
+    if coordinate.ndim > 1:
+        raise ValueError(f"Coordinate must be 1D not {coordinate.ndim}D")
+    if indices.min() < 0:
+        raise ValueError("Index must be non-negative")
+    if indices.max() > coordinate.size:
+        raise ValueError("Index must be within the range of the coordinate")
+
+    as_numpy_array = indices.to_numpy(dtype=int)
+    return pd.Series(data=coordinate[as_numpy_array], name=series_name)
 
 
 def map_order[T](on: list[T], by: list[int]) -> list[T]:

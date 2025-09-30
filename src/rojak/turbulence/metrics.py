@@ -11,12 +11,13 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
-
+from functools import singledispatch
 from typing import TYPE_CHECKING, NamedTuple
 
 import dask
 import dask.array as da
 import numpy as np
+import pandas as pd
 import xarray as xr
 from dask.base import is_dask_collection
 from scipy import integrate
@@ -33,6 +34,11 @@ class BinaryClassificationResult(NamedTuple):
     false_positives: "da.Array"
     true_positives: "da.Array"
     thresholds: "da.Array"
+
+
+class BinaryClassificationRateFromLabels(NamedTuple):
+    true_positives_rate: "NDArray"
+    false_positives_rate: "NDArray"
 
 
 # Modified from scikit-learn.metrics roc_curve() method
@@ -93,9 +99,9 @@ def received_operating_characteristic(
 
     # Make curve start at 0
     zero_array = da.zeros(1)
-    true_positive = da.hstack((zero_array, classification_result.true_positives.compute_chunk_sizes())).persist()  # pyright: ignore[reportAttributeAccessIssue]
-    false_positive = da.hstack((zero_array, classification_result.false_positives.compute_chunk_sizes())).persist()  # pyright: ignore[reportAttributeAccessIssue]
-    thresholds = da.hstack((da.asarray([np.inf]), classification_result.thresholds.compute_chunk_sizes())).persist()  # pyright: ignore[reportAttributeAccessIssue]
+    true_positive = da.hstack((zero_array, classification_result.true_positives)).persist()  # pyright: ignore[reportAttributeAccessIssue]
+    false_positive = da.hstack((zero_array, classification_result.false_positives)).persist()  # pyright: ignore[reportAttributeAccessIssue]
+    thresholds = da.hstack((da.asarray([np.inf]), classification_result.thresholds)).persist()  # pyright: ignore[reportAttributeAccessIssue]
 
     if false_positive[-1] < 0:
         raise ValueError("false positives cannot be negative")
@@ -161,10 +167,11 @@ def binary_classification_curve(
 
     >>> classification = binary_classification_curve(y, scores, positive_classification_label=2)
     >>> classification
-    BinaryClassificationResult(false_positives=dask.array<sub, shape=(nan,), dtype=int64, chunksize=(nan,),
-    chunktype=numpy.ndarray>, true_positives=dask.array<slice_with_int_dask_array_aggregate, shape=(nan,), dtype=int64,
-    chunksize=(nan,), chunktype=numpy.ndarray>, thresholds=dask.array<slice_with_int_dask_array_aggregate, shape=(nan,),
-    dtype=float64, chunksize=(nan,), chunktype=numpy.ndarray>)
+    BinaryClassificationResult(false_positives=dask.array<sub, shape=(4,), dtype=int64, chunksize=(3,),
+    chunktype=numpy.ndarray>, true_positives=dask.array<slice_with_int_dask_array_aggregate, shape=(4,), dtype=int64,
+    chunksize=(3,), chunktype=numpy.ndarray>, thresholds=dask.array<slice_with_int_dask_array_aggregate, shape=(4,),
+    dtype=float64, chunksize=(3,), chunktype=numpy.ndarray>)
+
 
     The method returns a named tuple :py:class:`BinaryClassificationResult` containing `dask.array.Array`. To get the
     values, `compute()` must be invoked on them evaluate the lazy collection.
@@ -203,7 +210,8 @@ def binary_classification_curve(
 
     # As the values would be from the turbulence diagnostics, they are continuous
     # To reduce the data, use step_size to determine the minimum difference between two data points
-    bucketed_value_indices = da.nonzero(diff_values > minimum_step_size)[0]
+    bucketed_value_indices = da.nonzero(diff_values > minimum_step_size)[0].compute_chunk_sizes()
+    # ^ computing chunks here means that the subsequent dask arrays have a known number of chunks
     threshold_indices = da.hstack((bucketed_value_indices, da.asarray([sorted_truth.size - 1]))).persist()
 
     true_positive = da.cumsum(sorted_truth)[threshold_indices].persist()
@@ -213,6 +221,64 @@ def binary_classification_curve(
 
     return BinaryClassificationResult(
         false_positives=false_positive, true_positives=true_positive, thresholds=sorted_values[threshold_indices]
+    )
+
+
+@singledispatch
+def binary_classification_rate_from_cumsum(
+    cumsum_for_group: pd.Series | np.ndarray,
+) -> BinaryClassificationRateFromLabels | None:
+    """
+    Binary classification curve with cumulative sum on labels
+
+    Assumes that labels have already been sorted such that the values are increasing. Moreover, the cumulative sum
+    has been performed on boolean truth labels such that it represents the number of true positives (or positive
+    observations). The main use case for this function is on a given group from a Pandas GroupBy object.
+
+    Args:
+        cumsum_for_group: Cumulative sum on boolean truth labels
+
+    Returns:
+        True positive and false positive rate. If there are no true positives, returns None
+    """
+
+
+@binary_classification_rate_from_cumsum.register
+def _(
+    cumsum_for_group: pd.Series,
+) -> BinaryClassificationRateFromLabels | None:
+    return _binary_classification_from_cumsum(cumsum_for_group.to_numpy())
+
+
+@binary_classification_rate_from_cumsum.register
+def _binary_classification_from_cumsum(
+    cumsum_for_group: np.ndarray, min_true_positives: int = 2
+) -> BinaryClassificationRateFromLabels | None:
+    group_size: int = cumsum_for_group.size
+    true_positive_rate = cumsum_for_group
+    false_positive_rate = 1 + np.arange(group_size) - true_positive_rate
+
+    num_true_positives: int = true_positive_rate[-1]
+    num_false_positives: int = false_positive_rate[-1]
+
+    if num_true_positives < 0:
+        raise ValueError("num_true_positives must not be negative")
+    if num_false_positives < 0:
+        raise ValueError("num_false_positives must not be negative")
+
+    if num_true_positives < min_true_positives:
+        return None
+
+    true_positive_rate = np.hstack((np.zeros(1), true_positive_rate)) / num_true_positives
+    # Prevent divisions by zero
+    false_positive_rate = (
+        np.hstack((np.zeros(1), false_positive_rate)) / num_false_positives
+        if num_false_positives != 0
+        else np.zeros_like(true_positive_rate)
+    )
+
+    return BinaryClassificationRateFromLabels(
+        true_positives_rate=true_positive_rate, false_positives_rate=false_positive_rate
     )
 
 
@@ -235,14 +301,15 @@ def _serial_area_under_curve(x_values: "NDArray", y_values: "NDArray") -> float:
 def _parallel_area_under_curve(x_values: da.Array | xr.DataArray, y_values: da.Array | xr.DataArray) -> float:
     if is_xr_data_array(x_values):
         assert is_dask_array(x_values.values)
-        x_vals: da.Array = x_values.values
+        # Import pandas into is throwing up incorrect linting
+        x_vals: da.Array = x_values.values  # noqa: PD011
     else:
         assert is_dask_array(x_values)
         x_vals: da.Array = x_values
 
     if is_xr_data_array(y_values):
         assert is_dask_array(y_values.values)
-        y_vals: da.Array = y_values.values
+        y_vals: da.Array = y_values.values  # noqa: PD011
     else:
         assert is_dask_array(y_values)
         y_vals: da.Array = y_values
@@ -332,3 +399,37 @@ def area_under_curve(
     assert is_np_array(y_values)
 
     return _serial_area_under_curve(x_values, y_values)
+
+
+def _check_roc_curve_input_validity(roc_curve: BinaryClassificationResult) -> None:
+    if roc_curve.true_positives[0] != 0 or roc_curve.false_positives[0] != 0:
+        raise ValueError("First value of POD and POFD must be 0")
+    if da.max(roc_curve.true_positives).compute() > 1:
+        raise ValueError("Maximum value of POD must be less than or equal to 1")
+    if da.min(roc_curve.true_positives).compute() < 0:
+        raise ValueError("Minimum value of POD must be greater than or equal to 0")
+
+
+def true_skill_score(roc_curve: BinaryClassificationResult) -> da.Array:
+    """
+    True Skill Score (TSS) statistic
+
+    The TSS is defined in `Wikipedia <https://en.wikipedia.org/wiki/Youden%27s_J_statistic#Definition>`__ as:
+
+    .. math::
+        \\begin{align}
+            TSS &= \\text{sensitivity} + \\text{specificity} - 1 \\
+            &= \\frac{\\text{TP}}{\\text{TP} + \\text{FP}} + \\frac{\\text{TN}}{\\text{TN} + \\text{FP}} - 1
+        \\end{align}
+
+    where :math:`TP` is the number of true positives, :math:`TN` the number of true negatives,
+    :math:`FP` the number of false positives, :math:`FN` the number of false negatives.
+
+    This is also the definition used in [Sharman2006]_
+
+    """
+    _check_roc_curve_input_validity(roc_curve)
+
+    sensitivity = roc_curve.true_positives
+    specificity = roc_curve.false_positives
+    return sensitivity + specificity - 1

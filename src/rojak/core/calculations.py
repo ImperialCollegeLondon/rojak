@@ -1,3 +1,4 @@
+import copy
 import dataclasses
 from typing import TYPE_CHECKING
 
@@ -207,12 +208,13 @@ def pressure_to_altitude_stratosphere(pressure: "NumpyOrDataArray") -> "NumpyOrD
     )
 
 
-def pressure_to_altitude_icao(pressure: "NumpyOrDataArray") -> "NumpyOrDataArray":
+def pressure_to_altitude_icao(pressure: "NumpyOrDataArray", in_place: bool = False) -> "NumpyOrDataArray":
     """
     Convert pressure to altitude for ICAO standard atmosphere up to 80 km [NACA3182]_
 
     Args:
         pressure: One dimensional array of pressure in hPa
+        in_place: Boolean to control if conversion should be in-place
 
     Returns:
         One dimensional array of altitude in m
@@ -220,6 +222,9 @@ def pressure_to_altitude_icao(pressure: "NumpyOrDataArray") -> "NumpyOrDataArray
     """
     if pressure.ndim > 1:
         raise NotImplementedError("Multidimensional pressure not yet supported")
+
+    if not in_place:
+        pressure = copy.deepcopy(pressure)
 
     mask = pressure > _icao_constants.tropopause_pressure
     pressures_within_troposphere = pressure[mask]
@@ -234,7 +239,16 @@ def pressure_to_altitude_icao(pressure: "NumpyOrDataArray") -> "NumpyOrDataArray
         pressure[mask] = pressure_to_altitude_troposphere(pressures_within_troposphere)
         pressure[~mask] = pressure_to_altitude_stratosphere(pressures_within_stratosphere)
     else:
-        pressure.loc[mask] = pressure_to_altitude_troposphere(pressures_within_troposphere)
+        # Handle edge case that test suite could not capture
+        # When data from real ERA5 data that ends up in this case, the setting of values using the `loc` operator
+        # fails due to a TypeError which doesn't allow updating the values directly so a copy is required
+        try:
+            pressure.loc[mask] = pressure_to_altitude_troposphere(pressures_within_troposphere)
+        except TypeError as error:
+            # Check message of error matches the specific edge case
+            if error.args[0] == "IndexVariable values cannot be modified":
+                return pressure.copy(data=pressure_to_altitude_icao(pressure.to_numpy()))
+            raise error
         pressure.loc[~mask] = pressure_to_altitude_stratosphere(pressures_within_stratosphere)
 
     return pressure

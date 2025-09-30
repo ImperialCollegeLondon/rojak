@@ -38,18 +38,13 @@ cat_data_default: dict = {
         "vorticity",
     ],
     # Needs year, month, day, time to be specified
-    "pressure_level": [
-        "175",
-        "200",  # Williams focuses on 200hPA
-        "225",
-    ],
-    # More pressure levels for contrail turbulence relation
     # "pressure_level": [
-    #    "150", "175", "200",
-    #    "225", "250", "300",
-    #    "350", "400", "450",
-    #    "500"
+    #     "175",
+    #     "200",  # Williams focuses on 200hPA
+    #     "225",
     # ],
+    # More pressure levels for contrail turbulence relation
+    "pressure_level": ["175", "200", "225", "250", "300", "350"],
     "data_format": "netcdf",
     "download_format": "unarchived",
 }

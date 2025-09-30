@@ -12,9 +12,19 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from typing import TYPE_CHECKING, cast
+import functools
+import operator
+from typing import TYPE_CHECKING, Literal, cast
 
 import cartopy.crs as ccrs
+import dask.array as da
+import dask.dataframe as dd
+import dask_geopandas as dgpd
+import geoviews as gv
+import holoviews as hv
+import hvplot.dask  # noqa
+import hvplot.pandas  # noqa
+import hvplot.xarray  # noqa
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
@@ -33,16 +43,42 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
 
-    import dask.array as da
     from cartopy.mpl.geoaxes import GeoAxes
+    from holoviews.core.overlay import Overlay
+    from holoviews.element.chart import Curve
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
     from matplotlib.image import AxesImage
     from numpy.typing import NDArray
 
+    from rojak.orchestrator.configuration import (
+        DiagnosticValidationCondition,
+    )
+    from rojak.turbulence.verification import RocVerificationResult
     from rojak.utilities.types import DiagnosticName
 
 _PLATE_CARREE: "ccrs.Projection" = ccrs.PlateCarree()
+
+GREY_HEX_CODE: str = "#cecece"  # slightly lighter: dbdbdb
+
+
+def _set_extension(is_matplotlib: bool) -> None:
+    extension_name: Literal["matplotlib", "bokeh"] = "matplotlib" if is_matplotlib else "bokeh"
+    gv.extension(extension_name)  # pyright: ignore[reportCallIssue]
+    hv.extension(extension_name)  # pyright: ignore[reportCallIssue]
+    hvplot.extension(extension_name)  # pyright: ignore[reportCallIssue]
+
+
+def _auc_cmap() -> mcolors.ListedColormap:
+    # This works in the python console and is in the docs for pypalettes
+    blue_to_orange_colours = pypalettes.load_cmap("BluetoOrange_10").colors  # pyright: ignore[reportAttributeAccessIssue]
+    assert isinstance(blue_to_orange_colours, list)
+    blue = list(reversed(blue_to_orange_colours[0:5]))
+    orange_reversed = blue_to_orange_colours[5:]
+    blue_to_orange_rev = orange_reversed + blue
+    cmap = pypalettes.create_cmap(colors=blue_to_orange_rev, cmap_type="discrete", name="BlueToOrange10Reversed")
+    assert isinstance(cmap, mcolors.ListedColormap)
+    return cmap
 
 
 def xarray_plot_wrapper(
@@ -358,6 +394,68 @@ def _evaluate_dask_collection(array: "da.Array | NDArray") -> "NDArray":
     return array
 
 
+def create_interactive_roc_curve_plot(roc: "RocVerificationResult", is_matplotlib: bool = True) -> dict[str, "Overlay"]:
+    _set_extension(is_matplotlib)
+    plots: dict[str, Overlay] = {}
+    line_colours: list = cast(
+        "list", cast("mcolors.ListedColormap", pypalettes.load_cmap(["tol", "royal", "prism_light"])).colors
+    )
+    for amdar_verification_col, by_diagnostic_roc in roc.iterate_by_amdar_column():
+        auc_for_col = roc.auc_for_amdar_column(amdar_verification_col)
+        plots_for_col: list[Curve] = [
+            dd.from_dask_array(
+                da.stack([roc_for_diagnostic.false_positives, roc_for_diagnostic.true_positives], axis=1),
+                columns=["POFD", "POD"],
+            ).hvplot.line(  # pyright: ignore[reportAttributeAccessIssue]
+                x="POFD",
+                y="POD",
+                label=f"{diagnostic_name} - AUC: {auc_for_col[diagnostic_name]:.2f}",
+                xlim=(0, 1),
+                ylim=(0, 1),
+                grid=True,
+                color=colour,
+                aspect="equal",
+                height=700,
+            )
+            for (diagnostic_name, roc_for_diagnostic), colour in zip(
+                by_diagnostic_roc.items(), line_colours, strict=False
+            )
+        ]
+        line_style = {"linewidth": 1, "linestyle": "--"} if is_matplotlib else {"line_width": 1, "line_dash": "dashed"}
+        plots_for_col.append(
+            dd.from_dask_array(
+                da.stack([da.linspace(0, 1, 500), da.linspace(0, 1, 500)], axis=1), columns=["POFD", "POD"]
+            ).hvplot.line(  # pyright: ignore[reportAttributeAccessIssue]
+                x="POFD",
+                y="POD",
+                color="black",
+                xlim=(0, 1),
+                ylim=(0, 1),
+                grid=True,
+                aspect="equal",
+                height=700,
+                **line_style,
+            )
+        )
+        plots[amdar_verification_col] = functools.reduce(operator.mul, plots_for_col)
+
+    return plots
+
+
+def save_hv_plot(
+    holoviews_obj: object,
+    figure_name: str,
+    figure_format: str,
+    render_kwargs: dict | None = None,
+    savefig_kwargs: dict | None = None,
+) -> None:
+    fig = hv.render(holoviews_obj, backend="matplotlib", **(render_kwargs if render_kwargs is not None else {}))
+    fig.savefig(
+        f"{figure_name}.{figure_format}", bbox_inches="tight", **(savefig_kwargs if savefig_kwargs is not None else {})
+    )
+    plt.close(fig)
+
+
 def plot_roc_curve(
     false_positive_rates: "Mapping[DiagnosticName, da.Array | NDArray]",
     true_positive_rates: "Mapping[DiagnosticName, da.Array | NDArray]",
@@ -397,3 +495,106 @@ def plot_roc_curve(
     fig.tight_layout()
     plt.savefig(plot_name)
     plt.close(fig)
+
+
+def _check_is_col_in_dataframe(col_to_check: str, data_frame: dd.DataFrame | dgpd.GeoDataFrame) -> None:
+    if col_to_check not in data_frame.columns:
+        raise ValueError("Column to plot not in dataframe")
+
+
+def make_into_geodataframe(data_frame: dd.DataFrame | dgpd.GeoDataFrame) -> dgpd.GeoDataFrame:
+    if isinstance(data_frame, dd.DataFrame):
+        if "geometry" not in data_frame.columns:
+            raise ValueError("Dataframe must have geometry column")
+        return dgpd.from_dask_dataframe(data_frame)
+    return data_frame
+
+
+def create_interactive_heatmap_plot(
+    data_frame: dd.DataFrame | dgpd.GeoDataFrame,
+    col_to_plot: str,
+    opts_kwargs: dict | None = None,
+    new_col_name: str | None = None,
+    is_matplotlib: bool = True,
+) -> "Overlay":
+    _check_is_col_in_dataframe(col_to_plot, data_frame)
+    _set_extension(is_matplotlib)
+    is_points_data: bool = {"latitude", "longitude"}.issubset(data_frame.columns)
+    if not is_points_data and "geometry" not in data_frame.columns:
+        raise ValueError("Dataframe must have geometry column or latitude/longitude columns")
+
+    dimension: hv.Dimension = hv.Dimension(col_to_plot, label=new_col_name if new_col_name is not None else col_to_plot)
+    if not is_matplotlib:
+        if opts_kwargs is None:
+            opts_kwargs = {"tools": ["hover"]}
+        elif "tools" not in opts_kwargs:
+            opts_kwargs["tools"] = ["hover"]
+
+    if opts_kwargs is None:
+        opts_kwargs = {"cmap": pypalettes.load_cmap("cancri", cmap_type="continuous", reverse=True)}
+    elif "cmap" not in opts_kwargs:
+        opts_kwargs["cmap"] = pypalettes.load_cmap("cancri", cmap_type="continuous", reverse=True)
+
+    gv_element: gv.element.geo.Polygons | gv.element.geo.Points = (
+        gv.Points(data_frame, kdims=["longitude", "latitude"], vdims=[dimension], crs=ccrs.PlateCarree())
+        if is_points_data
+        else gv.Polygons(data_frame, vdims=[dimension])
+    ).opts(
+        color=dimension,
+        colorbar=True,
+        alpha=0.6,
+        **(opts_kwargs if opts_kwargs is not None else {}),
+    )  # pyright: ignore[reportAssignmentType]
+    coast_ls = {"linewidth": 1, "edgecolor": "gray"} if is_matplotlib else {"line_color": "gray", "line_width": 0.5}
+    coast: gv.element.geo.Feature = gv.feature.coastline.opts(**coast_ls)  # pyright: ignore[reportAssignmentType]
+
+    return coast * gv_element
+
+
+def create_interactive_aggregated_auc_plots(
+    aggregated_by_auc: "dict[DiagnosticName, dd.DataFrame]",
+    validation_conditions: list["DiagnosticValidationCondition"],
+    is_point_data: bool,
+) -> hv.Layout:
+    num_conditions: int = len(validation_conditions)
+
+    all_plots = []
+    for diagnostic_name, regional_auc in aggregated_by_auc.items():
+        for condition in validation_conditions:
+            subplot_title = (
+                f"{diagnostic_name} on {condition.observed_turbulence_column_name} > {condition.value_greater_than}"
+            )
+            options_kwargs = {
+                "fig_size": 800,
+                "title": subplot_title,
+                "linewidth": 0,
+                "cmap": _auc_cmap(),
+                "clim": (0, 1),
+                "clipping_colors": {"NaN": GREY_HEX_CODE},
+            }
+            if is_point_data:
+                options_kwargs["s"] = 5
+            all_plots.append(
+                create_interactive_heatmap_plot(
+                    regional_auc if is_point_data else regional_auc.compute(),
+                    condition.observed_turbulence_column_name,
+                    opts_kwargs=options_kwargs,
+                    new_col_name="AUC",
+                )
+            )
+
+    return hv.Layout(all_plots).opts(fig_size=200).cols(num_conditions)  # pyright: ignore[reportAttributeAccessIssue, reportOptionalMemberAccess]
+
+
+def create_histogram_n_obs(
+    num_observations: dd.DataFrame | dgpd.GeoDataFrame, hist_kwargs: dict | None = None
+) -> hv.element.chart.Histogram:
+    return num_observations["num_obs"].hvplot.hist(  # pyright: ignore[reportAttributeAccessIssue]
+        "num_obs",
+        bins=100,
+        alpha=0.6,
+        height=500,
+        xlabel="Number of Observations",
+        xlim=(0, None),
+        **(hist_kwargs if hist_kwargs is not None else {}),
+    )

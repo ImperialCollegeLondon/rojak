@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import dask.dataframe as dd
+import numpy as np
 import xarray as xr
 from rich.progress import track
 
@@ -29,7 +30,6 @@ from rojak.core.data import AmdarDataRepository, AmdarTurbulenceData, DataPrepro
 
 if TYPE_CHECKING:
     import dask_geopandas as dgpd
-    import numpy as np
 
 ALL_AMDAR_DATA_VARS: frozenset[str] = frozenset(
     {'nStaticIds', 'staticIds', 'lastRecord', 'invTime', 'prevRecord', 'inventory', 'globalInventory', 'firstOverflow',
@@ -258,6 +258,7 @@ class AcarsAmdarRepository(AmdarDataRepository):
         "vertAccel",
         "vertGust",
     }
+    _MAX_VALID_TURB_INDEX: ClassVar[int] = 20
 
     def __init__(self, path_to_files: str | list) -> None:
         super().__init__(path_to_files, True)
@@ -266,7 +267,16 @@ class AcarsAmdarRepository(AmdarDataRepository):
         target_columns: list[str] | None = (
             list(AcarsAmdarRepository._MINIMAL_DATA_VARS) if self._use_min_turbulence_vars else None
         )
-        return dd.read_parquet(self._path_to_files, columns=target_columns)
+        amdar_data = dd.read_parquet(self._path_to_files, columns=target_columns)
+        if "turbIndex" in amdar_data.columns:
+            turb_index_col: dd.Series = amdar_data["turbIndex"]
+            # Based on netCDF file, values range from 0 <= turbIndex <= 20. A value of 63 => missing and 64 => none
+            # reported. To account for the potential of junk values, anything outside the valid range is converted
+            # to NaNs
+            turb_index_col = turb_index_col.where(turb_index_col <= self._MAX_VALID_TURB_INDEX, np.nan)  # pyright: ignore [reportOperatorIssue]
+            amdar_data["turbIndex"] = turb_index_col
+
+        return amdar_data
 
     def _call_compute_closest_pressure_level(
         self, data_frame: "dd.DataFrame", pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]"
