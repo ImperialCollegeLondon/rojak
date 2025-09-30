@@ -64,13 +64,10 @@ from rojak.utilities.types import DistributionParameters, Limits
 if TYPE_CHECKING:
     from pathlib import Path
 
-    import dask.dataframe as dd
-
     from rojak.core.data import AmdarDataRepository, CATData
     from rojak.orchestrator.configuration import (
         AggregationMetricOption,
         DataConfig,
-        DiagnosticsAmdarHarmonisationStrategyOptions,
         DiagnosticValidationCondition,
         SpatialDomain,
         TurbulenceCalibrationConfig,
@@ -455,7 +452,6 @@ class DiagnosticsAmdarLauncher:
     _path_to_files: str
     _data_source: AmdarDataSource
     _spatial_domain: "SpatialDomain"
-    _strategies: list["DiagnosticsAmdarHarmonisationStrategyOptions"]
     _time_window: "Limits[datetime]"
     _output_filepath: "Path"
     _plots_dir: "Path"
@@ -476,11 +472,6 @@ class DiagnosticsAmdarLauncher:
         self._data_source = data_config.amdar_config.data_source
         self._path_to_files = str(data_config.amdar_config.data_dir.resolve() / data_config.amdar_config.glob_pattern)
         self._spatial_domain = data_config.spatial_domain
-        self._strategies = (
-            data_config.amdar_config.harmonisation_strategies
-            if data_config.amdar_config.harmonisation_strategies is not None
-            else []
-        )
         self._time_window = data_config.amdar_config.time_window
         if data_config.amdar_config.diagnostic_validation is None:
             self._validation_conditions = []
@@ -528,18 +519,6 @@ class DiagnosticsAmdarLauncher:
         time_window_as_np_datetime: Limits[np.datetime64] = Limits(
             np.datetime64(self._time_window.lower), np.datetime64(self._time_window.upper)
         )
-
-        if self._strategies:
-            result: dd.DataFrame = harmoniser.execute_harmonisation(
-                self._strategies,
-                time_window_as_np_datetime,
-            ).persist()
-            logger.info("Finished Turbulence Amdar Harmonisation")
-            if self._save_output:
-                logger.info("Saving results to %s", self._output_filepath)
-                result.drop(columns="geometry").set_index(harmoniser.grid_box_column_name).to_parquet(
-                    self._output_filepath
-                )
 
         if self._validation_conditions:
             logger.info("Starting validation of diagnostics with amdar data")

@@ -13,7 +13,6 @@
 #  limitations under the License.
 
 import datetime
-from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Self, assert_never
@@ -583,30 +582,6 @@ class BaseInputDataConfig[T: StrEnum](BaseConfigModel):
 class MeteorologyConfig(BaseInputDataConfig[MetDataSource]): ...
 
 
-class DiagnosticsAmdarHarmonisationStrategyOptions(StrEnum):
-    RAW_INDEX_VALUES = "raw"
-    INDEX_TURBULENCE_INTENSITY = "index_severity"
-    EDR = "edr"
-    EDR_TURBULENCE_INTENSITY = "edr_severity"
-
-    def column_name_method(self, severity: "TurbulenceSeverity | None" = None) -> Callable:
-        match self:
-            case (
-                DiagnosticsAmdarHarmonisationStrategyOptions.EDR
-                | DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES
-            ):
-                assert severity is None
-                return lambda name: f"{name}_{str(self)}"
-            case (
-                DiagnosticsAmdarHarmonisationStrategyOptions.INDEX_TURBULENCE_INTENSITY
-                | DiagnosticsAmdarHarmonisationStrategyOptions.EDR_TURBULENCE_INTENSITY
-            ):
-                assert severity is not None
-                return lambda name: f"{name}_{str(self)}_{str(severity)}"
-            case _ as unreachable:
-                assert_never(unreachable)
-
-
 class AmdarDiagnosticCmpSource(StrEnum):
     CALIBRATION = "calibration"
     EVALUATION = "evaluation"
@@ -620,10 +595,6 @@ class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
         Limits[datetime.datetime], Field(description="Time window to extract data for", repr=True, frozen=True)
     ]
     # ASSUME FOR NOW ONLY USE FOR THIS IS DATA HARMONISATION
-    harmonisation_strategies: Annotated[
-        list[DiagnosticsAmdarHarmonisationStrategyOptions] | None,
-        Field(description="List of harmonisation strategies", repr=True, default=None),
-    ] = None
     diagnostics_from: Annotated[
         AmdarDiagnosticCmpSource,
         Field(
@@ -640,10 +611,6 @@ class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
         DiagnosticValidationConfig | None,
         Field(description="Diagnostic validation configuration", repr=True, frozen=True, default=None),
     ] = None
-
-    def model_post_init(self, context: Any, /) -> None:  # noqa: ANN401
-        if self.harmonisation_strategies is None:
-            self.harmonisation_strategies = []
 
     @model_validator(mode="after")
     def check_valid_glob_pattern(self) -> Self:
