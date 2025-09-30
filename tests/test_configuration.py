@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from rojak.core.constants import MAX_LATITUDE, MAX_LONGITUDE
 from rojak.orchestrator import configuration
 from rojak.orchestrator.configuration import (
+    AggregationMetricOption,
     AmdarConfig,
     AmdarDataSource,
     DataConfig,
@@ -19,6 +20,7 @@ from rojak.orchestrator.configuration import (
     DiagnosticValidationConfig,
     InvalidConfigurationError,
     SpatialDomain,
+    SpatialGroupByStrategy,
     TurbulenceSeverity,
     TurbulenceThresholdMode,
     TurbulenceThresholds,
@@ -649,6 +651,34 @@ def test_check_valid_diagnostic_conditions(
 
         assert config.diagnostic_validation is not None
         assert config.diagnostic_validation.validation_conditions == conditions
+
+    if e != 0:
+        assert e.type is InvalidConfigurationError
+
+
+@pytest.mark.parametrize(
+    ("groupby_strategy", "agg_metric", "expectation"),
+    [
+        (None, None, nullcontext(0)),
+        (SpatialGroupByStrategy.GRID_BOX, AggregationMetricOption.AUC, nullcontext(0)),
+        (SpatialGroupByStrategy.HORIZONTAL_BOX, AggregationMetricOption.TSS, nullcontext(0)),
+        (None, AggregationMetricOption.PREVALENCE, pytest.raises(InvalidConfigurationError)),
+        (SpatialGroupByStrategy.HORIZONTAL_POINT, None, pytest.raises(InvalidConfigurationError)),
+    ],
+)
+def test_diagnostic_validation_config_spatial_aggregation(
+    groupby_strategy: SpatialGroupByStrategy, agg_metric: AggregationMetricOption, expectation
+) -> None:
+    with expectation as e:
+        config = DiagnosticValidationConfig(
+            validation_conditions=[
+                DiagnosticValidationCondition(observed_turbulence_column_name="maxEDR", value_greater_than=0.22)
+            ],
+            spatial_group_by_strategy=groupby_strategy,
+            aggregation_metric=agg_metric,
+        )
+        assert config.spatial_group_by_strategy == groupby_strategy
+        assert config.aggregation_metric == agg_metric
 
     if e != 0:
         assert e.type is InvalidConfigurationError

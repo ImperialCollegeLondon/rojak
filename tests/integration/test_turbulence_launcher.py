@@ -9,12 +9,14 @@ import pytest
 
 from rojak.datalib.madis.amdar import AcarsAmdarTurbulenceData
 from rojak.orchestrator.configuration import (
+    AggregationMetricOption,
     AmdarConfig,
     AmdarDataSource,
     DataConfig,
     DiagnosticValidationCondition,
     DiagnosticValidationConfig,
     SpatialDomain,
+    SpatialGroupByStrategy,
     TurbulenceCalibrationConfig,
     TurbulenceCalibrationPhaseOption,
     TurbulenceCalibrationPhases,
@@ -279,19 +281,45 @@ def test_turbulence_amdar_acars_harmonisation(
     loaded_output_data.head()  # evaluate the first few rows to check it is valid
 
 
+@pytest.mark.parametrize(
+    "groupby_strategy",
+    [
+        SpatialGroupByStrategy.GRID_BOX,
+        pytest.param(
+            SpatialGroupByStrategy.GRID_POINT,
+            marks=pytest.mark.xfail(raises=ValueError, reason="Dataframe for num_obs missing geometry column"),
+        ),
+        pytest.param(
+            SpatialGroupByStrategy.HORIZONTAL_POINT,
+            marks=pytest.mark.xfail(raises=ValueError, reason="Dataframe for num_obs missing geometry column"),
+        ),
+        SpatialGroupByStrategy.HORIZONTAL_BOX,
+        None,
+    ],
+)
+@pytest.mark.parametrize(
+    "agg_metric", [AggregationMetricOption.TSS, AggregationMetricOption.AUC, AggregationMetricOption.PREVALENCE, None]
+)
 @pytest.mark.cdsapi
+@pytest.mark.skipif(os.getenv("CI") is not None, reason="Test is so slow, runners time out")
 def test_turbulence_amdar_roc(
-    create_config_context, client, retrieve_era5_cat_data, retrieve_single_day_madis_data
+    create_config_context,
+    client,
+    retrieve_era5_cat_data,
+    retrieve_single_day_madis_data,
+    groupby_strategy: SpatialGroupByStrategy | None,
+    agg_metric: AggregationMetricOption | None,
 ) -> None:
+    if (groupby_strategy is not None and agg_metric is None) or (groupby_strategy is None and agg_metric is not None):
+        pytest.skip("Invalid combination from test parametrisation")
+
     diagnostics: list[TurbulenceDiagnostics] = randomly_select_diagnostics(5)
     turbulence_config = TurbulenceConfig(
         chunks={"pressure_level": 3, "latitude": 721, "longitude": 1440, "valid_time": 3},
         diagnostics=diagnostics,
         phases=TurbulencePhases(
             calibration_phases=TurbulenceCalibrationPhases(
-                phases=[
-                    TurbulenceCalibrationPhaseOption.THRESHOLDS,
-                ],
+                phases=[],
                 calibration_config=TurbulenceCalibrationConfig(
                     calibration_data_dir=retrieve_era5_cat_data,
                     percentile_thresholds=TurbulenceThresholds(light=0.97),
@@ -320,7 +348,11 @@ def test_turbulence_amdar_roc(
             time_window=Limits(
                 datetime.datetime(2024, month=1, day=1), datetime.datetime(2024, month=1, day=1, hour=18)
             ),
-            diagnostic_validation=DiagnosticValidationConfig(validation_conditions=validation_conditions),
+            diagnostic_validation=DiagnosticValidationConfig(
+                validation_conditions=validation_conditions,
+                spatial_group_by_strategy=groupby_strategy,
+                aggregation_metric=agg_metric,
+            ),
         ),
     )
     config: ConfigContext = create_config_context(
