@@ -48,3 +48,7 @@ References
 .. [Wallace2006] Wallace, J. M., & Hobbs, P. V. (2006). Atmospheric Science: An Introductory Survey. San Diego, UNITED STATES: Elsevier Science & Technology.
 
 .. [NACA3182] Manual of the ICAO standard atmosphere calculations by the NACA. (1954, May 1). Retrieved from https://ntrs.nasa.gov/citations/19930083952
+
+.. [Koch2006] Koch, P., Wernli, H., & Davies, H. C. (2006). An event-based jet-stream climatology and typology. International Journal of Climatology, 26(3), 283–301. https://doi.org/10.1002/joc.1255
+
+.. [Schiemann2009] Schiemann, R., Lüthi, D., & Schär, C. (2009). Seasonality and Interannual Variability of the Westerly Jet in the Tibetan Plateau Region. Journal of Climate, 22(11), 2940–2957. https://doi.org/10.1175/2008JCLI2625.1
