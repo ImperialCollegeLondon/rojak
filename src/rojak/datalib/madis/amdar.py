@@ -21,12 +21,14 @@ from ftplib import FTP
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
+import dask.array as da
 import dask.dataframe as dd
 import numpy as np
 import xarray as xr
 from rich.progress import track
 
 from rojak.core.data import AmdarDataRepository, AmdarTurbulenceData, DataPreprocessor, DataRetriever, Date
+from rojak.utilities.types import DistributionParameters
 
 if TYPE_CHECKING:
     import dask_geopandas as dgpd
@@ -315,3 +317,15 @@ class AcarsAmdarTurbulenceData(AmdarTurbulenceData):
     @staticmethod
     def turbulence_column_names() -> list[str]:
         return ["maxEDR", "maxTurbulence", "medEDR", "medTurbulence", "turbIndex", "vertGust"]
+
+    def edr_distribution(self) -> DistributionParameters:
+        assert set(self.data_frame.columns).issuperset(self.turbulence_column_names())
+        assert "maxEDR" in set(self.data_frame.columns)
+
+        max_edr: da.Array = self.data_frame["maxEDR"].to_dask_array(lengths=True, optimize=True).persist()
+        # Filter out data which is < 0 as that will return np.inf which make mean and variance inf
+        max_edr: da.Array = max_edr[max_edr > 0].compute_chunk_sizes()  # pyright: ignore[reportAttributeAccessIssue]
+        log_edr: da.Array = da.log(max_edr).persist()
+        assert log_edr.ndim == 1
+
+        return DistributionParameters(float(da.nanmean(log_edr).compute()), float(da.nanvar(log_edr).compute()))
