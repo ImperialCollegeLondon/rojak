@@ -1,14 +1,13 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, ClassVar
+from typing import ClassVar
 
 import numpy as np
+import scipy.ndimage as ndi
 import xarray as xr
+from numpy.typing import NDArray
 
 from rojak.core.derivatives import CartesianDimension, GradientMode, spatial_gradient
 from rojak.turbulence.calculations import wind_speed
-
-if TYPE_CHECKING:
-    from numpy.typing import NDArray
 
 
 class JetStreamAlgorithm(ABC):
@@ -53,6 +52,23 @@ class AlphaVelField(JetStreamAlgorithm):
         return alpha_vel > self._ALPHA_VEL_THRESHOLD
 
 
+# Modified from: https://github.com/scikit-image/scikit-image/blob/e8a42ba85aaf5fd9322ef9ca51bc21063b22fcae/skimage/feature/peak.py#L37
+def get_peak_mask(two_dimensional_slice: NDArray[np.floating], threshold: float) -> NDArray[np.bool_]:
+    assert two_dimensional_slice.ndim == 2  # noqa: PLR2004
+
+    # Footprint becomes the 8 adjacent values
+    footprint: NDArray = np.ones((3,) * 2)
+    max_regions: NDArray[np.floating] = ndi.maximum_filter(two_dimensional_slice, footprint=footprint, mode="grid-wrap")
+    max_mask: NDArray[np.bool_] = two_dimensional_slice == max_regions
+
+    if np.all(max_mask):  # no peaks identified as everything is a peak
+        max_mask[:] = False
+
+    max_mask &= two_dimensional_slice > threshold
+
+    return max_mask
+
+
 class WindSpeedCondSchiemann(JetStreamAlgorithm):
     """
     Identifies jet stream using conditions placed on the wind speed from [Schiemann2009]_
@@ -65,6 +81,21 @@ class WindSpeedCondSchiemann(JetStreamAlgorithm):
     def __init__(self, u_wind: xr.DataArray, v_wind: xr.DataArray) -> None:
         self._u_wind = u_wind
         self._wind_speed = wind_speed(u_wind, v_wind, is_abs=True)
+
+    def _local_maxima_skimage(self) -> xr.DataArray:
+        assert {"latitude", "pressure_level"}.issubset(self._wind_speed.coords)
+        # vectorize=True => loop over non core_dims
+        # https://tutorial.xarray.dev/advanced/apply_ufunc/automatic-vectorizing-numpy.html#conclusion
+        return xr.apply_ufunc(
+            get_peak_mask,
+            self._wind_speed,
+            input_core_dims=[["latitude", "pressure_level"]],
+            output_core_dims=[["latitude", "pressure_level"]],
+            vectorize=True,
+            dask="parallelized",
+            output_dtypes=[np.bool],
+            kwargs={"threshold": self._MINIMUM_WIND_SPEED_THRESHOLD},
+        )
 
     def _local_maxima(self) -> "xr.DataArray":
         f_y: xr.DataArray = spatial_gradient(
@@ -84,4 +115,5 @@ class WindSpeedCondSchiemann(JetStreamAlgorithm):
         return xr.where(((f_y == 0) & (f_p == 0) & (determinant_hessian > 0) & (f_yy < 0)), 1, 0)
 
     def identify_jet_stream(self) -> "xr.DataArray":
-        return self._local_maxima() & (self._wind_speed >= self._MINIMUM_WIND_SPEED_THRESHOLD) & (self._u_wind >= 0)
+        # return self._local_maxima() & (self._wind_speed >= self._MINIMUM_WIND_SPEED_THRESHOLD) & (self._u_wind >= 0)
+        return self._local_maxima_skimage() & (self._u_wind >= 0)
