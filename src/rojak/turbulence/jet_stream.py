@@ -1,12 +1,16 @@
 from abc import ABC, abstractmethod
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar, assert_never
 
 import numpy as np
 import scipy.ndimage as ndi
 import xarray as xr
 from numpy.typing import NDArray
 
+from rojak.orchestrator.configuration import JetStreamAlgorithms
 from rojak.turbulence.calculations import wind_speed
+
+if TYPE_CHECKING:
+    from rojak.core.data import CATData
 
 
 class JetStreamAlgorithm(ABC):
@@ -131,7 +135,7 @@ class WindSpeedCondSchiemann(JetStreamAlgorithm):
         self._u_wind = u_wind
         self._wind_speed = wind_speed(u_wind, v_wind, is_abs=True)
 
-    def _local_maxima_skimage(self) -> xr.DataArray:
+    def _local_maxima(self) -> xr.DataArray:
         assert {"latitude", "pressure_level"}.issubset(self._wind_speed.coords)
         # vectorize=True => loop over non core_dims
         # https://tutorial.xarray.dev/advanced/apply_ufunc/automatic-vectorizing-numpy.html#conclusion
@@ -147,4 +151,20 @@ class WindSpeedCondSchiemann(JetStreamAlgorithm):
         )
 
     def identify_jet_stream(self) -> "xr.DataArray":
-        return self._local_maxima_skimage() & (self._u_wind >= 0)
+        return self._local_maxima() & (self._u_wind >= 0)
+
+
+class JetStreamAlgorithmFactory:
+    _data: "CATData"
+
+    def __init__(self, data: "CATData") -> None:
+        self._data = data
+
+    def create(self, algorithm: JetStreamAlgorithms) -> JetStreamAlgorithm:
+        match algorithm:
+            case JetStreamAlgorithms.ALPHA_VEL_KOCH:
+                return AlphaVelField(self._data.u_wind(), self._data.v_wind())
+            case JetStreamAlgorithms.WIND_SPEED_SCHIEMANN:
+                return WindSpeedCondSchiemann(self._data.u_wind(), self._data.v_wind())
+            case _ as unreachable:
+                assert_never(unreachable)

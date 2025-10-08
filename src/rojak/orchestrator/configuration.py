@@ -117,6 +117,11 @@ class TurbulenceDiagnostics(StrEnum):
     VORTICITY_SQUARED = "vorticity_squared"
 
 
+class JetStreamAlgorithms(StrEnum):
+    ALPHA_VEL_KOCH = "alpha_vel_koch"
+    WIND_SPEED_SCHIEMANN = "wind_speed_schiemann"
+
+
 class BaseConfigModel(BaseModel):
     @classmethod
     def from_yaml(cls, path: "Path") -> Self:
