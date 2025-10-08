@@ -52,11 +52,61 @@ class AlphaVelField(JetStreamAlgorithm):
 
 
 # Modified from: https://github.com/scikit-image/scikit-image/blob/e8a42ba85aaf5fd9322ef9ca51bc21063b22fcae/skimage/feature/peak.py#L37
-def get_peak_mask(two_dimensional_slice: NDArray[np.floating], threshold: float) -> NDArray[np.bool_]:
+def get_peak_mask(
+    two_dimensional_slice: NDArray, threshold: float, footprint: NDArray[np.bool] | None = None
+) -> NDArray[np.bool_]:
+    """
+    Find peaks from a 2D array
+
+    Args:
+        two_dimensional_slice: Array to find local maximas in
+        threshold: Minimum value of peak
+        footprint: Represents local regions within which to search for peaks at every point in the 2D array
+
+    Returns:
+        mask: NDArray[np.bool_]
+            Mask of local maxima in the input 2D array
+
+    Examples
+    --------
+
+    Modified from :func:`scikit-image:skimage.feature.peak_local_max` docs
+
+    >>> img1 = np.zeros((7, 7))
+    >>> img1[3, 4] = 1
+    >>> img1[3, 2] = 1.5
+    >>> img1
+    array([[0. , 0. , 0. , 0. , 0. , 0. , 0. ],
+           [0. , 0. , 0. , 0. , 0. , 0. , 0. ],
+           [0. , 0. , 0. , 0. , 0. , 0. , 0. ],
+           [0. , 0. , 1.5, 0. , 1. , 0. , 0. ],
+           [0. , 0. , 0. , 0. , 0. , 0. , 0. ],
+           [0. , 0. , 0. , 0. , 0. , 0. , 0. ],
+           [0. , 0. , 0. , 0. , 0. , 0. , 0. ]])
+    >>> get_peak_mask(img1, 0)
+    array([[False, False, False, False, False, False, False],
+           [False, False, False, False, False, False, False],
+           [False, False, False, False, False, False, False],
+           [False, False,  True, False,  True, False, False],
+           [False, False, False, False, False, False, False],
+           [False, False, False, False, False, False, False],
+           [False, False, False, False, False, False, False]])
+    >>> get_peak_mask(img1, 0, footprint=np.ones((5,5), dtype=np.bool_))
+    array([[False, False, False, False, False, False, False],
+           [False, False, False, False, False, False, False],
+           [False, False, False, False, False, False, False],
+           [False, False,  True, False, False, False, False],
+           [False, False, False, False, False, False, False],
+           [False, False, False, False, False, False, False],
+           [False, False, False, False, False, False, False]])
+    """
+
     assert two_dimensional_slice.ndim == 2  # noqa: PLR2004
 
-    # Footprint becomes the 8 adjacent values
-    footprint: NDArray = np.ones((3,) * 2)
+    if footprint is None:
+        # Footprint becomes the 8 adjacent values
+        footprint = np.ones((3,) * 2, dtype=np.bool_)
+
     max_regions: NDArray[np.floating] = ndi.maximum_filter(two_dimensional_slice, footprint=footprint, mode="grid-wrap")
     max_mask: NDArray[np.bool_] = two_dimensional_slice == max_regions
 
