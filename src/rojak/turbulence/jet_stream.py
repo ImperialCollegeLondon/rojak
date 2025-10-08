@@ -6,7 +6,6 @@ import scipy.ndimage as ndi
 import xarray as xr
 from numpy.typing import NDArray
 
-from rojak.core.derivatives import CartesianDimension, GradientMode, spatial_gradient
 from rojak.turbulence.calculations import wind_speed
 
 
@@ -97,23 +96,5 @@ class WindSpeedCondSchiemann(JetStreamAlgorithm):
             kwargs={"threshold": self._MINIMUM_WIND_SPEED_THRESHOLD},
         )
 
-    def _local_maxima(self) -> "xr.DataArray":
-        f_y: xr.DataArray = spatial_gradient(
-            self._wind_speed, "deg", GradientMode.GEOSPATIAL, dimension=CartesianDimension.Y
-        )["dfdy"]
-        f_yy: xr.DataArray = spatial_gradient(f_y, "deg", GradientMode.GEOSPATIAL, dimension=CartesianDimension.Y)[
-            "dfdy"
-        ]
-
-        f_p: xr.DataArray = self._wind_speed.differentiate("pressure_level")
-        f_pp: xr.DataArray = f_p.differentiate("pressure_level")
-
-        f_yp: xr.DataArray = f_y.differentiate("pressure_level")
-        determinant_hessian = f_yy * f_pp - f_yp * f_yp
-
-        # local_maxima: "xr.DataArray" = xr.ones_like(self._wind_speed, dtype="int")
-        return xr.where(((f_y == 0) & (f_p == 0) & (determinant_hessian > 0) & (f_yy < 0)), 1, 0)
-
     def identify_jet_stream(self) -> "xr.DataArray":
-        # return self._local_maxima() & (self._wind_speed >= self._MINIMUM_WIND_SPEED_THRESHOLD) & (self._u_wind >= 0)
         return self._local_maxima_skimage() & (self._u_wind >= 0)
