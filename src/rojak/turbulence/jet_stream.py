@@ -31,24 +31,24 @@ class AlphaVelField(JetStreamAlgorithm):
         assert u_wind[self._pressure_coord_name].units == "hPa", "Pressure coordinate must be in hPa"
         self._wind_speed = wind_speed(u_wind, v_wind)
 
-    def identify_jet_stream(self) -> "xr.DataArray":
+    def _alpha_vel_field(self) -> xr.DataArray:
         diff_on_pressure: xr.DataArray = self._wind_speed[self._pressure_coord_name].diff(self._pressure_coord_name)
-        is_decreasing: float
+        is_increasing: float
         if (diff_on_pressure < 0).all():
-            is_decreasing = 1
+            is_increasing = -1
         elif (diff_on_pressure > 0).all():
-            is_decreasing = -1  # increasing => 100 to 400 => from sky to ground so flip integral sign
+            is_increasing = 1  # increasing => 100 to 400 => same convention as paper and velocities are positive
         else:
             raise ValueError("Pressure levels must be strictly decreasing or increasing")
 
         max_pressure_diff: NDArray = np.abs(
             (self._wind_speed[self._pressure_coord_name][0] - self._wind_speed[self._pressure_coord_name][-1]).values
         )
-        alpha_vel: xr.DataArray = (
-            (1 / max_pressure_diff) * is_decreasing * self._wind_speed.integrate(self._pressure_coord_name)
-        )  # pyright: ignore [reportAssignmentType]
 
-        return alpha_vel > self._ALPHA_VEL_THRESHOLD
+        return (1 / max_pressure_diff) * is_increasing * self._wind_speed.integrate(self._pressure_coord_name)  # pyright: ignore[reportReturnType]
+
+    def identify_jet_stream(self) -> "xr.DataArray":
+        return self._alpha_vel_field() > self._ALPHA_VEL_THRESHOLD
 
 
 # Modified from: https://github.com/scikit-image/scikit-image/blob/e8a42ba85aaf5fd9322ef9ca51bc21063b22fcae/skimage/feature/peak.py#L37
