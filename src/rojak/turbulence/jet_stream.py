@@ -111,7 +111,8 @@ def get_peak_mask(
         # Footprint becomes the 8 adjacent values
         footprint = np.ones((3,) * 2, dtype=np.bool_)
 
-    max_regions: NDArray[np.floating] = ndi.maximum_filter(two_dimensional_slice, footprint=footprint, mode="grid-wrap")
+    # Mode should not be wrapped for a latitude-pressure level slice, only longitude should be wrapped
+    max_regions: NDArray[np.floating] = ndi.maximum_filter(two_dimensional_slice, footprint=footprint, mode="nearest")
     max_mask: NDArray[np.bool_] = two_dimensional_slice == max_regions
 
     if np.all(max_mask):  # no peaks identified as everything is a peak
