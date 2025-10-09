@@ -52,7 +52,11 @@ class AlphaVelField(JetStreamAlgorithm):
             (self._wind_speed[self._pressure_coord_name][0] - self._wind_speed[self._pressure_coord_name][-1]).values
         )
 
-        return (1 / max_pressure_diff) * is_increasing * self._wind_speed.integrate(self._pressure_coord_name)  # pyright: ignore[reportReturnType]
+        return (
+            (1 / max_pressure_diff)
+            * is_increasing
+            * self._wind_speed.integrate(self._pressure_coord_name).rename("alpha_vel")
+        )  # pyright: ignore[reportReturnType]
 
     def identify_jet_stream(self) -> "xr.DataArray":
         return self._alpha_vel_field() > self._ALPHA_VEL_THRESHOLD
@@ -155,7 +159,7 @@ class WindSpeedCondSchiemann(JetStreamAlgorithm):
         )
 
     def identify_jet_stream(self) -> "xr.DataArray":
-        return self._local_maxima() & (self._u_wind >= 0)
+        return (self._local_maxima() & (self._u_wind >= 0)).rename("jet_stream_schiemann")
 
 
 class JetStreamAlgorithmFactory:
