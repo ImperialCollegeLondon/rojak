@@ -17,6 +17,9 @@ class JetStreamAlgorithm(ABC):
     @abstractmethod
     def identify_jet_stream(self) -> "xr.DataArray": ...
 
+    def apply_jet_stream_mask_on(self, array: "xr.DataArray") -> "xr.DataArray":
+        return array.where(self.identify_jet_stream(), drop=False)
+
 
 class AlphaVelField(JetStreamAlgorithm):
     """
