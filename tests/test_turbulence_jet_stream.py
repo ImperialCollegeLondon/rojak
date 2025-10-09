@@ -35,6 +35,25 @@ class TestLocalPeakMask:
         expected[3, 3] = True
         np.testing.assert_array_equal(peak_mask, expected)
 
+    def test_adjacent_same_magnitude(self):
+        image = np.zeros((5, 5), dtype=np.uint8)
+        image[1, 1] = 10
+        image[2, 2] = 10
+        peak_mask = get_peak_mask(image, 0)
+        expected = np.zeros((5, 5), dtype=np.bool_)
+        expected[1, 1] = True
+        expected[2, 2] = True
+        np.testing.assert_array_equal(peak_mask, expected)
+
+    def test_adjacent_different_magnitude(self):
+        image = np.zeros((5, 5), dtype=np.uint8)
+        image[1, 1] = 10
+        image[2, 2] = 20
+        peak_mask = get_peak_mask(image, 0)
+        expected = np.zeros((5, 5), dtype=np.bool_)
+        expected[2, 2] = True
+        np.testing.assert_array_equal(peak_mask, expected)
+
     def test_one_point(self) -> None:
         # Modified from: https://github.com/scikit-image/scikit-image/blob/959c3b8500cb212dabf3e0ed594a8169d44a113a/tests/skimage/feature/test_peak.py#L258
         image = np.zeros((10, 20))
