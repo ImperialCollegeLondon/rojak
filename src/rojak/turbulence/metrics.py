@@ -212,7 +212,11 @@ def binary_classification_curve(
     # To reduce the data, use step_size to determine the minimum difference between two data points
     bucketed_value_indices = da.nonzero(diff_values > minimum_step_size)[0].compute_chunk_sizes()
     # ^ computing chunks here means that the subsequent dask arrays have a known number of chunks
-    threshold_indices = da.hstack((bucketed_value_indices, da.asarray([sorted_truth.size - 1]))).persist()
+    threshold_indices = (
+        da.hstack((bucketed_value_indices, da.asarray([sorted_truth.size - 1])))
+        .rechunk(sorted_truth.chunksize[0])  # pyright: ignore [reportAttributeAccessIssue]
+        .persist()
+    )
 
     true_positive = da.cumsum(sorted_truth)[threshold_indices].persist()
     # Magical equation from scikit-learn which means another cumsum is avoided
