@@ -493,6 +493,16 @@ def confusion_matrix(truth: da.Array, prediction: da.Array) -> "NDArray":
     return matrix.todense()
 
 
+def _populate_confusion_matrix(
+    truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
+) -> "NDArray":
+    if confuse_matrix is None:
+        if truth is None or prediction is None:
+            raise ValueError("If confusion matrix is None, must provide truth and prediction")
+        return confusion_matrix(truth, prediction)
+    return confuse_matrix
+
+
 def matthew_corrcoef(
     truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
 ) -> float:
@@ -524,11 +534,7 @@ def matthew_corrcoef(
     .. _Matthew's Correlation Coefficient: https://en.wikipedia.org/wiki/Phi_coefficient#Example
 
     """
-    if confuse_matrix is None:
-        if truth is None or prediction is None:
-            raise ValueError("If confusion matrix is None, must provide truth and prediction")
-        confuse_matrix = confusion_matrix(truth, prediction)
-
+    confuse_matrix = _populate_confusion_matrix(truth, prediction, confuse_matrix)
     tn, fp, fn, tp = confuse_matrix.ravel().tolist()
     numerator = tp * tn - fp * fn
     denominator = np.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
