@@ -22,10 +22,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple
 
 import dask.array as da
 import dask_geopandas as dgpd
-import distributed
 import numpy as np
 import xarray as xr
-from dask.base import is_dask_collection
 
 from rojak.core import derivatives
 from rojak.core.calculations import pressure_to_altitude_icao
@@ -40,7 +38,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     import dask.dataframe as dd
-    from distributed import Future
     from shapely.geometry import Polygon
 
     from rojak.orchestrator.configuration import SpatialDomain
@@ -172,11 +169,6 @@ class CATData(CATPrognosticData):
     def velocity_derivatives(self) -> dict[VelocityDerivative, xr.DataArray]:
         if self._velocity_derivatives is None:
             self._velocity_derivatives = derivatives.vector_derivatives(self.u_wind(), self.v_wind(), "deg")
-            if is_dask_collection(self.u_wind()):
-                futures: list[Future] = []
-                for derivative in self._velocity_derivatives.values():
-                    futures.extend(distributed.futures_of(derivative.persist()))
-                distributed.wait(futures)
         return self._velocity_derivatives
 
     def specific_velocity_derivative(self, target_derivative: VelocityDerivative) -> xr.DataArray:
