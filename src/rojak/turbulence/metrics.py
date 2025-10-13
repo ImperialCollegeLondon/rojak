@@ -491,3 +491,46 @@ def confusion_matrix(truth: da.Array, prediction: da.Array) -> "NDArray":
     matrix: COO = COO((truth, prediction), sample_weights, shape=(2, 2))
 
     return matrix.todense()
+
+
+def matthew_corrcoef(
+    truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
+) -> float:
+    """
+    Compute the Matthew's Correlation Coefficient
+
+    Args:
+        truth: dask array of shape (n_samples,)
+            Ground truth (correct) target values.
+        prediction: dask array of shape (n_samples,)
+            Estimated targets as returned by a classifier.
+        confuse_matrix: Numpy array of shape (2, 2)
+            Result from computing the confusion matrix using :func:`confusion_matrix`.
+            If this is ``None``, then the result is computed using :func:`confusion_matrix` using ``truth`` and
+            ``prediction``.
+
+    Returns:
+
+    Examples
+    --------
+
+    Example from Wikipedia page on `Matthew's Correlation Coefficient`_
+
+    >>> actual = da.asarray([1,1,1,1,1,1,1,1,0,0,0,0])
+    >>> pred = da.asarray([0,0,1,1,1,1,1,1,0,0,0,1])
+    >>> float(matthew_corrcoef(truth=actual, prediction=pred))
+    0.478
+
+    .. _Matthew's Correlation Coefficient: https://en.wikipedia.org/wiki/Phi_coefficient#Example
+
+    """
+    if confuse_matrix is None:
+        if truth is None or prediction is None:
+            raise ValueError("If confusion matrix is None, must provide truth and prediction")
+        confuse_matrix = confusion_matrix(truth, prediction)
+
+    tn, fp, fn, tp = confuse_matrix.ravel().tolist()
+    numerator = tp * tn - fp * fn
+    denominator = np.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
+
+    return numerator / denominator
