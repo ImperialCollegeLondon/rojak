@@ -21,6 +21,7 @@ import pandas as pd
 import xarray as xr
 from dask.base import is_dask_collection
 from scipy import integrate
+from sparse import COO
 
 from rojak.utilities.types import is_dask_array, is_np_array, is_xr_data_array
 
@@ -433,3 +434,60 @@ def true_skill_score(roc_curve: BinaryClassificationResult) -> da.Array:
     sensitivity = roc_curve.true_positives
     specificity = roc_curve.false_positives
     return sensitivity + specificity - 1
+
+
+def _check_array_is_boolean(array: da.Array) -> None:
+    assert is_dask_collection(array)
+    if array.dtype != bool and not da.isin(array, [0, 1]).all().compute():
+        raise ValueError("Array must be boolean")
+
+
+# Modified from: https://github.com/scikit-learn/scikit-learn/blob/c60dae20604f8b9e585fc18a8fa0e0fb50712179/sklearn/metrics/_classification.py#L371
+def confusion_matrix(truth: da.Array, prediction: da.Array) -> "NDArray":
+    """
+    Compute the confusion matrix
+
+    This is a simplified dask-friendly implementation of :func:`scikit-learn:sklearn.metrics.confusion_matrix` for the
+    binary classification problem.
+
+    Args:
+        truth: dask array of shape (n_samples,)
+            Ground truth (correct) target values.
+        prediction: dask array of shape (n_samples,)
+            Estimated targets as returned by a classifier.
+
+    Returns:
+        Confusion matrix in the order of (tn, fp, fn, tp)
+
+    Examples
+    --------
+
+    This example is modified from the docstring of :func:`scikit-learn:sklearn.metrics.confusion_matrix`
+
+    >>> y_true = da.asarray([0, 1, 0, 1])
+    >>> y_pred = da.asarray([1, 1, 1, 0])
+    >>> tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel().tolist()
+    >>> (tn, fp, fn, tp)
+    (0, 2, 1, 1)
+
+    This example is modified from the user guide `documentation on confusion matrix`_:
+
+    >>> x_true = da.asarray([0, 0, 0, 1, 1, 1, 1, 1])
+    >>> x_pred = da.asarray([0, 1, 0, 1, 0, 1, 0, 1])
+    >>> tn, fp, fn, tp = confusion_matrix(x_true, x_pred).ravel().tolist()
+    >>> tn, fp, fn, tp
+    (2, 1, 2, 3)
+
+    .. _documentation on confusion matrix: https://scikit-learn.org/stable/modules/model_evaluation.html#confusion-matrix
+
+    """
+    if truth.ndim != 1 or prediction.ndim != 1:
+        raise ValueError("truth and prediction must be 1D")
+
+    _check_array_is_boolean(truth)
+    _check_array_is_boolean(prediction)
+
+    sample_weights: da.Array = da.ones(truth.shape[0], dtype=np.int_)
+    matrix: COO = COO((truth, prediction), sample_weights, shape=(2, 2))
+
+    return matrix.todense()
