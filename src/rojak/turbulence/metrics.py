@@ -540,3 +540,96 @@ def matthew_corrcoef(
     denominator = np.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
 
     return numerator / denominator
+
+
+def critical_success_index(
+    truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
+) -> float:
+    """
+    Compute the Critical Success Index (CSI) or the Jaccard Similarity Coefficient Score
+
+    Args:
+        truth:
+        prediction:
+        confuse_matrix:
+
+    Returns:
+
+    Examples
+    --------
+
+    >>> y_true = da.asarray([0, 1, 1])
+    >>> y_pred = da.asarray([1, 1, 1])
+    >>> critical_success_index(truth=y_true, prediction=y_pred)
+    0.666
+
+    """
+    confuse_matrix = _populate_confusion_matrix(truth, prediction, confuse_matrix)
+    _, fp, fn, tp = confuse_matrix.ravel().tolist()
+
+    return tp / (tp + fn + fp)
+
+
+def gilbert_skill_score(
+    truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
+) -> float:
+    """
+    Compute the Gilbt Skill Score
+
+    Args:
+        truth:
+        prediction:
+        confuse_matrix:
+
+    Returns:
+
+    Examples
+    --------
+
+    >>> y_true = da.asarray([0, 1, 1, 1])
+    >>> y_pred = da.asarray([1, 1, 1, 0])
+    >>> gilbert_skill_score(truth=y_true, prediction=y_pred)
+    -0.1429
+
+    """
+    confuse_matrix = _populate_confusion_matrix(truth, prediction, confuse_matrix)
+    tn, fp, fn, tp = confuse_matrix.ravel().tolist()
+
+    n_samples: float = tn + fp + fn + tp
+    chance_hits: float = ((tp + fp) * (tp + fn)) / n_samples
+
+    numerator: float = tp - chance_hits
+    denominator: float = tp + fp + fn - chance_hits
+
+    return numerator / denominator
+
+
+def accuracy(
+    truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
+) -> float:
+    """
+    Compute the Accuracy (ACC)
+
+    Args:
+        truth:
+        prediction:
+        confuse_matrix:
+
+    Returns:
+
+    Examples
+    --------
+
+    >>> y_true = da.asarray([0, 1, 1, 1])
+    >>> y_pred = da.ones_like(y_true)
+    >>> accuracy(truth=y_true, prediction=y_pred)
+    0.75
+
+    """
+    confuse_matrix = _populate_confusion_matrix(truth, prediction, confuse_matrix)
+    tn, fp, fn, tp = confuse_matrix.ravel().tolist()
+
+    real_positives: float = tp + fn
+    real_negatives: float = fp + tn
+
+    return (tp + tn) / (real_positives + real_negatives)
