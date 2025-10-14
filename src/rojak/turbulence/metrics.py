@@ -75,9 +75,9 @@ def received_operating_characteristic(
     >>> y = da.asarray(y[decrease_idx])
     >>> roc = received_operating_characteristic(y, scores, positive_classification_label=2)
     >>> roc
-    BinaryClassificationResult(false_positives=dask.array<truediv, shape=(5,), dtype=float64, chunksize=(3,),
-    chunktype=numpy.ndarray>, true_positives=dask.array<truediv, shape=(5,), dtype=float64, chunksize=(3,),
-    chunktype=numpy.ndarray>, thresholds=dask.array<concatenate, shape=(5,), dtype=float64, chunksize=(3,),
+    BinaryClassificationResult(false_positives=dask.array<truediv, shape=(5,), dtype=float64, chunksize=(4,),
+    chunktype=numpy.ndarray>, true_positives=dask.array<truediv, shape=(5,), dtype=float64, chunksize=(4,),
+    chunktype=numpy.ndarray>, thresholds=dask.array<concatenate, shape=(5,), dtype=float64, chunksize=(4,),
     chunktype=numpy.ndarray>)
     >>> roc.false_positives.compute()
     array([0. , 0. , 0.5, 0.5, 1. ])
@@ -167,10 +167,10 @@ def binary_classification_curve(
 
     >>> classification = binary_classification_curve(y, scores, positive_classification_label=2)
     >>> classification
-    BinaryClassificationResult(false_positives=dask.array<sub, shape=(4,), dtype=int64, chunksize=(3,),
+    BinaryClassificationResult(false_positives=dask.array<sub, shape=(4,), dtype=int64, chunksize=(4,),
     chunktype=numpy.ndarray>, true_positives=dask.array<slice_with_int_dask_array_aggregate, shape=(4,), dtype=int64,
-    chunksize=(3,), chunktype=numpy.ndarray>, thresholds=dask.array<slice_with_int_dask_array_aggregate, shape=(4,),
-    dtype=float64, chunksize=(3,), chunktype=numpy.ndarray>)
+    chunksize=(4,), chunktype=numpy.ndarray>, thresholds=dask.array<slice_with_int_dask_array_aggregate, shape=(4,),
+    dtype=float64, chunksize=(4,), chunktype=numpy.ndarray>)
 
 
     The method returns a named tuple :py:class:`BinaryClassificationResult` containing `dask.array.Array`. To get the
