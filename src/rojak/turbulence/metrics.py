@@ -436,6 +436,41 @@ def true_skill_score(roc_curve: BinaryClassificationResult) -> da.Array:
     return sensitivity + specificity - 1
 
 
+def mean_absolute_error(truth: da.Array, prediction: da.Array) -> float:
+    """
+    Mean Absolute Error (MAE)
+
+    .. math::
+        MAE(y, \\hat{y}) = \\frac{1}{n_{samples}} \\sum_{i=0}^{n_{samples} - 1} | y_i - \\hat{y_i} |
+
+    where :math:`n_{samples}` is the number of samples, :math:`y_i` is the truth value and :math:`\\hat{y_i}` is the
+    corresponding predicted value.
+
+
+    Args:
+        truth:
+        prediction:
+
+    Returns:
+
+    Examples
+    --------
+
+    This example is modified from the scikit-learn's `user guide on MAE`_
+
+    >>> y_true = da.asarray([3, -0.5, 2, 7])
+    >>> y_pred = da.asarray([2.5, 0.0, 2, 8])
+    >>> float(mean_absolute_error(y_true, y_pred).compute())
+    0.5
+
+    .. _user guide on MAE: https://scikit-learn.org/stable/modules/model_evaluation.html#mean-absolute-error
+
+    """
+    assert truth.ndim == 1
+    assert prediction.ndim == 1
+    return da.mean(da.abs(truth - prediction))
+
+
 def _check_array_is_boolean(array: da.Array) -> None:
     assert is_dask_collection(array)
     if array.dtype != bool and not da.isin(array, [0, 1]).all().compute():
