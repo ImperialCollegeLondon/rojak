@@ -668,3 +668,30 @@ def accuracy(
     real_negatives: float = fp + tn
 
     return (tp + tn) / (real_positives + real_negatives)
+
+
+def f1_score(
+    truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
+) -> float:
+    """
+    Compute the F1 Score
+
+    Args:
+        truth:
+        prediction:
+        confuse_matrix:
+
+    Returns:
+
+    Examples
+    --------
+
+    >>> y_pred = da.asarray([0, 1, 0, 0])
+    >>> y_true = da.asarray([0, 1, 0, 1])
+    >>> f1_score(truth=y_true, prediction=y_pred)
+    0.666
+
+    """
+    confuse_matrix = _populate_confusion_matrix(truth, prediction, confuse_matrix)
+    _, fp, fn, tp = confuse_matrix.ravel().tolist()
+    return 2 * tp / (2 * tp + fp + fn)
