@@ -565,6 +565,8 @@ def matthew_corrcoef(
     >>> pred = da.asarray([0,0,1,1,1,1,1,1,0,0,0,1])
     >>> float(matthew_corrcoef(truth=actual, prediction=pred))
     0.478
+    >>> float(matthew_corrcoef(confuse_matrix=confusion_matrix(actual, pred)))
+    0.478
 
     .. _Matthew's Correlation Coefficient: https://en.wikipedia.org/wiki/Phi_coefficient#Example
 
