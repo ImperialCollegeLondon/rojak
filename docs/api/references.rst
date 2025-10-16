@@ -29,15 +29,15 @@ References
 
 .. [Bechtold2021] Bechtold, P., Bramberger, M., Dörnbrack, A., Isaken, L., & Leutbecher, M. (2021). Experimenting with a Clear Air Turbulence (CAT) Index from the IFS (Technical memorandum No. 874). European Centre for Medium-Range Weather Forecasts (ECMWF). Retrieved from https://www.ecmwf.int/en/elibrary/81205-experimenting-clear-air-turbulence-cat-index-ifs
 
-.. [Ellrod1992] Ellrod, G. P., & Knapp, D. I. (1992). An Objective Clear-Air Turbulence Forecasting Technique: Verification and Operational Use. Weather and Forecasting, 7(1), 150–165. https://doi.org/10.1175/1520-0434(1992)007<0150:AOCATF>2.0.CO;2
+.. [Ellrod1992] Ellrod, G. P., & Knapp, D. I. (1992). An Objective Clear-Air Turbulence Forecasting Technique: Verification and Operational Use. Weather and Forecasting, 7(1), 150–165. `<https://doi.org/10.1175/1520-0434(1992)007\<0150:AOCATF\>2.0.CO;2>`_
 
-.. [Mancuso1966] Mancuso, R. L., & Endlich, R. M. (1966). Clear Air Turbulence Frequency as a Function of Wind Shear and Deformation. Monthly Weather Review, 94(9), 581–585. https://doi.org/10.1175/1520-0493(1966)094<0581:CATFAA>2.3.CO;2
+.. [Mancuso1966] Mancuso, R. L., & Endlich, R. M. (1966). Clear Air Turbulence Frequency as a Function of Wind Shear and Deformation. Monthly Weather Review, 94(9), 581–585. `<https://doi.org/10.1175/1520-0493(1966)094\<0581:CATFAA\>2.3.CO;2>`_
 
-.. [Knox2016] Knox, J. A., Black, A. W., Rackley, J. A., Wilson, E., Grant, J. S., Phelps, S. P., et al. (2016). Automated Turbulence Forecasting Strategies. In Aviation Turbulence: Processes, Detection, Prediction (pp. 243–260). Cham, SWITZERLAND: Springer International Publishing AG. Retrieved from http://ebookcentral.proquest.com/lib/imperial/detail.action?docID=4572260
+.. [Knox2016] Knox, J. A., Black, A. W., Rackley, J. A., Wilson, E., Grant, J. S., Phelps, S. P., et al. (2016). Automated Turbulence Forecasting Strategies. In Aviation Turbulence: Processes, Detection, Prediction (pp. 243–260). Cham, SWITZERLAND: Springer International Publishing AG.
 
 .. [Knox2001] Knox, J. A. (2001). The breakdown of balance in low potential vorticity regions: Evidence from a clear air turbulence outbreak. Presented at the 13th Conference on Atmospheric and Oceanic Fluid Dynamics, AMS. Retrieved from https://ams.confex.com/ams/13FLUID/webprogram/Paper21099.html
 
-.. [Endlich1964] Endlich, R. M. (1964). The Mesoscale Structure of Some Regions of Clear-Air Turbulence. Journal of Applied Meteorology and Climatology, 3(3), 261–276. https://doi.org/10.1175/1520-0450(1964)003<0261:TMSOSR>2.0.CO;2
+.. [Endlich1964] Endlich, R. M. (1964). The Mesoscale Structure of Some Regions of Clear-Air Turbulence. Journal of Applied Meteorology and Climatology, 3(3), 261–276. `<https://doi.org/10.1175/1520-0450(1964)003\<0261:TMSOSR\>2.0.CO;2>`_
 
 .. [Colson1965] Colson, D., & Panofsky, H. A. (1965). An index of clear air turbulence. Quarterly Journal of the Royal Meteorological Society, 91(390), 507–513. https://doi.org/10.1002/qj.49709139010
 

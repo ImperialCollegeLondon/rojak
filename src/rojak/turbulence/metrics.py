@@ -21,6 +21,7 @@ import pandas as pd
 import xarray as xr
 from dask.base import is_dask_collection
 from scipy import integrate
+from sparse import COO
 
 from rojak.utilities.types import is_dask_array, is_np_array, is_xr_data_array
 
@@ -401,16 +402,323 @@ def area_under_curve(
     return _serial_area_under_curve(x_values, y_values)
 
 
-def _check_roc_curve_input_validity(roc_curve: BinaryClassificationResult) -> None:
-    if roc_curve.true_positives[0] != 0 or roc_curve.false_positives[0] != 0:
-        raise ValueError("First value of POD and POFD must be 0")
-    if da.max(roc_curve.true_positives).compute() > 1:
-        raise ValueError("Maximum value of POD must be less than or equal to 1")
-    if da.min(roc_curve.true_positives).compute() < 0:
-        raise ValueError("Minimum value of POD must be greater than or equal to 0")
+def mean_absolute_error(truth: da.Array, prediction: da.Array) -> float:
+    """
+    Mean Absolute Error (MAE)
+
+    .. math::
+        MAE(y, \\hat{y}) = \\frac{1}{n_{samples}} \\sum_{i=0}^{n_{samples} - 1} | y_i - \\hat{y_i} |
+
+    where :math:`n_{samples}` is the number of samples, :math:`y_i` is the truth value and :math:`\\hat{y_i}` is the
+    corresponding predicted value.
 
 
-def true_skill_score(roc_curve: BinaryClassificationResult) -> da.Array:
+    Args:
+        truth:
+        prediction:
+
+    Returns:
+
+    Examples
+    --------
+
+    This example is modified from the scikit-learn's `user guide on MAE`_
+
+    >>> y_true = da.asarray([3, -0.5, 2, 7])
+    >>> y_pred = da.asarray([2.5, 0.0, 2, 8])
+    >>> float(mean_absolute_error(y_true, y_pred).compute())
+    0.5
+
+    .. _user guide on MAE: https://scikit-learn.org/stable/modules/model_evaluation.html#mean-absolute-error
+
+    """
+    assert truth.ndim == 1
+    assert prediction.ndim == 1
+    return da.mean(da.abs(truth - prediction))
+
+
+def _check_array_is_boolean(array: da.Array) -> None:
+    assert is_dask_collection(array)
+    if array.dtype != bool and not da.isin(array, [0, 1]).all().compute():
+        raise ValueError("Array must be boolean")
+
+
+# Modified from: https://github.com/scikit-learn/scikit-learn/blob/c60dae20604f8b9e585fc18a8fa0e0fb50712179/sklearn/metrics/_classification.py#L371
+def confusion_matrix(truth: da.Array, prediction: da.Array) -> "NDArray":
+    """
+    Compute the confusion matrix
+
+    This is a simplified dask-friendly implementation of :func:`scikit-learn:sklearn.metrics.confusion_matrix` for the
+    binary classification problem.
+
+    Args:
+        truth: dask array of shape (n_samples,)
+            Ground truth (correct) target values.
+        prediction: dask array of shape (n_samples,)
+            Estimated targets as returned by a classifier.
+
+    Returns:
+        Confusion matrix in the order of (tn, fp, fn, tp)
+
+    Examples
+    --------
+
+    This example is modified from the docstring of :func:`scikit-learn:sklearn.metrics.confusion_matrix`
+
+    >>> y_true = da.asarray([0, 1, 0, 1])
+    >>> y_pred = da.asarray([1, 1, 1, 0])
+    >>> tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel().tolist()
+    >>> (tn, fp, fn, tp)
+    (0, 2, 1, 1)
+
+    This example is modified from the user guide `documentation on confusion matrix`_:
+
+    >>> x_true = da.asarray([0, 0, 0, 1, 1, 1, 1, 1])
+    >>> x_pred = da.asarray([0, 1, 0, 1, 0, 1, 0, 1])
+    >>> tn, fp, fn, tp = confusion_matrix(x_true, x_pred).ravel().tolist()
+    >>> tn, fp, fn, tp
+    (2, 1, 2, 3)
+
+    .. _documentation on confusion matrix: https://scikit-learn.org/stable/modules/model_evaluation.html#confusion-matrix
+
+    """
+    if truth.ndim != 1 or prediction.ndim != 1:
+        raise ValueError("truth and prediction must be 1D")
+
+    _check_array_is_boolean(truth)
+    _check_array_is_boolean(prediction)
+
+    sample_weights: da.Array = da.ones(truth.shape[0], dtype=np.int_)
+    matrix: COO = COO((truth, prediction), sample_weights, shape=(2, 2))
+
+    return matrix.todense()
+
+
+def _populate_confusion_matrix(
+    truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
+) -> "NDArray":
+    if confuse_matrix is None:
+        if truth is None or prediction is None:
+            raise ValueError("If confusion matrix is None, must provide truth and prediction")
+        return confusion_matrix(truth, prediction)
+    return confuse_matrix
+
+
+def matthew_corrcoef(
+    truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
+) -> float:
+    """
+    Compute the Matthew's Correlation Coefficient
+
+    Args:
+        truth: dask array of shape (n_samples,)
+            Ground truth (correct) target values.
+        prediction: dask array of shape (n_samples,)
+            Estimated targets as returned by a classifier.
+        confuse_matrix: Numpy array of shape (2, 2)
+            Result from computing the confusion matrix using :func:`confusion_matrix`.
+            If this is ``None``, then the result is computed using :func:`confusion_matrix` using ``truth`` and
+            ``prediction``.
+
+    Returns:
+
+    Examples
+    --------
+
+    Example from Wikipedia page on `Matthew's Correlation Coefficient`_
+
+    >>> actual = da.asarray([1,1,1,1,1,1,1,1,0,0,0,0])
+    >>> pred = da.asarray([0,0,1,1,1,1,1,1,0,0,0,1])
+    >>> float(matthew_corrcoef(truth=actual, prediction=pred))
+    0.478
+    >>> float(matthew_corrcoef(confuse_matrix=confusion_matrix(actual, pred)))
+    0.478
+
+    .. _Matthew's Correlation Coefficient: https://en.wikipedia.org/wiki/Phi_coefficient#Example
+
+    """
+    confuse_matrix = _populate_confusion_matrix(truth, prediction, confuse_matrix)
+    tn, fp, fn, tp = confuse_matrix.ravel().tolist()
+    numerator = tp * tn - fp * fn
+    denominator = np.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
+
+    return numerator / denominator
+
+
+def critical_success_index(
+    truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
+) -> float:
+    """
+    Compute the Critical Success Index (CSI) or the Jaccard Similarity Coefficient Score
+
+    Args:
+        truth:
+        prediction:
+        confuse_matrix:
+
+    Returns:
+
+    Examples
+    --------
+
+    >>> y_true = da.asarray([0, 1, 1])
+    >>> y_pred = da.asarray([1, 1, 1])
+    >>> critical_success_index(truth=y_true, prediction=y_pred)
+    0.666
+
+    """
+    confuse_matrix = _populate_confusion_matrix(truth, prediction, confuse_matrix)
+    _, fp, fn, tp = confuse_matrix.ravel().tolist()
+
+    return tp / (tp + fn + fp)
+
+
+def gilbert_skill_score(
+    truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
+) -> float:
+    """
+    Compute the Gilbt Skill Score
+
+    Args:
+        truth:
+        prediction:
+        confuse_matrix:
+
+    Returns:
+
+    Examples
+    --------
+
+    >>> y_true = da.asarray([0, 1, 1, 1])
+    >>> y_pred = da.asarray([1, 1, 1, 0])
+    >>> gilbert_skill_score(truth=y_true, prediction=y_pred)
+    -0.1429
+
+    """
+    confuse_matrix = _populate_confusion_matrix(truth, prediction, confuse_matrix)
+    tn, fp, fn, tp = confuse_matrix.ravel().tolist()
+
+    n_samples: float = tn + fp + fn + tp
+    chance_hits: float = ((tp + fp) * (tp + fn)) / n_samples
+
+    numerator: float = tp - chance_hits
+    denominator: float = tp + fp + fn - chance_hits
+
+    return numerator / denominator
+
+
+def accuracy(
+    truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
+) -> float:
+    """
+    Compute the Accuracy (ACC)
+
+    Args:
+        truth:
+        prediction:
+        confuse_matrix:
+
+    Returns:
+
+    Examples
+    --------
+
+    >>> y_true = da.asarray([0, 1, 1, 1])
+    >>> y_pred = da.ones_like(y_true)
+    >>> accuracy(truth=y_true, prediction=y_pred)
+    0.75
+
+    """
+    confuse_matrix = _populate_confusion_matrix(truth, prediction, confuse_matrix)
+    tn, fp, fn, tp = confuse_matrix.ravel().tolist()
+
+    real_positives: float = tp + fn
+    real_negatives: float = fp + tn
+
+    return (tp + tn) / (real_positives + real_negatives)
+
+
+def f1_score(
+    truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
+) -> float:
+    """
+    Compute the F1 Score
+
+    Args:
+        truth:
+        prediction:
+        confuse_matrix:
+
+    Returns:
+
+    Examples
+    --------
+
+    >>> y_pred = da.asarray([0, 1, 0, 0])
+    >>> y_true = da.asarray([0, 1, 0, 1])
+    >>> f1_score(truth=y_true, prediction=y_pred)
+    0.666
+
+    """
+    confuse_matrix = _populate_confusion_matrix(truth, prediction, confuse_matrix)
+    _, fp, fn, tp = confuse_matrix.ravel().tolist()
+    return 2 * tp / (2 * tp + fp + fn)
+
+
+def sensitivity(true_positive: float, false_negative: float) -> float:
+    """
+    Sensitivity statistical metric
+
+    Args:
+        true_positive:
+        false_negative:
+
+    Returns:
+
+    Examples
+    --------
+
+    From worked example on `Wikipedia`_:
+
+    >>> sensitivity(20, 10)
+    0.667
+
+    .. _Wikipedia: https://en.wikipedia.org/wiki/Sensitivity_and_specificity#Confusion_matrix
+
+    """
+    assert true_positive >= 0
+    assert false_negative >= 0
+    return true_positive / (true_positive + false_negative)
+
+
+def specificity(true_negative: float, false_positive: float) -> float:
+    """
+    Specificity statistical metric
+    Args:
+        true_negative:
+        false_positive:
+
+    Returns:
+
+    Examples
+    --------
+
+    From worked example on `Wikipedia`_:
+
+    >>> specificity(1820, 180)
+    0.91
+
+    .. _Wikipedia: https://en.wikipedia.org/wiki/Sensitivity_and_specificity#Confusion_matrix
+
+    """
+    assert true_negative >= 0
+    assert false_positive >= 0
+    return true_negative / (true_negative + false_positive)
+
+
+def true_skill_score(
+    truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
+) -> float:
     """
     True Skill Score (TSS) statistic
 
@@ -428,8 +736,7 @@ def true_skill_score(roc_curve: BinaryClassificationResult) -> da.Array:
     This is also the definition used in [Sharman2006]_
 
     """
-    _check_roc_curve_input_validity(roc_curve)
+    confuse_matrix = _populate_confusion_matrix(truth, prediction, confuse_matrix)
+    tn, fp, fn, tp = confuse_matrix.ravel().tolist()
 
-    sensitivity = roc_curve.true_positives
-    specificity = roc_curve.false_positives
-    return sensitivity + specificity - 1
+    return sensitivity(tp, fn) + specificity(tn, fp) - 1
