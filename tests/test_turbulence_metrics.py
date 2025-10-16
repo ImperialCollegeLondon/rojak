@@ -17,7 +17,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from rojak.turbulence.metrics import binary_classification_rate_from_cumsum, received_operating_characteristic
+from rojak.turbulence.metrics import (
+    _populate_confusion_matrix,
+    binary_classification_rate_from_cumsum,
+    confusion_matrix,
+    received_operating_characteristic,
+)
 
 
 @pytest.mark.parametrize("as_pandas", [True, False])
@@ -48,3 +53,17 @@ def test_binary_classification_equiv_sklearn_example(as_pandas: bool) -> None:
 def test_binary_classification_rate_from_cumsum_fails(cumsum: np.typing.NDArray, as_pandas: bool) -> None:
     with pytest.raises(ValueError, match="must not be negative"):
         binary_classification_rate_from_cumsum(cumsum if not as_pandas else pd.Series(cumsum))
+
+
+@pytest.mark.parametrize(
+    ("truth_array", "pred_array"), [(da.eye(2), da.ones(4)), (da.ones(4), da.eye(2)), (da.eye(2), da.eye(2))]
+)
+def test_confusion_matrix_single_dim_throw_error(truth_array: da.Array, pred_array: da.Array) -> None:
+    with pytest.raises(ValueError, match="truth and prediction must be 1D"):
+        confusion_matrix(truth_array, pred_array)
+
+
+@pytest.mark.parametrize(("truth_array", "pred_array"), [(None, da.ones(2)), (da.ones(2), None)])
+def test_populate_confusion_matrix_throw_error(truth_array: da.Array | None, pred_array: da.Array | None) -> None:
+    with pytest.raises(ValueError, match="If confusion matrix is None, must provide truth and prediction"):
+        _populate_confusion_matrix(truth=truth_array, prediction=pred_array)
