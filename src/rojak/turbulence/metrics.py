@@ -402,40 +402,6 @@ def area_under_curve(
     return _serial_area_under_curve(x_values, y_values)
 
 
-def _check_roc_curve_input_validity(roc_curve: BinaryClassificationResult) -> None:
-    if roc_curve.true_positives[0] != 0 or roc_curve.false_positives[0] != 0:
-        raise ValueError("First value of POD and POFD must be 0")
-    if da.max(roc_curve.true_positives).compute() > 1:
-        raise ValueError("Maximum value of POD must be less than or equal to 1")
-    if da.min(roc_curve.true_positives).compute() < 0:
-        raise ValueError("Minimum value of POD must be greater than or equal to 0")
-
-
-def true_skill_score(roc_curve: BinaryClassificationResult) -> da.Array:
-    """
-    True Skill Score (TSS) statistic
-
-    The TSS is defined in `Wikipedia <https://en.wikipedia.org/wiki/Youden%27s_J_statistic#Definition>`__ as:
-
-    .. math::
-        \\begin{align}
-            TSS &= \\text{sensitivity} + \\text{specificity} - 1 \\
-            &= \\frac{\\text{TP}}{\\text{TP} + \\text{FP}} + \\frac{\\text{TN}}{\\text{TN} + \\text{FP}} - 1
-        \\end{align}
-
-    where :math:`TP` is the number of true positives, :math:`TN` the number of true negatives,
-    :math:`FP` the number of false positives, :math:`FN` the number of false negatives.
-
-    This is also the definition used in [Sharman2006]_
-
-    """
-    _check_roc_curve_input_validity(roc_curve)
-
-    sensitivity = roc_curve.true_positives
-    specificity = roc_curve.false_positives
-    return sensitivity + specificity - 1
-
-
 def mean_absolute_error(truth: da.Array, prediction: da.Array) -> float:
     """
     Mean Absolute Error (MAE)
@@ -697,3 +663,80 @@ def f1_score(
     confuse_matrix = _populate_confusion_matrix(truth, prediction, confuse_matrix)
     _, fp, fn, tp = confuse_matrix.ravel().tolist()
     return 2 * tp / (2 * tp + fp + fn)
+
+
+def sensitivity(true_positive: float, false_negative: float) -> float:
+    """
+    Sensitivity statistical metric
+
+    Args:
+        true_positive:
+        false_negative:
+
+    Returns:
+
+    Examples
+    --------
+
+    From worked example on `Wikipedia`_:
+
+    >>> sensitivity(20, 10)
+    0.667
+
+    .. _Wikipedia: https://en.wikipedia.org/wiki/Sensitivity_and_specificity#Confusion_matrix
+
+    """
+    assert true_positive >= 0
+    assert false_negative >= 0
+    return true_positive / (true_positive + false_negative)
+
+
+def specificity(true_negative: float, false_positive: float) -> float:
+    """
+    Specificity statistical metric
+    Args:
+        true_negative:
+        false_positive:
+
+    Returns:
+
+    Examples
+    --------
+
+    From worked example on `Wikipedia`_:
+
+    >>> specificity(1820, 180)
+    0.91
+
+    .. _Wikipedia: https://en.wikipedia.org/wiki/Sensitivity_and_specificity#Confusion_matrix
+
+    """
+    assert true_negative >= 0
+    assert false_positive >= 0
+    return true_negative / (true_negative + false_positive)
+
+
+def true_skill_score(
+    truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
+) -> float:
+    """
+    True Skill Score (TSS) statistic
+
+    The TSS is defined in `Wikipedia <https://en.wikipedia.org/wiki/Youden%27s_J_statistic#Definition>`__ as:
+
+    .. math::
+        \\begin{align}
+            TSS &= \\text{sensitivity} + \\text{specificity} - 1 \\
+            &= \\frac{\\text{TP}}{\\text{TP} + \\text{FP}} + \\frac{\\text{TN}}{\\text{TN} + \\text{FP}} - 1
+        \\end{align}
+
+    where :math:`TP` is the number of true positives, :math:`TN` the number of true negatives,
+    :math:`FP` the number of false positives, :math:`FN` the number of false negatives.
+
+    This is also the definition used in [Sharman2006]_
+
+    """
+    confuse_matrix = _populate_confusion_matrix(truth, prediction, confuse_matrix)
+    tn, fp, fn, tp = confuse_matrix.ravel().tolist()
+
+    return sensitivity(tp, fn) + specificity(tn, fp) - 1
