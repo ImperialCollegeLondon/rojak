@@ -545,6 +545,52 @@ def matthews_corr_coeff(
     return numerator / denominator
 
 
+class ContingencyTable(NamedTuple):
+    n_00: xr.DataArray
+    n_11: xr.DataArray
+    n_01: xr.DataArray
+    n_10: xr.DataArray
+
+
+def contingency_table(first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str) -> ContingencyTable:
+    """
+    Contingency Table for multidimensional arrays
+
+    Computed contingency table as defined as,
+
+    .. math::
+
+       \\begin{array}{c|c|c|c}
+           & y = 1 & y = 0 & \\text{Total} \\\\
+           \\hline
+           x = 1 & n_{11} & n_{10} & n_{1\\bullet} \\\\
+           x = 0 & n_{01} & n_{00} & n_{0\\bullet} \\\\
+           \\hline
+           \\text{Total} & n_{\\bullet1} & n_{\\bullet0} & n
+       \\end{array}
+
+    Args:
+        first_var: First binary variable
+        second_var: Second binary variable
+        sum_over: Dimension to sum over to compute the number of observations
+
+    Returns:
+        Instance of :class:`ContingencyTable`
+
+    """
+    assert set(first_var.dims) == set(second_var.dims)
+    assert sum_over in first_var.dims
+    assert first_var.dtype == second_var.dtype
+    assert first_var.dtype == np.bool_
+
+    return ContingencyTable(
+        n_11=(first_var & second_var).sum(dim=sum_over),
+        n_10=(first_var & (~second_var)).sum(dim=sum_over),
+        n_01=((~first_var) & second_var).sum(dim=sum_over),
+        n_00=(~(first_var | second_var)).sum(dim=sum_over),
+    )
+
+
 def matthews_corr_coeff_multidim(first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str) -> xr.DataArray:
     """
     Matthews Correlation Coefficient for multidimensional arrays
