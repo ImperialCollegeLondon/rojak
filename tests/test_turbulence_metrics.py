@@ -180,3 +180,11 @@ def test_jaccard_index_multidim(get_two_dummy_bool_arrays: Callable) -> None:
         jaccard_index_multidim(first_dummy, second_dummy, "time"),
         (first_dummy & second_dummy).sum(dim="time") / (first_dummy | second_dummy).sum(dim="time"),
     )
+
+
+def test_conditional_probability(get_two_dummy_bool_arrays: Callable) -> None:
+    first_dummy, second_dummy = get_two_dummy_bool_arrays()
+    table = contingency_table(first_dummy, second_dummy, "time")
+
+    np.testing.assert_array_equal(table.n_11 / (table.n_11 + table.n_10), table.n_11 / first_dummy.sum(dim="time"))
+    np.testing.assert_array_equal(table.n_11 / (table.n_11 + table.n_01), table.n_11 / second_dummy.sum(dim="time"))

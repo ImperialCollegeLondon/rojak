@@ -27,6 +27,7 @@ from pydantic.dataclasses import dataclass as pydantic_dataclass
 
 from rojak.core.analysis import PostProcessor
 from rojak.orchestrator.configuration import TurbulenceSeverity, TurbulenceThresholdMode, TurbulenceThresholds
+from rojak.turbulence.metrics import contingency_table, jaccard_index_multidim
 from rojak.utilities.types import Limits
 
 if TYPE_CHECKING:
@@ -571,3 +572,32 @@ class LatitudinalCorrelationBetweenDiagnostics(PostProcessor):
                     }
                 ] = this_correlation
         return correlations
+
+
+class RelationshipBetween(PostProcessor):
+    _this_feature: xr.DataArray
+    _other_feature: xr.DataArray
+    _sum_over_dim: str
+
+    def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dim: str = "time") -> None:
+        assert this_feature.dtype == other_feature.dtype
+        assert this_feature.dtype == np.bool_  # For now, require the two to have a boolean dtype
+        assert {"longitude", "latitude", "pressure_level", "time"}.issubset(this_feature.coords)
+        assert set(this_feature.coords).issuperset(other_feature.coords)
+
+        self._this_feature = this_feature
+        self._other_feature = other_feature
+        self._sum_over_dim = sum_over_dim
+
+    def execute(self) -> xr.DataArray: ...
+
+
+class JaccardIndex(RelationshipBetween):
+    def execute(self) -> xr.DataArray:
+        return jaccard_index_multidim(self._this_feature, self._other_feature, self._sum_over_dim)
+
+
+class ProbabilityThisGivenOther(RelationshipBetween):
+    def execute(self) -> xr.DataArray:
+        table = contingency_table(self._this_feature, self._other_feature, self._sum_over_dim)
+        return table.n_11 / (table.n_11 + table.n_10)
