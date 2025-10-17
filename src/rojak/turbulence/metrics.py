@@ -625,20 +625,13 @@ def matthews_corr_coeff_multidim(first_var: xr.DataArray, second_var: xr.DataArr
 
     .. _Wikipedia on MCC: https://en.wikipedia.org/wiki/Phi_coefficient#Definition
     """
-    assert set(first_var.dims) == set(second_var.dims)
-    assert sum_over in first_var.dims
-    assert first_var.dtype == second_var.dtype
-    assert first_var.dtype == np.bool_
-
+    table: ContingencyTable = contingency_table(first_var, second_var, sum_over)
     total_num_observations: int = first_var[sum_over].size
-    n_11: xr.DataArray = (first_var & second_var).sum(dim=sum_over)
-    n_10: xr.DataArray = (first_var & (~second_var)).sum(dim=sum_over)
-    n_01: xr.DataArray = ((~first_var) & second_var).sum(dim=sum_over)
 
-    sum_first_var_true: xr.DataArray = n_11 + n_10
-    sum_second_var_true: xr.DataArray = n_11 + n_01
+    sum_first_var_true: xr.DataArray = table.n_11 + table.n_10
+    sum_second_var_true: xr.DataArray = table.n_11 + table.n_01
 
-    numerator: xr.DataArray = total_num_observations * n_11 - sum_first_var_true * sum_second_var_true
+    numerator: xr.DataArray = total_num_observations * table.n_11 - sum_first_var_true * sum_second_var_true
     # Pyright is not aware that sqrt is DataArray ufunc
     denominator: xr.DataArray = np.sqrt(
         sum_first_var_true
