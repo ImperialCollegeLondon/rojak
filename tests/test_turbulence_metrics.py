@@ -23,7 +23,7 @@ from rojak.turbulence.metrics import (
     _populate_confusion_matrix,
     binary_classification_rate_from_cumsum,
     confusion_matrix,
-    matthew_corrcoef,
+    matthews_corr_coeff,
     matthews_corr_coeff_multidim,
     received_operating_characteristic,
 )
@@ -92,7 +92,7 @@ def test_matthews_corr_coeff_multidim_equiv_single_dim(make_dummy_cat_data: Call
             for k in range(dim_3):
                 np.testing.assert_almost_equal(
                     matthews.isel(longitude=i, latitude=j, pressure_level=k),
-                    matthew_corrcoef(
+                    matthews_corr_coeff(
                         truth=da.asarray(
                             first_dummy.isel(longitude=i, latitude=j, pressure_level=k),
                         ),

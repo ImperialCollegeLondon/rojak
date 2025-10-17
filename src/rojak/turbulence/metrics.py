@@ -504,7 +504,7 @@ def _populate_confusion_matrix(
     return confuse_matrix
 
 
-def matthew_corrcoef(
+def matthews_corr_coeff(
     truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
 ) -> float:
     """
@@ -529,9 +529,9 @@ def matthew_corrcoef(
 
     >>> actual = da.asarray([1,1,1,1,1,1,1,1,0,0,0,0])
     >>> pred = da.asarray([0,0,1,1,1,1,1,1,0,0,0,1])
-    >>> float(matthew_corrcoef(truth=actual, prediction=pred))
+    >>> float(matthews_corr_coeff(truth=actual, prediction=pred))
     0.478
-    >>> float(matthew_corrcoef(confuse_matrix=confusion_matrix(actual, pred)))
+    >>> float(matthews_corr_coeff(confuse_matrix=confusion_matrix(actual, pred)))
     0.478
 
     .. _Matthew's Correlation Coefficient: https://en.wikipedia.org/wiki/Phi_coefficient#Example
