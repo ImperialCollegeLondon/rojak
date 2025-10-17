@@ -77,10 +77,23 @@ def test_populate_confusion_matrix_throw_error(truth_array: da.Array | None, pre
         _populate_confusion_matrix(truth=truth_array, prediction=pred_array)
 
 
-def test_matthews_corr_coeff_multidim_equiv_single_dim(make_dummy_cat_data: Callable) -> None:
+@pytest.fixture
+def get_two_dummy_bool_arrays(make_dummy_cat_data: Callable) -> Callable:
     dummy_ds = make_dummy_cat_data({})
-    first_dummy: xr.DataArray = np.rint(dummy_ds.temperature)
-    second_dummy: xr.DataArray = np.rint(dummy_ds.vorticity)
+
+    def _inner(cast_to_bool: bool = True) -> "tuple[xr.DataArray, xr.DataArray]":
+        first_dummy: xr.DataArray = np.rint(dummy_ds.temperature)
+        second_dummy: xr.DataArray = np.rint(dummy_ds.vorticity)
+        if cast_to_bool:
+            first_dummy = first_dummy.astype("bool")
+            second_dummy = second_dummy.astype("bool")
+        return first_dummy, second_dummy
+
+    return _inner
+
+
+def test_matthews_corr_coeff_multidim_equiv_single_dim(get_two_dummy_bool_arrays: Callable) -> None:
+    first_dummy, second_dummy = get_two_dummy_bool_arrays(cast_to_bool=False)
 
     matthews = matthews_corr_coeff_multidim(first_dummy.astype("bool"), second_dummy.astype("bool"), "time")
     dim_1 = first_dummy["longitude"].size
@@ -102,7 +115,7 @@ def test_matthews_corr_coeff_multidim_equiv_single_dim(make_dummy_cat_data: Call
                 )
 
 
-def test_equiv_representation_of_matthews_corr_coeff(make_dummy_cat_data: Callable) -> None:
+def test_equiv_representation_of_matthews_corr_coeff(get_two_dummy_bool_arrays: Callable) -> None:
     """
     Equivalent MCC equation is from `wikipedia`_,
 
@@ -114,9 +127,7 @@ def test_equiv_representation_of_matthews_corr_coeff(make_dummy_cat_data: Callab
     .. _wikipedia: https://en.wikipedia.org/wiki/Phi_coefficient#Definition
 
     """
-    dummy_ds = make_dummy_cat_data({})
-    first_dummy: xr.DataArray = np.rint(dummy_ds.temperature).astype("bool")
-    second_dummy: xr.DataArray = np.rint(dummy_ds.vorticity).astype("bool")
+    first_dummy, second_dummy = get_two_dummy_bool_arrays()
 
     table = contingency_table(first_dummy, second_dummy, "time")
     numerator: xr.DataArray = table.n_11 * table.n_00 - table.n_10 * table.n_01
@@ -128,10 +139,8 @@ def test_equiv_representation_of_matthews_corr_coeff(make_dummy_cat_data: Callab
     np.testing.assert_array_equal(matthews_corr_coeff_multidim(first_dummy, second_dummy, "time"), other_phi)
 
 
-def test_check_equivalence_of_sum_in_either(make_dummy_cat_data: Callable) -> None:
-    dummy_ds = make_dummy_cat_data({})
-    first_dummy: xr.DataArray = np.rint(dummy_ds.temperature).astype("bool")
-    second_dummy: xr.DataArray = np.rint(dummy_ds.vorticity).astype("bool")
+def test_check_equivalence_of_sum_in_either(get_two_dummy_bool_arrays: Callable) -> None:
+    first_dummy, second_dummy = get_two_dummy_bool_arrays()
 
     n = first_dummy["time"].size
     table = contingency_table(first_dummy, second_dummy, "time")
