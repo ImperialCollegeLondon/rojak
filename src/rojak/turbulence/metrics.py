@@ -545,6 +545,44 @@ def matthew_corrcoef(
     return numerator / denominator
 
 
+def matthews_corr_coeff_multidim(first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str) -> xr.DataArray:
+    """
+    Matthews Correlation Coefficient for multidimensional arrays
+
+    Args:
+        first_var: First binary variable
+        second_var: Second binary variable
+        sum_over: Dimension to sum over to compute the number of observations
+
+    Returns:
+        Array containing Matthew's Correlation Coefficient reduced over the ``sum_over`` dimension
+
+    """
+    assert set(first_var.dims) == set(second_var.dims)
+    assert sum_over in first_var.dims
+    assert first_var.dtype == second_var.dtype
+    assert first_var.dtype == np.bool_
+
+    total_num_observations: int = first_var[sum_over].size
+    n_11: xr.DataArray = (first_var & second_var).sum(dim=sum_over)
+    n_10: xr.DataArray = (first_var & (~second_var)).sum(dim=sum_over)
+    n_01: xr.DataArray = ((~first_var) & second_var).sum(dim=sum_over)
+
+    sum_first_var_true: xr.DataArray = n_11 + n_10
+    sum_second_var_true: xr.DataArray = n_11 + n_01
+
+    numerator: xr.DataArray = total_num_observations * n_11 - sum_first_var_true * sum_second_var_true
+    # Pyright is not aware that sqrt is DataArray ufunc
+    denominator: xr.DataArray = np.sqrt(
+        sum_first_var_true
+        * sum_second_var_true
+        * (total_num_observations - sum_first_var_true)
+        * (total_num_observations - sum_second_var_true)
+    )  # pyright: ignore [reportAssignmentType]
+
+    return numerator / denominator
+
+
 def critical_success_index(
     truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
 ) -> float:

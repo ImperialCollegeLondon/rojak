@@ -11,6 +11,8 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import dask.array as da
 import numpy as np
@@ -21,8 +23,13 @@ from rojak.turbulence.metrics import (
     _populate_confusion_matrix,
     binary_classification_rate_from_cumsum,
     confusion_matrix,
+    matthew_corrcoef,
+    matthews_corr_coeff_multidim,
     received_operating_characteristic,
 )
+
+if TYPE_CHECKING:
+    import xarray as xr
 
 
 @pytest.mark.parametrize("as_pandas", [True, False])
@@ -67,3 +74,28 @@ def test_confusion_matrix_single_dim_throw_error(truth_array: da.Array, pred_arr
 def test_populate_confusion_matrix_throw_error(truth_array: da.Array | None, pred_array: da.Array | None) -> None:
     with pytest.raises(ValueError, match="If confusion matrix is None, must provide truth and prediction"):
         _populate_confusion_matrix(truth=truth_array, prediction=pred_array)
+
+
+def test_matthews_corr_coeff_multidim_equiv_single_dim(make_dummy_cat_data: Callable) -> None:
+    dummy_ds = make_dummy_cat_data({})
+    first_dummy: xr.DataArray = np.rint(dummy_ds.temperature)
+    second_dummy: xr.DataArray = np.rint(dummy_ds.vorticity)
+
+    matthews = matthews_corr_coeff_multidim(first_dummy.astype("bool"), second_dummy.astype("bool"), "time")
+    dim_1 = first_dummy["longitude"].size
+    dim_2 = first_dummy["latitude"].size
+    dim_3 = first_dummy["pressure_level"].size
+    first_dummy = first_dummy.astype("int")
+    second_dummy = second_dummy.astype("int")
+    for i in range(dim_1):
+        for j in range(dim_2):
+            for k in range(dim_3):
+                np.testing.assert_almost_equal(
+                    matthews.isel(longitude=i, latitude=j, pressure_level=k),
+                    matthew_corrcoef(
+                        truth=da.asarray(
+                            first_dummy.isel(longitude=i, latitude=j, pressure_level=k),
+                        ),
+                        prediction=da.asarray(second_dummy.isel(longitude=i, latitude=j, pressure_level=k)),
+                    ),
+                )
