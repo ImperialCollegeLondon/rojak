@@ -23,6 +23,7 @@ from rojak.turbulence.metrics import (
     _populate_confusion_matrix,
     binary_classification_rate_from_cumsum,
     confusion_matrix,
+    contingency_table,
     matthews_corr_coeff,
     matthews_corr_coeff_multidim,
     received_operating_characteristic,
@@ -99,3 +100,29 @@ def test_matthews_corr_coeff_multidim_equiv_single_dim(make_dummy_cat_data: Call
                         prediction=da.asarray(second_dummy.isel(longitude=i, latitude=j, pressure_level=k)),
                     ),
                 )
+
+
+def test_equiv_representation_of_matthews_corr_coeff(make_dummy_cat_data: Callable) -> None:
+    """
+    Equivalent MCC equation is from `wikipedia`_,
+
+    .. math::
+
+       \varphi = \frac{n_{11} n_{00} - n_{10} n_{01}}
+       {\\sqrt{n_{1\bullet} n_{0\bullet} n_{\bullet0} n_{\bullet1}}}
+
+    .. _wikipedia: https://en.wikipedia.org/wiki/Phi_coefficient#Definition
+
+    """
+    dummy_ds = make_dummy_cat_data({})
+    first_dummy: xr.DataArray = np.rint(dummy_ds.temperature).astype("bool")
+    second_dummy: xr.DataArray = np.rint(dummy_ds.vorticity).astype("bool")
+
+    table = contingency_table(first_dummy, second_dummy, "time")
+    numerator: xr.DataArray = table.n_11 * table.n_00 - table.n_10 * table.n_01
+    denominator: xr.DataArray = np.sqrt(
+        (table.n_11 + table.n_10) * (table.n_01 + table.n_00) * (table.n_11 + table.n_01) * (table.n_10 + table.n_00)
+    )  # pyright: ignore [reportAssignmentType]
+    other_phi = numerator / denominator
+
+    np.testing.assert_array_equal(matthews_corr_coeff_multidim(first_dummy, second_dummy, "time"), other_phi)
