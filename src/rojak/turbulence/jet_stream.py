@@ -64,7 +64,7 @@ class AlphaVelField(JetStreamAlgorithm):
 
 # Modified from: https://github.com/scikit-image/scikit-image/blob/e8a42ba85aaf5fd9322ef9ca51bc21063b22fcae/skimage/feature/peak.py#L37
 def get_peak_mask(
-    two_dimensional_slice: NDArray, threshold: float, footprint: NDArray[np.bool] | None = None
+    two_dimensional_slice: NDArray, threshold: float, footprint: NDArray[np.bool_] | None = None
 ) -> NDArray[np.bool_]:
     """
     Find peaks from a 2D array
