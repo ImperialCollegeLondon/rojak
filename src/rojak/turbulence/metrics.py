@@ -549,6 +549,26 @@ def matthews_corr_coeff_multidim(first_var: xr.DataArray, second_var: xr.DataArr
     """
     Matthews Correlation Coefficient for multidimensional arrays
 
+    This assumes that the inputs are binary variables such that the contingency table is as follows
+    (see `Wikipedia on MCC`_):
+
+    .. math::
+
+       \\begin{array}{c|c|c|c}
+           & y = 1 & y = 0 & \\text{Total} \\\\
+           \\hline
+           x = 1 & n_{11} & n_{10} & n_{1\\bullet} \\\\
+           x = 0 & n_{01} & n_{00} & n_{0\\bullet} \\\\
+           \\hline
+           \\text{Total} & n_{\\bullet1} & n_{\\bullet0} & n
+       \\end{array}
+
+    Such that the Matthew's Correlation Coefficient (:math:`\\varphi`) is given as,
+
+    .. math::
+       \\varphi = \\frac{n n_{11} - n_{1\\bullet} n_{\\bullet 1}}
+       {\\sqrt{n_{1\\bullet} n_{\\bullet 1} (n - n_{1\\bullet})(n - n_{\\bullet 1})}}.
+
     Args:
         first_var: First binary variable
         second_var: Second binary variable
@@ -557,6 +577,7 @@ def matthews_corr_coeff_multidim(first_var: xr.DataArray, second_var: xr.DataArr
     Returns:
         Array containing Matthew's Correlation Coefficient reduced over the ``sum_over`` dimension
 
+    .. _Wikipedia on MCC: https://en.wikipedia.org/wiki/Phi_coefficient#Definition
     """
     assert set(first_var.dims) == set(second_var.dims)
     assert sum_over in first_var.dims
