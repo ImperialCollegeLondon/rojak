@@ -24,6 +24,8 @@ from rojak.turbulence.metrics import (
     binary_classification_rate_from_cumsum,
     confusion_matrix,
     contingency_table,
+    critical_success_index,
+    jaccard_index_multidim,
     matthews_corr_coeff,
     matthews_corr_coeff_multidim,
     received_operating_characteristic,
@@ -146,3 +148,35 @@ def test_check_equivalence_of_sum_in_either(get_two_dummy_bool_arrays: Callable)
     table = contingency_table(first_dummy, second_dummy, "time")
     compute_from_or = (first_dummy | second_dummy).sum(dim="time")
     np.testing.assert_array_equal(n - table.n_00, compute_from_or)
+
+
+def test_equivalence_jaccard_index_and_critical_skill_score(get_two_dummy_bool_arrays: Callable) -> None:
+    first_dummy, second_dummy = get_two_dummy_bool_arrays(cast_to_bool=False)
+
+    jaccards = jaccard_index_multidim(first_dummy.astype("bool"), second_dummy.astype("bool"), "time")
+    dim_1 = first_dummy["longitude"].size
+    dim_2 = first_dummy["latitude"].size
+    dim_3 = first_dummy["pressure_level"].size
+    first_dummy = first_dummy.astype("int")
+    second_dummy = second_dummy.astype("int")
+    for i in range(dim_1):
+        for j in range(dim_2):
+            for k in range(dim_3):
+                np.testing.assert_almost_equal(
+                    jaccards.isel(longitude=i, latitude=j, pressure_level=k),
+                    critical_success_index(
+                        truth=da.asarray(
+                            first_dummy.isel(longitude=i, latitude=j, pressure_level=k),
+                        ),
+                        prediction=da.asarray(second_dummy.isel(longitude=i, latitude=j, pressure_level=k)),
+                    ),
+                )
+
+
+def test_jaccard_index_multidim(get_two_dummy_bool_arrays: Callable) -> None:
+    first_dummy, second_dummy = get_two_dummy_bool_arrays()
+
+    np.testing.assert_array_equal(
+        jaccard_index_multidim(first_dummy, second_dummy, "time"),
+        (first_dummy & second_dummy).sum(dim="time") / (first_dummy | second_dummy).sum(dim="time"),
+    )

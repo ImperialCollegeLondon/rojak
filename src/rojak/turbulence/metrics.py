@@ -671,6 +671,32 @@ def critical_success_index(
     return tp / (tp + fn + fp)
 
 
+def jaccard_index_multidim(first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str) -> xr.DataArray:
+    """
+    Jaccard Index or Critical Success Index for multidimensional data
+
+    From `Wikipedia`_ Jaccard Index is defined as,
+
+    .. math::
+
+       J(A, B) = \\frac{|A \\cap B|}{|A \\cup B|}
+
+    Args:
+        first_var: First binary variable
+        second_var: Second binary variable
+        sum_over: Dimension to sum over to compute the number of observations
+
+    Returns:
+        Array containing Jaccard Index or Critical Success Index
+
+    .. _Wikipedia: https://en.wikipedia.org/wiki/Jaccard_index
+
+    """
+    table: ContingencyTable = contingency_table(first_var, second_var, sum_over)
+    total_num_observations: int = first_var[sum_over].size
+    return table.n_11 / (total_num_observations - table.n_00)
+
+
 def gilbert_skill_score(
     truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
 ) -> float:
