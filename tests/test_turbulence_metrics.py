@@ -126,3 +126,14 @@ def test_equiv_representation_of_matthews_corr_coeff(make_dummy_cat_data: Callab
     other_phi = numerator / denominator
 
     np.testing.assert_array_equal(matthews_corr_coeff_multidim(first_dummy, second_dummy, "time"), other_phi)
+
+
+def test_check_equivalence_of_sum_in_either(make_dummy_cat_data: Callable) -> None:
+    dummy_ds = make_dummy_cat_data({})
+    first_dummy: xr.DataArray = np.rint(dummy_ds.temperature).astype("bool")
+    second_dummy: xr.DataArray = np.rint(dummy_ds.vorticity).astype("bool")
+
+    n = first_dummy["time"].size
+    table = contingency_table(first_dummy, second_dummy, "time")
+    compute_from_or = (first_dummy | second_dummy).sum(dim="time")
+    np.testing.assert_array_equal(n - table.n_00, compute_from_or)
