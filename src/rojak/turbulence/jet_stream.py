@@ -30,13 +30,15 @@ class AlphaVelField(JetStreamAlgorithm):
     _ALPHA_VEL_THRESHOLD: ClassVar[float] = 30  # Value from [Koch2006]_ based on systemic studies
     _pressure_coord_name: ClassVar[str] = "pressure_level"
     _wind_speed: xr.DataArray
+    _expand_to_all_levels: bool
 
-    def __init__(self, u_wind: xr.DataArray, v_wind: xr.DataArray) -> None:
+    def __init__(self, u_wind: xr.DataArray, v_wind: xr.DataArray, expand_to_all_levels: bool = True) -> None:
         assert u_wind[self._pressure_coord_name].units == v_wind[self._pressure_coord_name].units, (
             "Wind speed must have pressure coordinate in the same units"
         )
         assert u_wind[self._pressure_coord_name].units == "hPa", "Pressure coordinate must be in hPa"
         self._wind_speed = wind_speed(u_wind, v_wind)
+        self._expand_to_all_levels = expand_to_all_levels
 
     def _alpha_vel_field(self) -> xr.DataArray:
         diff_on_pressure: xr.DataArray = self._wind_speed[self._pressure_coord_name].diff(self._pressure_coord_name)
@@ -59,7 +61,15 @@ class AlphaVelField(JetStreamAlgorithm):
         )  # pyright: ignore[reportReturnType]
 
     def identify_jet_stream(self) -> "xr.DataArray":
-        return self._alpha_vel_field() > self._ALPHA_VEL_THRESHOLD
+        identified_jet_stream: xr.DataArray = self._alpha_vel_field() > self._ALPHA_VEL_THRESHOLD
+        return (
+            identified_jet_stream.expand_dims(
+                dim={self._pressure_coord_name: self._wind_speed[self._pressure_coord_name].size},
+                axis=self._wind_speed.get_axis_num(self._pressure_coord_name),
+            ).assign_coords(coords={self._pressure_coord_name: self._wind_speed[self._pressure_coord_name]})
+            if self._expand_to_all_levels
+            else identified_jet_stream
+        )
 
 
 # Modified from: https://github.com/scikit-image/scikit-image/blob/e8a42ba85aaf5fd9322ef9ca51bc21063b22fcae/skimage/feature/peak.py#L37
