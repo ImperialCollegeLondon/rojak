@@ -593,16 +593,25 @@ class RelationshipBetween(PostProcessor):
 
 
 class JaccardIndex(RelationshipBetween):
+    def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time") -> None:
+        super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
+
     def execute(self) -> xr.DataArray:
         return jaccard_index_multidim(self._this_feature, self._other_feature, self._sum_over_dim)
 
 
 class ProbabilityThisGivenOther(RelationshipBetween):
+    def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time") -> None:
+        super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
+
     def execute(self) -> xr.DataArray:
         table = contingency_table(self._this_feature, self._other_feature, self._sum_over_dim)
         return table.n_11 / (table.n_11 + table.n_10)
 
 
 class MatthewsCorrelation(RelationshipBetween):
+    def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time") -> None:
+        super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
+
     def execute(self) -> xr.DataArray:
         return matthews_corr_coeff_multidim(self._this_feature, self._other_feature, self._sum_over_dim)
