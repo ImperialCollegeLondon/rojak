@@ -122,6 +122,13 @@ class JetStreamAlgorithms(StrEnum):
     WIND_SPEED_SCHIEMANN = "wind_speed_schiemann"
 
 
+class RelationshipBetweenTypes(StrEnum):
+    JACCARD_INDEX = "jaccard_index"
+    PROBABILITY_THIS_GIVEN_OTHER = "this_given_other"
+    PROBABILITY_OTHER_GIVEN_THIS = "other_given_this"
+    MATTHEWS_CORRELATION = "matthews_correlation"
+
+
 class BaseConfigModel(BaseModel):
     @classmethod
     def from_yaml(cls, path: "Path") -> Self:

@@ -24,14 +24,21 @@ import xarray as xr
 from dask.base import is_dask_collection
 from numpy.typing import NDArray
 from pydantic.dataclasses import dataclass as pydantic_dataclass
+from rich.progress import track
 
 from rojak.core.analysis import PostProcessor
-from rojak.orchestrator.configuration import TurbulenceSeverity, TurbulenceThresholdMode, TurbulenceThresholds
+from rojak.orchestrator.configuration import (
+    RelationshipBetweenTypes,
+    TurbulenceSeverity,
+    TurbulenceThresholdMode,
+    TurbulenceThresholds,
+)
 from rojak.turbulence.metrics import contingency_table, jaccard_index_multidim, matthews_corr_coeff_multidim
 from rojak.utilities.types import Limits
 
 if TYPE_CHECKING:
     from rojak.turbulence.diagnostic import DiagnosticName
+    from rojak.turbulence.jet_stream import AlphaVelField
 
 type IntensityName = str
 type IntensityValues = dict[IntensityName, float]
@@ -615,3 +622,76 @@ class MatthewsCorrelation(RelationshipBetween):
 
     def execute(self) -> xr.DataArray:
         return matthews_corr_coeff_multidim(self._this_feature, self._other_feature, self._sum_over_dim)
+
+
+class RelationshipBetweenFactory:
+    _this_feature: xr.DataArray
+    _other_feature: xr.DataArray
+    _sum_over_dim: str
+
+    def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dim: str = "time") -> None:
+        self._this_feature = this_feature
+        self._other_feature = other_feature
+        self._sum_over_dim = sum_over_dim
+
+    def create(self, type_of_relationship: RelationshipBetweenTypes) -> RelationshipBetween:
+        match type_of_relationship:
+            case RelationshipBetweenTypes.JACCARD_INDEX:
+                return JaccardIndex(self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim)
+            case RelationshipBetweenTypes.PROBABILITY_THIS_GIVEN_OTHER:
+                return ProbabilityThisGivenOther(
+                    self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim
+                )
+            case RelationshipBetweenTypes.PROBABILITY_OTHER_GIVEN_THIS:
+                return ProbabilityThisGivenOther(
+                    self._other_feature, self._this_feature, sum_over_dims=self._sum_over_dim
+                )
+            case RelationshipBetweenTypes.MATTHEWS_CORRELATION:
+                return MatthewsCorrelation(self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim)
+            case _ as unreachable:
+                assert_never(unreachable)
+
+
+class JetStreamTurbulenceRelationship(PostProcessor):
+    def execute(self) -> xr.Dataset: ...
+
+
+class RelationshipBetweenAlphaVelAndTurbulence(JetStreamTurbulenceRelationship):
+    _alpha_vel: "AlphaVelField"
+    _turbulence_diagnostics: xr.Dataset
+    _relationship_type: RelationshipBetweenTypes
+    _diagnostic_thresholds: Mapping[str, float] | None
+
+    def __init__(
+        self,
+        alpha_vel: "AlphaVelField",
+        turbulence_diagnostics: xr.Dataset,
+        relationship_between: RelationshipBetweenTypes,
+        diagnostic_thresholds: Mapping[str, float] | None = None,
+    ) -> None:
+        if diagnostic_thresholds is not None:
+            assert set(diagnostic_thresholds.keys()).issuperset(turbulence_diagnostics.keys())
+
+        self._alpha_vel = alpha_vel
+        self._turbulence_diagnostics = turbulence_diagnostics
+        self._relationship_type = relationship_between
+        self._diagnostic_thresholds = diagnostic_thresholds
+
+    def execute(self) -> xr.Dataset:
+        alpha_vel_js = self._alpha_vel.identify_jet_stream()
+        return xr.Dataset(
+            data_vars={
+                diagnostic_name: RelationshipBetweenFactory(
+                    alpha_vel_js,
+                    turbulence_diagnostics
+                    if self._diagnostic_thresholds is None
+                    else turbulence_diagnostics >= self._diagnostic_thresholds[str(diagnostic_name)],
+                )
+                .create(self._relationship_type)
+                .execute()
+                for diagnostic_name, turbulence_diagnostics in track(
+                    self._turbulence_diagnostics.items(),
+                    "Relationship between alpha vel jet stream and turbulence diagnostics",
+                )
+            }
+        )
