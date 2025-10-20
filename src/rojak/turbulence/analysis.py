@@ -27,7 +27,7 @@ from pydantic.dataclasses import dataclass as pydantic_dataclass
 
 from rojak.core.analysis import PostProcessor
 from rojak.orchestrator.configuration import TurbulenceSeverity, TurbulenceThresholdMode, TurbulenceThresholds
-from rojak.turbulence.metrics import contingency_table, jaccard_index_multidim
+from rojak.turbulence.metrics import contingency_table, jaccard_index_multidim, matthews_corr_coeff_multidim
 from rojak.utilities.types import Limits
 
 if TYPE_CHECKING:
@@ -601,3 +601,8 @@ class ProbabilityThisGivenOther(RelationshipBetween):
     def execute(self) -> xr.DataArray:
         table = contingency_table(self._this_feature, self._other_feature, self._sum_over_dim)
         return table.n_11 / (table.n_11 + table.n_10)
+
+
+class MatthewsCorrelation(RelationshipBetween):
+    def execute(self) -> xr.DataArray:
+        return matthews_corr_coeff_multidim(self._this_feature, self._other_feature, self._sum_over_dim)
