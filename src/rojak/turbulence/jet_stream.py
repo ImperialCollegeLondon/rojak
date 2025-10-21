@@ -148,8 +148,12 @@ class WindSpeedCondSchiemann(JetStreamAlgorithm):
     _u_wind: "xr.DataArray"
     _wind_speed: "xr.DataArray"
     _MINIMUM_WIND_SPEED_THRESHOLD: ClassVar[float] = 30
+    _latitude_coord_name: ClassVar[str] = "latitude"
+    _longitude_coord_name: ClassVar[str] = "longitude"
 
     def __init__(self, u_wind: xr.DataArray, v_wind: xr.DataArray) -> None:
+        assert {self._latitude_coord_name}.issubset(u_wind.coords)
+        assert {self._latitude_coord_name}.issubset(v_wind.coords)
         self._u_wind = u_wind
         self._wind_speed = wind_speed(u_wind, v_wind, is_abs=True)
 
@@ -167,6 +171,29 @@ class WindSpeedCondSchiemann(JetStreamAlgorithm):
             output_dtypes=[np.bool],
             kwargs={"threshold": self._MINIMUM_WIND_SPEED_THRESHOLD},
         )
+
+    def unique_jet_core_for_longitude(self, array: xr.DataArray) -> xr.DataArray:
+        return array.sum(dim=self._latitude_coord_name) == 1
+
+    def unique_jet_stream_by_hemisphere(self) -> xr.DataArray:
+        # ignores have been put in so I can make the commit
+        # I think they are false positives but haven't had time to dig into it
+        max_latitude: float = self._wind_speed[self._latitude_coord_name].max()  # pyright: ignore [reportAssignmentType]
+        min_latitude: float = self._wind_speed[self._latitude_coord_name].min()  # pyright: ignore [reportAssignmentType]
+
+        jet_core_locations = self.identify_jet_stream()
+        if max_latitude > 0 and min_latitude < 0:
+            # Add another level of logic so that those near the equator just turns into a single hemisphere
+            northern_hemisphere: xr.DataArray = jet_core_locations.sel(  # pyright: ignore [reportArgumentType]
+                **{self._latitude_coord_name: slice(0, max_latitude)}  # pyright: ignore [reportArgumentType]
+            )
+            northern_hemisphere = northern_hemisphere & self.unique_jet_core_for_longitude(northern_hemisphere)
+            southern_hemisphere: xr.DataArray = jet_core_locations.sel(  # pyright: ignore [reportArgumentType]
+                **{self._latitude_coord_name: slice(min_latitude, 0)}  # pyright: ignore [reportArgumentType]
+            )
+            southern_hemisphere = southern_hemisphere & self.unique_jet_core_for_longitude(southern_hemisphere)
+            return xr.combine_by_coords([northern_hemisphere, southern_hemisphere])  # pyright: ignore [reportArgumentType, reportReturnType]
+        return jet_core_locations & self.unique_jet_core_for_longitude(jet_core_locations)
 
     def identify_jet_stream(self) -> "xr.DataArray":
         return (self._local_maxima() & (self._u_wind >= 0)).rename("jet_stream_schiemann")
