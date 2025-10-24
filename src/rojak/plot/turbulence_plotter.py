@@ -14,7 +14,8 @@
 
 import functools
 import operator
-from typing import TYPE_CHECKING, Literal, cast
+from enum import StrEnum
+from typing import TYPE_CHECKING, Literal, assert_never, cast
 
 import cartopy.crs as ccrs
 import dask.array as da
@@ -222,6 +223,69 @@ def create_multi_turbulence_diagnotics_probability_plot(
         ax.set_title(diagnostic_label_mapping[TurbulenceDiagnostics(diagnostic)])
         ax.coastlines()
     # fg.map(lambda: plt.gca().coastlines())
+    fg.fig.savefig(plot_name, bbox_inches="tight")
+    plt.close(fg.fig)
+
+
+class StandardColourMaps(StrEnum):
+    TURBULENCE_PROBABILITY = "turbulence_probability"
+
+
+def get_a_default_cmap(colour_map: StandardColourMaps, resample_to: int | None = None) -> "mcolors.Colormap":
+    match colour_map:
+        case StandardColourMaps.TURBULENCE_PROBABILITY:
+            turbulence_cmap: mcolors.LinearSegmentedColormap = cast(
+                "mcolors.LinearSegmentedColormap", pypalettes.load_cmap("cancri", cmap_type="continuous", reverse=True)
+            )
+            return turbulence_cmap if resample_to is None else turbulence_cmap.resampled(20)
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def create_configurable_multi_diagnostic_plot(  # noqa: PLR0913
+    ds_to_plot: xr.Dataset,
+    vars_to_plots: list[str],
+    plot_name: str,
+    colour_map: "mcolors.Colormap | None | str" = None,
+    are_vars_diagnostics: bool = True,
+    plot_kwargs: dict | None = None,
+    projection: "ccrs.Projection" = _PLATE_CARREE,
+    cbar_kwargs: dict | None = None,
+    column: str | None = None,
+    row: str | None = None,
+) -> None:
+    assert set(vars_to_plots).issubset(set(ds_to_plot.data_vars.keys()))
+    default_plot_kwargs = {
+        # "col": "diagnostics",
+        "x": "longitude",
+        "y": "latitude",
+        "transform": projection,
+        "subplot_kws": {"projection": projection},
+        "cbar_kwargs": cbar_kwargs if cbar_kwargs is not None else {},
+        # "cmap": colour_map
+        # if colour_map is not None
+        # else get_a_default_cmap(StandardColourMaps.TURBULENCE_PROBABILITY, 20),
+        "robust": True,
+    }
+    plot_kwargs = default_plot_kwargs | plot_kwargs if plot_kwargs is not None else default_plot_kwargs
+    if column is not None:
+        plot_kwargs["col"] = column
+    if row is not None:
+        plot_kwargs["row"] = row
+    if row is not None:
+        plot_kwargs["row"] = row
+        assert "col_wrap" not in plot_kwargs, "If plot is 4D, column wrap cannot be specified"
+    # Ignore plot not being a known attribute of xarray
+    if column is not None:
+        fg: xr.plot.FacetGrid = ds_to_plot[vars_to_plots].to_dataarray(column).plot(**plot_kwargs)  # pyright: ignore[reportAttributeAccessIssue]
+    else:
+        fg: xr.plot.FacetGrid = ds_to_plot[vars_to_plots].to_dataarray().plot(**plot_kwargs)  # pyright: ignore[reportAttributeAccessIssue]
+
+    for ax, this_var in zip(fg.fig.axes, vars_to_plots, strict=False):
+        ax.set_title(diagnostic_label_mapping[TurbulenceDiagnostics(this_var)] if are_vars_diagnostics else this_var)
+
+    # pyright thinks coastlines doesn't exists
+    fg.map(lambda: plt.gca().coastlines())  # pyright: ignore[reportAttributeAccessIssue]
     fg.fig.savefig(plot_name, bbox_inches="tight")
     plt.close(fg.fig)
 
