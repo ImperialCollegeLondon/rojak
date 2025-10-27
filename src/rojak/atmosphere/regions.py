@@ -52,9 +52,7 @@ def _region_labeller(target_array: np.ndarray, num_dim: int = 3, connectivity: i
 MAX_SPATIAL_DIMS: int = 3
 
 
-def label_regions(
-    array: xr.DataArray, num_dims: int = 3, core_dims: list[str] | None = None, connectivity: int | None = None
-) -> xr.DataArray:
+def _check_num_dims_and_set_core_dims(num_dims: int, core_dims: list[str] | None) -> list[str]:
     if num_dims > MAX_SPATIAL_DIMS:
         raise ValueError("num_dims cannot be greater than 3")
 
@@ -64,7 +62,19 @@ def label_regions(
         )
     else:
         assert len(core_dims) == num_dims
-    assert set(core_dims).issubset(array.dims)
+
+    return core_dims
+
+
+def _check_dims_in_array(dims: list[str], array: xr.DataArray) -> None:
+    assert set(dims).issubset(array.dims)
+
+
+def label_regions(
+    array: xr.DataArray, num_dims: int = 3, core_dims: list[str] | None = None, connectivity: int | None = None
+) -> xr.DataArray:
+    core_dims = _check_num_dims_and_set_core_dims(num_dims, core_dims)
+    _check_dims_in_array(core_dims, array)
 
     return xr.apply_ufunc(
         _region_labeller,
