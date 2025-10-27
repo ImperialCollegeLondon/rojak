@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.ndimage as ndi
 import xarray as xr
-from numba import guvectorize, njit
+from numba import guvectorize, int8, njit, vectorize
 
 
 def _region_labeller(target_array: np.ndarray, num_dim: int = 3, connectivity: int | None = None) -> np.ndarray:
@@ -172,3 +172,34 @@ def find_parent_region_of_intersection(
         dask="parallelized",
         output_dtypes=[np.bool_],
     )
+
+
+@vectorize([int8(int8, int8)])
+def _bitwise_combine(first: int, second: int) -> int:
+    return (first << 2) | (second << 1) | (first & second)
+
+
+@guvectorize("void(int8[:, :, :, :], int8[:, :, :, :], int8[:, :, :, :])", "(m,n,p,q),(m,n,p,q)->(m,n,p,q)")
+def _bitwise_combine_guv_4d(first: np.ndarray, second: np.ndarray, result: np.ndarray) -> None:
+    for i in range(first.shape[0]):
+        for j in range(first.shape[1]):
+            for k in range(first.shape[2]):
+                for l_dim in range(first.shape[3]):
+                    result[i, j, k, l_dim] = _bitwise_combine(first[i, j, k, l_dim], second[i, j, k, l_dim])
+
+
+def combine_two_features(first: xr.DataArray, second: xr.DataArray, is_guv: bool = True) -> xr.DataArray:
+    assert first.dtype == second.dtype
+    assert first.dtype == np.bool_
+    assert first.shape == second.shape
+
+    # Cast to int to do bit twiddling
+    first = first.astype("int8")
+    second = second.astype("int8")
+
+    # Set bits based on whether each feature is present
+    # If only first,    0b100
+    # If only second,   0b010
+    # If both,          0b111
+    # return (first << 2) | (second << 1) | (first & second)
+    return xr.apply_ufunc(_bitwise_combine_guv_4d if is_guv else _bitwise_combine, first, second, dask="parallelized")
