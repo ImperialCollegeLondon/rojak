@@ -1,5 +1,6 @@
 import dask.array as da
 import numpy as np
+import pytest
 import scipy.ndimage as ndi
 import xarray as xr
 
@@ -37,3 +38,31 @@ def test_label_regions_3d() -> None:
         np.testing.assert_array_equal(
             labelled.isel(time=time_index).transpose("longitude", "latitude", "pressure_level"), from_scipy
         )
+
+
+def test_label_region_fail_value_error() -> None:
+    array = xr.DataArray(
+        da.from_array(np.random.default_rng().choice(2, 840).reshape((4, 5, 6, 7))),
+        dims=("longitude", "latitude", "pressure_level", "time"),
+    )
+
+    with pytest.raises(ValueError, match="num_dims cannot be greater than 3") as excinfo:
+        label_regions(array, num_dims=4)
+
+    assert excinfo.type is ValueError
+
+
+@pytest.mark.parametrize(
+    "core_dims",
+    [
+        pytest.param(["x", "y", "z"], id="not subset of dims"),
+        pytest.param(["latitude", "longitude"], id="wrong num dims"),
+    ],
+)
+def test_label_regions_assertion_error(core_dims: list[str] | None) -> None:
+    array = xr.DataArray(
+        da.from_array(np.random.default_rng().choice(2, 840).reshape((4, 5, 6, 7))),
+        dims=("longitude", "latitude", "pressure_level", "time"),
+    )
+    with pytest.raises(AssertionError):
+        label_regions(array, core_dims=core_dims)
