@@ -74,6 +74,20 @@ def _check_dims_in_array(dims: list[str], array: xr.DataArray) -> None:
 def label_regions(
     array: xr.DataArray, num_dims: int = 3, core_dims: list[str] | None = None, connectivity: int | None = None
 ) -> xr.DataArray:
+    """
+    Labels connected regions
+
+    Args:
+        array: Array to label
+        num_dims: Number of spatial dimension to do the labeling on
+        core_dims: Name of core dimensions to iterate over
+        connectivity: number of neighbours which are considered to belong to central element. If None, it will be
+        ``num_dim``
+
+    Returns:
+        Labelled array
+
+    """
     core_dims = _check_num_dims_and_set_core_dims(num_dims, core_dims)
     _check_dims_in_array(core_dims, array)
 
@@ -129,6 +143,20 @@ def find_parent_region_of_intersection(
     core_dims: list[str] | None = None,
     numba_vectorize: bool = True,
 ) -> xr.DataArray:
+    """
+    Finds parent regions of intersection between two arrays
+
+    Args:
+        labeled_array: Labeled array
+        intersection_mask: Boolean mask of where the arrays intersect at
+        num_dims: Number of spatial dimensions the labeling was done on
+        core_dims: Name of core dimensions to iterate over
+        numba_vectorize: Boolean to control if numba vectorisation is used
+
+    Returns:
+        Boolean mask with the parent regions of the intersecting point
+
+    """
     core_dims = _check_num_dims_and_set_core_dims(num_dims, core_dims)
     _check_dims_in_array(core_dims, labeled_array)
     _check_dims_in_array(core_dims, intersection_mask)
