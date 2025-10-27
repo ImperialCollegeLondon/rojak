@@ -53,8 +53,8 @@ MAX_SPATIAL_DIMS: int = 3
 
 
 def _check_num_dims_and_set_core_dims(num_dims: int, core_dims: list[str] | None) -> list[str]:
-    if num_dims > MAX_SPATIAL_DIMS:
-        raise ValueError("num_dims cannot be greater than 3")
+    if num_dims > MAX_SPATIAL_DIMS or num_dims <= 1:
+        raise ValueError("num_dims must be 2 or 3 as they are the spatial dimensions")
 
     if core_dims is None:
         core_dims = (

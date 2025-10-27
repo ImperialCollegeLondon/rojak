@@ -46,8 +46,13 @@ def test_label_region_fail_value_error() -> None:
         dims=("longitude", "latitude", "pressure_level", "time"),
     )
 
-    with pytest.raises(ValueError, match="num_dims cannot be greater than 3") as excinfo:
+    with pytest.raises(ValueError, match="num_dims must be 2 or 3 as they are the spatial dimensions") as excinfo:
         label_regions(array, num_dims=4)
+
+    assert excinfo.type is ValueError
+
+    with pytest.raises(ValueError, match="num_dims must be 2 or 3 as they are the spatial dimensions") as excinfo:
+        label_regions(array, num_dims=1)
 
     assert excinfo.type is ValueError
 
