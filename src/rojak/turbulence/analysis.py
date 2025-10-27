@@ -616,6 +616,15 @@ class ProbabilityThisGivenOther(RelationshipBetween):
         return table.n_11 / (table.n_11 + table.n_10)
 
 
+class ProbabilityThisGivenNotOther(RelationshipBetween):
+    def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time") -> None:
+        super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
+
+    def execute(self) -> xr.DataArray:
+        table = contingency_table(self._this_feature, self._other_feature, self._sum_over_dim)
+        return table.n_10 / (table.n_00 + table.n_10)
+
+
 class MatthewsCorrelation(RelationshipBetween):
     def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time") -> None:
         super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
@@ -644,6 +653,14 @@ class RelationshipBetweenFactory:
                 )
             case RelationshipBetweenTypes.PROBABILITY_OTHER_GIVEN_THIS:
                 return ProbabilityThisGivenOther(
+                    self._other_feature, self._this_feature, sum_over_dims=self._sum_over_dim
+                )
+            case RelationshipBetweenTypes.PROBABILITY_THIS_GIVEN_NOT_OTHER:
+                return ProbabilityThisGivenNotOther(
+                    self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim
+                )
+            case RelationshipBetweenTypes.PROBABILITY_OTHER_GIVEN_NOT_THIS:
+                return ProbabilityThisGivenNotOther(
                     self._other_feature, self._this_feature, sum_over_dims=self._sum_over_dim
                 )
             case RelationshipBetweenTypes.MATTHEWS_CORRELATION:
