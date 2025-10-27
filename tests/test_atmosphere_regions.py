@@ -4,7 +4,10 @@ import pytest
 import scipy.ndimage as ndi
 import xarray as xr
 
-from rojak.atmosphere.regions import _region_labeller, label_regions
+from rojak.atmosphere.jet_stream import JetStreamAlgorithmFactory
+from rojak.atmosphere.regions import _region_labeller, find_parent_region_of_intersection, label_regions
+from rojak.orchestrator.configuration import JetStreamAlgorithms, TurbulenceDiagnostics
+from rojak.turbulence.diagnostic import DiagnosticFactory
 
 
 def test_region_labeller_equiv_scipy_default_3d() -> None:
@@ -71,3 +74,37 @@ def test_label_regions_assertion_error(core_dims: list[str] | None) -> None:
     )
     with pytest.raises(AssertionError):
         label_regions(array, core_dims=core_dims)
+
+
+TI1_THRESHOLD: float = 1.3947336218633176e-10
+
+
+@pytest.mark.parametrize("num_dim", [2, 3])
+def test_parent_region_mask_jit_equiv_guvectorize(load_cat_data, num_dim: int) -> None:
+    cat_data = load_cat_data(None, with_chunks=True)
+    is_ti1_turb: xr.DataArray = (
+        DiagnosticFactory(cat_data).create(TurbulenceDiagnostics.TI1).computed_value > TI1_THRESHOLD
+    )
+    js_regions: xr.DataArray = (
+        JetStreamAlgorithmFactory(cat_data).create(JetStreamAlgorithms.ALPHA_VEL_KOCH).identify_jet_stream()
+    )
+    labeled_ti1: xr.DataArray = label_regions(is_ti1_turb, num_dims=num_dim)
+    labeled_js: xr.DataArray = label_regions(js_regions, num_dims=num_dim)
+
+    js_intersect_turb = is_ti1_turb & js_regions
+
+    from_jit_turb: xr.DataArray = find_parent_region_of_intersection(
+        labeled_ti1, js_intersect_turb, num_dims=num_dim, numba_vectorize=False
+    )
+    from_guv_turb: xr.DataArray = find_parent_region_of_intersection(
+        labeled_ti1, js_intersect_turb, num_dims=num_dim, numba_vectorize=True
+    )
+    xr.testing.assert_equal(from_jit_turb, from_guv_turb)
+
+    from_jit_js: xr.DataArray = find_parent_region_of_intersection(
+        labeled_js, js_intersect_turb, num_dims=num_dim, numba_vectorize=False
+    )
+    from_guv_js: xr.DataArray = find_parent_region_of_intersection(
+        labeled_js, js_intersect_turb, num_dims=num_dim, numba_vectorize=True
+    )
+    xr.testing.assert_equal(from_jit_js, from_guv_js)

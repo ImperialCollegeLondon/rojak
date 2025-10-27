@@ -1,6 +1,7 @@
 import numpy as np
 import scipy.ndimage as ndi
 import xarray as xr
+from numba import guvectorize, njit
 
 
 def _region_labeller(target_array: np.ndarray, num_dim: int = 3, connectivity: int | None = None) -> np.ndarray:
@@ -84,4 +85,66 @@ def label_regions(
         vectorize=True,
         dask="parallelized",
         kwargs={"num_dim": num_dims, "connectivity": connectivity},
+    )
+
+
+@njit
+def _parent_region_mask(labeled_array: np.ndarray, intersection_mask: np.ndarray) -> np.ndarray:
+    original_shape = labeled_array.shape
+    # numba does not support fancy indexing
+    flattened_labeled = labeled_array.flatten()
+    # Find the numbered region of the intersecting point. As the intersection can occur at multiple points,
+    # np.unique is used to reduce it to the minimum so that the np.isin is slightly more efficient
+    target_regions = np.unique(flattened_labeled[intersection_mask.flatten()])
+    return np.isin(flattened_labeled, target_regions).reshape(original_shape)
+
+
+@guvectorize("void(int32[:, :, :], bool_[:, :, :],bool_[:, :, :])", "(m,n,p),(m,n,p)->(m,n,p)")
+def _parent_region_mask_3d_guv(labeled_array: np.ndarray, intersection_mask: np.ndarray, result: np.ndarray) -> None:
+    original_shape = labeled_array.shape
+    flattened_labeled = labeled_array.flatten()
+    target_regions = np.unique(flattened_labeled[intersection_mask.flatten()])
+    out_mask = np.isin(flattened_labeled, target_regions).reshape(original_shape)
+    for i in range(original_shape[0]):
+        for j in range(original_shape[1]):
+            for k in range(original_shape[2]):
+                result[i, j, k] = out_mask[i, j, k]
+
+
+@guvectorize("void(int32[:, :], bool_[:, :],bool_[:, :])", "(m,n),(m,n)->(m,n)")
+def _parent_region_mask_2d_guv(labeled_array: np.ndarray, intersection_mask: np.ndarray, result: np.ndarray) -> None:
+    original_shape = labeled_array.shape
+    flattened_labeled = labeled_array.flatten()
+    target_regions = np.unique(flattened_labeled[intersection_mask.flatten()])
+    out_mask = np.isin(flattened_labeled, target_regions).reshape(original_shape)
+    for i in range(original_shape[0]):
+        for j in range(original_shape[1]):
+            result[i, j] = out_mask[i, j]
+
+
+def find_parent_region_of_intersection(
+    labeled_array: xr.DataArray,
+    intersection_mask: xr.DataArray,
+    num_dims: int = 3,
+    core_dims: list[str] | None = None,
+    numba_vectorize: bool = True,
+) -> xr.DataArray:
+    core_dims = _check_num_dims_and_set_core_dims(num_dims, core_dims)
+    _check_dims_in_array(core_dims, labeled_array)
+    _check_dims_in_array(core_dims, intersection_mask)
+
+    if numba_vectorize:
+        function_to_apply = _parent_region_mask_3d_guv if num_dims == MAX_SPATIAL_DIMS else _parent_region_mask_2d_guv
+    else:
+        function_to_apply = _parent_region_mask
+
+    return xr.apply_ufunc(
+        function_to_apply,
+        labeled_array,
+        intersection_mask,
+        input_core_dims=[core_dims, core_dims],
+        output_core_dims=[core_dims],
+        vectorize=not numba_vectorize,
+        dask="parallelized",
+        output_dtypes=[np.bool_],
     )
