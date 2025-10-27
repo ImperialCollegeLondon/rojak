@@ -1,7 +1,7 @@
 import numpy as np
 import xarray as xr
 
-from rojak.turbulence.contrails import e_sat_ice
+from rojak.atmosphere.contrails import e_sat_ice
 
 
 # Stolen wholesale from: https://github.com/contrailcirrus/pycontrails/blob/2f14ef8714ce0286aeabb2611db83bd26c7386ae/tests/unit/test_thermo_sac.py#L38
