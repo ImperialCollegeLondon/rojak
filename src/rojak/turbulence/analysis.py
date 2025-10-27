@@ -37,8 +37,8 @@ from rojak.turbulence.metrics import contingency_table, jaccard_index_multidim, 
 from rojak.utilities.types import Limits
 
 if TYPE_CHECKING:
+    from rojak.atmosphere.jet_stream import AlphaVelField
     from rojak.turbulence.diagnostic import DiagnosticName
-    from rojak.turbulence.jet_stream import AlphaVelField
 
 type IntensityName = str
 type IntensityValues = dict[IntensityName, float]
