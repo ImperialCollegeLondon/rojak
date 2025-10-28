@@ -12,9 +12,11 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 import itertools
+import json
 import sys
 from collections.abc import Iterable, Mapping
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Final, NamedTuple, assert_never
 
 import numpy as np
@@ -62,8 +64,6 @@ from rojak.turbulence.verification import (
 from rojak.utilities.types import DistributionParameters, Limits
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from rojak.core.data import AmdarDataRepository, CATData
     from rojak.orchestrator.configuration import (
         AggregationMetricOption,
@@ -460,6 +460,7 @@ class DiagnosticsAmdarLauncher:
     _min_group_size: int
     _group_by_strategy: SpatialGroupByStrategy | None
     _aggregation_metric: "AggregationMetricOption | None"
+    _output_base_dir: "Path"
 
     def __init__(
         self,
@@ -488,6 +489,7 @@ class DiagnosticsAmdarLauncher:
         base_dir = output_dir / run_name / "data_harmonisation"
         if self._save_output:
             base_dir.mkdir(parents=True, exist_ok=True)
+        self._output_base_dir = base_dir
         time_format: str = "%Y-%m-%dT%H%M"  # e.g. 2025-02-31T1200
         self._output_filepath = (
             base_dir / f"{self._data_source}_{self._time_window.lower.strftime(time_format)}"
@@ -504,6 +506,12 @@ class DiagnosticsAmdarLauncher:
                 return UkmoAmdarRepository(self._path_to_files)
             case _ as unreachable:
                 assert_never(unreachable)
+
+    def dump_dict_to_json(self, dict_to_dump: dict, filename: str) -> None:
+        assert not filename.endswith("json")
+        out_file_path: Path = Path(f"{self._output_base_dir}/{filename}.json")
+        with out_file_path.open("w") as outfile:
+            json.dump(dict_to_dump, outfile, indent=4)
 
     def launch(self, diagnostic_suite: DiagnosticSuite) -> None:
         if self._spatial_domain.grid_size is None:
@@ -598,6 +606,9 @@ class DiagnosticsAmdarLauncher:
             roc_curve_plots: dict = create_interactive_roc_curve_plot(roc)
             for amdar_col, plot_for_col in roc_curve_plots.items():
                 save_hv_plot(plot_for_col, str(self._plots_dir / f"roc_{amdar_col}_on_{chained_names}"), "png")
+                self.dump_dict_to_json(
+                    roc.threshold_from_tss_for_amdar_column(amdar_col), f"threshold_for_{amdar_col}_on_{chained_names}"
+                )
                 logger.debug("Saved roc plot for %s AMDAR turbulence measure", amdar_col)
 
             logger.info("Finished validation of diagnostics with amdar data")

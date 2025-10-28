@@ -402,6 +402,43 @@ def area_under_curve(
     return _serial_area_under_curve(x_values, y_values)
 
 
+def _check_roc_curve_input_validity(roc_curve: BinaryClassificationResult) -> None:
+    if roc_curve.true_positives[0] != 0 or roc_curve.false_positives[0] != 0:
+        raise ValueError("First value of POD and POFD must be 0")
+    if da.max(roc_curve.true_positives).compute() > 1:
+        raise ValueError("Maximum value of POD must be less than or equal to 1")
+    if da.min(roc_curve.true_positives).compute() < 0:
+        raise ValueError("Minimum value of POD must be greater than or equal to 0")
+
+
+def true_skill_score_roc(roc_curve: BinaryClassificationResult, return_optimal_threshold: bool = False) -> da.Array:
+    """
+    True Skill Score (TSS) statistic from ROC
+
+    The TSS is defined in `Wikipedia <https://en.wikipedia.org/wiki/Youden%27s_J_statistic#Definition>`__ as:
+
+    .. math::
+        \\begin{align}
+            TSS &= \\text{sensitivity} + \\text{specificity} - 1 \\
+            &= \\frac{\\text{TP}}{\\text{TP} + \\text{FP}} + \\frac{\\text{TN}}{\\text{TN} + \\text{FP}} - 1
+        \\end{align}
+
+    where :math:`TP` is the number of true positives, :math:`TN` the number of true negatives,
+    :math:`FP` the number of false positives, :math:`FN` the number of false negatives.
+
+    This is also the definition used in [Sharman2006]_
+
+    Args:
+        roc_curve (BinaryClassificationResult): Result from ROC computation
+        return_optimal_threshold (bool, optional): Whether to return the optimal threshold or not. If False, an
+        array containing the optimal threshold is returned. If True, an array of size 1 with the threshold that
+    """
+    _check_roc_curve_input_validity(roc_curve)
+
+    tss = roc_curve.true_positives + roc_curve.false_positives - 1
+    return tss if not return_optimal_threshold else roc_curve.thresholds[da.argmax(tss)]
+
+
 def mean_absolute_error(truth: da.Array, prediction: da.Array) -> float:
     """
     Mean Absolute Error (MAE)

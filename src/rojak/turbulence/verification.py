@@ -34,6 +34,7 @@ from rojak.turbulence.metrics import (
     area_under_curve,
     binary_classification_rate_from_cumsum,
     received_operating_characteristic,
+    true_skill_score_roc,
 )
 
 if TYPE_CHECKING:
@@ -301,6 +302,18 @@ class RocVerificationResult:
 
     def auc_for_amdar_column(self, amdar_column: str) -> dict[str, float]:
         return self._area_under_curve()[amdar_column]
+
+    def threshold_from_tss_for_amdar_column(self, amdar_column: str) -> dict[str, float]:
+        assert amdar_column in self.by_amdar_col_then_diagnostic
+        diagnostics_for_amdar_col = self.by_amdar_col_then_diagnostic[amdar_column]
+
+        thresholds_from_tss: dict[str, float] = {}
+        for diagnostic_name, roc_results in diagnostics_for_amdar_col.items():
+            thresholds_from_tss[diagnostic_name] = true_skill_score_roc(
+                roc_results, return_optimal_threshold=True
+            ).compute()
+
+        return thresholds_from_tss
 
 
 # Keep this extendable for verification against other forms of data??
