@@ -435,7 +435,8 @@ def true_skill_score_roc(roc_curve: BinaryClassificationResult, return_optimal_t
     """
     _check_roc_curve_input_validity(roc_curve)
 
-    tss = roc_curve.true_positives + roc_curve.false_positives - 1
+    # TPR (sensitivity) + FPR (specificity - 1)
+    tss = 0.5 * (roc_curve.true_positives + roc_curve.false_positives)
     return tss if not return_optimal_threshold else roc_curve.thresholds[da.argmax(tss)]
 
 
