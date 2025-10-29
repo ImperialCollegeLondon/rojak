@@ -30,6 +30,7 @@ dependencies = [
     "pyproj",
     "pyyaml",
     "scipy",
+    "sparse",
     "typer",
     "xarray",
 ]
