@@ -1,21 +1,26 @@
-from typing import TYPE_CHECKING
-
+import numba
 import numpy as np
+import xarray as xr
+from dask.base import is_dask_collection
 
 from rojak.core import constants
 
-if TYPE_CHECKING:
-    import xarray as xr
 
-
-# Stolen wholesale from: https://github.com/contrailcirrus/pycontrails/blob/2f14ef8714ce0286aeabb2611db83bd26c7386ae/pycontrails/physics/thermo.py#L131
-def e_sat_ice(temperature: "xr.DataArray") -> "xr.DataArray":
-    return 100.0 * np.exp(  # type: ignore[return-value]
+@numba.vectorize([numba.float64(numba.float64), numba.float32(numba.float32)])
+def _e_sat_ice_ufunc(temperature: float) -> float:
+    # Equation stolen wholesale from: https://github.com/contrailcirrus/pycontrails/blob/2f14ef8714ce0286aeabb2611db83bd26c7386ae/pycontrails/physics/thermo.py#L131
+    return 100.0 * np.exp(
         (-6024.5282 / temperature)
         + 24.7219
         + (0.010613868 * temperature)
-        - (1.3198825e-5 * (temperature**2))
+        - (1.3198825e-5 * (temperature * temperature))
         - 0.49382577 * np.log(temperature)
+    )
+
+
+def e_sat_ice(temperature: "xr.DataArray") -> "xr.DataArray":
+    return xr.apply_ufunc(
+        _e_sat_ice_ufunc, temperature, dask="parallelized" if is_dask_collection(temperature) else "forbidden"
     )
 
 
