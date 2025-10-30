@@ -607,7 +607,8 @@ class DiagnosticsAmdarLauncher:
             for amdar_col, plot_for_col in roc_curve_plots.items():
                 save_hv_plot(plot_for_col, str(self._plots_dir / f"roc_{amdar_col}_on_{chained_names}"), "png")
                 self.dump_dict_to_json(
-                    roc.threshold_from_tss_for_amdar_column(amdar_col), f"threshold_for_{amdar_col}_on_{chained_names}"
+                    roc.threshold_from_tss_for_amdar_column(amdar_col),
+                    f"threshold_{amdar_col}_for_{amdar_col}_on_{chained_names}",
                 )
                 logger.debug("Saved roc plot for %s AMDAR turbulence measure", amdar_col)
 
