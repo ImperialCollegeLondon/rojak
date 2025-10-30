@@ -284,6 +284,7 @@ class RocVerificationResult:
     # second key: diagnostic column name
     by_amdar_col_then_diagnostic: dict[str, dict[str, BinaryClassificationResult]]
     _auc_by_amdar_then_diagnostic: dict[str, dict[str, float]] | None = None
+    _tss_by_amdar_then_diagnostic: dict[str, dict[str, da.Array]] | None = None
 
     # define iterators and getters on this class
     def iterate_by_amdar_column(self) -> Generator[tuple[str, dict[str, BinaryClassificationResult]], None, None]:
@@ -303,15 +304,33 @@ class RocVerificationResult:
     def auc_for_amdar_column(self, amdar_column: str) -> dict[str, float]:
         return self._area_under_curve()[amdar_column]
 
+    def _tss(self) -> dict[str, dict[str, da.Array]]:
+        if self._tss_by_amdar_then_diagnostic is None:
+            tss = defaultdict(dict)
+            for column, by_diagnostic in self.by_amdar_col_then_diagnostic.items():
+                for diagnostic_name, roc_results in by_diagnostic.items():
+                    tss[column][diagnostic_name] = true_skill_score_roc(roc_results, return_optimal_threshold=False)
+            self._tss_by_amdar_then_diagnostic = dict(tss)
+        return self._tss_by_amdar_then_diagnostic
+
+    def optimal_tss_for_amdar_column(self, amdar_column: str) -> dict[str, float]:
+        assert amdar_column in self.by_amdar_col_then_diagnostic
+
+        optimal_tss_for_col: dict[str, float] = {}
+        for diagnostic_name, tss_scores in self._tss()[amdar_column].items():
+            optimal_tss_for_col[diagnostic_name] = da.nanmax(tss_scores).compute()
+
+        return optimal_tss_for_col
+
     def threshold_from_tss_for_amdar_column(self, amdar_column: str) -> dict[str, float]:
         assert amdar_column in self.by_amdar_col_then_diagnostic
         diagnostics_for_amdar_col = self.by_amdar_col_then_diagnostic[amdar_column]
 
         thresholds_from_tss: dict[str, float] = {}
         for diagnostic_name, roc_results in diagnostics_for_amdar_col.items():
-            thresholds_from_tss[diagnostic_name] = true_skill_score_roc(
-                roc_results, return_optimal_threshold=True
-            ).compute()
+            thresholds_from_tss[diagnostic_name] = roc_results.thresholds[
+                da.argmax(self._tss()[amdar_column][diagnostic_name])
+            ].compute()
 
         return thresholds_from_tss
 

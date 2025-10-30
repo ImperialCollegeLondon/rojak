@@ -402,6 +402,7 @@ def create_interactive_roc_curve_plot(roc: "RocVerificationResult", is_matplotli
     )
     for amdar_verification_col, by_diagnostic_roc in roc.iterate_by_amdar_column():
         auc_for_col = roc.auc_for_amdar_column(amdar_verification_col)
+        optimal_tss_for_col = roc.optimal_tss_for_amdar_column(amdar_verification_col)
         plots_for_col: list[Curve] = [
             dd.from_dask_array(
                 da.stack([roc_for_diagnostic.false_positives, roc_for_diagnostic.true_positives], axis=1),
@@ -409,7 +410,8 @@ def create_interactive_roc_curve_plot(roc: "RocVerificationResult", is_matplotli
             ).hvplot.line(  # pyright: ignore[reportAttributeAccessIssue]
                 x="POFD",
                 y="POD",
-                label=f"{diagnostic_name} - AUC: {auc_for_col[diagnostic_name]:.2f}",
+                label=f"""{diagnostic_name} - AUC: {auc_for_col[diagnostic_name]:.2f}
+    TSS: {optimal_tss_for_col[diagnostic_name]:.2f}""",
                 xlim=(0, 1),
                 ylim=(0, 1),
                 grid=True,
