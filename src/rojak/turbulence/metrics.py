@@ -420,11 +420,12 @@ def true_skill_score_roc(roc_curve: BinaryClassificationResult, return_optimal_t
     .. math::
         \\begin{align}
             TSS &= \\text{sensitivity} + \\text{specificity} - 1 \\
-            &= \\frac{\\text{TP}}{\\text{TP} + \\text{FP}} + \\frac{\\text{TN}}{\\text{TN} + \\text{FP}} - 1
+            &= \\text{TPR} - \\text{FPR}
         \\end{align}
 
-    where :math:`TP` is the number of true positives, :math:`TN` the number of true negatives,
-    :math:`FP` the number of false positives, :math:`FN` the number of false negatives.
+    where :math:`\\text{TPR}` is the true positives rate and :math:`\\text{FPR}` is the false positives rate. As the
+    true positive rate is the sensitivity and specificity is :math:`\\text{FPR} - 1`, the true skill score can be
+    expressed in terms of :math:`\\text{TPR}` and :math:`\\text{FPR}`.
 
     This is also the definition used in [Sharman2006]_
 
@@ -436,7 +437,7 @@ def true_skill_score_roc(roc_curve: BinaryClassificationResult, return_optimal_t
     _check_roc_curve_input_validity(roc_curve)
 
     # TPR (sensitivity) + FPR (specificity - 1)
-    tss = 0.5 * (roc_curve.true_positives + roc_curve.false_positives)
+    tss = 0.5 * (roc_curve.true_positives - roc_curve.false_positives)
     return tss if not return_optimal_threshold else roc_curve.thresholds[da.argmax(tss)]
 
 
