@@ -198,7 +198,7 @@ def binary_classification_curve(
         sorted_truth = sorted_truth == positive_classification_label
 
     diff_values: da.Array = da.diff(sorted_values)
-    if not da.all(diff_values <= 0).compute():
+    if da.any(diff_values > 0).compute():
         raise ValueError("values must be strictly decreasing")
     diff_values = da.abs(diff_values)
 
