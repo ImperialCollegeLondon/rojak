@@ -23,6 +23,13 @@ There are a few way which ``rojak`` can be installed. The easiest is through ``p
     $ pip install rojak-cat
     $ uv add rojak # if you use uv as your package manager
 
+This installs rojak as a library which can be imported. It only installs the minimum number of dependencies for the library to work. To use ``rojak`` as a CLI tool, you'll need to install some additional dependencies using,
+
+.. code-block::
+
+    $ pip install rojak-cat[cli]
+    $ uv add rojak[cli] # if you use uv as your package manager
+
 ..
     Alternatively, it can be installed through Conda_ on the `conda-forge`_ channel
 
