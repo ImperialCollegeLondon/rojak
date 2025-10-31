@@ -36,7 +36,7 @@ If you'd like the latest changes, ``rojak`` can be installed from source_
 
     $ git clone git@github.com:ImperialCollegeLondon/rojak.git
     $ cd rojak
-    $ pip install -e
+    $ pip install -e .
 
 If you use uv_ as your package manager and have cloned the repo, the core dependencies can be installed through,
 
