@@ -65,7 +65,7 @@ plot = [
     "pypalettes",
 ]
 cli = [
-    "rojak[ecmwf,amdar,plot]",
+    "rojak_cat[ecmwf,amdar,plot]",
     "typer",
 ]
 
