@@ -61,13 +61,13 @@ If you'd like all the dependencies,
 
 .. code-block::
 
-    $ uv sync --all-groups
+    $ uv sync --all-groups --all-extras
 
 If you do not require the docs, dev and test dependencies,
 
 .. code-block::
 
-    $ uv sync --all-groups --no-group test --no-group dev --no-group docs
+    $ uv sync --all-groups --no-group test --no-group dev --no-group docs --all-extras
 
 .. _Conda: https://anaconda.org/anaconda/conda
 .. _conda-forge: https://anaconda.org/conda-forge
