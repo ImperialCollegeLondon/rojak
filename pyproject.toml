@@ -31,7 +31,6 @@ dependencies = [
     "pyyaml",
     "scipy",
     "sparse",
-    "typer",
     "xarray",
 ]
 
@@ -47,8 +46,30 @@ build-backend = "hatchling.build"
 [project.scripts]
 rojak = "rojak.cli.main:app"
 
+[project.optional-dependencies]
+amdar = [
+    "dask-geopandas",
+    "geopandas",
+    "netcdf4",
+    "pyarrow",
+]
+ecmwf = [
+    "cdsapi>=0.7.5",
+]
+plot = [
+    "cartopy",
+    "geoviews",
+    "holoviews",
+    "hvplot", # Adds support to plotting dask-backed objects
+    "matplotlib",
+    "pypalettes",
+]
+cli = [
+    "rojak_cat[ecmwf,amdar,plot]",
+    "typer",
+]
+
 [dependency-groups]
-#complete = ["rojak[ecmwf,amdar]"]
 dev = [
     "doc8",
     "pandas-stubs",
@@ -71,23 +92,6 @@ docs = [
     "pydata-sphinx-theme",
     "sphinx",
     "sphinx-design",
-]
-ecmwf = [
-    "cdsapi>=0.7.5",
-]
-amdar = [
-    "dask-geopandas",
-    "geopandas",
-    "netcdf4",
-    "pyarrow",
-]
-plot = [
-    "cartopy",
-    "geoviews",
-    "holoviews",
-    "hvplot", # Adds support to plotting dask-backed objects
-    "matplotlib",
-    "pypalettes",
 ]
 jupyter = [
     "dask-labextension",
