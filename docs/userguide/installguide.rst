@@ -45,6 +45,12 @@ If you'd like the latest changes, ``rojak`` can be installed from source_
     $ cd rojak
     $ pip install -e
 
+To use ``rojak`` as a CLI tool that's installed from source_, the final command will need to be modified to,
+
+.. code-block::
+
+    $ pip install -e .[cli]
+
 If you use uv_ as your package manager and have cloned the repo, the core dependencies can be installed through,
 
 .. code-block::
