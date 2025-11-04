@@ -326,22 +326,38 @@ class TransformToEDR(PostProcessor):
     _mean: float
     _variance: float
     _has_parent: bool
+    _c1: float
+    _c2: float
 
     def __init__(
-        self, computed_diagnostic: xr.DataArray, mean: float, variance: float, has_parent: bool = False
+        self,
+        computed_diagnostic: xr.DataArray,
+        mean: float,
+        variance: float,
+        has_parent: bool = False,
+        c1: float | None = None,
+        c2: float | None = None,
     ) -> None:
         super().__init__()
         self._computed_diagnostic = computed_diagnostic
         self._mean = mean
         self._variance = variance
         self._has_parent = has_parent
+        if c1 is not None and c2 is not None:
+            self._c1 = c1
+            self._c2 = c2
+        elif c1 is None and c2 is None:
+            self._c1 = OVERALL_CLIMATOLOGICAL_PARAMETER.c1
+            self._c2 = OVERALL_CLIMATOLOGICAL_PARAMETER.c2
+        else:
+            raise TypeError("Both c1 and c2 must be both be provided or omitted")
 
     def execute(self) -> xr.DataArray:
         # See ECMWF document for details
         # b = c_2 / standard_deviation
-        scaling: float = OVERALL_CLIMATOLOGICAL_PARAMETER.c2 / np.sqrt(self._variance)
+        scaling: float = self._c2 / np.sqrt(self._variance)
         # a = c_2 - b * mean
-        offset: float = OVERALL_CLIMATOLOGICAL_PARAMETER.c1 - scaling * self._mean
+        offset: float = self._c1 - scaling * self._mean
         unmapped_index = xr.where(self._computed_diagnostic > 0, self._computed_diagnostic, 0)
         # Numpy doesn't support fractional powers of negative numbers so pull the negative out
         # https://stackoverflow.com/a/45384691
