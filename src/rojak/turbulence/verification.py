@@ -120,9 +120,14 @@ class DiagnosticsAmdarDataHarmoniser:
         ]
         assert set(name_of_index_columns).issubset(observational_data)
 
+        # Compute chunksize of array we are indexing into so that when the indices array indexes into it
+        # the number of chunks does not increase significantly. This prevents a PerformanceWarning from being thrown
+        # e.g. PerformanceWarning: Increasing number of chunks by factor of 12
+        array_chunk_size: int = da.ravel(grid_prototype).chunks[0]
         # Retrieves the index for each row of data and stores them as dask arrays
         indexing_columns: list[da.Array] = [
-            observational_data[col_name].to_dask_array(lengths=True).persist() for col_name in name_of_index_columns
+            observational_data[col_name].to_dask_array(lengths=True).rechunk(array_chunk_size).persist()
+            for col_name in name_of_index_columns
         ]
         # Order of coordinate axes are not known beforehand. Therefore, use the axis order so that the index
         # values matches the dimension of the array
@@ -138,10 +143,10 @@ class DiagnosticsAmdarDataHarmoniser:
 
         return {
             diagnostic_name: da.ravel(computed_diagnostic.data)[flattened_index]
-            # .compute_chunk_sizes()
             .to_dask_dataframe(
                 meta=pd.DataFrame({diagnostic_name: pd.Series(dtype=float)}),
-                index=observational_data.index,  # ensures it matches observational_data.index
+                # As the chunks now follows that of the array we are indexing into, npartitions doesn't match the index
+                # Thus, index cannot be used as an kwarg to the conversion
                 columns=diagnostic_name,
             )
             .persist()
@@ -192,7 +197,7 @@ class DiagnosticsAmdarDataHarmoniser:
                 observational_data,
                 as_column,
             ).persist()
-        return observational_data
+        return observational_data.optimize()
 
 
 def _any_aggregation() -> dd.Aggregation:
