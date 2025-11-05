@@ -34,7 +34,7 @@ from rojak.orchestrator.configuration import (
     TurbulenceThresholds,
 )
 from rojak.turbulence.metrics import contingency_table, jaccard_index_multidim, matthews_corr_coeff_multidim
-from rojak.utilities.types import Limits
+from rojak.utilities.types import DistributionParameters, Limits
 
 if TYPE_CHECKING:
     from rojak.atmosphere.jet_stream import AlphaVelField
@@ -313,6 +313,22 @@ class TurbulenceProbabilityBySeverity(_EvaluationPostProcessor):
         return xr.concat(probabilities, xr.Variable("severity", self._severities))
 
 
+class ComputeDistributionParametersForEDR(PostProcessor):
+    _computed_diagnostic: xr.DataArray
+
+    def __init__(self, computed_diagnostic: xr.DataArray) -> None:
+        super().__init__()
+        self._computed_diagnostic = computed_diagnostic
+
+    def execute(self) -> DistributionParameters:
+        diagnostic_values = da.asarray(self._computed_diagnostic.data).flatten()
+        diagnostic_values = (diagnostic_values[diagnostic_values > 0]).compute_chunk_sizes()
+        log_of_diagnostic = da.log(diagnostic_values)
+        return DistributionParameters(
+            mean=da.nanmean(log_of_diagnostic).compute(), variance=da.nanvar(log_of_diagnostic).compute()
+        )
+
+
 class TransformToEDR(PostProcessor):
     """
     Transforms turbulence diagnostic values into EDR
@@ -323,26 +339,24 @@ class TransformToEDR(PostProcessor):
     """
 
     _computed_diagnostic: xr.DataArray
-    _mean: float
-    _variance: float
-    _has_parent: bool
+    _mean: float | None
+    _variance: float | None
     _c1: float
     _c2: float
 
     def __init__(
         self,
         computed_diagnostic: xr.DataArray,
-        mean: float,
-        variance: float,
-        has_parent: bool = False,
+        mean: float | None = None,
+        variance: float | None = None,
         c1: float | None = None,
         c2: float | None = None,
     ) -> None:
         super().__init__()
         self._computed_diagnostic = computed_diagnostic
+        assert (mean is not None and variance is not None) or (mean is None and variance is None)
         self._mean = mean
         self._variance = variance
-        self._has_parent = has_parent
         if c1 is not None and c2 is not None:
             self._c1 = c1
             self._c2 = c2
@@ -353,6 +367,11 @@ class TransformToEDR(PostProcessor):
             raise TypeError("Both c1 and c2 must be both be provided or omitted")
 
     def execute(self) -> xr.DataArray:
+        if self._mean is None or self._variance is None:
+            distribution_parameters = ComputeDistributionParametersForEDR(self._computed_diagnostic).execute()
+            self._mean = distribution_parameters.mean
+            self._variance = distribution_parameters.variance
+
         # See ECMWF document for details
         # b = c_2 / standard_deviation
         scaling: float = self._c2 / np.sqrt(self._variance)
