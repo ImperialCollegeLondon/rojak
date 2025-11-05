@@ -34,7 +34,7 @@ from rojak.orchestrator.configuration import (
     TurbulenceThresholds,
 )
 from rojak.turbulence.metrics import contingency_table, jaccard_index_multidim, matthews_corr_coeff_multidim
-from rojak.utilities.types import Limits
+from rojak.utilities.types import DistributionParameters, Limits
 
 if TYPE_CHECKING:
     from rojak.atmosphere.jet_stream import AlphaVelField
@@ -313,6 +313,22 @@ class TurbulenceProbabilityBySeverity(_EvaluationPostProcessor):
         return xr.concat(probabilities, xr.Variable("severity", self._severities))
 
 
+class ComputeDistributionParametersForEDR(PostProcessor):
+    _computed_diagnostic: xr.DataArray
+
+    def __init__(self, computed_diagnostic: xr.DataArray) -> None:
+        super().__init__()
+        self._computed_diagnostic = computed_diagnostic
+
+    def execute(self) -> DistributionParameters:
+        diagnostic_values = da.asarray(self._computed_diagnostic.data).flatten()
+        diagnostic_values = (diagnostic_values[diagnostic_values > 0]).compute_chunk_sizes()
+        log_of_diagnostic = da.log(diagnostic_values)
+        return DistributionParameters(
+            mean=da.nanmean(log_of_diagnostic).compute(), variance=da.nanvar(log_of_diagnostic).compute()
+        )
+
+
 class TransformToEDR(PostProcessor):
     """
     Transforms turbulence diagnostic values into EDR
@@ -323,25 +339,44 @@ class TransformToEDR(PostProcessor):
     """
 
     _computed_diagnostic: xr.DataArray
-    _mean: float
-    _variance: float
-    _has_parent: bool
+    _mean: float | None
+    _variance: float | None
+    _c1: float
+    _c2: float
 
     def __init__(
-        self, computed_diagnostic: xr.DataArray, mean: float, variance: float, has_parent: bool = False
+        self,
+        computed_diagnostic: xr.DataArray,
+        mean: float | None = None,
+        variance: float | None = None,
+        c1: float | None = None,
+        c2: float | None = None,
     ) -> None:
         super().__init__()
         self._computed_diagnostic = computed_diagnostic
+        assert (mean is not None and variance is not None) or (mean is None and variance is None)
         self._mean = mean
         self._variance = variance
-        self._has_parent = has_parent
+        if c1 is not None and c2 is not None:
+            self._c1 = c1
+            self._c2 = c2
+        elif c1 is None and c2 is None:
+            self._c1 = OVERALL_CLIMATOLOGICAL_PARAMETER.c1
+            self._c2 = OVERALL_CLIMATOLOGICAL_PARAMETER.c2
+        else:
+            raise TypeError("Both c1 and c2 must be both be provided or omitted")
 
     def execute(self) -> xr.DataArray:
+        if self._mean is None or self._variance is None:
+            distribution_parameters = ComputeDistributionParametersForEDR(self._computed_diagnostic).execute()
+            self._mean = distribution_parameters.mean
+            self._variance = distribution_parameters.variance
+
         # See ECMWF document for details
         # b = c_2 / standard_deviation
-        scaling: float = OVERALL_CLIMATOLOGICAL_PARAMETER.c2 / np.sqrt(self._variance)
+        scaling: float = self._c2 / np.sqrt(self._variance)
         # a = c_2 - b * mean
-        offset: float = OVERALL_CLIMATOLOGICAL_PARAMETER.c1 - scaling * self._mean
+        offset: float = self._c1 - scaling * self._mean
         unmapped_index = xr.where(self._computed_diagnostic > 0, self._computed_diagnostic, 0)
         # Numpy doesn't support fractional powers of negative numbers so pull the negative out
         # https://stackoverflow.com/a/45384691
@@ -709,6 +744,46 @@ class RelationshipBetweenAlphaVelAndTurbulence(JetStreamTurbulenceRelationship):
                 for diagnostic_name, turbulence_diagnostics in track(
                     self._turbulence_diagnostics.items(),
                     "Relationship between alpha vel jet stream and turbulence diagnostics",
+                )
+            }
+        )
+
+
+class RelationshipBetweenXAndTurbulence(JetStreamTurbulenceRelationship):
+    _other_feature: xr.DataArray
+    _turbulence_diagnostics: xr.Dataset
+    _relationship_type: RelationshipBetweenTypes
+    _diagnostic_thresholds: Mapping[str, float] | None
+
+    def __init__(
+        self,
+        other_feature: xr.DataArray,
+        turbulence_diagnostics: xr.Dataset,
+        relationship_between: RelationshipBetweenTypes,
+        diagnostic_thresholds: Mapping[str, float] | None = None,
+    ) -> None:
+        if diagnostic_thresholds is not None:
+            assert set(diagnostic_thresholds.keys()).issuperset(turbulence_diagnostics.keys())
+
+        self._other_feature = other_feature
+        self._turbulence_diagnostics = turbulence_diagnostics
+        self._relationship_type = relationship_between
+        self._diagnostic_thresholds = diagnostic_thresholds
+
+    def execute(self) -> xr.Dataset:
+        return xr.Dataset(
+            data_vars={
+                diagnostic_name: RelationshipBetweenFactory(
+                    self._other_feature,
+                    turbulence_diagnostics
+                    if self._diagnostic_thresholds is None
+                    else turbulence_diagnostics >= self._diagnostic_thresholds[str(diagnostic_name)],
+                )
+                .create(self._relationship_type)
+                .execute()
+                for diagnostic_name, turbulence_diagnostics in track(
+                    self._turbulence_diagnostics.items(),
+                    "Relationship between feature and turbulence diagnostics",
                 )
             }
         )
