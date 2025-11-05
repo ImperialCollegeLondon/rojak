@@ -747,3 +747,43 @@ class RelationshipBetweenAlphaVelAndTurbulence(JetStreamTurbulenceRelationship):
                 )
             }
         )
+
+
+class RelationshipBetweenXAndTurbulence(JetStreamTurbulenceRelationship):
+    _other_feature: xr.DataArray
+    _turbulence_diagnostics: xr.Dataset
+    _relationship_type: RelationshipBetweenTypes
+    _diagnostic_thresholds: Mapping[str, float] | None
+
+    def __init__(
+        self,
+        other_feature: xr.DataArray,
+        turbulence_diagnostics: xr.Dataset,
+        relationship_between: RelationshipBetweenTypes,
+        diagnostic_thresholds: Mapping[str, float] | None = None,
+    ) -> None:
+        if diagnostic_thresholds is not None:
+            assert set(diagnostic_thresholds.keys()).issuperset(turbulence_diagnostics.keys())
+
+        self._other_feature = other_feature
+        self._turbulence_diagnostics = turbulence_diagnostics
+        self._relationship_type = relationship_between
+        self._diagnostic_thresholds = diagnostic_thresholds
+
+    def execute(self) -> xr.Dataset:
+        return xr.Dataset(
+            data_vars={
+                diagnostic_name: RelationshipBetweenFactory(
+                    self._other_feature,
+                    turbulence_diagnostics
+                    if self._diagnostic_thresholds is None
+                    else turbulence_diagnostics >= self._diagnostic_thresholds[str(diagnostic_name)],
+                )
+                .create(self._relationship_type)
+                .execute()
+                for diagnostic_name, turbulence_diagnostics in track(
+                    self._turbulence_diagnostics.items(),
+                    "Relationship between feature and turbulence diagnostics",
+                )
+            }
+        )
