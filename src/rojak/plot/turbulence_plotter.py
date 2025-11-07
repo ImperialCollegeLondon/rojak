@@ -229,6 +229,9 @@ def create_multi_turbulence_diagnotics_probability_plot(
 
 class StandardColourMaps(StrEnum):
     TURBULENCE_PROBABILITY = "turbulence_probability"
+    CORRELATION_COOL_WARM = "correlation_cool_warm"
+    SEQUENTIAL_GREEN = "sequential_green"
+    FEATURE_REGIONS = "feature_regions"
 
 
 def get_a_default_cmap(colour_map: StandardColourMaps, resample_to: int | None = None) -> "mcolors.Colormap":
@@ -238,6 +241,12 @@ def get_a_default_cmap(colour_map: StandardColourMaps, resample_to: int | None =
                 "mcolors.LinearSegmentedColormap", pypalettes.load_cmap("cancri", cmap_type="continuous", reverse=True)
             )
             return turbulence_cmap if resample_to is None else turbulence_cmap.resampled(20)
+        case StandardColourMaps.CORRELATION_COOL_WARM:
+            return pypalettes.load_cmap("Blue2DarkRed12Steps")
+        case StandardColourMaps.SEQUENTIAL_GREEN:
+            return pypalettes.load_cmap("Ernst")
+        case StandardColourMaps.FEATURE_REGIONS:
+            return pypalettes.load_cmap("Casita1", keep_first_n=4)
         case _ as unreachable:
             assert_never(unreachable)
 
