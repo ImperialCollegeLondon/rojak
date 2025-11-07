@@ -294,8 +294,54 @@ def create_configurable_multi_diagnostic_plot(  # noqa: PLR0913
         ax.set_title(diagnostic_label_mapping[TurbulenceDiagnostics(this_var)] if are_vars_diagnostics else this_var)
 
     # pyright thinks coastlines doesn't exists
-    fg.map(lambda: plt.gca().coastlines())  # pyright: ignore[reportAttributeAccessIssue]
-    fg.fig.savefig(plot_name, bbox_inches="tight")
+    fg.map(lambda: plt.gca().coastlines(lw=0.3))  # pyright: ignore[reportAttributeAccessIssue]
+    # fg.fig.savefig(plot_name, bbox_inches="tight")
+    fg.fig.savefig(plot_name, dpi=400)
+    plt.close(fg.fig)
+
+
+def create_configurable_zonal_mean_line_plot(  # noqa: PLR0913
+    ds_to_plot: xr.Dataset,
+    vars_to_plots: list[str],
+    plot_name: str,
+    x_label: str,
+    latitude_coord: str = "latitude",
+    longitude_coord: str = "longitude",
+    are_vars_diagnostics: bool = True,
+    column: str | None = None,
+    plot_kwargs: dict | None = None,
+    as_line: bool = True,
+) -> None:
+    assert set(vars_to_plots).issubset(ds_to_plot.data_vars.keys())
+    assert {latitude_coord, longitude_coord}.issubset(ds_to_plot.coords)
+    assert {latitude_coord, longitude_coord}.issubset(ds_to_plot.dims)
+    merged_plot_kwargs: dict = {
+        "y": latitude_coord,
+        "col": column,
+        **(plot_kwargs if plot_kwargs is not None else {}),
+    }
+    ds_mean = ds_to_plot[vars_to_plots].mean(dim=longitude_coord)
+    if as_line:
+        fg: xr.plot.FacetGrid = (  # pyright: ignore[reportAttributeAccessIssue]
+            ds_mean.to_dataarray(column).plot.line(**merged_plot_kwargs)
+            if column is not None
+            else ds_mean.to_dataarray().plot.line(**merged_plot_kwargs)
+        )
+    else:
+        fg: xr.plot.FacetGrid = (  # pyright: ignore[reportAttributeAccessIssue]
+            ds_mean.to_dataarray(column).plot(**merged_plot_kwargs)
+            if column is not None
+            else ds_mean.to_dataarray().plot(**merged_plot_kwargs)
+        )
+
+    for ax, this_var in zip(fg.fig.axes, vars_to_plots, strict=False):
+        ax.set_title(diagnostic_label_mapping[TurbulenceDiagnostics(this_var)] if are_vars_diagnostics else this_var)
+        ax.grid(as_line)
+        # ax.set_xlabel(x_label)
+
+    fg.set_xlabels(label=x_label)
+    # fg.fig.savefig(plot_name, bbox_inches="tight")
+    fg.fig.savefig(plot_name, dpi=400)
     plt.close(fg.fig)
 
 
