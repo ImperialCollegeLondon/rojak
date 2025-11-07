@@ -13,6 +13,7 @@
 #  limitations under the License.
 
 import functools
+import itertools
 import operator
 from enum import StrEnum
 from typing import TYPE_CHECKING, Literal, assert_never, cast
@@ -342,6 +343,47 @@ def create_configurable_zonal_mean_line_plot(  # noqa: PLR0913
     fg.set_xlabels(label=x_label)
     # fg.fig.savefig(plot_name, bbox_inches="tight")
     fg.fig.savefig(plot_name, dpi=400)
+    plt.close(fg.fig)
+
+
+def create_regions_snapshot_plot(  # noqa: PLR0913
+    da_to_plot: xr.DataArray,
+    first_feature_name: str,
+    second_feature_name: str,
+    plot_name: str,
+    plot_kwargs: dict | None = None,
+    longitude_coord: str = "longitude",
+    latitude_coord: str = "latitude",
+    col_coord: str = "pressure_level",
+    projection: "ccrs.Projection" = _PLATE_CARREE,
+) -> None:
+    cmap = get_a_default_cmap(StandardColourMaps.FEATURE_REGIONS)
+    boundaries: list[int] = [0, 0b001, 0b100, 0b111, 8]
+    new_cbar_tick_locations = [(first + second) / 2 for first, second in itertools.pairwise(boundaries[1:])]
+    cbar_norm = mcolors.BoundaryNorm(boundaries, cmap.N)
+    default_plot_kwargs = {
+        "x": longitude_coord,
+        "y": latitude_coord,
+        "col": col_coord,
+        "cmap": cmap,
+        "norm": cbar_norm,
+        "transform": projection,
+        "subplot_kws": {"projection": projection},
+        "cbar_kwargs": {
+            "orientation": "horizontal",
+            "spacing": "uniform",
+            "pad": 0.02,
+            "shrink": 0.6,
+        },
+        **(plot_kwargs if plot_kwargs is not None else {}),
+    }
+    fg: xr.plot.FacetGrid = da_to_plot.plot(**default_plot_kwargs)  # pyright: ignore[reportAttributeAccessIssue]
+    fg.map(lambda: plt.gca().coastlines(lw=0.3))  # pyright: ignore[reportAttributeAccessIssue]
+    fg.cbar.set_ticks(
+        new_cbar_tick_locations,
+        labels=[first_feature_name, second_feature_name, f"{first_feature_name} & {second_feature_name}"],
+    )
+    fg.fig.savefig(plot_name, dpi=400, bbox_inches="tight")
     plt.close(fg.fig)
 
 
