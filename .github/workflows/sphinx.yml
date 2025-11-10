@@ -15,7 +15,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Install the project
-        run: uv sync --all-groups
+        run: uv sync --all-groups --all-extras
       - name: Build docs using makefile
         run: |
           cd docs
