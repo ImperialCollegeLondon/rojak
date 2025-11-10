@@ -2758,14 +2758,11 @@ wheels = [
 
 [[package]]
 name = "pypalettes"
-version = "0.1.6"
+version = "0.2.1"
 source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "matplotlib" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/e3/c5/c0b05f74220fd3dc824d5df3b4583631d79d534aa443721b66acf5ca1155/pypalettes-0.1.6.tar.gz", hash = "sha256:c11a2e0d45de7c4333c602e49209807e62d88226f2b777ad47f584256c5c0cbe", size = 14527437, upload-time = "2025-06-27T14:17:41.242Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3a/2c/14c7e4b7c61cb26a003e8c8979a24949522270668faf1e3bc6b26e7a8ca8/pypalettes-0.2.1.tar.gz", hash = "sha256:f086b8c3275cf36472216532f4a4c80ebc1a6e639ac5fff9609f94c4123e44c1", size = 14525384, upload-time = "2025-11-09T20:22:51.923Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/81/a1/847f1e0a625130a2919f2b85e71c5196f5ba1a9e45cd77dffbf82492aa52/pypalettes-0.1.6-py3-none-any.whl", hash = "sha256:ad1ce4c79aa07afbb4fc1d91e4e914ab2d9a301d898c1241cdc8f8c0bffc64bf", size = 366236, upload-time = "2025-06-27T14:17:39.108Z" },
+    { url = "https://files.pythonhosted.org/packages/91/fb/3380832944eb4552b5873dd8c75095250356edfadf1156bd562da04fc793/pypalettes-0.2.1-py3-none-any.whl", hash = "sha256:5b26fc6e056212e402cf3e6338165ac16e1b19c000f882894d21f2de5bf79af0", size = 367310, upload-time = "2025-11-09T20:22:50.498Z" },
 ]
 
 [[package]]
