@@ -8,6 +8,10 @@ What in the World Is ``rojak``? What Can I Use It For?
 ``rojak`` is a Python library and command line interface (CLI) tool for analysing aviation turbulence.
 Rojak is salad with Javanese origins. Colloquially (in Malaysia and Singapore), it means a mixture of things.
 
+If you're an aviation meteorologist, `rojak` can be used to computing the various turbulence diagnostics and converting it into EDR like `this map from the Aviation Weather Center <https://aviationweather.gov/gfa/#turb>`_.
+
+Or if you're a researcher and you'd like to understand how turbulence is impacted by climate change, `rojak` can be used to compute the probability of encountering turbulence and examining how that has changed over time.
+
 Command Line Interface
 ------------------------
 
