@@ -9,18 +9,21 @@ authors:
     surname: Wong
     orcid: 0009-0006-2314-2660
     corresponding: true
-    affiliation: "1, 2"
+    affiliation: "1, 2, 3"
   - name: Rafael Palacios
-    affiliation: 1
+    affiliation: "1, 2"
     orcid: 0000-0002-6706-3220
   - name: Edward Gryspeerdt
     orcid: 0000-0002-3815-4756
-    affiliation: 2
+    affiliation: 3
 affiliations:
   - index: 1
     name: Department of Aeronautics, Imperial College London, United Kingdom
     ror: 041kmwe10
   - index: 2
+    name: Brahmal Vasudevan Institute for Sustainable Aviation, Imperial College London, United Kingdom
+    ror: 041kmwe10
+  - index: 3
     name: Department of Physics, Imperial College London, United Kingdom
     ror: 041kmwe10
 date: 22 July 2025
