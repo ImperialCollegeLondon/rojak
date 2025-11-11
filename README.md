@@ -29,6 +29,12 @@ Rojak is also a salad with Javanese origins. Colloquially (in Singlish), it mean
 This package is for a traditionally unconventional mixture of aviation meteorology (turbulence diagnostics) and (coming
 soon) aeroelasticity.
 
+## What could I use `rojak` for?
+
+If you're an aviation meteorologist, `rojak` can be used to computing the various turbulence diagnostics and converting it into EDR like [this map from the Aviation Weather Center](https://aviationweather.gov/gfa/#turb).
+
+Or if you're a researcher and you'd like to understand how turbulence is impacted by climate change, `rojak` can be used to compute the probability of encountering turbulence and examining how that has changed over time.
+
 ## Documentation
 
 Learn more about `rojak` at [imperialcollegelondon.github.io/rojak/](https://imperialcollegelondon.github.io/rojak/).
