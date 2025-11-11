@@ -5,8 +5,8 @@ Getting Started
 What in the World Is ``rojak``? What Can I Use It For?
 -------------------------------------------------------
 
-Rojak is salad with Javanese origins. Colloquially (in Malaysia and Singapore), it means a mixture of things.
 ``rojak`` is a Python library and command line interface (CLI) tool for analysing aviation turbulence.
+Rojak is salad with Javanese origins. Colloquially (in Malaysia and Singapore), it means a mixture of things.
 
 Command Line Interface
 ------------------------
