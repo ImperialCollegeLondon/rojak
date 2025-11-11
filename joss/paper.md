@@ -76,10 +76,9 @@ The architecture of `rojak` enables it to seamlessly integrate various sources o
 In terms of the calculations performed upon the meteorological data, `MetPy` [@mayMetPyPythonPackage2016] has the greatest similarity to `rojak`. However, it does not natively support `Dask` [@manserSupportDaskArrays]. Given the size of the datasets to be processed, this presented a significant issue.
 Moreover, `MeyPy` does not implement the calculations required by the turbulence diagnostics.
 
-
 # Acknowledgements
 
-We gratefully acknowledge the Brahmal Vasudevan Institute for Sustainable Aviation at Imperial College London for funding this research and to the maintainers of the various scientific Python packages which `rojak` depends upon, such as `NumPy` [@harris2020array], `xarray` [@hoyer2017xarray], `Pandas` [@pandas], `GeoPandas` [@kelsey_jordahl_2020_3946761],  and `SciPy` [@virtanenSciPy10Fundamental2020].
+We gratefully acknowledge the Brahmal Vasudevan Institute for Sustainable Aviation at Imperial College London for funding this research.
 
 # References
 
