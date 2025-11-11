@@ -209,7 +209,7 @@ def retrieve_meteorology(  # noqa: PLR0913
         typer.Option(
             "-o",
             "--output-dir",
-            help="Directory to save retrieved files. If unspecified, it will be the input directory",
+            help="Directory to save retrieved files. If unspecified, it will be the current directory",
         ),
     ] = None,
     default_name: Annotated[
