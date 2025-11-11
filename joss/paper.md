@@ -56,9 +56,10 @@ Moreover, the parallelised nature of `rojak` and its architecture, which keeps i
 
 ![Probability of encountering light turbulence during the months December, January, February from 2018 to 2024 at 200 hPa for the three-dimensional frontogenesis (F3D) and turbulence index 1 (TI1) diagnostics \label{fig:probability_light_turbulence}](multi_diagnostic_f3d_ti1_on_200_light.png)
 
-\autoref{fig:probability_light_turbulence} demonstrates the application of `rojak` for characterising CAT's response to climate change.
+When compared against an earlier time periods, \autoref{fig:probability_light_turbulence} can be used to characterising CAT's response to climate change.
 Depicted in the figure is the global climatological distribution of the probability of encountering light turbulence for the boreal winter months (i.e., December, January and February) from 2018 to 2024 at 200 hPa based on the two turbulence diagnostics --- the three-dimensional frontogenesis equation and turbulence index 1. This was computed using ERA5 data at 6-hourly intervals with three pressure levels (175 hPa, 200 hPa and 225 hPa) for the aforementioned time period.
 This required processing 85GB of ERA5 data.
+Thus, when the probability of encountering light turbulence in \autoref{fig:probability_light_turbulence} is compared against data from pre-industrial times, similar to @storerGlobalResponseClearAir2017, it can show the influence of climate.
 The methodology employed by `rojak` for determining the presence of turbulence and the equations for the various turbulence diagnostics is derived from the existing aviation meteorology literature on turbulence.
 In this instance, it is an implementation of the methodology described in @williamsCanClimateModel2022.
 
