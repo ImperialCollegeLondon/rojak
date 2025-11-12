@@ -40,10 +40,10 @@ With these datasets, we can now use ``rojak`` to run the analyses.
 :numref:`turbulence-probability-config-yaml` is a ``yaml`` file that will be used to control the analysis performed by ``rojak``.
 In this configuration file, 
 
-1. *Line 2*: Defines the configuration for the input data. Here, it only specifies the spatial domain which the analysis is for. In this case, it is for the entire globe.
-2. *Line 13*: This is the start of the settings for the CAT analysis. This corresponds to the :py:class:`rojak.orchestrator.configuration.TurbulenceConfig`.
-3. *Line 14*: Within the turbulence config, the first setting that needs to be set is the chunking (see Dask docs on :doc:`dask:array-chunks`). This specifies the size of each dask array chunk. For simplicity, it has been set to the size of the spatial domain
-4. *Line 18*: Is a list of the turbulence diagnostics which the analysis is to be performed on. Each item in the list must be an string from the :py:class:`enum.StrEnum` class :py:class:`rojak.orchestrator.configuration.TurbulenceDiagnostics`
+1. *Line 1*: Defines the configuration for the input data. Here, it only specifies the spatial domain which the analysis is for. In this case, it is for the entire globe.
+2. *Line 11*: This is the start of the settings for the CAT analysis. This corresponds to the :py:class:`rojak.orchestrator.configuration.TurbulenceConfig`.
+3. *Line 12*: Within the turbulence config, the first setting that needs to be set is the chunking (see Dask docs on :doc:`dask:array-chunks`). This specifies the size of each dask array chunk. For simplicity, it has been set to the size of the spatial domain
+4. *Line 16*: Is a list of the turbulence diagnostics which the analysis is to be performed on. Each item in the list must be an string from the :py:class:`enum.StrEnum` class :py:class:`rojak.orchestrator.configuration.TurbulenceDiagnostics`
 
 
 Explain configuration file on how it, 
@@ -56,9 +56,7 @@ Explain configuration file on how it,
     :caption: turbulence-probability-config.yaml
     :name: turbulence-probability-config-yaml
 
-    contrails_config: null
     data_config:
-        meteorology_config: null
         spatial_domain:
             maximum_latitude: 90.0
             maximum_longitude: 180.0
@@ -80,14 +78,12 @@ Explain configuration file on how it,
             calibration_phases:
                 calibration_config:
                     calibration_data_dir: met_data/era5/calibration_data
-                    diagnostic_distribution_file_path: null
                     percentile_thresholds:
                         light: 97.0
                         light_to_moderate: 99.1
                         moderate: 99.6
                         moderate_to_severe: 99.8
                         severe: 99.9
-                    thresholds_file_path: null
                 phases:
                     - thresholds
                     - histogram
