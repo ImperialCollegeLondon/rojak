@@ -126,3 +126,7 @@ exclude_also = [
     '@(abc\.)?abstractmethod',
     '^\s*(logger|logging)\.\w+\(.*\)', # ignore logging statements
 ]
+
+[tool.esbonio.sphinx]
+buildCommand = ["sphinx-build", "-M", "dirhtml", "docs", "docs/_build"]
+pythonCommand = ["${venv:.venv}"]
