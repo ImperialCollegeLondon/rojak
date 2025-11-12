@@ -25,6 +25,10 @@ It uses the default configuration for clear air turbulence (CAT) to specify whic
 
     $ rojak data meteorology retrieve -s era5 -y 1980 -y 1981 -y 1982 -y 1983 -y 1984 -y 1985 -y 1986 -y 1987 -y 1988 -y 1989 -m -1 -d 1 -d 15 -n pressure-level --default-name cat -o met_data/era5/calibration_data
 
+.. hint::
+
+    If the above command fails due to the CDS API, check out getting started guide on :ref:`met_data`.
+
 The calibration data is used to compute the threshold values to determine whether light turbulence is present for a given turbulence diagnostic.
 The next step is to request the data for the evaluation dataset. In :numref:`turbulence-percentage`, data from the boreal winter (i.e. December, January, and February) of 2018 to 2024 was used.
 
