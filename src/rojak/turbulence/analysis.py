@@ -704,56 +704,12 @@ class RelationshipBetweenFactory:
                 assert_never(unreachable)
 
 
-class JetStreamTurbulenceRelationship(PostProcessor):
-    def execute(self) -> xr.Dataset: ...
-
-
-class RelationshipBetweenAlphaVelAndTurbulence(JetStreamTurbulenceRelationship):
-    _alpha_vel: "AlphaVelField"
-    _turbulence_diagnostics: xr.Dataset
-    _relationship_type: RelationshipBetweenTypes
-    _diagnostic_thresholds: Mapping[str, float] | None
-
-    def __init__(
-        self,
-        alpha_vel: "AlphaVelField",
-        turbulence_diagnostics: xr.Dataset,
-        relationship_between: RelationshipBetweenTypes,
-        diagnostic_thresholds: Mapping[str, float] | None = None,
-    ) -> None:
-        if diagnostic_thresholds is not None:
-            assert set(diagnostic_thresholds.keys()).issuperset(turbulence_diagnostics.keys())
-
-        self._alpha_vel = alpha_vel
-        self._turbulence_diagnostics = turbulence_diagnostics
-        self._relationship_type = relationship_between
-        self._diagnostic_thresholds = diagnostic_thresholds
-
-    def execute(self) -> xr.Dataset:
-        alpha_vel_js = self._alpha_vel.identify_jet_stream()
-        return xr.Dataset(
-            data_vars={
-                diagnostic_name: RelationshipBetweenFactory(
-                    alpha_vel_js,
-                    turbulence_diagnostics
-                    if self._diagnostic_thresholds is None
-                    else turbulence_diagnostics >= self._diagnostic_thresholds[str(diagnostic_name)],
-                )
-                .create(self._relationship_type)
-                .execute()
-                for diagnostic_name, turbulence_diagnostics in track(
-                    self._turbulence_diagnostics.items(),
-                    "Relationship between alpha vel jet stream and turbulence diagnostics",
-                )
-            }
-        )
-
-
-class RelationshipBetweenXAndTurbulence(JetStreamTurbulenceRelationship):
+class RelationshipBetweenXAndTurbulence(PostProcessor):
     _other_feature: xr.DataArray
     _turbulence_diagnostics: xr.Dataset
     _relationship_type: RelationshipBetweenTypes
     _diagnostic_thresholds: Mapping[str, float] | None
+    _feature_name: str
 
     def __init__(
         self,
@@ -761,6 +717,7 @@ class RelationshipBetweenXAndTurbulence(JetStreamTurbulenceRelationship):
         turbulence_diagnostics: xr.Dataset,
         relationship_between: RelationshipBetweenTypes,
         diagnostic_thresholds: Mapping[str, float] | None = None,
+        feature_name: str | None = None,
     ) -> None:
         if diagnostic_thresholds is not None:
             assert set(diagnostic_thresholds.keys()).issuperset(turbulence_diagnostics.keys())
@@ -769,6 +726,7 @@ class RelationshipBetweenXAndTurbulence(JetStreamTurbulenceRelationship):
         self._turbulence_diagnostics = turbulence_diagnostics
         self._relationship_type = relationship_between
         self._diagnostic_thresholds = diagnostic_thresholds
+        self._feature_name = feature_name if feature_name is not None else "feature"
 
     def execute(self) -> xr.Dataset:
         return xr.Dataset(
@@ -783,7 +741,29 @@ class RelationshipBetweenXAndTurbulence(JetStreamTurbulenceRelationship):
                 .execute()
                 for diagnostic_name, turbulence_diagnostics in track(
                     self._turbulence_diagnostics.items(),
-                    "Relationship between feature and turbulence diagnostics",
+                    f"Relationship between {self._feature_name} and turbulence diagnostics",
                 )
             }
+        )
+
+
+class RelationshipBetweenAlphaVelAndTurbulence(RelationshipBetweenXAndTurbulence):
+    _alpha_vel: "AlphaVelField"
+    _turbulence_diagnostics: xr.Dataset
+    _relationship_type: RelationshipBetweenTypes
+    _diagnostic_thresholds: Mapping[str, float] | None
+
+    def __init__(
+        self,
+        alpha_vel: "AlphaVelField",
+        turbulence_diagnostics: xr.Dataset,
+        relationship_between: RelationshipBetweenTypes,
+        diagnostic_thresholds: Mapping[str, float] | None = None,
+    ) -> None:
+        super().__init__(
+            alpha_vel.identify_jet_stream(),
+            turbulence_diagnostics,
+            relationship_between,
+            diagnostic_thresholds=diagnostic_thresholds,
+            feature_name="alpha vel jet stream",
         )
