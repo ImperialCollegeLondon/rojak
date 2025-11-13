@@ -16,7 +16,9 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, assert_never
 
+import dask.dataframe as dd
 import typer
+from rich.progress import track
 
 from rojak.datalib.ecmwf.era5 import (
     Era5DatasetName,
@@ -33,8 +35,10 @@ if TYPE_CHECKING:
 data_app = typer.Typer(help="Perform operations on data")
 amdar_app = typer.Typer(help="Operations for AMDAR data")
 meteorology_app = typer.Typer(help="Operations for Meteorology data")
+utils_app = typer.Typer(help="Utility operations on data")
 data_app.add_typer(amdar_app, name="amdar")
 data_app.add_typer(meteorology_app, name="meteorology")
+data_app.add_typer(utils_app, name="utils")
 
 
 def create_output_dir(output_dir: Path | None, source: StrEnum, intermediate_folder_name: str) -> Path:
@@ -247,6 +251,51 @@ def retrieve_meteorology(  # noqa: PLR0913
             retriever.download_files(years, months, days, output_dir.parent)
         case _ as unreachable:
             assert_never(unreachable)
+
+
+@utils_app.command("repartition")
+def repartition_parquet(
+    root_dir: Annotated[
+        Path,
+        typer.Option(
+            "-d",
+            "--root-dir",
+            help="Root directory of parquet files",
+            exists=True,
+            file_okay=False,
+            dir_okay=True,
+            readable=True,
+        ),
+    ],
+    output_dir: Annotated[
+        Path,
+        typer.Option(
+            "-o",
+            "--output-dir",
+            help="Output directory for repartition files",
+            file_okay=False,
+            dir_okay=True,
+            writable=True,
+        ),
+    ],
+    glob_pattern: Annotated[str, typer.Option("-p", help="Glob pattern to select files")],
+    num_partitions: Annotated[
+        int, typer.Option("-n", "--num-partitions", help="Number of partitions to repartition to", min=0)
+    ],
+    is_nested: Annotated[bool, typer.Option("-r", help="Recursively check for directories")],
+) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    directories_to_process: list[Path] = (
+        [item for item in root_dir.iterdir() if item.is_dir()] if is_nested else [root_dir]
+    )
+
+    for directory in track(directories_to_process, "Processing directories..."):
+        assert list(directory.glob(glob_pattern)), "Directory does not contains matching glob pattern"
+        output_location = output_dir / directory.stem
+        output_location.mkdir(parents=True, exist_ok=True)
+        dd.read_parquet(str(directory / glob_pattern)).repartition(npartitions=num_partitions).to_parquet(
+            str(output_location)
+        )
 
 
 if __name__ == "__main__":
