@@ -5,8 +5,11 @@ from typing import TYPE_CHECKING
 import dask_geopandas as dgpd
 import geopandas as gpd
 import numpy as np
+import pyproj
 from shapely import geometry
 from shapely.prepared import prep
+
+from rojak.utilities.types import Coordinate
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -68,3 +71,60 @@ def spatial_aggregation(
     aggregated_data = grid.join(relevant_data.dissolve(by=by, aggfunc=agg_func))
 
     return aggregated_data.dropna() if drop_na else aggregated_data
+
+
+# For now, assume symmetric grid
+def _estimate_num_waypoints(start: Coordinate, end: Coordinate, grid_size: float, n_points_safety_factor: float) -> int:
+    """
+    Estimate the number of waypoints between two points based on the grid_size
+
+    Args:
+        start: Starting coordinate
+        end: Ending coordinate
+        grid_size: Grid spacing in degrees. For Era5, this is 0.25
+        n_points_safety_factor: Safety factor applied for the estimation of number of waypoints. Larger => more points
+
+    Returns:
+        Estimated number of waypoints
+
+    """
+    mid_point: Coordinate = start.mid_point_from(end)
+    geod = pyproj.Geod(ellps="WGS84")
+
+    _, _, approx_cell_distance = geod.inv(
+        mid_point.longitude, mid_point.latitude, mid_point.longitude + grid_size, mid_point.latitude + grid_size
+    )
+    _, _, total_distance = geod.inv(start.longitude, start.latitude, end.longitude, end.latitude)
+
+    # mathematically equiv to total_distance / (approx_cell_distance / n_points_safety_factor)
+    return max(1, np.ceil(total_distance * n_points_safety_factor / approx_cell_distance, dtype=np.int_)) + 1
+
+
+def geodesic_waypoints_between(
+    start: Coordinate, end: Coordinate, grid_size: float, n_points_safety_factor: float = 2, n_points: int | None = None
+) -> np.ndarray:
+    """
+    Find the coordinates (i.e. waypoints) on the great circle between the two points.
+
+    Args:
+        start: Starting coordinate
+        end: Ending coordinate
+        grid_size: Grid spacing in degrees. For Era5, this is 0.25
+        n_points_safety_factor: Safety factor applied for the estimation of number of waypoints. Larger => more points
+        n_points: If None, then number of points is estimated. Else, this value is used to compute the waypoints
+
+    Returns:
+        2D numpy array of points with shape (num_waypoints, 2). The first column is the latitude and the second column
+        is the longitude
+
+    """
+    if n_points is None:
+        num_points = _estimate_num_waypoints(start, end, grid_size, n_points_safety_factor)
+    else:
+        num_points = n_points
+    geod = pyproj.Geod(ellps="WGS84")
+    return np.asarray(
+        geod.npts(
+            start.longitude, start.latitude, end.longitude, end.latitude, num_points, initial_idx=0, terminus_idx=0
+        )
+    )
