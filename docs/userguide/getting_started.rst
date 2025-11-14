@@ -2,11 +2,18 @@
 Getting Started
 ===================
 
+Background
+------------
+
+Aviation turbulence is atmospheric turbulence occurring at length scales large enough (approximately 100m to 1km) to affect an aircraft [Sharman2016]_. According to the National Transport Safety Board (NTSB), turbulence experienced whilst onboard an aircraft was the leading cause of accidents from 2009 to 2018 [NTSB2021]_. Clear air turbulence (CAT) is a form of aviation turbulence which cannot be detected by the onboard weather radar. Thus, pilots are unable to preemptively avoid such regions. In order to mitigate this safety risk, CAT diagnostics are used to forecast turbulent regions such that pilots are able to tactically avoid them.
+
 What in the World Is ``rojak``? What Can I Use It For?
 -------------------------------------------------------
 
-Rojak is salad with Javanese origins. Colloquially (in Malaysia and Singapore), it means a mixture of things.
 ``rojak`` is a Python library and command line interface (CLI) tool for analysing aviation turbulence.
+Rojak is also salad with Javanese origins. Colloquially (in Malaysia and Singapore), it means a mixture of things.
+
+``rojak``'s features not only allow users to perform operational forecasting of CAT but also to interrogate the intensification in frequency and severity of CAT due to climate change [Williams2017]_ [Storer2017]_ [Kim2023]_, such as by analysing the climatological distribution of the probability of encountering turbulence at different severities (e.g. light turbulence or moderate-or-greater turbulence) for each turbulence diagnostic. These applications involve high-volume datasets, ranging from tens to hundreds of gigabytes, necessitating the use of parallelisation to preserve computational tractability and efficiency, while substantially reducing execution time. As such, ``rojak`` leverages `Dask`_ to process larger-than-memory data and to run in a distributed manner [@pydataDask].
 
 Command Line Interface
 ------------------------
@@ -199,3 +206,5 @@ Once everything has been setup, you could, for example, download all the data fo
 .. code-block::
 
     $ rojak data meteorology retrieve -s era5 -y 2024 -m -1 -d -1 --data-set-name "pressure-level" --default-name cat
+
+.. _Dask: https://docs.dask.org/en/stable/
