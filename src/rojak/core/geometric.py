@@ -87,7 +87,27 @@ def _estimate_num_waypoints(start: Coordinate, end: Coordinate, grid_size: float
     Returns:
         Estimated number of waypoints
 
+    Examples
+    ---------
+
+    >>> lhr = Coordinate(51.47138888, -0.45277777)
+    >>> jfk = Coordinate(40.641766, -73.780968)
+    >>> _estimate_num_waypoints(lhr, jfk, 0.25, 2)
+    330
+    >>> _estimate_num_waypoints(jfk, lhr, 0.25, 2)
+    330
+    >>> _estimate_num_waypoints(lhr, jfk, 0.25, 4)
+    658
+    >>> _estimate_num_waypoints(lhr, jfk, 0.25, 0.5)
+    84
+    >>> _estimate_num_waypoints(lhr, jfk, -0.1, 2)
+    Traceback (most recent call last):
+    ValueError: grid_size must be non-negative
+
     """
+    if grid_size < 0:
+        raise ValueError("grid_size must be non-negative")
+
     mid_point: Coordinate = start.mid_point_from(end)
     geod = pyproj.Geod(ellps="WGS84")
 
@@ -97,7 +117,7 @@ def _estimate_num_waypoints(start: Coordinate, end: Coordinate, grid_size: float
     _, _, total_distance = geod.inv(start.longitude, start.latitude, end.longitude, end.latitude)
 
     # mathematically equiv to total_distance / (approx_cell_distance / n_points_safety_factor)
-    return max(1, np.ceil(total_distance * n_points_safety_factor / approx_cell_distance, dtype=np.int_)) + 1
+    return max(1, int(np.ceil(total_distance * n_points_safety_factor / approx_cell_distance))) + 1
 
 
 def geodesic_waypoints_between(
@@ -110,18 +130,55 @@ def geodesic_waypoints_between(
         start: Starting coordinate
         end: Ending coordinate
         grid_size: Grid spacing in degrees. For Era5, this is 0.25
-        n_points_safety_factor: Safety factor applied for the estimation of number of waypoints. Larger => more points
+        n_points_safety_factor: Safety factor applied for the estimation of number of waypoints. Larger => more points.
+        If n_points is specified, this value is ignored.
         n_points: If None, then number of points is estimated. Else, this value is used to compute the waypoints
 
     Returns:
-        2D numpy array of points with shape (num_waypoints, 2). The first column is the latitude and the second column
-        is the longitude
+        2D numpy array of points with shape (num_waypoints, 2). The first column is the longitude and the second column
+        is the latitude.
+
+    Examples
+    --------
+
+    >>> lhr = Coordinate(51.47138888, -0.45277777)
+    >>> jfk = Coordinate(40.641766, -73.780968)
+    >>> way_points_lhr_jfk = geodesic_waypoints_between(lhr, jfk, 0.25)
+    >>> way_points_lhr_jfk.shape
+    (330, 2)
+
+    The first and last rows correspond to the longitude and latitude of the starting and end point, respectively.
+
+    >>> way_points_lhr_jfk[0, :]
+    array([-0.45277777, 51.47138888])
+    >>> way_points_lhr_jfk[-1, :]
+    array([-73.780968,  40.641766])
+
+    Flipping the star and end points reverses the order of the array of way points.
+
+    >>> way_points_jfk_lhr = geodesic_waypoints_between(jfk, lhr, 0.25)
+    >>> np.testing.assert_array_almost_equal(way_points_lhr_jfk, np.flipud(way_points_jfk_lhr))
+
+    Specifying the number of points
+
+    >>> min_points = geodesic_waypoints_between(lhr, jfk, 0.25, n_points=2)
+    >>> min_points.shape
+    (2, 2)
+    >>> min_points
+    array([[ -0.45277777,  51.47138888],
+           [-73.780968  ,  40.641766  ]])
+    >>> geodesic_waypoints_between(lhr, jfk, 0.25, n_points=1)
+    Traceback (most recent call last):
+    ValueError: Number of points cannot be less than 2 as it must include start and end points.
 
     """
     if n_points is None:
         num_points = _estimate_num_waypoints(start, end, grid_size, n_points_safety_factor)
     else:
+        if n_points < 2:  # noqa: PLR2004
+            raise ValueError("Number of points cannot be less than 2 as it must include start and end points.")
         num_points = n_points
+
     geod = pyproj.Geod(ellps="WGS84")
     return np.asarray(
         geod.npts(
