@@ -56,6 +56,7 @@ intersphinx_mapping = {
     "dask": ("https://docs.dask.org/en/latest/", None),
     "scipy": ("https://docs.scipy.org/doc/scipy", None),
     "scikit-learn": ("https://scikit-learn.org/stable/", None),
+    "scikit-image": ("https://scikit-image.org/docs/stable/", None),
 }
 
 # Allow markdown files to be recognised

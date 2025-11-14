@@ -504,7 +504,7 @@ def _populate_confusion_matrix(
     return confuse_matrix
 
 
-def matthew_corrcoef(
+def matthews_corr_coeff(
     truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
 ) -> float:
     """
@@ -529,9 +529,9 @@ def matthew_corrcoef(
 
     >>> actual = da.asarray([1,1,1,1,1,1,1,1,0,0,0,0])
     >>> pred = da.asarray([0,0,1,1,1,1,1,1,0,0,0,1])
-    >>> float(matthew_corrcoef(truth=actual, prediction=pred))
+    >>> float(matthews_corr_coeff(truth=actual, prediction=pred))
     0.478
-    >>> float(matthew_corrcoef(confuse_matrix=confusion_matrix(actual, pred)))
+    >>> float(matthews_corr_coeff(confuse_matrix=confusion_matrix(actual, pred)))
     0.478
 
     .. _Matthew's Correlation Coefficient: https://en.wikipedia.org/wiki/Phi_coefficient#Example
@@ -541,6 +541,104 @@ def matthew_corrcoef(
     tn, fp, fn, tp = confuse_matrix.ravel().tolist()
     numerator = tp * tn - fp * fn
     denominator = np.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
+
+    return numerator / denominator
+
+
+class ContingencyTable(NamedTuple):
+    n_00: xr.DataArray
+    n_11: xr.DataArray
+    n_01: xr.DataArray
+    n_10: xr.DataArray
+
+
+def contingency_table(first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str) -> ContingencyTable:
+    """
+    Contingency Table for multidimensional arrays
+
+    Computed contingency table as defined as,
+
+    .. math::
+
+       \\begin{array}{c|c|c|c}
+           & y = 1 & y = 0 & \\text{Total} \\\\
+           \\hline
+           x = 1 & n_{11} & n_{10} & n_{1\\bullet} \\\\
+           x = 0 & n_{01} & n_{00} & n_{0\\bullet} \\\\
+           \\hline
+           \\text{Total} & n_{\\bullet1} & n_{\\bullet0} & n
+       \\end{array}
+
+    Args:
+        first_var: First binary variable
+        second_var: Second binary variable
+        sum_over: Dimension to sum over to compute the number of observations
+
+    Returns:
+        Instance of :class:`ContingencyTable`
+
+    """
+    assert set(first_var.dims) == set(second_var.dims)
+    assert sum_over in first_var.dims
+    assert first_var.dtype == second_var.dtype
+    assert first_var.dtype == np.bool_
+
+    return ContingencyTable(
+        n_11=(first_var & second_var).sum(dim=sum_over),
+        n_10=(first_var & (~second_var)).sum(dim=sum_over),
+        n_01=((~first_var) & second_var).sum(dim=sum_over),
+        n_00=(~(first_var | second_var)).sum(dim=sum_over),
+    )
+
+
+def matthews_corr_coeff_multidim(first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str) -> xr.DataArray:
+    """
+    Matthews Correlation Coefficient for multidimensional arrays
+
+    This assumes that the inputs are binary variables such that the contingency table is as follows
+    (see `Wikipedia on MCC`_):
+
+    .. math::
+
+       \\begin{array}{c|c|c|c}
+           & y = 1 & y = 0 & \\text{Total} \\\\
+           \\hline
+           x = 1 & n_{11} & n_{10} & n_{1\\bullet} \\\\
+           x = 0 & n_{01} & n_{00} & n_{0\\bullet} \\\\
+           \\hline
+           \\text{Total} & n_{\\bullet1} & n_{\\bullet0} & n
+       \\end{array}
+
+    Such that the Matthew's Correlation Coefficient (:math:`\\varphi`) is given as,
+
+    .. math::
+       \\varphi = \\frac{n n_{11} - n_{1\\bullet} n_{\\bullet 1}}
+       {\\sqrt{n_{1\\bullet} n_{\\bullet 1} (n - n_{1\\bullet})(n - n_{\\bullet 1})}}.
+
+    Args:
+        first_var: First binary variable
+        second_var: Second binary variable
+        sum_over: Dimension to sum over to compute the number of observations
+
+    Returns:
+        Array containing Matthew's Correlation Coefficient reduced over the ``sum_over`` dimension
+
+    .. _Wikipedia on MCC: https://en.wikipedia.org/wiki/Phi_coefficient#Definition
+    """
+    table: ContingencyTable = contingency_table(first_var, second_var, sum_over)
+    total_num_observations: int = first_var[sum_over].size
+
+    sum_first_var_true: xr.DataArray = table.n_11 + table.n_10
+    sum_second_var_true: xr.DataArray = table.n_11 + table.n_01
+
+    numerator: xr.DataArray = total_num_observations * table.n_11 - sum_first_var_true * sum_second_var_true
+    # Pyright is not aware that sqrt is DataArray ufunc
+    denominator: xr.DataArray = np.sqrt(
+        sum_first_var_true
+        * sum_second_var_true
+        * (total_num_observations - sum_first_var_true)
+        * (total_num_observations - sum_second_var_true)
+    )  # pyright: ignore [reportAssignmentType]
 
     return numerator / denominator
 
@@ -571,6 +669,32 @@ def critical_success_index(
     _, fp, fn, tp = confuse_matrix.ravel().tolist()
 
     return tp / (tp + fn + fp)
+
+
+def jaccard_index_multidim(first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str) -> xr.DataArray:
+    """
+    Jaccard Index or Critical Success Index for multidimensional data
+
+    From `Wikipedia`_ Jaccard Index is defined as,
+
+    .. math::
+
+       J(A, B) = \\frac{|A \\cap B|}{|A \\cup B|}
+
+    Args:
+        first_var: First binary variable
+        second_var: Second binary variable
+        sum_over: Dimension to sum over to compute the number of observations
+
+    Returns:
+        Array containing Jaccard Index or Critical Success Index
+
+    .. _Wikipedia: https://en.wikipedia.org/wiki/Jaccard_index
+
+    """
+    table: ContingencyTable = contingency_table(first_var, second_var, sum_over)
+    total_num_observations: int = first_var[sum_over].size
+    return table.n_11 / (total_num_observations - table.n_00)
 
 
 def gilbert_skill_score(

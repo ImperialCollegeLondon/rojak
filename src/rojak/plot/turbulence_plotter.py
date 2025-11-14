@@ -13,8 +13,10 @@
 #  limitations under the License.
 
 import functools
+import itertools
 import operator
-from typing import TYPE_CHECKING, Literal, cast
+from enum import StrEnum
+from typing import TYPE_CHECKING, Literal, assert_never, cast
 
 import cartopy.crs as ccrs
 import dask.array as da
@@ -223,6 +225,165 @@ def create_multi_turbulence_diagnotics_probability_plot(
         ax.coastlines()
     # fg.map(lambda: plt.gca().coastlines())
     fg.fig.savefig(plot_name, bbox_inches="tight")
+    plt.close(fg.fig)
+
+
+class StandardColourMaps(StrEnum):
+    TURBULENCE_PROBABILITY = "turbulence_probability"
+    CORRELATION_COOL_WARM = "correlation_cool_warm"
+    SEQUENTIAL_GREEN = "sequential_green"
+    FEATURE_REGIONS = "feature_regions"
+
+
+def get_a_default_cmap(colour_map: StandardColourMaps, resample_to: int | None = None) -> "mcolors.Colormap":
+    match colour_map:
+        case StandardColourMaps.TURBULENCE_PROBABILITY:
+            turbulence_cmap: mcolors.LinearSegmentedColormap = cast(
+                "mcolors.LinearSegmentedColormap", pypalettes.load_cmap("cancri", cmap_type="continuous", reverse=True)
+            )
+            return turbulence_cmap if resample_to is None else turbulence_cmap.resampled(20)
+        case StandardColourMaps.CORRELATION_COOL_WARM:
+            return pypalettes.load_cmap("Blue2DarkRed12Steps")
+        case StandardColourMaps.SEQUENTIAL_GREEN:
+            return pypalettes.load_cmap("Ernst")
+        case StandardColourMaps.FEATURE_REGIONS:
+            return pypalettes.load_cmap("Casita1", keep_first_n=4)
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def create_configurable_multi_diagnostic_plot(  # noqa: PLR0913
+    ds_to_plot: xr.Dataset,
+    vars_to_plots: list[str],
+    plot_name: str,
+    colour_map: "mcolors.Colormap | None | str" = None,
+    are_vars_diagnostics: bool = True,
+    plot_kwargs: dict | None = None,
+    projection: "ccrs.Projection" = _PLATE_CARREE,
+    cbar_kwargs: dict | None = None,
+    column: str | None = None,
+    row: str | None = None,
+) -> None:
+    assert set(vars_to_plots).issubset(set(ds_to_plot.data_vars.keys()))
+    default_plot_kwargs = {
+        # "col": "diagnostics",
+        "x": "longitude",
+        "y": "latitude",
+        "transform": projection,
+        "subplot_kws": {"projection": projection},
+        "cbar_kwargs": cbar_kwargs if cbar_kwargs is not None else {},
+        # "cmap": colour_map
+        # if colour_map is not None
+        # else get_a_default_cmap(StandardColourMaps.TURBULENCE_PROBABILITY, 20),
+        "robust": True,
+    }
+    plot_kwargs = default_plot_kwargs | plot_kwargs if plot_kwargs is not None else default_plot_kwargs
+    if column is not None:
+        plot_kwargs["col"] = column
+    if row is not None:
+        plot_kwargs["row"] = row
+    if row is not None:
+        plot_kwargs["row"] = row
+        assert "col_wrap" not in plot_kwargs, "If plot is 4D, column wrap cannot be specified"
+    # Ignore plot not being a known attribute of xarray
+    if column is not None:
+        fg: xr.plot.FacetGrid = ds_to_plot[vars_to_plots].to_dataarray(column).plot(**plot_kwargs)  # pyright: ignore[reportAttributeAccessIssue]
+    else:
+        fg: xr.plot.FacetGrid = ds_to_plot[vars_to_plots].to_dataarray().plot(**plot_kwargs)  # pyright: ignore[reportAttributeAccessIssue]
+
+    for ax, this_var in zip(fg.fig.axes, vars_to_plots, strict=False):
+        ax.set_title(diagnostic_label_mapping[TurbulenceDiagnostics(this_var)] if are_vars_diagnostics else this_var)
+
+    # pyright thinks coastlines doesn't exists
+    fg.map(lambda: plt.gca().coastlines(lw=0.3))  # pyright: ignore[reportAttributeAccessIssue]
+    # fg.fig.savefig(plot_name, bbox_inches="tight")
+    fg.fig.savefig(plot_name, dpi=400)
+    plt.close(fg.fig)
+
+
+def create_configurable_zonal_mean_line_plot(  # noqa: PLR0913
+    ds_to_plot: xr.Dataset,
+    vars_to_plots: list[str],
+    plot_name: str,
+    x_label: str,
+    latitude_coord: str = "latitude",
+    longitude_coord: str = "longitude",
+    are_vars_diagnostics: bool = True,
+    column: str | None = None,
+    plot_kwargs: dict | None = None,
+    as_line: bool = True,
+) -> None:
+    assert set(vars_to_plots).issubset(ds_to_plot.data_vars.keys())
+    assert {latitude_coord, longitude_coord}.issubset(ds_to_plot.coords)
+    assert {latitude_coord, longitude_coord}.issubset(ds_to_plot.dims)
+    merged_plot_kwargs: dict = {
+        "y": latitude_coord,
+        "col": column,
+        **(plot_kwargs if plot_kwargs is not None else {}),
+    }
+    ds_mean = ds_to_plot[vars_to_plots].mean(dim=longitude_coord)
+    if as_line:
+        fg: xr.plot.FacetGrid = (  # pyright: ignore[reportAttributeAccessIssue]
+            ds_mean.to_dataarray(column).plot.line(**merged_plot_kwargs)
+            if column is not None
+            else ds_mean.to_dataarray().plot.line(**merged_plot_kwargs)
+        )
+    else:
+        fg: xr.plot.FacetGrid = (  # pyright: ignore[reportAttributeAccessIssue]
+            ds_mean.to_dataarray(column).plot(**merged_plot_kwargs)
+            if column is not None
+            else ds_mean.to_dataarray().plot(**merged_plot_kwargs)
+        )
+
+    for ax, this_var in zip(fg.fig.axes, vars_to_plots, strict=False):
+        ax.set_title(diagnostic_label_mapping[TurbulenceDiagnostics(this_var)] if are_vars_diagnostics else this_var)
+        ax.grid(as_line)
+        # ax.set_xlabel(x_label)
+
+    fg.set_xlabels(label=x_label)
+    # fg.fig.savefig(plot_name, bbox_inches="tight")
+    fg.fig.savefig(plot_name, dpi=400)
+    plt.close(fg.fig)
+
+
+def create_regions_snapshot_plot(  # noqa: PLR0913
+    da_to_plot: xr.DataArray,
+    first_feature_name: str,
+    second_feature_name: str,
+    plot_name: str,
+    plot_kwargs: dict | None = None,
+    longitude_coord: str = "longitude",
+    latitude_coord: str = "latitude",
+    col_coord: str = "pressure_level",
+    projection: "ccrs.Projection" = _PLATE_CARREE,
+) -> None:
+    cmap = get_a_default_cmap(StandardColourMaps.FEATURE_REGIONS)
+    boundaries: list[int] = [0, 0b001, 0b100, 0b111, 8]
+    new_cbar_tick_locations = [(first + second) / 2 for first, second in itertools.pairwise(boundaries[1:])]
+    cbar_norm = mcolors.BoundaryNorm(boundaries, cmap.N)
+    default_plot_kwargs = {
+        "x": longitude_coord,
+        "y": latitude_coord,
+        "col": col_coord,
+        "cmap": cmap,
+        "norm": cbar_norm,
+        "transform": projection,
+        "subplot_kws": {"projection": projection},
+        "cbar_kwargs": {
+            "orientation": "horizontal",
+            "spacing": "uniform",
+            "pad": 0.02,
+            "shrink": 0.6,
+        },
+        **(plot_kwargs if plot_kwargs is not None else {}),
+    }
+    fg: xr.plot.FacetGrid = da_to_plot.plot(**default_plot_kwargs)  # pyright: ignore[reportAttributeAccessIssue]
+    fg.map(lambda: plt.gca().coastlines(lw=0.3))  # pyright: ignore[reportAttributeAccessIssue]
+    fg.cbar.set_ticks(
+        new_cbar_tick_locations,
+        labels=[first_feature_name, second_feature_name, f"{first_feature_name} & {second_feature_name}"],
+    )
+    fg.fig.savefig(plot_name, dpi=400, bbox_inches="tight")
     plt.close(fg.fig)
 
 
