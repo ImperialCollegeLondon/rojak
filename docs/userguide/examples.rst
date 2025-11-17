@@ -46,14 +46,15 @@ In this configuration file,
 
 1. *Line 1*: Defines the configuration for the input data. Here, it only specifies the spatial domain which the analysis is for. In this case, it is for the entire globe.
 2. *Line 11*: This is the start of the settings for the CAT analysis. This corresponds to the :py:class:`rojak.orchestrator.configuration.TurbulenceConfig`.
-3. *Line 12*: Within the turbulence config, the first setting that needs to be set is the chunking (see Dask docs on :doc:`dask:array-chunks`). This specifies the size of each dask array chunk. For simplicity, it has been set to the size of the spatial domain
+3. *Line 12*: Within the turbulence config, the first setting that needs to be set is the chunking (see Dask docs on :doc:`dask:array-chunks`). This specifies the size of each DASK array chunk. For simplicity, it has been set to the size of the spatial domain
 4. *Line 16*: Is a list of the turbulence diagnostics which the analysis is to be performed on. Each item in the list must be an string from the :py:class:`enum.StrEnum` class :py:class:`rojak.orchestrator.configuration.TurbulenceDiagnostics`
+5. *Line 19*: Defines which phases to run and corresponds to the class :py:class:`rojak.orchestrator.configuration.TurbulencePhases`
+6. *Line 20*: Specifies what should occur during the calibration phase. If applicable, where the calibration data is stored. This corresponds to the :py:class:`rojak.orchestrator.configuration.TurbulenceCalibrationPhases` class.
+7. *Line 21*: Contains the required configuration for the calibration phase, such as where the data is stored in ``calibration_data_dir``. This corresponds to the :py:class:`rojak.orchestrator.configuration.TurbulenceCalibrationConfig`. As the thresholds phase is specified in line 29, the percentile thresholds for a given turbulence intensity needs to be provided.
+8. *Line 29*: Specifies which phases to run during the calibration phase this corresponds to the :py:class:`enum.StrEnum` :py:class:`rojak.orchestrator.configuration.TurbulenceCalibrationPhaseOption`
+9. *Line 32*: Contains the required configuration for the evaluation phase, this corresponds to the :py:class:`rojak.orchestrator.configuration.TurbulenceEvaluationConfig`
+10. *Line 33*: Specifies which phases to run during the evaluation phase this corresponds to the :py:class:`enum.StrEnum` :py:class:`rojak.orchestrator.configuration.TurbulenceEvaluationPhaseOption`. As ``"probabilities"`` has been specified, it will use the percentile thresholds computed threshold for the turbulence diagnostics during the calibration phase. The option ``"edr"`` will perform the mapping to EDR values using the distribution computed during the calibration phase.
 
-
-Explain configuration file on how it, 
-1) computes diagnostics from ERA5 data
-2) the diagnostics that it is computing
-3) how specifying the phases edr means that the turbulence diagnostic value is converted to edr
 
 .. code-block:: yaml
     :linenos:
@@ -98,15 +99,20 @@ Explain configuration file on how it,
                 evaluation_config:
                     evaluation_data_dir: met_data/era5/evaluation_data
 
-For this configuration, I ran it on the HPC and gave it 920GB of memory. I'm not sure what the minimum requirement is. It will need at the very least 40GB of memory
-
-Explain that this launches it in parallel by default
+This configuration can be launched using the command below,
 
 .. code-block::
 
     $ rojak run turbulence-probability-config.yaml
 
 To monitor the progress of the process through the Dask :doc:`dask:dashboard`, go to `http://localhost:8787/status <http://localhost:8787/status>`_.
+
+.. note::
+
+    This configuration was run on the HPC with 920GB of memory.
+    It is possible that it does not require as much. It is likely to require a minimum of 42GB of memory.
+    Moreover, as the default behaviour of dask (see :doc:`dask:configuration`) is to write to ``/tmp`` its ability to spill to disk may be limited to the amount of memory in your system.
+
 
 EDR Snapshot
 --------------------------------------
