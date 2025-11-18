@@ -3,76 +3,76 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import cartopy.crs as ccrs
-import matplotlib.pyplot as plt
-import pypalettes
 import xarray as xr
 from dask.distributed import Client
 
 from rojak.orchestrator.configuration import Context as ConfigContext
-from rojak.orchestrator.configuration import TurbulenceDiagnostics, TurbulenceEvaluationPhaseOption
+from rojak.orchestrator.configuration import TurbulenceEvaluationPhaseOption
 from rojak.orchestrator.turbulence import TurbulenceLauncher
-from rojak.plot.turbulence_plotter import diagnostic_label_mapping
+from rojak.plot.turbulence_plotter import (
+    StandardColourMaps,
+    chain_diagnostic_names,
+    create_configurable_multi_diagnostic_plot,
+    get_a_default_cmap,
+)
 
 if TYPE_CHECKING:
     from rojak.orchestrator.turbulence import EvaluationStageResult
 
 if __name__ == "__main__":
+    # Start dask to run in distributed manner
     client: Client = Client()
+
+    # Load config file passed on as first argument
     config_file = Path(sys.argv[1])
     assert config_file.exists()
     assert config_file.is_file()
     assert config_file.suffix in {".yaml", ".yml"}
+
+    # Deserialize data stored in yaml file
     context = ConfigContext.from_yaml(config_file)
 
+    # Launch the turbulence analysis to get the result from the evaluation stage
     eval_stage_result: "None | EvaluationStageResult" = TurbulenceLauncher(context).launch()
     assert eval_stage_result is not None
 
     # Verify that EDR was computed, if it wasn't check input config
     assert TurbulenceEvaluationPhaseOption.EDR in eval_stage_result.phase_outcomes
 
+    # Get computed EDR from the evaluation stage
     edr = eval_stage_result.phase_outcomes[TurbulenceEvaluationPhaseOption.EDR].result
-    as_ds = xr.Dataset(
-        data_vars={name: diagnostic.isel(time=0).sel(pressure_level=200) for name, diagnostic in edr.items()}
-    )
-
-    projection = ccrs.LambertConformal(
-        central_longitude=(-45),
-        central_latitude=35,
-    )
-
-    chained_names: str = "_".join(eval_stage_result.suite.diagnostic_names())
     names = [str(item) for item in eval_stage_result.suite.diagnostic_names()]
-    # pyright thinks xr.plot doesn't exists...
-    fg: xr.plot.FacetGrid = (  # pyright: ignore [reportAttributeAccessIssue, reportCallIssue]
-        as_ds[names]
-        .to_dataarray("diagnostics")
-        .plot(
-            col="diagnostics",
-            x="longitude",
-            y="latitude",
-            col_wrap=min(3, len(names)),
-            transform=ccrs.PlateCarree(),
-            vmin=0,
-            vmax=0.8,
-            subplot_kws={"projection": projection},
-            cbar_kwargs={
+
+    # Plot the first time step at 200hPa
+    create_configurable_multi_diagnostic_plot(
+        xr.Dataset(
+            data_vars={name: diagnostic.isel(time=0).sel(pressure_level=200) for name, diagnostic in edr.items()}
+        ),
+        names,
+        str(context.plots_dir / f"multi_edr_{chain_diagnostic_names(names)}.{context.image_format}"),
+        column="diagnostics",
+        plot_kwargs={
+            "subplot_kws": {
+                "projection": ccrs.LambertConformal(
+                    central_longitude=(-45),
+                    central_latitude=35,
+                )
+            },
+            "cbar_kwargs": {
                 "label": "EDR",
                 "orientation": "horizontal",
                 "spacing": "uniform",
                 "pad": 0.02,
                 "shrink": 0.6,
+                "extend": "max",
             },
-            # cmap="Blues",
-            cmap=pypalettes.load_cmap("cancri", cmap_type="continuous", reverse=True).resampled(8),
-            robust=True,
-        )
+            "vmin": 0,
+            "vmax": 0.8,
+            "col_wrap": min(3, len(names)),
+            "cmap": get_a_default_cmap(StandardColourMaps.TURBULENCE_PROBABILITY, resample_to=8),
+        },
+        savefig_kwargs={"bbox_inches": "tight"},
     )
-    for ax, diagnostic in zip(
-        fg.axs.flat, eval_stage_result.suite.diagnostic_names(), strict=False
-    ):  # GeoAxes, TurbulenceDiagnostic
-        ax.set_title(diagnostic_label_mapping[TurbulenceDiagnostics(diagnostic)])
-    fg.map(lambda: plt.gca().coastlines())  # pyright: ignore[reportAttributeAccessIssue]
-    fg.fig.savefig(str(context.plots_dir / f"multi_edr_{chained_names}.{context.image_format}"), bbox_inches="tight")
-    plt.close(fg.fig)
 
+    # Close dask client
     client.close()
