@@ -7,3 +7,4 @@ User Guide
    installguide
    getting_started
    example-uses
+   example-extensions
