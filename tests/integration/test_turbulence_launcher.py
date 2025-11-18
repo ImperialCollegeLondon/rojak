@@ -195,7 +195,7 @@ def test_turbulence_calibration_and_evaluation(create_config_context, client, re
         # TurbulenceEvaluationPhaseOption.REGIONAL_CORRELATION_EDR,
     ]
     turbulence_config = TurbulenceConfig(
-        chunks={"pressure_level": 3, "latitude": 721, "longitude": 1440, "valid_time": 3},
+        chunks={"pressure_level": 6, "latitude": 721, "longitude": 1440, "valid_time": 3},
         diagnostics=diagnostics,
         phases=TurbulencePhases(
             calibration_phases=TurbulenceCalibrationPhases(
@@ -231,7 +231,7 @@ def test_turbulence_amdar_acars_harmonisation(
 ) -> None:
     diagnostics: list[TurbulenceDiagnostics] = randomly_select_diagnostics(2)
     turbulence_config = TurbulenceConfig(
-        chunks={"pressure_level": 3, "latitude": 721, "longitude": 1440, "valid_time": 3},
+        chunks={"pressure_level": 6, "latitude": 721, "longitude": 1440, "valid_time": 3},
         diagnostics=diagnostics,
         phases=TurbulencePhases(
             calibration_phases=TurbulenceCalibrationPhases(
@@ -315,7 +315,7 @@ def test_turbulence_amdar_roc(
 
     diagnostics: list[TurbulenceDiagnostics] = randomly_select_diagnostics(5)
     turbulence_config = TurbulenceConfig(
-        chunks={"pressure_level": 3, "latitude": 721, "longitude": 1440, "valid_time": 3},
+        chunks={"pressure_level": 6, "latitude": 721, "longitude": 1440, "valid_time": 3},
         diagnostics=diagnostics,
         phases=TurbulencePhases(
             calibration_phases=TurbulenceCalibrationPhases(

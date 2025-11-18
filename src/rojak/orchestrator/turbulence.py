@@ -12,10 +12,9 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 import itertools
-import sys
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from datetime import datetime
-from typing import TYPE_CHECKING, Final, NamedTuple, assert_never
+from typing import TYPE_CHECKING, NamedTuple, assert_never
 
 import numpy as np
 import xarray as xr
@@ -35,6 +34,7 @@ from rojak.orchestrator.configuration import (
 )
 from rojak.plot.turbulence_plotter import (
     GREY_HEX_CODE,
+    chain_diagnostic_names,
     create_diagnostic_correlation_plot,
     create_histogram_n_obs,
     create_interactive_aggregated_auc_plots,
@@ -214,32 +214,6 @@ class CalibrationStage:
         return Result(distribution_parameters)
 
 
-def _abbreviate_diagnostic_name(diagnostic_name: str) -> str:
-    if len(diagnostic_name) > 3:  # noqa: PLR2004
-        if diagnostic_name == "ncsu1" or diagnostic_name[:3] == "ngm":
-            return diagnostic_name
-        if "-" in diagnostic_name:
-            return "".join([name[0] for name in diagnostic_name.split("-")])
-        return diagnostic_name[:3]
-    return diagnostic_name
-
-
-def _chain_diagnostic_names(diagnostic_names: Iterable[str]) -> str:
-    joined: str = "_".join(diagnostic_names)
-    # max filename length is 255 chars or bytes depending on file system
-    # Remove 55 chars as a safety factor (might stuff before this)
-    max_file_chars: Final[int] = 200
-    if len(joined) >= max_file_chars or sys.getsizeof(joined) >= max_file_chars:
-        abbreviated_names: list[str] = [_abbreviate_diagnostic_name(name) for name in diagnostic_names]
-        abbrev_joined: str = "_".join(abbreviated_names)
-        # Did a quick test with all available diagnostics and that totals to 110 so this should always pass
-        assert len(abbrev_joined) < max_file_chars and sys.getsizeof(abbrev_joined) < max_file_chars, (  # noqa: PT018
-            "Name of joined abbreviated diagnostics should be shorter than 255 bytes"
-        )
-        return abbrev_joined
-    return joined
-
-
 class EvaluationStageResult(NamedTuple):
     suite: EvaluationDiagnosticSuite
     phase_outcomes: Mapping[TurbulenceEvaluationPhaseOption, Result]
@@ -314,7 +288,7 @@ class EvaluationStage:
                 for pressure_level, severity in itertools.product(
                     self._config.pressure_levels, self._config.severities
                 ):
-                    chained_names: str = _chain_diagnostic_names(result.keys())
+                    chained_names: str = chain_diagnostic_names(result.keys())
                     create_multi_turbulence_diagnotics_probability_plot(
                         xr.Dataset(
                             data_vars={
@@ -349,7 +323,7 @@ class EvaluationStage:
                 else:
                     corr_on_what = "edr"
                 correlation = CorrelationBetweenDiagnostics(dict(correlation_on), condition).execute()
-                chained_names: str = _chain_diagnostic_names(correlation_on.keys())
+                chained_names: str = chain_diagnostic_names(correlation_on.keys())
                 create_diagnostic_correlation_plot(
                     correlation,
                     str(self._plots_dir / f"corr_{corr_on_what}_btw_{chained_names}.{self._image_format}"),
@@ -377,7 +351,7 @@ class EvaluationStage:
                 )
                 # TODO: Add in config to specify hemisphere and regions
                 correlation = LatitudinalCorrelationBetweenDiagnostics(dict(correlation_on), sel_condition).execute()
-                chained_names: str = _chain_diagnostic_names(correlation_on.keys())
+                chained_names: str = chain_diagnostic_names(correlation_on.keys())
                 create_multi_region_correlation_plot(
                     correlation,
                     str(self._plots_dir / f"regional_{corr_on_what}_corr_btw_{chained_names}.{self._image_format}"),
@@ -523,7 +497,7 @@ class DiagnosticsAmdarLauncher:
         if self._validation_conditions:
             logger.info("Starting validation of diagnostics with amdar data")
             verifier = DiagnosticsAmdarVerification(harmoniser, time_window_as_np_datetime)
-            chained_names: str = _chain_diagnostic_names(harmoniser.harmonised_diagnostics)
+            chained_names: str = chain_diagnostic_names(harmoniser.harmonised_diagnostics)
 
             if self._group_by_strategy is not None:
                 assert self._aggregation_metric is not None
