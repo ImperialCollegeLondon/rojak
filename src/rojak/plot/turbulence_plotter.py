@@ -15,8 +15,10 @@
 import functools
 import itertools
 import operator
+import sys
+from collections.abc import Iterable
 from enum import StrEnum
-from typing import TYPE_CHECKING, Literal, assert_never, cast
+from typing import TYPE_CHECKING, Final, Literal, assert_never, cast
 
 import cartopy.crs as ccrs
 import dask.array as da
@@ -754,3 +756,29 @@ def create_histogram_n_obs(
         xlim=(0, None),
         **(hist_kwargs if hist_kwargs is not None else {}),
     )
+
+
+def _abbreviate_diagnostic_name(diagnostic_name: str) -> str:
+    if len(diagnostic_name) > 3:  # noqa: PLR2004
+        if diagnostic_name == "ncsu1" or diagnostic_name[:3] == "ngm":
+            return diagnostic_name
+        if "-" in diagnostic_name:
+            return "".join([name[0] for name in diagnostic_name.split("-")])
+        return diagnostic_name[:3]
+    return diagnostic_name
+
+
+def chain_diagnostic_names(diagnostic_names: Iterable["DiagnosticName"]) -> str:
+    joined: str = "_".join(diagnostic_names)
+    # max filename length is 255 chars or bytes depending on file system
+    # Remove 55 chars as a safety factor (might stuff before this)
+    max_file_chars: Final[int] = 200
+    if len(joined) >= max_file_chars or sys.getsizeof(joined) >= max_file_chars:
+        abbreviated_names: list[str] = [_abbreviate_diagnostic_name(name) for name in diagnostic_names]
+        abbrev_joined: str = "_".join(abbreviated_names)
+        # Did a quick test with all available diagnostics and that totals to 110 so this should always pass
+        assert len(abbrev_joined) < max_file_chars and sys.getsizeof(abbrev_joined) < max_file_chars, (  # noqa: PT018
+            "Name of joined abbreviated diagnostics should be shorter than 255 bytes"
+        )
+        return abbrev_joined
+    return joined
