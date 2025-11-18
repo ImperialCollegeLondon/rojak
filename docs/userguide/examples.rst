@@ -24,6 +24,8 @@ It uses the default configuration for clear air turbulence (CAT) to specify whic
     This step will download 42GB of data. Moreover, depending on the CDS_ queue this may several hours.
 
 .. code-block::
+    :caption: retrieve-calibration-data-command
+    :name: retrieve-calibration-data-command
 
     $ rojak data meteorology retrieve -s era5 -y 1980 -y 1981 -y 1982 -y 1983 -y 1984 -y 1985 -y 1986 -y 1987 -y 1988 -y 1989 -m -1 -d 1 -d 15 -n pressure-level --default-name cat -o met_data/era5/calibration_data
 
@@ -39,6 +41,8 @@ The next step is to request the data for the evaluation dataset. In :numref:`tur
     This step will download 85GB of data. Moreover, depending on the CDS_ queue this may several hours to a day.
 
 .. code-block::
+    :caption: retrieve-evaluation-data-command
+    :name: retrieve-evaluation-data-command
 
     $ rojak data meteorology retrieve -s era5 -y 2018 -y 2019 -y 2020 -y 2021 -y 2022 -y 2023 -y 2024 -m 12 -m 1 -m 2 -d -1 -n pressure-level --default-name cat -o met_data/era5/evaluation_data
 
@@ -167,12 +171,19 @@ the domain can be limited (like in :numref:`edr-snapshot-fig`) by specifying it 
                 evaluation_config:
                     evaluation_data_dir: met_data/era5/evaluation_data
 
+.. note::
+
+    The configuration in :numref:`edr-snapshot-config-yaml` assumes that the step in :numref:`retrieve-calibration-data-command` and :numref:`retrieve-evaluation-data-command` were performed.
+
+
+This script in :numref:`edr-snapshot-py` uses the :py:class:`rojak.orchestrator.turbulence.TurbulenceLauncher` to execute the configuration in :numref:`edr-snapshot-config-yaml`.
+It then uses the outcome from the evaluation stage to plot the EDR values in the first time step at 200 hPa.
 
 .. literalinclude:: edr-snapshot.py
     :language: python
     :linenos:
     :caption: edr-snapshot.py
-    :name: edr-snapshot.py
+    :name: edr-snapshot-py
 
 With the environment where ``rojak`` is installed, invoking the following command will run the python script with the config to produce the image in :numref:`edr-snapshot-fig`.
 
