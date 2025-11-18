@@ -117,7 +117,52 @@ To monitor the progress of the process through the Dask :doc:`dask:dashboard`, g
 EDR Snapshot
 --------------------------------------
 
+By default, ``rojak`` does not produce snapshot plots. This can be achieved through a few different ways.
+The method shown below is the least involved, thus has the least room for customisation.
 
 .. image:: /_static/multi_edr_f3d_ti1.png
+
+.. code-block:: yaml
+    :linenos:
+    :caption: edr-snapshot-config.yaml
+    :name: edr-snapshot-config-yaml
+
+    data_config:
+        spatial_domain:
+            maximum_latitude: 70
+            maximum_longitude: 60
+            minimum_latitude: 0
+            minimum_longitude: -150
+    image_format: png
+    name: eighties
+    output_dir: output
+    plots_dir: plots
+    turbulence_config:
+        chunks:
+            pressure_level: 3
+            latitude: 721
+            longitude: 1440
+        diagnostics:
+            - f3d
+            - ti1
+        phases:
+            calibration_phases:
+                calibration_config:
+                    calibration_data_dir: met_data/era5/calibration_data
+                phases:
+                    - histogram
+            evaluation_phases:
+                phases:
+                    - edr
+                evaluation_config:
+                    evaluation_data_dir: met_data/era5/evaluation_data
+
+
+.. literalinclude:: edr-snapshot.py
+    :language: python
+    :linenos:
+    :caption: edr-snapshot.py
+    :name: edr-snapshot.py
+
 
 .. _CDS: https://cds.climate.copernicus.eu/
