@@ -1,6 +1,8 @@
 Example Use Cases
 ===================
 
+.. _computing-turbulence-percentage:
+
 Computing Turbulence Percentage
 --------------------------------------
 
@@ -120,7 +122,15 @@ EDR Snapshot
 By default, ``rojak`` does not produce snapshot plots. This can be achieved through a few different ways.
 The method shown below is the least involved, thus has the least room for customisation.
 
-.. image:: /_static/multi_edr_f3d_ti1.png
+.. _edr-snapshot-fig:
+
+.. figure:: /_static/multi_edr_f3d_ti1.png
+    :align: center
+
+    6-hour forecast of eddy dissipation rate (EDR) at 200 hPa for the three-dimensional frontogenesis (F3D) and turbulence index 1 (TI1) on the 1st of December 2024 at 00:00
+
+Instead of performing the analysis globally like in the :ref:`previous section <computing-turbulence-percentage>`,
+the domain can be limited (like in :numref:`edr-snapshot-fig`) by specifying it in like in lines 2-6 in :numref:`edr-snapshot-config-yaml`.
 
 .. code-block:: yaml
     :linenos:
@@ -163,6 +173,12 @@ The method shown below is the least involved, thus has the least room for custom
     :linenos:
     :caption: edr-snapshot.py
     :name: edr-snapshot.py
+
+With the environment where ``rojak`` is installed, invoking the following command will run the python script with the config to produce the image in :numref:`edr-snapshot-fig`.
+
+.. code-block::
+
+    $ python edr-snapshot.py edr-snapshot-config.yaml
 
 
 .. _CDS: https://cds.climate.copernicus.eu/
