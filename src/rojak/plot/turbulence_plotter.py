@@ -256,7 +256,6 @@ def create_configurable_multi_diagnostic_plot(  # noqa: PLR0913
     ds_to_plot: xr.Dataset,
     vars_to_plots: list[str],
     plot_name: str,
-    colour_map: "mcolors.Colormap | None | str" = None,
     are_vars_diagnostics: bool = True,
     plot_kwargs: dict | None = None,
     projection: "ccrs.Projection" = _PLATE_CARREE,
@@ -266,15 +265,11 @@ def create_configurable_multi_diagnostic_plot(  # noqa: PLR0913
 ) -> None:
     assert set(vars_to_plots).issubset(set(ds_to_plot.data_vars.keys()))
     default_plot_kwargs = {
-        # "col": "diagnostics",
         "x": "longitude",
         "y": "latitude",
         "transform": projection,
         "subplot_kws": {"projection": projection},
         "cbar_kwargs": cbar_kwargs if cbar_kwargs is not None else {},
-        # "cmap": colour_map
-        # if colour_map is not None
-        # else get_a_default_cmap(StandardColourMaps.TURBULENCE_PROBABILITY, 20),
         "robust": True,
     }
     plot_kwargs = default_plot_kwargs | plot_kwargs if plot_kwargs is not None else default_plot_kwargs
