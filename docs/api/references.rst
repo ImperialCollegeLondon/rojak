@@ -5,7 +5,11 @@ References
     Link to sphinx docs about citation. All citation refs are global so let's put it all in once place
     https://www.sphinx-doc.org/en/master/usage/restructuredtext/basics.html#citations
 
+.. [NTSB2021] NTSB. (2021). Preventing Turbulence-Related Injuries in Air Carrier Operations Conducted Under Title 14 Code of Federal Regulations Part 121 (Safety Research Report No. SS-21-01). National Transport Safety Board (NTSB). Retrieved from `<https://www.ntsb.gov/safety/safety-studies/Documents/SS2101.pdf>`_
+
 .. [Sharman2006] Sharman, R. D., Tebaldi, C., Wiener, G., & Wolff, J. (2006). An Integrated Approach to Mid- and Upper-Level Turbulence Forecasting. Weather and Forecasting, 21(3), 268–287. https://doi.org/10.1175/WAF924.1
+
+.. [Sharman2016] Sharman, R. D. (2016). Nature of Aviation Turbulence. In R. D. Sharman & T. Lane, Aviation Turbulence: Processes, Detection, Prediction (pp. 3–30). Cham, SWITZERLAND: Springer International Publishing AG. `<https://doi.org/10.1007/978-3-319-23630-8_1>`_
 
 .. [Sharman2017] Sharman, R. D., & Pearson, J. M. (2017). Prediction of Energy Dissipation Rates for Aviation Turbulence. Part I: Forecasting Nonconvective Turbulence. Journal of Applied Meteorology and Climatology, 56(2), 317–337. https://doi.org/10.1175/JAMC-D-16-0205.1
 
@@ -44,6 +48,10 @@ References
 .. [Dutton1980] Dutton, M. J. O. (1980). Probability forecasts of clear-air turbulence based on numerical model output. Meteorological Magazine (UK), 109(1299), 293–310.
 
 .. [Williams2017] Williams, P. D. (2017). Increased light, moderate, and severe clear-air turbulence in response to climate change. Advances in Atmospheric Sciences, 34(5), 576–586. https://doi.org/10.1007/s00376-017-6268-2
+
+.. [Storer2017] Storer, L. N., Williams, P. D., & Joshi, M. M. (2017). Global Response of Clear-Air Turbulence to Climate Change. Geophysical Research Letters, 44(19), 9976–9984. https://doi.org/10.1002/2017GL074618
+
+.. [Kim2023] Kim, S.-H., Kim, J.-H., Chun, H.-Y., & Sharman, R. D. (2023). Global response of upper-level aviation turbulence from various sources to climate change. Npj Climate and Atmospheric Science, 6(1), 1–12. https://doi.org/10.1038/s41612-023-00421-3
 
 .. [Wallace2006] Wallace, J. M., & Hobbs, P. V. (2006). Atmospheric Science: An Introductory Survey. San Diego, UNITED STATES: Elsevier Science & Technology.
 
