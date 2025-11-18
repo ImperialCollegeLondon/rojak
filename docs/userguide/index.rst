@@ -6,4 +6,4 @@ User Guide
 
    installguide
    getting_started
-   examples
+   example-uses
