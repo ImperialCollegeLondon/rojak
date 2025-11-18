@@ -260,6 +260,7 @@ def create_configurable_multi_diagnostic_plot(  # noqa: PLR0913
     plot_kwargs: dict | None = None,
     projection: "ccrs.Projection" = _PLATE_CARREE,
     cbar_kwargs: dict | None = None,
+    savefig_kwargs: dict | None = None,
     column: str | None = None,
     row: str | None = None,
 ) -> None:
@@ -291,8 +292,7 @@ def create_configurable_multi_diagnostic_plot(  # noqa: PLR0913
 
     # pyright thinks coastlines doesn't exists
     fg.map(lambda: plt.gca().coastlines(lw=0.3))  # pyright: ignore[reportAttributeAccessIssue]
-    # fg.fig.savefig(plot_name, bbox_inches="tight")
-    fg.fig.savefig(plot_name, dpi=400)
+    fg.fig.savefig(plot_name, **(savefig_kwargs if savefig_kwargs is not None else {}))
     plt.close(fg.fig)
 
 
@@ -306,6 +306,7 @@ def create_configurable_zonal_mean_line_plot(  # noqa: PLR0913
     are_vars_diagnostics: bool = True,
     column: str | None = None,
     plot_kwargs: dict | None = None,
+    savefig_kwargs: dict | None = None,
     as_line: bool = True,
 ) -> None:
     assert set(vars_to_plots).issubset(ds_to_plot.data_vars.keys())
@@ -336,8 +337,7 @@ def create_configurable_zonal_mean_line_plot(  # noqa: PLR0913
         # ax.set_xlabel(x_label)
 
     fg.set_xlabels(label=x_label)
-    # fg.fig.savefig(plot_name, bbox_inches="tight")
-    fg.fig.savefig(plot_name, dpi=400)
+    fg.fig.savefig(plot_name, **(savefig_kwargs if savefig_kwargs is not None else {}))
     plt.close(fg.fig)
 
 
