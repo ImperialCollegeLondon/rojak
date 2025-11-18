@@ -127,6 +127,8 @@ class RelationshipBetweenTypes(StrEnum):
     PROBABILITY_THIS_GIVEN_OTHER = "this_given_other"
     PROBABILITY_OTHER_GIVEN_THIS = "other_given_this"
     MATTHEWS_CORRELATION = "matthews_correlation"
+    PROBABILITY_THIS_GIVEN_NOT_OTHER = "this_given_not_other"
+    PROBABILITY_OTHER_GIVEN_NOT_THIS = "other_given_not_this"
 
 
 class BaseConfigModel(BaseModel):

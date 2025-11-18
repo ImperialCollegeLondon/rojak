@@ -51,7 +51,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Install the project
-        run: uv sync --locked --all-groups --no-group docs
+        run: uv sync --locked --all-groups --no-group docs --all-extras
       - name: Install ruff and lint code
         uses: astral-sh/ruff-action@v3
       - name: Run pyright

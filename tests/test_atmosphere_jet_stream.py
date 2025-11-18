@@ -1,6 +1,6 @@
 import numpy as np
 
-from rojak.turbulence.jet_stream import get_peak_mask
+from rojak.atmosphere.jet_stream import get_peak_mask
 
 
 class TestLocalPeakMask:

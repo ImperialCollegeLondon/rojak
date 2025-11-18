@@ -1454,7 +1454,7 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
                 if name not in self._distribution_parameters:
                     raise ValueError(f"Distribution parameter for {name} is not defined")
                 dist_params = self._distribution_parameters[name]
-                edr[name] = TransformToEDR(diagnostic, dist_params.mean, dist_params.variance).execute()
+                edr[name] = TransformToEDR(diagnostic, mean=dist_params.mean, variance=dist_params.variance).execute()
 
             self._edr = edr
             return self._edr
