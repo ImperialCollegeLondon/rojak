@@ -36,6 +36,7 @@ jobs:
       fail-fast: false
       matrix:
         python-version: [ "3.12", "3.13" ]
+        numba-jit-disabled: [ 1, 0 ]
     environment:
       name: CI
     if: ${{ !github.event.pull_request.draft }}
@@ -59,14 +60,22 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Test with pytest
+        # Bash if statement generated with the help of copilot
         run: |
-          uv run pytest --cov=rojak --cov-branch --cov-report=xml -n auto
+          set -euo pipefail 
+          if [ "${NUMBA_DISABLE_JIT:-0}" = "1" ]; then
+            uv run pytest --cov=rojak --cov-branch --cov-report=xml -n auto
+          else
+            uv run pytest -n auto
+          fi
         env:
           # CDSAPI will look for these env vars before loading from ~/.cdsapirc
           # See https://github.com/ecmwf/cdsapi/blob/72d7cec0b611c2f71c1a69da4668368df5118cdb/cdsapi/api.py#L48
           CDSAPI_URL: ${{ secrets.CDSAPI_URL }}
           CDSAPI_KEY: ${{ secrets.CDSAPI_KEY }}
+          NUMBA_DISABLE_JIT: ${{ matrix.numba-jit-disabled }}
       - name: Upload coverage reports to Codecov
+        if: ${{ matrix.numba-jit-disabled == 1 }}
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
