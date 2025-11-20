@@ -10,7 +10,7 @@ This example will enable you to generate plots, like in :numref:`turbulence-perc
 
 .. _turbulence-percentage:
 
-.. figure:: /_static/multi_diagnostic_f3d_ti1_on_200_light.png
+.. figure:: _static/multi_diagnostic_f3d_ti1_on_200_light.png
     :align: center
 
     Probability of encountering light turbulence during the months December, January, February from 2018 to 2024 at 200 hPa for the three-dimensional frontogenesis (F3D) and turbulence index 1 (TI1) diagnostics.
@@ -128,7 +128,7 @@ The method shown below is the least involved, thus has the least room for custom
 
 .. _edr-snapshot-fig:
 
-.. figure:: /_static/multi_edr_f3d_ti1.png
+.. figure:: _static/multi_edr_f3d_ti1.png
     :align: center
 
     6-hour forecast of eddy dissipation rate (EDR) at 200 hPa for the three-dimensional frontogenesis (F3D) and turbulence index 1 (TI1) on the 1st of December 2024 at 00:00
