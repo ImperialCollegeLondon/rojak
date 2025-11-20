@@ -27,7 +27,7 @@ It uses the default configuration for clear air turbulence (CAT) to specify whic
     :caption: retrieve-calibration-data-command
     :name: retrieve-calibration-data-command
 
-    $ rojak data meteorology retrieve -s era5 -y 1980 -y 1981 -y 1982 -y 1983 -y 1984 -y 1985 -y 1986 -y 1987 -y 1988 -y 1989 -m -1 -d 1 -d 15 -n pressure-level --default-name cat -o met_data/era5/calibration_data
+    $ rojak data meteorology retrieve -s era5 -y 1980 -y 1981 -y 1982 -y 1983 -y 1984 -y 1985 -y 1986 -y 1987 -y 1988 -y 1989 -m -1 -d 1 -d 15 -n pressure-level -p 175 -p 200 -p 225 --default-name cat -o met_data/era5/calibration_data
 
 .. hint::
 
@@ -44,7 +44,7 @@ The next step is to request the data for the evaluation dataset. In :numref:`tur
     :caption: retrieve-evaluation-data-command
     :name: retrieve-evaluation-data-command
 
-    $ rojak data meteorology retrieve -s era5 -y 2018 -y 2019 -y 2020 -y 2021 -y 2022 -y 2023 -y 2024 -m 12 -m 1 -m 2 -d -1 -n pressure-level --default-name cat -o met_data/era5/evaluation_data
+    $ rojak data meteorology retrieve -s era5 -y 2018 -y 2019 -y 2020 -y 2021 -y 2022 -y 2023 -y 2024 -m 12 -m 1 -m 2 -d -1 -n pressure-level -p 175 -p 200 -p 225 --default-name cat -o met_data/era5/evaluation_data
 
 With these datasets, we can now use ``rojak`` to run the analyses.
 :numref:`turbulence-probability-config-yaml` is a ``yaml`` file that will be used to control the analysis performed by ``rojak``.
