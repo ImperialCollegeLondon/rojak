@@ -43,7 +43,7 @@ class InvalidEra5RequestConfigurationError(Exception):
         super().__init__(message)
 
 
-type Era5DefaultsName = Literal["cat", "surface", "contrail"] | None
+type Era5DefaultsName = Literal["cat", "surface", "contrail", "minimal-cat-contrail"] | None
 type Era5DatasetName = Literal["pressure-level", "single-level"]
 
 
