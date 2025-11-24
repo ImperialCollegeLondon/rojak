@@ -1130,21 +1130,23 @@ wheels = [
 
 [[package]]
 name = "holoviews"
-version = "1.21.0"
+version = "1.22.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bokeh" },
     { name = "colorcet" },
+    { name = "narwhals" },
     { name = "numpy" },
     { name = "packaging" },
     { name = "pandas" },
     { name = "panel" },
     { name = "param" },
+    { name = "python-dateutil" },
     { name = "pyviz-comms" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e1/d2/ce75069ffb15985d57631fec228facaf63e5850e79b22394e2ab7221f078/holoviews-1.21.0.tar.gz", hash = "sha256:837885ab2fa376677f21dae0b2a2aeb94ba6db96e9fcb3824cdb899538ee5032", size = 5479132, upload-time = "2025-06-25T08:16:15.545Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8e/03/e8bc53859f385965c2120c585834ec3159ee1362da5a69d355f655ab581f/holoviews-1.22.0.tar.gz", hash = "sha256:2bd3eb5ef5062b893a56c4c42077a3ed92314a92f378d2bc77c75e017b86edba", size = 5504374, upload-time = "2025-11-10T17:45:15.861Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/30/75/d451b9a0ab3a9c0b2c7d1d3cf0bcf797ccac420f3479476f9867e1737d39/holoviews-1.21.0-py3-none-any.whl", hash = "sha256:74f3c01f35b9e8e2a8d6eb457a7ef05727de2a2a56509d59d7dc0d0409bc91c0", size = 5911622, upload-time = "2025-06-25T08:16:13.508Z" },
+    { url = "https://files.pythonhosted.org/packages/9f/3d/e60b64b6d8af103739914e1d3e1e4bb3b464a4ec6435aa146ff63a24dc3c/holoviews-1.22.0-py3-none-any.whl", hash = "sha256:452f8822c0abb9c8a443d6410d3e6c4c86d8fc7dd5c2ae244ff194a321b1a863", size = 5942373, upload-time = "2025-11-10T17:45:13.56Z" },
 ]
 
 [[package]]
