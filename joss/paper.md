@@ -39,7 +39,7 @@ In order to mitigate this safety risk, CAT diagnostics are used to forecast turb
 `rojak` is a parallelised python library and command-line tool for using meteorological data to forecast CAT and evaluating the effectiveness of CAT diagnostics against turbulence observations.
 Currently, it supports,
 
-1. Computing turbulence diagnostics on meteorological data from European Centre for Medium-Range Weather Forecasts's (ECMWF) ERA5 reanalysis on pressure levels [@hersbach2023era5]. Moreover, it is easily extendable to support other types of meteorological data.
+1. Computing turbulence diagnostics on meteorological data from European Centre for Medium-Range Weather Forecasts's (ECMWF) ERA5 reanalysis on pressure levels [@hersbach2023era5]. Moreover, it is easily extendable through a software update to support other types of meteorological data.
 2. Retrieving and processing turbulence observations from Aircraft Meteorological Data Relay (AMDAR) data archived at National Oceanic and Atmospheric Administration (NOAA)[@NCEPMeteorologicalAssimilation] and AMDAR data collected via the Met Office MetDB system [@ukmoAmdar]
 3. Computing 27 different turbulence diagnostics, such as the three-dimensional frontogenesis equation [@bluesteinSynopticdynamicMeteorologyMidlatitudes1993], turbulence index 1 and 2 [@ellrodObjectiveClearAirTurbulence1992], negative vorticity advection [@sharmanIntegratedApproachMid2006], and Brown's Richardson tendency equation [@brownNewIndicesLocate1973].
 4. Converting turbulence diagnostic values into the eddy dissipation rate (EDR) --- the International Civil Aviation Organization's (ICAO) official metric for reporting turbulence [@icaoAnnex3]
