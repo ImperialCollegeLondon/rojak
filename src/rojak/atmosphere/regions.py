@@ -213,30 +213,26 @@ def combine_two_features(first: xr.DataArray, second: xr.DataArray, is_guv: bool
     return xr.apply_ufunc(_bitwise_combine_guv_4d if is_guv else _bitwise_combine, first, second, dask="parallelized")
 
 
-def _euclidean_distance_from_a_to_b(
-    from_feature: np.ndarray, to_feature: np.ndarray, sampling: float | Sequence[float]
+def _distance_metric_from_a_to_b(
+    from_feature: np.ndarray, to_feature: np.ndarray, distance_func: Callable, **kwargs: float | Sequence[float] | str
 ) -> np.ndarray:
     from_feature = from_feature.astype(bool)
     to_feature = to_feature.astype(bool)
     # As return_distances has been passed to function, I can guarantee that a single numpy array is returned
-    distance_to_feature: np.ndarray = cast(
-        "np.ndarray", ndi.distance_transform_edt(~to_feature, sampling=sampling, return_distances=True)
-    )
+    distance_to_feature: np.ndarray = cast("np.ndarray", distance_func(~to_feature, return_distances=True, **kwargs))
     distance_from_feature: np.ndarray = np.full_like(from_feature, np.nan, dtype=float)
     distance_from_feature[from_feature] = distance_to_feature[from_feature]
     return distance_from_feature
 
 
-def _chebyshev_distance_from_a_to_b(from_feature: np.ndarray, to_feature: np.ndarray) -> np.ndarray:
-    from_feature = from_feature.astype(bool)
-    to_feature = to_feature.astype(bool)
-    # As return_distances has been passed to function, I can guarantee that a single numpy array is returned
-    distance_to_feature: np.ndarray = cast(
-        "np.ndarray", ndi.distance_transform_cdt(~to_feature, metric="chessboard", return_distances=True)
-    )
-    distance_from_feature: np.ndarray = np.full_like(from_feature, np.nan, dtype=float)
-    distance_from_feature[from_feature] = distance_to_feature[from_feature]
-    return distance_from_feature
+def euclidean_distance_from_a_to_b(
+    from_feature: np.ndarray, to_feature: np.ndarray, sampling: float | Sequence[float]
+) -> np.ndarray:
+    return _distance_metric_from_a_to_b(from_feature, to_feature, ndi.distance_transform_edt, sampling=sampling)
+
+
+def chebyshev_distance_from_a_to_b(from_feature: np.ndarray, to_feature: np.ndarray) -> np.ndarray:
+    return _distance_metric_from_a_to_b(from_feature, to_feature, ndi.distance_transform_cdt, metric="chessboard")
 
 
 class DistanceMeasure(StrEnum):
@@ -263,9 +259,9 @@ def distance_from_a_to_b(
 
     match distance_measure:
         case DistanceMeasure.EUCLIDEAN:
-            distance_function: Callable = _euclidean_distance_from_a_to_b
+            distance_function: Callable = euclidean_distance_from_a_to_b
         case DistanceMeasure.CHEBYSHEV:
-            distance_function: Callable = _chebyshev_distance_from_a_to_b
+            distance_function: Callable = chebyshev_distance_from_a_to_b
         case _ as unreachable:
             assert_never(unreachable)
 
