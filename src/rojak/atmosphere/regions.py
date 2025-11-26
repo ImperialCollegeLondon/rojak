@@ -230,10 +230,46 @@ def euclidean_distance_from_a_to_b(
     to_feature: np.ndarray,
     sampling: float | Sequence[float] = 1,
 ) -> np.ndarray:
+    """
+    Euclidean distance from feature A to feature B
+
+    For example, to find the distance of a contrail forming region to a turbulent region, then ``from_region`` would
+    be a boolean array of where the contrail region is and ``to_region`` would be a boolean array of where
+    turbulence is present.
+
+    Note: Description of ``sampling`` arg has been copied from :func:`scipy.ndimage.distance_transform_edt`
+
+    Args:
+        from_feature: Feature to compute distances from
+        to_feature: Feature to compute distances to
+        sampling: Spacing of elements along each dimension. If a sequence, must be of length equal to the input rank;
+        if a single number, this is used for all axes. If not specified, a grid spacing of unity is implied.
+
+    Returns:
+        Array of the closest distance from the point each feature A to feature B. Any points where feature A is not
+        present will have the value ``np.nan``
+
+    """
     return _distance_metric_from_a_to_b(from_feature, to_feature, ndi.distance_transform_edt, sampling=sampling)
 
 
 def chebyshev_distance_from_a_to_b(from_feature: np.ndarray, to_feature: np.ndarray) -> np.ndarray:
+    """
+    Chebyshev distance from feature A to feature B
+
+    For example, to find the distance of a contrail forming region to a turbulent region, then ``from_region`` would
+    be a boolean array of where the contrail region is and ``to_region`` would be a boolean array of where
+    turbulence is present.
+
+    Args:
+        from_feature: Feature to compute distances from
+        to_feature: Feature to compute distances to
+
+    Returns:
+        Array of the closest distance from the point each feature A to feature B. Any points where feature A is not
+        present will have the value ``np.nan``
+
+    """
     return _distance_metric_from_a_to_b(from_feature, to_feature, ndi.distance_transform_cdt, metric="chessboard")
 
 
@@ -250,6 +286,25 @@ def distance_from_a_to_b(
     core_dims: list[str] | None = None,
     sampling: float | Sequence[float] | None = None,
 ) -> xr.DataArray:
+    """
+    Distance from feature A to feature B
+
+    For example, to find the distance of a contrail forming region to a turbulent region, then ``from_region`` would
+    be a boolean array of where the contrail region is and ``to_region`` would be a boolean array of where
+    turbulence is present.
+
+    Args:
+        from_feature: Feature to compute distances from
+        to_feature: Feature to compute distances to
+        distance_measure: How distance is measured
+        num_dim: Number of dimensions to compute distances over
+        core_dims: Name of core dimensions to iterate over
+        sampling: Only applicable for Euclidean distance, see :func:`scipy.ndimage.distance_transform_edt` for details
+
+    Returns:
+        Array of the closest distance from each point in feature A to feature B
+
+    """
     _check_arrays_same_shape_and_bool(from_feature, to_feature)
 
     core_dims = _check_num_dims_and_set_core_dims(num_dim, core_dims)
