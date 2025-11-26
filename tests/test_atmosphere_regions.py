@@ -6,8 +6,12 @@ import xarray as xr
 
 from rojak.atmosphere.jet_stream import JetStreamAlgorithmFactory
 from rojak.atmosphere.regions import (
+    DistanceMeasure,
     _parent_region_mask,
     _region_labeller,
+    chebyshev_distance_from_a_to_b,
+    distance_from_a_to_b,
+    euclidean_distance_from_a_to_b,
     find_parent_region_of_intersection,
     label_regions,
 )
@@ -166,3 +170,64 @@ def test_label_then_mask_equiv_to_single_step(
             np.testing.assert_array_equal(
                 from_guv_js.isel(time=time_index).transpose("latitude", "longitude", "pressure_level"), mask
             )
+
+
+@pytest.mark.parametrize("distance_measure", [e.value for e in DistanceMeasure])
+@pytest.mark.parametrize("num_dim", [2, 3])
+def test_distance_from_a_to_b_equiv_in_multi_dim(
+    get_is_ti1_turb: xr.DataArray, get_js_regions: xr.DataArray, num_dim: int, distance_measure: DistanceMeasure
+) -> None:
+    js_regions = get_js_regions
+    turb_regions = get_is_ti1_turb
+    computed_distance: xr.DataArray = distance_from_a_to_b(
+        js_regions, turb_regions, distance_measure=distance_measure, num_dim=num_dim
+    )
+    distance_func_to_test = (
+        euclidean_distance_from_a_to_b
+        if distance_measure == DistanceMeasure.EUCLIDEAN
+        else chebyshev_distance_from_a_to_b
+    )
+    if num_dim == 2:  # noqa: PLR2004
+        for time_index in range(js_regions["time"].size):
+            for level_index in range(js_regions["pressure_level"].size):
+                np.testing.assert_array_equal(
+                    computed_distance.isel(time=time_index, pressure_level=level_index).transpose(
+                        "latitude", "longitude"
+                    ),
+                    distance_func_to_test(
+                        js_regions.isel(time=time_index, pressure_level=level_index).to_numpy(),
+                        turb_regions.isel(time=time_index, pressure_level=level_index).to_numpy(),
+                    ),
+                )
+    else:
+        for time_index in range(js_regions["time"].size):
+            np.testing.assert_array_equal(
+                computed_distance.isel(time=time_index).transpose("latitude", "longitude", "pressure_level"),
+                distance_func_to_test(
+                    js_regions.isel(time=time_index).to_numpy(),
+                    turb_regions.isel(time=time_index).to_numpy(),
+                ),
+            )
+
+
+@pytest.mark.parametrize("distance_measure", [e.value for e in DistanceMeasure])
+def test_distance_a_to_b_2d_not_equiv_3d(
+    get_is_ti1_turb: xr.DataArray, get_js_regions: xr.DataArray, distance_measure: DistanceMeasure
+) -> None:
+    with pytest.raises(AssertionError):
+        xr.testing.assert_allclose(
+            distance_from_a_to_b(get_js_regions, get_is_ti1_turb, distance_measure=distance_measure, num_dim=2),
+            distance_from_a_to_b(get_js_regions, get_is_ti1_turb, distance_measure=distance_measure, num_dim=3),
+        )
+
+
+@pytest.mark.parametrize("distance_measure", [e.value for e in DistanceMeasure])
+@pytest.mark.parametrize("num_dim", [2, 3])
+def test_distance_a_to_b_inverse_not_equiv(
+    get_is_ti1_turb: xr.DataArray, get_js_regions: xr.DataArray, distance_measure: DistanceMeasure, num_dim: int
+) -> None:
+    with pytest.raises(AssertionError):
+        xr.testing.assert_allclose(
+            distance_from_a_to_b(get_js_regions, get_is_ti1_turb, distance_measure=distance_measure, num_dim=num_dim),
+            distance_from_a_to_b(get_is_ti1_turb, get_js_regions, distance_measure=distance_measure, num_dim=num_dim),
+        )

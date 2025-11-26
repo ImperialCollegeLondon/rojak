@@ -226,7 +226,9 @@ def _distance_metric_from_a_to_b(
 
 
 def euclidean_distance_from_a_to_b(
-    from_feature: np.ndarray, to_feature: np.ndarray, sampling: float | Sequence[float]
+    from_feature: np.ndarray,
+    to_feature: np.ndarray,
+    sampling: float | Sequence[float] = 1,
 ) -> np.ndarray:
     return _distance_metric_from_a_to_b(from_feature, to_feature, ndi.distance_transform_edt, sampling=sampling)
 
