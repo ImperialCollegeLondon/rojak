@@ -188,10 +188,14 @@ def _bitwise_combine_guv_4d(first: np.ndarray, second: np.ndarray, result: np.nd
                     result[i, j, k, l_dim] = _bitwise_combine(first[i, j, k, l_dim], second[i, j, k, l_dim])
 
 
-def combine_two_features(first: xr.DataArray, second: xr.DataArray, is_guv: bool = True) -> xr.DataArray:
+def _check_arrays_same_shape_and_bool(first: xr.DataArray, second: xr.DataArray) -> None:
     assert first.dtype == second.dtype
     assert first.dtype == np.bool_
     assert first.shape == second.shape
+
+
+def combine_two_features(first: xr.DataArray, second: xr.DataArray, is_guv: bool = True) -> xr.DataArray:
+    _check_arrays_same_shape_and_bool(first, second)
 
     # Cast to int to do bit twiddling
     first = first.astype("int8")
