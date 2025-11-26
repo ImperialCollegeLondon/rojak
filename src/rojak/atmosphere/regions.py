@@ -1,3 +1,7 @@
+from collections.abc import Callable, Sequence
+from enum import StrEnum
+from typing import assert_never, cast
+
 import numpy as np
 import scipy.ndimage as ndi
 import xarray as xr
@@ -207,3 +211,72 @@ def combine_two_features(first: xr.DataArray, second: xr.DataArray, is_guv: bool
     # If both,          0b111
     # return (first << 2) | (second << 1) | (first & second)
     return xr.apply_ufunc(_bitwise_combine_guv_4d if is_guv else _bitwise_combine, first, second, dask="parallelized")
+
+
+def _euclidean_distance_from_a_to_b(
+    from_feature: np.ndarray, to_feature: np.ndarray, sampling: float | Sequence[float]
+) -> np.ndarray:
+    from_feature = from_feature.astype(bool)
+    to_feature = to_feature.astype(bool)
+    # As return_distances has been passed to function, I can guarantee that a single numpy array is returned
+    distance_to_feature: np.ndarray = cast(
+        "np.ndarray", ndi.distance_transform_edt(~to_feature, sampling=sampling, return_distances=True)
+    )
+    distance_from_feature: np.ndarray = np.full_like(from_feature, np.nan, dtype=float)
+    distance_from_feature[from_feature] = distance_to_feature[from_feature]
+    return distance_from_feature
+
+
+def _chebyshev_distance_from_a_to_b(from_feature: np.ndarray, to_feature: np.ndarray) -> np.ndarray:
+    from_feature = from_feature.astype(bool)
+    to_feature = to_feature.astype(bool)
+    # As return_distances has been passed to function, I can guarantee that a single numpy array is returned
+    distance_to_feature: np.ndarray = cast(
+        "np.ndarray", ndi.distance_transform_cdt(~to_feature, metric="chessboard", return_distances=True)
+    )
+    distance_from_feature: np.ndarray = np.full_like(from_feature, np.nan, dtype=float)
+    distance_from_feature[from_feature] = distance_to_feature[from_feature]
+    return distance_from_feature
+
+
+class DistanceMeasure(StrEnum):
+    EUCLIDEAN = "euclidean"
+    CHEBYSHEV = "chebyshev"
+
+
+def distance_from_a_to_b(
+    from_feature: xr.DataArray,
+    to_feature: xr.DataArray,
+    core_dims: list[str],
+    distance_measure: DistanceMeasure,
+    sampling: float | Sequence[float] | None = None,
+) -> xr.DataArray:
+    _check_arrays_same_shape_and_bool(from_feature, to_feature)
+
+    if distance_measure != DistanceMeasure.EUCLIDEAN and sampling is not None:
+        raise ValueError("Sampling is only supported for euclidean distance")
+
+    if distance_measure != DistanceMeasure.EUCLIDEAN:
+        func_kwargs = {}
+    else:
+        func_kwargs = {"sampling": sampling} if sampling is not None else {"sampling": 1}
+
+    match distance_measure:
+        case DistanceMeasure.EUCLIDEAN:
+            distance_function: Callable = _euclidean_distance_from_a_to_b
+        case DistanceMeasure.CHEBYSHEV:
+            distance_function: Callable = _chebyshev_distance_from_a_to_b
+        case _ as unreachable:
+            assert_never(unreachable)
+
+    return xr.apply_ufunc(
+        distance_function,
+        from_feature,
+        to_feature,
+        kwargs=func_kwargs,
+        input_core_dims=[core_dims, core_dims],
+        output_core_dims=[core_dims],
+        vectorize=True,
+        output_dtypes=[np.dtype(float)],
+        dask="parallelized",
+    )
