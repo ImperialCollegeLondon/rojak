@@ -249,6 +249,39 @@ def euclidean_distance_from_a_to_b(
         Array of the closest distance from the point each feature A to feature B. Any points where feature A is not
         present will have the value ``np.nan``
 
+    Examples
+    --------
+
+    Modified from the docstring of :func:`scipy.ndimage.distance_transform_edt`
+
+    >>> to_b = np.array(([0,1,1,1,1],
+    ...                  [0,0,1,1,1],
+    ...                  [0,1,1,1,1],
+    ...                  [0,1,1,1,0],
+    ...                  [0,1,1,0,0]), dtype=bool)
+    >>> to_b = ~to_b
+    >>> from_a = np.ones_like(to_b)
+    >>> euclidean_distance_from_a_to_b(from_a, to_b)
+    array([[0.        , 1.        , 1.41421356, 2.23606798, 3.        ],
+           [0.        , 0.        , 1.        , 2.        , 2.        ],
+           [0.        , 1.        , 1.41421356, 1.41421356, 1.        ],
+           [0.        , 1.        , 1.41421356, 1.        , 0.        ],
+           [0.        , 1.        , 1.        , 0.        , 0.        ]])
+
+    If the feature we are computing distances from is never present, then all values in the array will be ``np.nan``
+
+    >>> np.isnan(euclidean_distance_from_a_to_b(np.zeros_like(to_b), to_b)).all()
+    np.True_
+
+    With a sampling of 2 units along x, 1 along y:
+
+    >>> euclidean_distance_from_a_to_b(from_a, to_b, sampling=[2, 1])
+    array([[0.        , 1.        , 2.        , 2.82842712, 3.60555128],
+           [0.        , 0.        , 1.        , 2.        , 3.        ],
+           [0.        , 1.        , 2.        , 2.23606798, 2.        ],
+           [0.        , 1.        , 2.        , 1.        , 0.        ],
+           [0.        , 1.        , 1.        , 0.        , 0.        ]])
+
     """
     return _distance_metric_from_a_to_b(from_feature, to_feature, ndi.distance_transform_edt, sampling=sampling)
 
