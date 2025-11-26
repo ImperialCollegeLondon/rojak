@@ -84,15 +84,29 @@ def test_label_regions_assertion_error(core_dims: list[str] | None) -> None:
 TI1_THRESHOLD: float = 1.3947336218633176e-10
 
 
+@pytest.fixture
+def get_is_ti1_turb(load_cat_data) -> xr.DataArray:
+    return (
+        DiagnosticFactory(load_cat_data(None, with_chunks=True)).create(TurbulenceDiagnostics.TI1).computed_value
+        > TI1_THRESHOLD
+    )
+
+
+@pytest.fixture
+def get_js_regions(load_cat_data) -> xr.DataArray:
+    return (
+        JetStreamAlgorithmFactory(load_cat_data(None, with_chunks=True))
+        .create(JetStreamAlgorithms.ALPHA_VEL_KOCH)
+        .identify_jet_stream()
+    )
+
+
 @pytest.mark.parametrize("num_dim", [2, 3])
-def test_parent_region_mask_jit_equiv_guvectorize(load_cat_data, num_dim: int) -> None:
-    cat_data = load_cat_data(None, with_chunks=True)
-    is_ti1_turb: xr.DataArray = (
-        DiagnosticFactory(cat_data).create(TurbulenceDiagnostics.TI1).computed_value > TI1_THRESHOLD
-    )
-    js_regions: xr.DataArray = (
-        JetStreamAlgorithmFactory(cat_data).create(JetStreamAlgorithms.ALPHA_VEL_KOCH).identify_jet_stream()
-    )
+def test_parent_region_mask_jit_equiv_guvectorize(
+    get_is_ti1_turb: xr.DataArray, get_js_regions: xr.DataArray, num_dim: int
+) -> None:
+    is_ti1_turb: xr.DataArray = get_is_ti1_turb
+    js_regions: xr.DataArray = get_js_regions
     labeled_ti1: xr.DataArray = label_regions(is_ti1_turb, num_dims=num_dim)
     labeled_js: xr.DataArray = label_regions(js_regions, num_dims=num_dim)
 
@@ -116,14 +130,11 @@ def test_parent_region_mask_jit_equiv_guvectorize(load_cat_data, num_dim: int) -
 
 
 @pytest.mark.parametrize("num_dim", [2, 3])
-def test_label_then_mask_equiv_to_single_step(load_cat_data, num_dim: int) -> None:
-    cat_data = load_cat_data(None, with_chunks=True)
-    is_ti1_turb: xr.DataArray = (
-        DiagnosticFactory(cat_data).create(TurbulenceDiagnostics.TI1).computed_value > TI1_THRESHOLD
-    )
-    js_regions: xr.DataArray = (
-        JetStreamAlgorithmFactory(cat_data).create(JetStreamAlgorithms.ALPHA_VEL_KOCH).identify_jet_stream()
-    )
+def test_label_then_mask_equiv_to_single_step(
+    get_is_ti1_turb: xr.DataArray, get_js_regions: xr.DataArray, num_dim: int
+) -> None:
+    is_ti1_turb: xr.DataArray = get_is_ti1_turb
+    js_regions: xr.DataArray = get_js_regions
     labeled_js: xr.DataArray = label_regions(js_regions, num_dims=num_dim)
 
     js_intersect_turb = is_ti1_turb & js_regions
