@@ -243,11 +243,16 @@ class DistanceMeasure(StrEnum):
 def distance_from_a_to_b(
     from_feature: xr.DataArray,
     to_feature: xr.DataArray,
-    core_dims: list[str],
     distance_measure: DistanceMeasure,
+    num_dim: int = 3,
+    core_dims: list[str] | None = None,
     sampling: float | Sequence[float] | None = None,
 ) -> xr.DataArray:
     _check_arrays_same_shape_and_bool(from_feature, to_feature)
+
+    core_dims = _check_num_dims_and_set_core_dims(num_dim, core_dims)
+    _check_dims_in_array(core_dims, from_feature)
+    _check_dims_in_array(core_dims, to_feature)
 
     if distance_measure != DistanceMeasure.EUCLIDEAN and sampling is not None:
         raise ValueError("Sampling is only supported for euclidean distance")
