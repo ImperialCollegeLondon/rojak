@@ -11,6 +11,7 @@ from rojak.core.calculations import (
     _icao_constants,
     altitude_to_pressure_troposphere,
     bilinear_interpolation,
+    interpolation_on_lat_lon,
     pressure_to_altitude_icao,
     pressure_to_altitude_stratosphere,
     pressure_to_altitude_troposphere,
@@ -19,6 +20,7 @@ from rojak.core.calculations import (
 from rojak.utilities.types import Coordinate
 
 if TYPE_CHECKING:
+    from rojak.core.data import CATData
     from rojak.utilities.types import NumpyOrDataArray
 
 
@@ -237,3 +239,47 @@ def test_bilinear_interpolation(x_slice, y_slice, interpolation_point, ff, is_ff
     assert rgi(interpolation_point) == interpolated
     if is_ff_linear:
         assert interpolated == ff(interpolation_point[0], interpolation_point[1])
+
+
+def test_interpolation_on_lat_lon_apply_ufunc_equiv_to_slice(load_cat_data, client) -> None:
+    cat_data: CATData = load_cat_data(None, with_chunks=True)
+
+    num_interp_points: int = 400
+    rng = np.random.default_rng()
+    longitude_point: np.ndarray = rng.uniform(-180, 179.75, num_interp_points)
+    latitude_points: np.ndarray = rng.uniform(-90, 90, num_interp_points)
+    interpolation_points: xr.DataArray = xr.DataArray(
+        data=np.stack((longitude_point, latitude_points), axis=1), dims=["points", "xy"]
+    )
+
+    apply_on = cat_data.v_wind()
+    interpolated_to: xr.DataArray = interpolation_on_lat_lon(apply_on, interpolation_points)
+    lat_coord = apply_on["latitude"]
+    lon_coord = apply_on["longitude"]
+
+    for time_index in range(apply_on["time"].size):
+        for pressure_index in range(apply_on["pressure_level"].size):
+            lat_lon_slice = apply_on.isel(time=time_index, pressure_level=pressure_index)
+            interp_on_slice = RegularGridInterpolator(
+                (lon_coord, lat_coord), lat_lon_slice.to_numpy().T, method="linear"
+            )(interpolation_points.values)
+            np.testing.assert_allclose(
+                interpolated_to.isel(time=time_index, pressure_level=pressure_index), interp_on_slice
+            )
+
+
+def test_interpolation_on_lat_lon_to_grid_points(load_cat_data, client) -> None:
+    cat_data: CATData = load_cat_data(None, with_chunks=True)
+    apply_on = cat_data.v_wind()
+    lat_coord = apply_on["latitude"]
+    lon_coord = apply_on["longitude"]
+    llon, llat = np.meshgrid(lon_coord, lat_coord)
+
+    interpolation_points: xr.DataArray = xr.DataArray(
+        data=np.stack((llon.ravel(), llat.ravel()), axis=1), dims=["points", "xy"]
+    )
+    interpolated_to: xr.DataArray = interpolation_on_lat_lon(apply_on, interpolation_points)
+    np.testing.assert_array_equal(
+        apply_on.stack(z=["latitude", "longitude"]),
+        interpolated_to,
+    )
