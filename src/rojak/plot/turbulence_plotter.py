@@ -13,12 +13,10 @@
 #  limitations under the License.
 
 import functools
-import itertools
 import operator
 import sys
 from collections.abc import Iterable
-from enum import StrEnum
-from typing import TYPE_CHECKING, Final, Literal, assert_never, cast
+from typing import TYPE_CHECKING, Final, Literal, cast
 
 import cartopy.crs as ccrs
 import dask.array as da
@@ -40,6 +38,7 @@ from dask.base import is_dask_collection
 from shapely import Polygon
 
 from rojak.orchestrator.configuration import SpatialDomain, TurbulenceDiagnostics
+from rojak.plot.utilities import _PLATE_CARREE
 from rojak.turbulence.analysis import Hemisphere, LatitudinalRegion
 from rojak.utilities.types import is_dask_array, is_np_array
 
@@ -60,8 +59,6 @@ if TYPE_CHECKING:
     )
     from rojak.turbulence.verification import RocVerificationResult
     from rojak.utilities.types import DiagnosticName
-
-_PLATE_CARREE: "ccrs.Projection" = ccrs.PlateCarree()
 
 GREY_HEX_CODE: str = "#cecece"  # slightly lighter: dbdbdb
 
@@ -230,51 +227,6 @@ def create_multi_turbulence_diagnotics_probability_plot(
     plt.close(fg.fig)
 
 
-class StandardColourMaps(StrEnum):
-    TURBULENCE_PROBABILITY = "turbulence_probability"
-    CORRELATION_COOL_WARM = "correlation_cool_warm"
-    SEQUENTIAL_GREEN = "sequential_green"
-    FEATURE_REGIONS = "feature_regions"
-    DISTANCE_BETWEEN_REGIONS = "distance_between_regions"
-
-
-def get_a_default_cmap(
-    colour_map: StandardColourMaps,
-    resample_to: int | None = None,
-    load_kwargs: dict | None = None,
-) -> "mcolors.Colormap":
-    if load_kwargs is None:
-        load_kwargs = {}
-
-    match colour_map:
-        case StandardColourMaps.TURBULENCE_PROBABILITY:
-            chosen_cmap: mcolors.LinearSegmentedColormap = cast(
-                "mcolors.LinearSegmentedColormap", pypalettes.load_cmap("cancri", cmap_type="continuous", reverse=True)
-            )
-            if resample_to is None:
-                resample_to = 20
-        case StandardColourMaps.DISTANCE_BETWEEN_REGIONS:
-            chosen_cmap: mcolors.LinearSegmentedColormap = cast(
-                "mcolors.LinearSegmentedColormap", pypalettes.load_cmap("cancri", cmap_type="continuous", **load_kwargs)
-            )
-        case StandardColourMaps.CORRELATION_COOL_WARM:
-            chosen_cmap: mcolors.LinearSegmentedColormap = cast(
-                "mcolors.LinearSegmentedColormap", pypalettes.load_cmap("Blue2DarkRed12Steps", **load_kwargs)
-            )
-        case StandardColourMaps.SEQUENTIAL_GREEN:
-            chosen_cmap: mcolors.LinearSegmentedColormap = cast(
-                "mcolors.LinearSegmentedColormap", pypalettes.load_cmap("Ernst", **load_kwargs)
-            )
-        case StandardColourMaps.FEATURE_REGIONS:
-            chosen_cmap: mcolors.LinearSegmentedColormap = cast(
-                "mcolors.LinearSegmentedColormap", pypalettes.load_cmap("Casita1", keep_first_n=4)
-            )
-        case _ as unreachable:
-            assert_never(unreachable)
-
-    return chosen_cmap if resample_to is None else chosen_cmap.resampled(resample_to)
-
-
 def create_configurable_multi_diagnostic_plot(  # noqa: PLR0913
     ds_to_plot: xr.Dataset,
     vars_to_plots: list[str],
@@ -361,47 +313,6 @@ def create_configurable_zonal_mean_line_plot(  # noqa: PLR0913
 
     fg.set_xlabels(label=x_label)
     fg.fig.savefig(plot_name, **(savefig_kwargs if savefig_kwargs is not None else {}))
-    plt.close(fg.fig)
-
-
-def create_regions_snapshot_plot(  # noqa: PLR0913
-    da_to_plot: xr.DataArray,
-    first_feature_name: str,
-    second_feature_name: str,
-    plot_name: str,
-    plot_kwargs: dict | None = None,
-    longitude_coord: str = "longitude",
-    latitude_coord: str = "latitude",
-    col_coord: str = "pressure_level",
-    projection: "ccrs.Projection" = _PLATE_CARREE,
-) -> None:
-    cmap = get_a_default_cmap(StandardColourMaps.FEATURE_REGIONS)
-    boundaries: list[int] = [0, 0b001, 0b100, 0b111, 8]
-    new_cbar_tick_locations = [(first + second) / 2 for first, second in itertools.pairwise(boundaries[1:])]
-    cbar_norm = mcolors.BoundaryNorm(boundaries, cmap.N)
-    default_plot_kwargs = {
-        "x": longitude_coord,
-        "y": latitude_coord,
-        "col": col_coord,
-        "cmap": cmap,
-        "norm": cbar_norm,
-        "transform": projection,
-        "subplot_kws": {"projection": projection},
-        "cbar_kwargs": {
-            "orientation": "horizontal",
-            "spacing": "uniform",
-            "pad": 0.02,
-            "shrink": 0.6,
-        },
-        **(plot_kwargs if plot_kwargs is not None else {}),
-    }
-    fg: xr.plot.FacetGrid = da_to_plot.plot(**default_plot_kwargs)  # pyright: ignore[reportAttributeAccessIssue]
-    fg.map(lambda: plt.gca().coastlines(lw=0.3))  # pyright: ignore[reportAttributeAccessIssue]
-    fg.cbar.set_ticks(
-        new_cbar_tick_locations,
-        labels=[first_feature_name, second_feature_name, f"{first_feature_name} & {second_feature_name}"],
-    )
-    fg.fig.savefig(plot_name, dpi=400, bbox_inches="tight")
     plt.close(fg.fig)
 
 
