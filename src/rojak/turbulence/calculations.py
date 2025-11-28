@@ -52,7 +52,11 @@ def stretching_deformation(du_dx: xr.DataArray, dv_dy: xr.DataArray) -> xr.DataA
 
 
 def total_deformation(
-    du_dx: xr.DataArray, du_dy: xr.DataArray, dv_dx: xr.DataArray, dv_dy: xr.DataArray, is_squared: bool
+    du_dx: xr.DataArray,
+    du_dy: xr.DataArray,
+    dv_dx: xr.DataArray,
+    dv_dy: xr.DataArray,
+    is_squared: bool,
 ) -> xr.DataArray:
     """
     Total deformation
@@ -71,12 +75,17 @@ def total_deformation(
             :math:`D_{\\text{sh}}^{2} + D_{\\text{st}}^{2}`
     """
     return magnitude_of_vector(
-        shearing_deformation(dv_dx, du_dy), stretching_deformation(du_dx, dv_dy), is_squared=is_squared
+        shearing_deformation(dv_dx, du_dy),
+        stretching_deformation(du_dx, dv_dy),
+        is_squared=is_squared,
     )
 
 
 def magnitude_of_vector(
-    x_component: xr.DataArray, y_component: xr.DataArray, is_abs: bool = False, is_squared: bool = False
+    x_component: xr.DataArray,
+    y_component: xr.DataArray,
+    is_abs: bool = False,
+    is_squared: bool = False,
 ) -> xr.DataArray:
     """
     Magnitude of vector
@@ -112,7 +121,9 @@ def vertical_component_vorticity(dvdx: xr.DataArray, dudy: xr.DataArray) -> xr.D
 
 
 def altitude_derivative_on_pressure_level(
-    function: xr.DataArray, geopotential: xr.DataArray, level_coord_name: str = "pressure_level"
+    function: xr.DataArray,
+    geopotential: xr.DataArray,
+    level_coord_name: str = "pressure_level",
 ) -> xr.DataArray:
     """
     Derivative w.r.t. altitude for data on pressure level
@@ -343,7 +354,10 @@ def vertical_wind_shear(
 
 
 def wind_speed(
-    u_wind: xr.DataArray, v_wind: xr.DataArray, is_abs: bool = False, is_squared: bool = False
+    u_wind: xr.DataArray,
+    v_wind: xr.DataArray,
+    is_abs: bool = False,
+    is_squared: bool = False,
 ) -> xr.DataArray:
     """
     Wind speed

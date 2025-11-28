@@ -91,7 +91,10 @@ def load_cat_data(load_era5_data) -> Callable:
         data: Era5Data = load_era5_data(with_chunks=with_chunks)
         if domain is None:
             domain = SpatialDomain(
-                minimum_latitude=-90, maximum_latitude=90, minimum_longitude=-180, maximum_longitude=180
+                minimum_latitude=-90,
+                maximum_latitude=90,
+                minimum_longitude=-180,
+                maximum_longitude=180,
             )
         return data.to_clear_air_turbulence_data(domain)
 

@@ -91,14 +91,16 @@ class TurbulenceIntensityThresholds(PostProcessor):
     def execute(self) -> TurbulenceThresholds:
         not_none_mask = [index for index, item in enumerate(self._percentile_config.all_severities) if item is not None]
         not_none_percentiles = self._compute_percentiles(
-            np.asarray(self._percentile_config.all_severities, dtype=np.float64)[not_none_mask]
+            np.asarray(self._percentile_config.all_severities, dtype=np.float64)[not_none_mask],
         )
         mapping_to_severity = self._find_index_without_nones()
         return TurbulenceThresholds(
             **{
                 str(severity): index_map if index_map is None else not_none_percentiles[index_map]
                 for index_map, severity in zip(
-                    mapping_to_severity, TurbulenceSeverity.get_in_ascending_order(), strict=False
+                    mapping_to_severity,
+                    TurbulenceSeverity.get_in_ascending_order(),
+                    strict=False,
                 )
             },
             _all_severities=[],
@@ -213,7 +215,10 @@ class DiagnosticHistogramDistribution(PostProcessor):
         log_of_diagnostic = da.log(flattened_array)
         min_and_max = da.percentile(log_of_diagnostic, [0, 100], internal_method="tdigest").compute()
         h, bins = da.histogram(  # pyright: ignore [reportGeneralTypeIssues]
-            log_of_diagnostic, bins=self._NUM_HIST_BINS, range=(min_and_max[0], min_and_max[1]), density=True
+            log_of_diagnostic,
+            bins=self._NUM_HIST_BINS,
+            range=(min_and_max[0], min_and_max[1]),
+            density=True,
         )
         return HistogramData(
             hist_values=h.compute(),
@@ -271,7 +276,9 @@ class TurbulentRegionsBySeverity(PostProcessor):
         for severity in self._severities:
             bounds: Limits = self._thresholds.get_bounds(severity, self._threshold_mode)
             this_severity = xr.where(
-                (self._computed_diagnostic >= bounds.lower) & (self._computed_diagnostic < bounds.upper), True, False
+                (self._computed_diagnostic >= bounds.lower) & (self._computed_diagnostic < bounds.upper),
+                True,
+                False,
             )
             by_severity.append(this_severity if self._has_parent else this_severity.compute())
         return by_severity if self._has_parent else xr.concat(by_severity, xr.Variable("severity", self._severities))
@@ -296,9 +303,14 @@ class TurbulenceProbabilityBySeverity(_EvaluationPostProcessor):
         super().__init__(
             components={
                 "turbulent_regions": TurbulentRegionsBySeverity(
-                    computed_diagnostic, pressure_levels, severities, thresholds, threshold_mode, has_parent=True
-                )
-            }
+                    computed_diagnostic,
+                    pressure_levels,
+                    severities,
+                    thresholds,
+                    threshold_mode,
+                    has_parent=True,
+                ),
+            },
         )
         self._num_time_steps: int = computed_diagnostic["time"].size
         self._severities = severities
@@ -325,7 +337,8 @@ class ComputeDistributionParametersForEDR(PostProcessor):
         diagnostic_values = (diagnostic_values[diagnostic_values > 0]).compute_chunk_sizes()
         log_of_diagnostic = da.log(diagnostic_values)
         return DistributionParameters(
-            mean=da.nanmean(log_of_diagnostic).compute(), variance=da.nanvar(log_of_diagnostic).compute()
+            mean=da.nanmean(log_of_diagnostic).compute(),
+            variance=da.nanvar(log_of_diagnostic).compute(),
         )
 
 
@@ -398,7 +411,9 @@ class CorrelationBetweenDiagnostics(PostProcessor):
     _sel_condition: Mapping[str, Any]
 
     def __init__(
-        self, computed_indices: dict["DiagnosticName", xr.DataArray], sel_condition: Mapping[str, Any]
+        self,
+        computed_indices: dict["DiagnosticName", xr.DataArray],
+        sel_condition: Mapping[str, Any],
     ) -> None:
         self._computed_indices = computed_indices
         self._diagnostic_names = list(self._computed_indices.keys())
@@ -471,7 +486,7 @@ class LatitudinalCorrelationBetweenDiagnostics(PostProcessor):
         self._sel_condition = sel_condition
 
     @staticmethod
-    def _apply_region_filter(array: xr.DataArray, hemisphere: Hemisphere, region: LatitudinalRegion) -> xr.DataArray:  # noqa: PLR0911
+    def _apply_region_filter(array: xr.DataArray, hemisphere: Hemisphere, region: LatitudinalRegion) -> xr.DataArray:
         extratropic_latitudes: Limits = Limits(lower=25, upper=65)
         entire_tropics: Limits = Limits(lower=-25, upper=25)
         half_tropics: Limits = Limits(lower=0, upper=25)
@@ -585,7 +600,8 @@ class LatitudinalCorrelationBetweenDiagnostics(PostProcessor):
         )
         for first_diagnostic, second_diagnostic in itertools.combinations(self._diagnostic_names, 2):
             for hemisphere, region in itertools.product(
-                self._hemispheres, self._regions
+                self._hemispheres,
+                self._regions,
             ):  # Hemisphere, LatitudinalRegion
                 this_correlation: xr.DataArray = xr.corr(
                     self._apply_region_filter(self._computed_indices[first_diagnostic], hemisphere, region)
@@ -684,19 +700,27 @@ class RelationshipBetweenFactory:
                 return JaccardIndex(self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim)
             case RelationshipBetweenTypes.PROBABILITY_THIS_GIVEN_OTHER:
                 return ProbabilityThisGivenOther(
-                    self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim
+                    self._this_feature,
+                    self._other_feature,
+                    sum_over_dims=self._sum_over_dim,
                 )
             case RelationshipBetweenTypes.PROBABILITY_OTHER_GIVEN_THIS:
                 return ProbabilityThisGivenOther(
-                    self._other_feature, self._this_feature, sum_over_dims=self._sum_over_dim
+                    self._other_feature,
+                    self._this_feature,
+                    sum_over_dims=self._sum_over_dim,
                 )
             case RelationshipBetweenTypes.PROBABILITY_THIS_GIVEN_NOT_OTHER:
                 return ProbabilityThisGivenNotOther(
-                    self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim
+                    self._this_feature,
+                    self._other_feature,
+                    sum_over_dims=self._sum_over_dim,
                 )
             case RelationshipBetweenTypes.PROBABILITY_OTHER_GIVEN_NOT_THIS:
                 return ProbabilityThisGivenNotOther(
-                    self._other_feature, self._this_feature, sum_over_dims=self._sum_over_dim
+                    self._other_feature,
+                    self._this_feature,
+                    sum_over_dims=self._sum_over_dim,
                 )
             case RelationshipBetweenTypes.MATTHEWS_CORRELATION:
                 return MatthewsCorrelation(self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim)
@@ -743,7 +767,7 @@ class RelationshipBetweenXAndTurbulence(PostProcessor):
                     self._turbulence_diagnostics.items(),
                     f"Relationship between {self._feature_name} and turbulence diagnostics",
                 )
-            }
+            },
         )
 
 

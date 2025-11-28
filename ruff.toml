@@ -27,7 +27,18 @@ extend-select = [
     "PL", # pylint - static code analyser
     "UP", # Upgrade old Python syntax
     "PD", # linter for pandas
+
+    "BLE",
+    "COM",
+    "PIE",
+    "Q",
+    "RSE",
+#    "SLF",
+    "F",
+    "FURB",
+#    "RUF",
 ]
+ignore = ["ISC001"]
 
 [lint.extend-per-file-ignores]
 "tests/*.py" = ["ANN"]

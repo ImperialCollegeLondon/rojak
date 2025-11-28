@@ -26,9 +26,9 @@ import dask.dataframe as dd
 import dask_geopandas as dgpd
 import geoviews as gv
 import holoviews as hv
-import hvplot.dask  # noqa
-import hvplot.pandas  # noqa
-import hvplot.xarray  # noqa
+import hvplot.dask
+import hvplot.pandas
+import hvplot.xarray
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import numpy as np
@@ -241,7 +241,8 @@ def get_a_default_cmap(colour_map: StandardColourMaps, resample_to: int | None =
     match colour_map:
         case StandardColourMaps.TURBULENCE_PROBABILITY:
             turbulence_cmap: mcolors.LinearSegmentedColormap = cast(
-                "mcolors.LinearSegmentedColormap", pypalettes.load_cmap("cancri", cmap_type="continuous", reverse=True)
+                "mcolors.LinearSegmentedColormap",
+                pypalettes.load_cmap("cancri", cmap_type="continuous", reverse=True),
             )
             return turbulence_cmap if resample_to is None else turbulence_cmap.resampled(20)
         case StandardColourMaps.CORRELATION_COOL_WARM:
@@ -496,7 +497,10 @@ def create_multi_correlation_axis_title(hemisphere: "Hemisphere", region: "Latit
 
 
 def create_multi_region_correlation_plot(
-    correlations: "xr.DataArray", plot_name: str, x_coord: str, y_coord: str
+    correlations: "xr.DataArray",
+    plot_name: str,
+    x_coord: str,
+    y_coord: str,
 ) -> None:
     assert correlations.ndim == 4, (  # noqa: PLR2004
         f"Multi-dimensional correlations matrix must be four-dimensional not {correlations.ndim}"
@@ -505,10 +509,19 @@ def create_multi_region_correlation_plot(
     assert num_diagnostics == correlations.shape[1], "Correlations matrix must be square"
 
     clustered_correlations: xr.DataArray = cluster_multi_dim_correlations(
-        correlations, Hemisphere.GLOBAL, LatitudinalRegion.FULL, in_place=True
+        correlations,
+        Hemisphere.GLOBAL,
+        LatitudinalRegion.FULL,
+        in_place=True,
     )
     fg: xr.plot.FacetGrid = clustered_correlations.plot.imshow(  # pyright: ignore[reportAttributeAccessIssue]
-        x="diagnostic1", y="diagnostic2", col="hemisphere", row="region", center=0.0, cmap="bwr", size=num_diagnostics
+        x="diagnostic1",
+        y="diagnostic2",
+        col="hemisphere",
+        row="region",
+        center=0.0,
+        cmap="bwr",
+        size=num_diagnostics,
     )
 
     fg.set_xlabels("")
@@ -521,7 +534,11 @@ def create_multi_region_correlation_plot(
         for col_idx, hemisphere in enumerate(clustered_correlations.coords["hemisphere"].values):
             current_axis = fg.axs[row_idx, col_idx]
             current_axis.set_xticks(
-                np.arange(num_diagnostics), labels=x_labels, rotation=45, ha="right", rotation_mode="anchor"
+                np.arange(num_diagnostics),
+                labels=x_labels,
+                rotation=45,
+                ha="right",
+                rotation_mode="anchor",
             )
             current_axis.set_yticks(np.arange(num_diagnostics), labels=y_labels)
             # current_axis.set_title(create_multi_correlation_axis_title(hemisphere, region))
@@ -556,7 +573,8 @@ def create_interactive_roc_curve_plot(roc: "RocVerificationResult", is_matplotli
     _set_extension(is_matplotlib)
     plots: dict[str, Overlay] = {}
     line_colours: list = cast(
-        "list", cast("mcolors.ListedColormap", pypalettes.load_cmap(["tol", "royal", "prism_light"])).colors
+        "list",
+        cast("mcolors.ListedColormap", pypalettes.load_cmap(["tol", "royal", "prism_light"])).colors,
     )
     for amdar_verification_col, by_diagnostic_roc in roc.iterate_by_amdar_column():
         auc_for_col = roc.auc_for_amdar_column(amdar_verification_col)
@@ -576,13 +594,16 @@ def create_interactive_roc_curve_plot(roc: "RocVerificationResult", is_matplotli
                 height=700,
             )
             for (diagnostic_name, roc_for_diagnostic), colour in zip(
-                by_diagnostic_roc.items(), line_colours, strict=False
+                by_diagnostic_roc.items(),
+                line_colours,
+                strict=False,
             )
         ]
         line_style = {"linewidth": 1, "linestyle": "--"} if is_matplotlib else {"line_width": 1, "line_dash": "dashed"}
         plots_for_col.append(
             dd.from_dask_array(
-                da.stack([da.linspace(0, 1, 500), da.linspace(0, 1, 500)], axis=1), columns=["POFD", "POD"]
+                da.stack([da.linspace(0, 1, 500), da.linspace(0, 1, 500)], axis=1),
+                columns=["POFD", "POD"],
             ).hvplot.line(  # pyright: ignore[reportAttributeAccessIssue]
                 x="POFD",
                 y="POD",
@@ -593,7 +614,7 @@ def create_interactive_roc_curve_plot(roc: "RocVerificationResult", is_matplotli
                 aspect="equal",
                 height=700,
                 **line_style,
-            )
+            ),
         )
         plots[amdar_verification_col] = functools.reduce(operator.mul, plots_for_col)
 
@@ -609,7 +630,9 @@ def save_hv_plot(
 ) -> None:
     fig = hv.render(holoviews_obj, backend="matplotlib", **(render_kwargs if render_kwargs is not None else {}))
     fig.savefig(
-        f"{figure_name}.{figure_format}", bbox_inches="tight", **(savefig_kwargs if savefig_kwargs is not None else {})
+        f"{figure_name}.{figure_format}",
+        bbox_inches="tight",
+        **(savefig_kwargs if savefig_kwargs is not None else {}),
     )
     plt.close(fig)
 
@@ -631,7 +654,8 @@ def plot_roc_curve(
     }
 
     line_colours: list = cast(
-        "list", cast("mcolors.ListedColormap", pypalettes.load_cmap(["tol", "royal", "prism_light"])).colors
+        "list",
+        cast("mcolors.ListedColormap", pypalettes.load_cmap(["tol", "royal", "prism_light"])).colors,
     )
     if len(line_colours) < len(false_positive_rates.keys()):
         raise ValueError("More values to plot than colours")
@@ -738,14 +762,15 @@ def create_interactive_aggregated_auc_plots(
                     condition.observed_turbulence_column_name,
                     opts_kwargs=options_kwargs,
                     new_col_name="AUC",
-                )
+                ),
             )
 
     return hv.Layout(all_plots).opts(fig_size=200).cols(num_conditions)  # pyright: ignore[reportAttributeAccessIssue, reportOptionalMemberAccess]
 
 
 def create_histogram_n_obs(
-    num_observations: dd.DataFrame | dgpd.GeoDataFrame, hist_kwargs: dict | None = None
+    num_observations: dd.DataFrame | dgpd.GeoDataFrame,
+    hist_kwargs: dict | None = None,
 ) -> hv.element.chart.Histogram:
     return num_observations["num_obs"].hvplot.hist(  # pyright: ignore[reportAttributeAccessIssue]
         "num_obs",

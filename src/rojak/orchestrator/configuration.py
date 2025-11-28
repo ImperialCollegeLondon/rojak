@@ -246,7 +246,8 @@ class TurbulenceCalibrationConfig(BaseConfigModel):
         ),
     ] = None
     percentile_thresholds: Annotated[
-        TurbulenceThresholds | None, Field(description="Percentile thresholds", frozen=True, repr=True)
+        TurbulenceThresholds | None,
+        Field(description="Percentile thresholds", frozen=True, repr=True),
     ] = None
     thresholds_file_path: Annotated[
         Path | None,
@@ -257,7 +258,8 @@ class TurbulenceCalibrationConfig(BaseConfigModel):
         ),
     ] = None
     diagnostic_distribution_file_path: Annotated[
-        Path | None, Field(description="Path to directory containing distribution of diagnostic indices")
+        Path | None,
+        Field(description="Path to directory containing distribution of diagnostic indices"),
     ] = None
 
 
@@ -279,14 +281,14 @@ class TurbulenceCalibrationPhases(BaseConfigModel):
                         and self.calibration_config.thresholds_file_path is None
                     ):
                         raise InvalidConfigurationError(
-                            "Either calibration data directory or thresholds file must be provided."
+                            "Either calibration data directory or thresholds file must be provided.",
                         )
                     if (
                         self.calibration_config.calibration_data_dir is not None
                         and self.calibration_config.thresholds_file_path is not None
                     ):
                         raise InvalidConfigurationError(
-                            "Either calibration data directory or thresholds file must be provided, NOT both"
+                            "Either calibration data directory or thresholds file must be provided, NOT both",
                         )
 
                     # Check that the paths are to the correct type of file system object
@@ -307,7 +309,7 @@ class TurbulenceCalibrationPhases(BaseConfigModel):
                         and self.calibration_config.percentile_thresholds is None
                     ):
                         raise InvalidConfigurationError(
-                            "If calibration data directory is provided, threshold configuration must be provided."
+                            "If calibration data directory is provided, threshold configuration must be provided.",
                         )
                 case TurbulenceCalibrationPhaseOption.HISTOGRAM:
                     if (
@@ -359,13 +361,15 @@ class TurbulenceEvaluationConfig(BaseConfigModel):
         Field(description="Target turbulence severity", repr=True),
     ] = [TurbulenceSeverity.LIGHT]
     pressure_levels: Annotated[
-        list[float], Field(description="Pressure levels to evaluate on", repr=True, frozen=True)
+        list[float],
+        Field(description="Pressure levels to evaluate on", repr=True, frozen=True),
     ] = [200.0]
 
 
 class TurbulenceEvaluationPhases(BaseConfigModel):
     phases: Annotated[
-        list[TurbulenceEvaluationPhaseOption], Field(description="Turbulence evaluation phases", repr=True, frozen=True)
+        list[TurbulenceEvaluationPhaseOption],
+        Field(description="Turbulence evaluation phases", repr=True, frozen=True),
     ]
     evaluation_config: TurbulenceEvaluationConfig
 
@@ -380,7 +384,7 @@ class TurbulenceEvaluationPhases(BaseConfigModel):
                     if TurbulenceEvaluationPhaseOption.PROBABILITIES not in self.phases[:index]:
                         raise InvalidConfigurationError(
                             "To compute correlation between probabilities, probabilities phase must be occur before "
-                            "correlations phase"
+                            "correlations phase",
                         )
                 case (
                     TurbulenceEvaluationPhaseOption.CORRELATION_BTW_EDR
@@ -389,7 +393,7 @@ class TurbulenceEvaluationPhases(BaseConfigModel):
                     if TurbulenceEvaluationPhaseOption.EDR not in self.phases[:index]:
                         raise InvalidConfigurationError(
                             "To compute correlation between edr probabilities, edr phase must be occur before "
-                            "correlations phase"
+                            "correlations phase",
                         )
         return self
 
@@ -409,7 +413,7 @@ class TurbulencePhases(BaseConfigModel):
                 and TurbulenceCalibrationPhaseOption.THRESHOLDS not in calibration_set
             ):
                 raise InvalidConfigurationError(
-                    "To evaluate probabilities, thresholding phase must occur at calibration stage"
+                    "To evaluate probabilities, thresholding phase must occur at calibration stage",
                 )
             if (
                 TurbulenceEvaluationPhaseOption.EDR in eval_set
@@ -430,7 +434,7 @@ class TurbulencePhases(BaseConfigModel):
             )
         ):
             raise InvalidConfigurationError(
-                "Attempting to evaluate for a severity that has not been computed for int the calibration phase"
+                "Attempting to evaluate for a severity that has not been computed for int the calibration phase",
             )
         return self
 
@@ -468,15 +472,16 @@ class ContrailsConfig(BaseConfigModel):
         ContrailModel,
         Field(description="Contrail model from pycontrails to use", repr=True, frozen=True),
     ]
-    ...
 
 
 class DiagnosticValidationCondition(BaseConfigModel):
     observed_turbulence_column_name: Annotated[
-        str, Field(description="Observed turbulence column name", frozen=True, repr=True, strict=True)
+        str,
+        Field(description="Observed turbulence column name", frozen=True, repr=True, strict=True),
     ]
     value_greater_than: Annotated[
-        float, Field(description="Value greater than", repr=True, strict=True, ge=0.0, frozen=True)
+        float,
+        Field(description="Value greater than", repr=True, strict=True, ge=0.0, frozen=True),
     ]
 
     def __hash__(self) -> int:
@@ -501,13 +506,16 @@ class SpatialGroupByStrategy(StrEnum):
 class DiagnosticValidationConfig(BaseConfigModel):
     validation_conditions: list[DiagnosticValidationCondition]
     min_group_size: Annotated[
-        PositiveInt, Field(description="Minimum group size for aggregation", repr=True, strict=True, default=20)
+        PositiveInt,
+        Field(description="Minimum group size for aggregation", repr=True, strict=True, default=20),
     ] = 20
     spatial_group_by_strategy: Annotated[
-        SpatialGroupByStrategy | None, Field(description="Spatial group by strategy", repr=True, default=None)
+        SpatialGroupByStrategy | None,
+        Field(description="Spatial group by strategy", repr=True, default=None),
     ] = None
     aggregation_metric: Annotated[
-        AggregationMetricOption | None, Field(description="Aggregation metric", repr=True, default=None)
+        AggregationMetricOption | None,
+        Field(description="Aggregation metric", repr=True, default=None),
     ] = None
 
     @model_validator(mode="after")
@@ -521,11 +529,11 @@ class DiagnosticValidationConfig(BaseConfigModel):
     def check_all_groupby_settings_are_specified(self) -> Self:
         if self.spatial_group_by_strategy is None and self.aggregation_metric is not None:
             raise InvalidConfigurationError(
-                "If spatial group by strategy is specified, aggregation metric must be specified"
+                "If spatial group by strategy is specified, aggregation metric must be specified",
             )
         if self.spatial_group_by_strategy is not None and self.aggregation_metric is None:
             raise InvalidConfigurationError(
-                "If aggregation metric is specified, spatial group by strategy must be specified"
+                "If aggregation metric is specified, spatial group by strategy must be specified",
             )
         return self
 
@@ -603,10 +611,12 @@ class AmdarDiagnosticCmpSource(StrEnum):
 
 class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
     glob_pattern: Annotated[
-        str, Field(description="Glob pattern to match to get the data files", repr=True, frozen=True)
+        str,
+        Field(description="Glob pattern to match to get the data files", repr=True, frozen=True),
     ]
     time_window: Annotated[
-        Limits[datetime.datetime], Field(description="Time window to extract data for", repr=True, frozen=True)
+        Limits[datetime.datetime],
+        Field(description="Time window to extract data for", repr=True, frozen=True),
     ]
     # ASSUME FOR NOW ONLY USE FOR THIS IS DATA HARMONISATION
     diagnostics_from: Annotated[
@@ -619,7 +629,8 @@ class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
         ),
     ] = AmdarDiagnosticCmpSource.EVALUATION
     save_harmonised_data: Annotated[
-        bool, Field(description="Save harmonised data", repr=True, frozen=True, default=True)
+        bool,
+        Field(description="Save harmonised data", repr=True, frozen=True, default=True),
     ] = True
     diagnostic_validation: Annotated[
         DiagnosticValidationConfig | None,
@@ -663,7 +674,7 @@ class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
                 for condition in self.diagnostic_validation.validation_conditions
             }.issubset(data_source_class.turbulence_column_names()):
                 raise InvalidConfigurationError(
-                    "Diagnostic validation conditions must be one of the turbulence columns"
+                    "Diagnostic validation conditions must be one of the turbulence columns",
                 )
         return self
 
@@ -711,12 +722,12 @@ class Context(BaseConfigModel):
                     if self.turbulence_config.phases.calibration_phases.calibration_config.calibration_data_dir is None:
                         raise InvalidConfigurationError(
                             "To compare amdar data against calibration, calibration data must be specified and "
-                            "cannot be restored from an earlier run"
+                            "cannot be restored from an earlier run",
                         )
                 case AmdarDiagnosticCmpSource.EVALUATION:
                     if self.turbulence_config.phases.evaluation_phases is None:
                         raise InvalidConfigurationError(
-                            "To compare amdar data against evaluation, evaluation phases must be specified"
+                            "To compare amdar data against evaluation, evaluation phases must be specified",
                         )
                     #  No need to check if evaluation data dir is specified as it is a required argument once
                     #  evaluation_phases is specified

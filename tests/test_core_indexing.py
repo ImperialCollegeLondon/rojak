@@ -32,7 +32,10 @@ if TYPE_CHECKING:
     ],
 )
 def test_make_value_based_slice(
-    coordinate: Sequence, min_value: float | None, max_value: float | None, expected_slice: slice
+    coordinate: Sequence,
+    min_value: float | None,
+    max_value: float | None,
+    expected_slice: slice,
 ) -> None:
     computed_slice = make_value_based_slice(coordinate, min_value, max_value)
     assert computed_slice == expected_slice
@@ -53,13 +56,19 @@ def test_make_value_based_slice(
         ),
         (
             np.arange(
-                np.datetime64("1970-01-01"), np.datetime64("1970-01-02"), np.timedelta64(6, "h"), dtype="datetime64[h]"
+                np.datetime64("1970-01-01"),
+                np.datetime64("1970-01-02"),
+                np.timedelta64(6, "h"),
+                dtype="datetime64[h]",
             ),
             np.timedelta64(6, "h"),
         ),
         (
             np.arange(
-                np.datetime64("1970-01-01"), np.datetime64("1970-01-02"), np.timedelta64(30, "m"), dtype="datetime64[s]"
+                np.datetime64("1970-01-01"),
+                np.datetime64("1970-01-02"),
+                np.timedelta64(30, "m"),
+                dtype="datetime64[s]",
             ),
             np.timedelta64(30, "m"),
         ),
@@ -81,7 +90,11 @@ def test_get_regular_grid_spacing_not_implemented(array: "NDArray") -> None:
     ("series", "array", "window", "expected"),
     [
         pytest.param(
-            None, np.eye(3, 3), None, pytest.raises(ValueError, match="Coordinate must be 1D not 2D"), id="not_1d"
+            None,
+            np.eye(3, 3),
+            None,
+            pytest.raises(ValueError, match="Coordinate must be 1D not 2D"),
+            id="not_1d",
         ),
         pytest.param(
             pd.Series(np.arange(10)),

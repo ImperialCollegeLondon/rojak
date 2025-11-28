@@ -76,7 +76,8 @@ class DiagnosticsAmdarDataHarmoniser:
 
     @staticmethod
     def _check_time_window_within_met_data(
-        time_window: "Limits[np.datetime64]", first_diagnostic: "xr.DataArray"
+        time_window: "Limits[np.datetime64]",
+        first_diagnostic: "xr.DataArray",
     ) -> None:
         time_coordinate: xr.DataArray = first_diagnostic["time"]
         if time_window.lower < time_coordinate.min() or time_window.upper > time_coordinate.max():
@@ -107,7 +108,10 @@ class DiagnosticsAmdarDataHarmoniser:
         return self._diagnostics_suite.diagnostic_names()
 
     def _create_diagnostic_value_series(
-        self, grid_prototype: "xr.DataArray", observational_data: dd.DataFrame, dataframe_meta: dict[str, pd.Series]
+        self,
+        grid_prototype: "xr.DataArray",
+        observational_data: dd.DataFrame,
+        dataframe_meta: dict[str, pd.Series],
     ) -> dict["DiagnosticName", dd.Series]:
         coordinate_axes: list[str] = ["longitude", "latitude", "pressure_level", "time"]
         assert set(coordinate_axes).issubset(grid_prototype.coords)
@@ -146,7 +150,7 @@ class DiagnosticsAmdarDataHarmoniser:
             )
             .persist()
             for diagnostic_name, computed_diagnostic in self._diagnostics_suite.computed_values(
-                "Vectorised indexing to get diagnostic value for observation"
+                "Vectorised indexing to get diagnostic value for observation",
             )
         }
 
@@ -160,8 +164,8 @@ class DiagnosticsAmdarDataHarmoniser:
         observational_data = observational_data.assign(
             level_index=da.abs(
                 observational_data["level"].to_dask_array(lengths=True)[:, np.newaxis]
-                - grid_prototype["pressure_level"].values  # noqa: PD011
-            ).argmin(axis=1)
+                - grid_prototype["pressure_level"].values,  # noqa: PD011
+            ).argmin(axis=1),
         ).persist()
         dataframe_meta[self.latitude_index_column] = pd.Series(dtype=int)
         dataframe_meta[self.longitude_index_column] = pd.Series(dtype=int)
@@ -170,17 +174,19 @@ class DiagnosticsAmdarDataHarmoniser:
             lambda df: df.assign(
                 **{
                     self.latitude_index_column: map_values_to_nearest_coordinate_index(
-                        df.latitude, grid_prototype["latitude"].values
+                        df.latitude,
+                        grid_prototype["latitude"].values,
                     ),
                     self.longitude_index_column: map_values_to_nearest_coordinate_index(
-                        df.longitude, grid_prototype["longitude"].values
+                        df.longitude,
+                        grid_prototype["longitude"].values,
                     ),
                     self.common_time_column_name: map_values_to_nearest_coordinate_index(
                         df.datetime,
                         grid_prototype["time"].values,
                         valid_window=self.TIME_WINDOW_DELTA,
                     ),
-                }
+                },
             ),
             meta=dd.from_pandas(pd.DataFrame(dataframe_meta), npartitions=observational_data.npartitions),
         ).persist()
@@ -230,7 +236,7 @@ def metric_based_aggregation(
             return np.nan
 
         binary_classification: BinaryClassificationRateFromLabels | None = binary_classification_rate_from_cumsum(
-            on_group
+            on_group,
         )
         if binary_classification is None:
             return -1
@@ -244,17 +250,17 @@ def metric_based_aggregation(
             return np.nan
 
         binary_classification: BinaryClassificationRateFromLabels | None = binary_classification_rate_from_cumsum(
-            on_group
+            on_group,
         )
         if binary_classification is None:
             return -1
 
         if integration_scheme == "trapz":
             return float(
-                np.trapezoid(binary_classification.true_positives_rate, x=binary_classification.false_positives_rate)
+                np.trapezoid(binary_classification.true_positives_rate, x=binary_classification.false_positives_rate),
             )
         return float(
-            integrate.simpson(binary_classification.true_positives_rate, x=binary_classification.false_positives_rate)
+            integrate.simpson(binary_classification.true_positives_rate, x=binary_classification.false_positives_rate),
         )
 
     finalisers: dict[AggregationMetricOption, Callable[[pd.Series], float]] = {
@@ -272,7 +278,7 @@ def metric_based_aggregation(
         # My understanding is that it forces the partition into the original groups, on which, I am applying
         # the cumsum => result is still separated based on the groups
         finalize=lambda on_aggregation_result: on_aggregation_result.groupby(
-            level=list(range(on_aggregation_result.index.nlevels))
+            level=list(range(on_aggregation_result.index.nlevels)),
         ).apply(finalisers[aggregation_function]),
     )
 
@@ -294,7 +300,8 @@ class RocVerificationResult:
             for column, by_diagnostic in self.by_amdar_col_then_diagnostic.items():
                 for diagnostic_name, roc_results in by_diagnostic.items():
                     auc[column][diagnostic_name] = area_under_curve(
-                        roc_results.false_positives, roc_results.true_positives
+                        roc_results.false_positives,
+                        roc_results.true_positives,
                     )
             self._auc_by_amdar_then_diagnostic = dict(auc)
         return self._auc_by_amdar_then_diagnostic
@@ -352,15 +359,18 @@ class DiagnosticsAmdarVerification:
         return functools.reduce(lambda left, right: left + separator + right, multi_index_columns)
 
     def _retrieve_grouped_columns(
-        self, data_frame: dd.DataFrame, grouped_columns: list[str], trigger_reset_index: bool
+        self,
+        data_frame: dd.DataFrame,
+        grouped_columns: list[str],
+        trigger_reset_index: bool,
     ) -> dd.DataFrame:
         data_frame = data_frame.map_partitions(
             lambda df: df.assign(
                 **{
                     grouped_column: self._get_partition_level_values(df.index, grouped_column)
                     for grouped_column in grouped_columns
-                }
-            )
+                },
+            ),
         )
 
         if self._data_harmoniser.grid_box_column_name in set(grouped_columns) and trigger_reset_index:
@@ -387,7 +397,7 @@ class DiagnosticsAmdarVerification:
                 self._data_harmoniser.longitude_index_column,
                 self._data_harmoniser.latitude_index_column,
                 self._data_harmoniser.vertical_coordinate_index_column,
-            }.intersection(grouped_columns)
+            }.intersection(grouped_columns),
         )
         if not index_columns:  # set is empty
             return data_frame
@@ -407,10 +417,11 @@ class DiagnosticsAmdarVerification:
             lambda df: df.assign(
                 **{
                     col_name_mapping[col_name]: map_index_to_coordinate_value(
-                        df[col_name], prototype_array[col_name_mapping[col_name]].to_numpy()
+                        df[col_name],
+                        prototype_array[col_name_mapping[col_name]].to_numpy(),
                     )
                     for col_name in index_columns
-                }
+                },
             ),
             meta=pd.DataFrame(data_frame_dtypes),
         )
@@ -421,7 +432,9 @@ class DiagnosticsAmdarVerification:
         return data_frame
 
     def num_obs_per(
-        self, validation_conditions: "list[DiagnosticValidationCondition]", group_by_strategy: SpatialGroupByStrategy
+        self,
+        validation_conditions: "list[DiagnosticValidationCondition]",
+        group_by_strategy: SpatialGroupByStrategy,
     ) -> dd.DataFrame:
         target_data: dd.DataFrame = self._spatial_data_grouping(validation_conditions, group_by_strategy)
         turbulence_col: str = validation_conditions[0].observed_turbulence_column_name
@@ -432,7 +445,9 @@ class DiagnosticsAmdarVerification:
         return num_obs.rename(columns={turbulence_col: "num_obs"})
 
     def _spatial_data_grouping(
-        self, validation_conditions: "list[DiagnosticValidationCondition]", group_by_strategy: SpatialGroupByStrategy
+        self,
+        validation_conditions: "list[DiagnosticValidationCondition]",
+        group_by_strategy: SpatialGroupByStrategy,
     ) -> dd.DataFrame:
         target_data: dd.DataFrame = self.data
         space_columns = self._grid_spatial_columns(group_by_strategy)
@@ -480,7 +495,8 @@ class DiagnosticsAmdarVerification:
             # Specify sort=False to get better performance
             # See https://docs.dask.org/en/latest/generated/dask.dataframe.DataFrame.groupby.html#dask-dataframe-dataframe-groupby
             grid_point_auc: dd.DataFrame = data_for_diagnostic.groupby(space_columns, sort=False).aggregate(
-                aggregation_spec, meta={col: pd.Series(dtype=float) for col in validation_columns}
+                aggregation_spec,
+                meta={col: pd.Series(dtype=float) for col in validation_columns},
             )
             # 3) Drop values which do not meet the minimum number of observations
             grid_point_auc = grid_point_auc.dropna()
@@ -489,7 +505,10 @@ class DiagnosticsAmdarVerification:
 
             grid_point_auc = self._retrieve_grouped_columns(grid_point_auc, space_columns, True)
             grid_point_auc = self._retrieve_index_column_values(
-                grid_point_auc, space_columns, prototype_diagnostic, True
+                grid_point_auc,
+                space_columns,
+                prototype_diagnostic,
+                True,
             )
             auc_by_diagnostic[diagnostic_name] = grid_point_auc.persist()
 
@@ -535,7 +554,7 @@ class DiagnosticsAmdarVerification:
             diagnostic_col_as_array: da.Array = subset_df[diagnostic_val_col].to_dask_array(lengths=True).persist()
             for amdar_turbulence_col in validation_columns:
                 result[amdar_turbulence_col][diagnostic_val_col] = received_operating_characteristic(
-                    subset_df[amdar_turbulence_col].to_dask_array(lengths=diagnostic_col_as_array.chunks[0]).persist(),  # noqa: PD011
+                    subset_df[amdar_turbulence_col].to_dask_array(lengths=diagnostic_col_as_array.chunks[0]).persist(),
                     diagnostic_col_as_array,
                     num_intervals=-1,
                 )
