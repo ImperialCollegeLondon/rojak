@@ -439,7 +439,7 @@ class DiagnosticsAmdarVerification:
         target_data: dd.DataFrame = self._spatial_data_grouping(validation_conditions, group_by_strategy)
         turbulence_col: str = validation_conditions[0].observed_turbulence_column_name
         groupby_columns: list[str] = self._grid_spatial_columns(group_by_strategy)
-        minimum_columns: list[str] = groupby_columns + [turbulence_col]
+        minimum_columns: list[str] = [*groupby_columns, turbulence_col]
         num_obs = target_data[minimum_columns].groupby(groupby_columns).count()
         num_obs = self._retrieve_grouped_columns(num_obs, groupby_columns, True)
         return num_obs.rename(columns={turbulence_col: "num_obs"})
@@ -485,7 +485,7 @@ class DiagnosticsAmdarVerification:
         }
         auc_by_diagnostic: dict[str, dd.DataFrame] = {}
         for diagnostic_name in self._data_harmoniser.harmonised_diagnostics:
-            columns_for_diagnostic: list[str] = space_columns + [diagnostic_name] + validation_columns
+            columns_for_diagnostic: list[str] = [*space_columns, diagnostic_name, *validation_columns]
             data_for_diagnostic: dd.DataFrame = target_data[columns_for_diagnostic]
             # 2) Sort values so that diagnostic is in descending order as required by the ROC calculation
             #    The set_index() operation performs a sort => need to do sort after and for each diagnostic

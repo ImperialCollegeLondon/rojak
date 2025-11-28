@@ -36,9 +36,9 @@ extend-select = [
 #    "SLF",
     "F",
     "FURB",
-#    "RUF",
+    "RUF",
 ]
-ignore = ["ISC001"]
+ignore = ["ISC001", "COM812"]
 
 [lint.extend-per-file-ignores]
 "tests/*.py" = ["ANN"]

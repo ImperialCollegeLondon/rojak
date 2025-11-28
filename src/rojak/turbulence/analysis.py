@@ -585,7 +585,7 @@ class LatitudinalCorrelationBetweenDiagnostics(PostProcessor):
     def execute(self) -> xr.DataArray:
         possible_coordinates: set[str] = {"latitude", "longitude", "valid_time"}
         remaining_coordinates: list[Hashable] = [
-            coord for coord in list(self._computed_indices.values())[0].dims if coord in possible_coordinates
+            coord for coord in next(iter(self._computed_indices.values())).dims if coord in possible_coordinates
         ]
         num_diagnostics: int = len(self._diagnostic_names)
         correlations: xr.DataArray = xr.DataArray(
