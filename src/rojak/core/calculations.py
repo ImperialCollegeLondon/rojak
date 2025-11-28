@@ -1,8 +1,10 @@
 import copy
 import dataclasses
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
+import xarray as xr
+from dask.base import is_dask_collection
 from scipy.interpolate import RegularGridInterpolator
 
 from rojak.core.constants import GAS_CONSTANT_DRY_AIR, GRAVITATIONAL_ACCELERATION
@@ -107,12 +109,12 @@ def _check_if_pressures_are_valid(pressure: "NumpyOrDataArray", is_below_tropopa
         if pressure[condition].size != 0:
             raise ValueError(
                 f"Attempting to convert pressure to altitude for troposphere with pressure {descriptive_comparator} "
-                "tropopause pressure"
+                "tropopause pressure",
             )
     elif pressure.where(condition, drop=True).size != 0:
         raise ValueError(
             f"Attempting to convert pressure to altitude for troposphere with pressure {descriptive_comparator} "
-            f"tropopause pressure"
+            f"tropopause pressure",
         )
 
 
@@ -255,7 +257,10 @@ def pressure_to_altitude_icao(pressure: "NumpyOrDataArray", in_place: bool = Fal
 
 
 def bilinear_interpolation(
-    longitude: "NDArray", latitude: "NDArray", function_value: "NDArray", target_coordinate: "Coordinate"
+    longitude: "NDArray",
+    latitude: "NDArray",
+    function_value: "NDArray",
+    target_coordinate: "Coordinate",
 ) -> "NDArray":
     """
     Bilinear interpolation using 4 points
@@ -278,5 +283,49 @@ def bilinear_interpolation(
     )
 
     return RegularGridInterpolator((longitude, latitude), squeezed_values, method="linear")(
-        (target_coordinate.longitude, target_coordinate.latitude)
+        (target_coordinate.longitude, target_coordinate.latitude),
     )
+
+
+def interpolation_on_lat_lon(
+    data: xr.DataArray,
+    interp_points: xr.DataArray,
+    latitude_dim: str = "latitude",
+    longitude_dim: str = "longitude",
+    points_dim: str = "points",
+    interp_method: Literal["linear", "nearest", "pchip"] = "linear",
+) -> xr.DataArray:
+    interp_points_shape = interp_points.shape  # (n_points, 2) => n_points of (lon, lat) pairs
+    if len(interp_points_shape) != 2 or interp_points_shape[1] != 2:  # noqa:PLR2004
+        print(interp_points_shape)
+        raise ValueError("Interpolation must be 2D")
+
+    remaining_interp_points_dim = list(set(interp_points.dims) - {points_dim})
+    assert len(remaining_interp_points_dim) == 1
+
+    def __rgi_interpolation(
+        values: "NDArray",
+        lon_coord: "NDArray",
+        lat_coord: "NDArray",
+        target_points: "NDArray",
+    ) -> "NDArray":
+        return RegularGridInterpolator((lon_coord, lat_coord), values, method=interp_method)(target_points)
+
+    interpolated = xr.apply_ufunc(
+        __rgi_interpolation,
+        data,
+        data[longitude_dim],
+        data[latitude_dim],
+        interp_points,
+        input_core_dims=[
+            [longitude_dim, latitude_dim],
+            [longitude_dim],
+            [latitude_dim],
+            [points_dim, remaining_interp_points_dim[0]],
+        ],
+        output_core_dims=[[points_dim]],
+        vectorize=True,
+        dask="parallelized" if is_dask_collection(data) else "forbidden",
+        output_dtypes=[data.dtype],
+    )
+    return interpolated.assign_coords({points_dim: np.arange(interp_points_shape[0])})

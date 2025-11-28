@@ -66,7 +66,7 @@ class Era5Retriever(DataRetriever):
         if default_name is None:
             if pressure_levels is None or variables is None:
                 raise InvalidEra5RequestConfigurationError(
-                    "Default not specified. As such, which variables and pressure levels must be specified."
+                    "Default not specified. As such, which variables and pressure levels must be specified.",
                 )
             self.request_body = blank_default
         else:

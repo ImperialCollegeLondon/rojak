@@ -87,7 +87,8 @@ def linkcode_resolve(domain: str, info: dict[str, str]) -> str | None:
     for part in fullname.split("."):
         try:
             obj = getattr(obj, part)
-        except Exception:
+        # Ignore the performance hit as this is only done when creating documentation
+        except Exception:  # noqa: BLE001
             return None
 
     # FROM NUMPY: code doesn't have decorators atm

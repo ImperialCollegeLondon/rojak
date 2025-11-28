@@ -51,6 +51,11 @@ class Coordinate(NamedTuple):
     latitude: float
     longitude: float
 
+    def mid_point_from(self, other: "Coordinate") -> "Coordinate":
+        if isinstance(other, Coordinate):
+            return Coordinate(0.5 * (self.latitude + other.latitude), 0.5 * (self.longitude + other.longitude))
+        raise TypeError(f"Other must be of type Coordinate, not {type(other)}")
+
 
 def is_xr_data_array(obj: object) -> TypeIs[xr.DataArray]:
     return isinstance(obj, xr.DataArray)
