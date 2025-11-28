@@ -109,12 +109,12 @@ def _check_if_pressures_are_valid(pressure: "NumpyOrDataArray", is_below_tropopa
         if pressure[condition].size != 0:
             raise ValueError(
                 f"Attempting to convert pressure to altitude for troposphere with pressure {descriptive_comparator} "
-                "tropopause pressure"
+                "tropopause pressure",
             )
     elif pressure.where(condition, drop=True).size != 0:
         raise ValueError(
             f"Attempting to convert pressure to altitude for troposphere with pressure {descriptive_comparator} "
-            f"tropopause pressure"
+            f"tropopause pressure",
         )
 
 
@@ -257,7 +257,10 @@ def pressure_to_altitude_icao(pressure: "NumpyOrDataArray", in_place: bool = Fal
 
 
 def bilinear_interpolation(
-    longitude: "NDArray", latitude: "NDArray", function_value: "NDArray", target_coordinate: "Coordinate"
+    longitude: "NDArray",
+    latitude: "NDArray",
+    function_value: "NDArray",
+    target_coordinate: "Coordinate",
 ) -> "NDArray":
     """
     Bilinear interpolation using 4 points
@@ -280,7 +283,7 @@ def bilinear_interpolation(
     )
 
     return RegularGridInterpolator((longitude, latitude), squeezed_values, method="linear")(
-        (target_coordinate.longitude, target_coordinate.latitude)
+        (target_coordinate.longitude, target_coordinate.latitude),
     )
 
 
@@ -301,7 +304,10 @@ def interpolation_on_lat_lon(
     assert len(remaining_interp_points_dim) == 1
 
     def __rgi_interpolation(
-        values: "NDArray", lon_coord: "NDArray", lat_coord: "NDArray", target_points: "NDArray"
+        values: "NDArray",
+        lon_coord: "NDArray",
+        lat_coord: "NDArray",
+        target_points: "NDArray",
     ) -> "NDArray":
         return RegularGridInterpolator((lon_coord, lat_coord), values, method=interp_method)(target_points)
 

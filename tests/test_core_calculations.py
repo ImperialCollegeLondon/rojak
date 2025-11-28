@@ -62,7 +62,10 @@ def test_pressure_to_altitude_standard_atmosphere() -> None:
             id="final value is tropopause boundary",
         ),
         pytest.param(
-            np.asarray([230]), pressure_to_altitude_stratosphere, "greater than", id="single value stratosphere"
+            np.asarray([230]),
+            pressure_to_altitude_stratosphere,
+            "greater than",
+            id="single value stratosphere",
         ),
         pytest.param(
             np.asarray([220, 230]),
@@ -85,7 +88,11 @@ def test_pressure_to_altitude_standard_atmosphere() -> None:
     ],
 )
 def test_pressure_to_altitude_fails_checks(
-    pressures: "NumpyOrDataArray", converter_method: Callable, descriptor: str, wrap_in_data_array: bool, is_2d: bool
+    pressures: "NumpyOrDataArray",
+    converter_method: Callable,
+    descriptor: str,
+    wrap_in_data_array: bool,
+    is_2d: bool,
 ) -> None:
     matches: str = (
         f"Attempting to convert pressure to altitude for troposphere with pressure {descriptor} tropopause pressure"
@@ -103,7 +110,7 @@ def test_pressure_to_altitude_fails_checks(
 def test_pressure_to_altitude_troposphere_and_vice_versa(wrap_in_data_array: bool, is_2d: bool) -> None:
     # Values from Metric Table I in section 5 of NACA3182
     pressure = np.asarray(
-        [1013.25, 794.95, 701.08, 616.40, 577.28, 471.81, 452.72, 410.61, 330.99, 350.88, 300.62, 250.50]
+        [1013.25, 794.95, 701.08, 616.40, 577.28, 471.81, 452.72, 410.61, 330.99, 350.88, 300.62, 250.50],
     )
     altitude_from_table = np.asarray([0, 2000, 3000, 4000, 4500, 6000, 6300, 7000, 8500, 8100, 9150, 10350])
 
@@ -135,7 +142,9 @@ def test_pressure_to_altitude_troposphere_and_vice_versa(wrap_in_data_array: boo
 def test_pressure_to_altitude_troposphere_equiv_to_wallace() -> None:
     pressure = np.asarray([1013.25, 794.95, 701.08, 616.40, 577.28, 478.81, 410.61, 330.99, 350.88, 300.62, 250.50])
     np.testing.assert_allclose(
-        pressure_to_altitude_troposphere(pressure), pressure_to_altitude_us_std_atm(pressure), rtol=1e-3
+        pressure_to_altitude_troposphere(pressure),
+        pressure_to_altitude_us_std_atm(pressure),
+        rtol=1e-3,
     )
 
 
@@ -186,10 +195,29 @@ def test_pressure_to_altitude_icao(wrap_in_data_array) -> None:
             150.20,
             124.30,
             99.68,
-        ]
+        ],
     )
     altitude_from_table = np.asarray(
-        [0, 2000, 3000, 4000, 4500, 6000, 6300, 7000, 8500, 8100, 9150, 10350, 11000, 11800, 12600, 13600, 14800, 16200]
+        [
+            0,
+            2000,
+            3000,
+            4000,
+            4500,
+            6000,
+            6300,
+            7000,
+            8500,
+            8100,
+            9150,
+            10350,
+            11000,
+            11800,
+            12600,
+            13600,
+            14800,
+            16200,
+        ],
     )
 
     if wrap_in_data_array:
@@ -234,7 +262,10 @@ def test_bilinear_interpolation(x_slice, y_slice, interpolation_point, ff, is_ff
 
     rgi = RegularGridInterpolator((x, y), ff(xx, yy))
     interpolated = bilinear_interpolation(
-        x[x_slice], y[y_slice], ff(*np.meshgrid(x[x_slice], y[y_slice])), Coordinate(*interpolation_point)
+        x[x_slice],
+        y[y_slice],
+        ff(*np.meshgrid(x[x_slice], y[y_slice])),
+        Coordinate(*interpolation_point),
     )
     assert rgi(interpolation_point) == interpolated
     if is_ff_linear:
@@ -249,7 +280,8 @@ def test_interpolation_on_lat_lon_apply_ufunc_equiv_to_slice(load_cat_data, clie
     longitude_point: np.ndarray = rng.uniform(-180, 179.75, num_interp_points)
     latitude_points: np.ndarray = rng.uniform(-90, 90, num_interp_points)
     interpolation_points: xr.DataArray = xr.DataArray(
-        data=np.stack((longitude_point, latitude_points), axis=1), dims=["points", "xy"]
+        data=np.stack((longitude_point, latitude_points), axis=1),
+        dims=["points", "xy"],
     )
 
     apply_on = cat_data.v_wind()
@@ -261,10 +293,13 @@ def test_interpolation_on_lat_lon_apply_ufunc_equiv_to_slice(load_cat_data, clie
         for pressure_index in range(apply_on["pressure_level"].size):
             lat_lon_slice = apply_on.isel(time=time_index, pressure_level=pressure_index)
             interp_on_slice = RegularGridInterpolator(
-                (lon_coord, lat_coord), lat_lon_slice.to_numpy().T, method="linear"
+                (lon_coord, lat_coord),
+                lat_lon_slice.to_numpy().T,
+                method="linear",
             )(interpolation_points.values)
             np.testing.assert_allclose(
-                interpolated_to.isel(time=time_index, pressure_level=pressure_index), interp_on_slice
+                interpolated_to.isel(time=time_index, pressure_level=pressure_index),
+                interp_on_slice,
             )
 
 
@@ -276,7 +311,8 @@ def test_interpolation_on_lat_lon_to_grid_points(load_cat_data, client) -> None:
     llon, llat = np.meshgrid(lon_coord, lat_coord)
 
     interpolation_points: xr.DataArray = xr.DataArray(
-        data=np.stack((llon.ravel(), llat.ravel()), axis=1), dims=["points", "xy"]
+        data=np.stack((llon.ravel(), llat.ravel()), axis=1),
+        dims=["points", "xy"],
     )
     interpolated_to: xr.DataArray = interpolation_on_lat_lon(apply_on, interpolation_points)
     np.testing.assert_array_equal(

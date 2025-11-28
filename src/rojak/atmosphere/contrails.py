@@ -14,13 +14,15 @@ def _e_sat_ice_ufunc(temperature: float) -> float:
         + 24.7219
         + (0.010613868 * temperature)
         - (1.3198825e-5 * (temperature * temperature))
-        - 0.49382577 * np.log(temperature)
+        - 0.49382577 * np.log(temperature),
     )
 
 
 def e_sat_ice(temperature: "xr.DataArray") -> "xr.DataArray":
     return xr.apply_ufunc(
-        _e_sat_ice_ufunc, temperature, dask="parallelized" if is_dask_collection(temperature) else "forbidden"
+        _e_sat_ice_ufunc,
+        temperature,
+        dask="parallelized" if is_dask_collection(temperature) else "forbidden",
     )
 
 
@@ -43,7 +45,7 @@ def issr(
     if relative_humidity_ice is None:
         if specific_humidity is None or air_pressure is None:
             raise TypeError(
-                "If relative_humidity_ice is None, both specific_humidity and air_pressure must be provided"
+                "If relative_humidity_ice is None, both specific_humidity and air_pressure must be provided",
             )
         relative_humidity_ice = rhi(specific_humidity, air_temperature, air_pressure)
 

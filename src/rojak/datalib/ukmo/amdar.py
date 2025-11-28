@@ -29,11 +29,11 @@ class UkmoAmdarRepository(AmdarDataRepository):
     TURBULENCE_COL_INDICES: ClassVar[list[int]] = [0, 1, 2, 3, 4, 5, 11, 12, 13, 14, 15, 20, 21, 22, 24, 25, 26, 27, 28,
                                                   30, 32]  # fmt: skip
     MIN_COL_INDICES: ClassVar[list[int]] = [0, 1, 2, 3, 4, 5, 13, 14, 15, 20, 22, 26, 27, 28]
-    COLUMN_NAMES: ClassVar[list[str]] = ['year', 'month', 'day', 'hour', 'minute', 'second', 'registration_number',
-                                           'call_sign', 'latitude', 'longitude', 'altitude', 'roll_angle', 'pressure',
-                                           'flight_phase', 'wind_direction', 'wind_speed', 'vert_gust_velocity',
-                                           'vert_gust_acceleration', 'turbulence_degree', 'air_temperature',
-                                           'relative_humidity']  # fmt: skip
+    COLUMN_NAMES: ClassVar[list[str]] = ["year", "month", "day", "hour", "minute", "second", "registration_number",
+                                           "call_sign", "latitude", "longitude", "altitude", "roll_angle", "pressure",
+                                           "flight_phase", "wind_direction", "wind_speed", "vert_gust_velocity",
+                                           "vert_gust_acceleration", "turbulence_degree", "air_temperature",
+                                           "relative_humidity"]  # fmt: skip
     MIN_COL_NAMES: ClassVar[list[str]] = [
         "year",
         "month",
@@ -55,7 +55,9 @@ class UkmoAmdarRepository(AmdarDataRepository):
         super().__init__(path, True)
 
     def load(
-        self, target_columns: Iterable[str | int] | None = None, column_names: list[str] | None = None
+        self,
+        target_columns: Iterable[str | int] | None = None,
+        column_names: list[str] | None = None,
     ) -> dd.DataFrame:
         if target_columns is None:
             target_columns = (
@@ -110,12 +112,16 @@ class UkmoAmdarRepository(AmdarDataRepository):
         return data.optimize()
 
     def _call_compute_closest_pressure_level(
-        self, data_frame: "dd.DataFrame", pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]"
+        self,
+        data_frame: "dd.DataFrame",
+        pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]",
     ) -> "dd.Series":
         return self._compute_closest_pressure_level(data_frame, pressure_levels, "altitude")
 
     def _instantiate_amdar_turbulence_data_class(
-        self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame"
+        self,
+        data_frame: "dd.DataFrame",
+        grid: "dgpd.GeoDataFrame",
     ) -> "AmdarTurbulenceData":
         return UkmoAmdarTurbulenceData(data_frame, grid)
 

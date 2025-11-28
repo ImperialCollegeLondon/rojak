@@ -34,7 +34,10 @@ def _create_grid_boxes(bounding_box: geometry.Polygon, step_size: float) -> list
 
 def create_rectangular_spatial_grid_buckets(domain: "SpatialDomain", step_size: float) -> list[geometry.Polygon]:
     bounding_box: geometry.Polygon = geometry.box(
-        domain.minimum_longitude, domain.minimum_latitude, domain.maximum_longitude, domain.maximum_latitude
+        domain.minimum_longitude,
+        domain.minimum_latitude,
+        domain.maximum_longitude,
+        domain.maximum_latitude,
     )
     return _create_grid_boxes(bounding_box, step_size)
 
@@ -45,7 +48,9 @@ def create_polygon_spatial_grid_buckets(domain: geometry.Polygon, step_size: flo
 
 
 def create_grid_data_frame(
-    domain: "SpatialDomain | geometry.Polygon", step_size: float, crs: str = "epsg:4326"
+    domain: "SpatialDomain | geometry.Polygon",
+    step_size: float,
+    crs: str = "epsg:4326",
 ) -> dgpd.GeoDataFrame:
     grid = gpd.GeoDataFrame(
         geometry=create_polygon_spatial_grid_buckets(domain, step_size)
@@ -112,7 +117,10 @@ def _estimate_num_waypoints(start: Coordinate, end: Coordinate, grid_size: float
     geod = pyproj.Geod(ellps="WGS84")
 
     _, _, approx_cell_distance = geod.inv(
-        mid_point.longitude, mid_point.latitude, mid_point.longitude + grid_size, mid_point.latitude + grid_size
+        mid_point.longitude,
+        mid_point.latitude,
+        mid_point.longitude + grid_size,
+        mid_point.latitude + grid_size,
     )
     _, _, total_distance = geod.inv(start.longitude, start.latitude, end.longitude, end.latitude)
 
@@ -121,7 +129,11 @@ def _estimate_num_waypoints(start: Coordinate, end: Coordinate, grid_size: float
 
 
 def geodesic_waypoints_between(
-    start: Coordinate, end: Coordinate, grid_size: float, n_points_safety_factor: float = 2, n_points: int | None = None
+    start: Coordinate,
+    end: Coordinate,
+    grid_size: float,
+    n_points_safety_factor: float = 2,
+    n_points: int | None = None,
 ) -> np.ndarray:
     """
     Find the coordinates (i.e. waypoints) on the great circle between the two points.
@@ -182,6 +194,12 @@ def geodesic_waypoints_between(
     geod = pyproj.Geod(ellps="WGS84")
     return np.asarray(
         geod.npts(
-            start.longitude, start.latitude, end.longitude, end.latitude, num_points, initial_idx=0, terminus_idx=0
-        )
+            start.longitude,
+            start.latitude,
+            end.longitude,
+            end.latitude,
+            num_points,
+            initial_idx=0,
+            terminus_idx=0,
+        ),
     )

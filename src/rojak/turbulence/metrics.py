@@ -113,7 +113,9 @@ def received_operating_characteristic(
     true_positive = true_positive / true_positive[-1]
 
     return BinaryClassificationResult(
-        false_positives=false_positive, true_positives=true_positive, thresholds=thresholds
+        false_positives=false_positive,
+        true_positives=true_positive,
+        thresholds=thresholds,
     )
 
 
@@ -193,7 +195,7 @@ def binary_classification_curve(
     if sorted_truth.dtype != bool:
         if positive_classification_label is None:
             raise ValueError(
-                f"positive_classification_label must be specified if truth array is not bool ({sorted_truth.dtype})"
+                f"positive_classification_label must be specified if truth array is not bool ({sorted_truth.dtype})",
             )
         sorted_truth = sorted_truth == positive_classification_label
 
@@ -221,7 +223,9 @@ def binary_classification_curve(
     false_positive = 1 + threshold_indices - true_positive
 
     return BinaryClassificationResult(
-        false_positives=false_positive, true_positives=true_positive, thresholds=sorted_values[threshold_indices]
+        false_positives=false_positive,
+        true_positives=true_positive,
+        thresholds=sorted_values[threshold_indices],
     )
 
 
@@ -253,7 +257,8 @@ def _(
 
 @binary_classification_rate_from_cumsum.register
 def _binary_classification_from_cumsum(
-    cumsum_for_group: np.ndarray, min_true_positives: int = 2
+    cumsum_for_group: np.ndarray,
+    min_true_positives: int = 2,
 ) -> BinaryClassificationRateFromLabels | None:
     group_size: int = cumsum_for_group.size
     true_positive_rate = cumsum_for_group
@@ -279,7 +284,8 @@ def _binary_classification_from_cumsum(
     )
 
     return BinaryClassificationRateFromLabels(
-        true_positives_rate=true_positive_rate, false_positives_rate=false_positive_rate
+        true_positives_rate=true_positive_rate,
+        false_positives_rate=false_positive_rate,
     )
 
 
@@ -326,7 +332,7 @@ def _parallel_area_under_curve(x_values: da.Array | xr.DataArray, y_values: da.A
         raise ValueError("x_value must be increasing or decreasing")
 
     area: float | NDArray = np.add.reduce(
-        da.map_overlap(lambda x, y: integrate.trapezoid(y[:-1], x[:-1]), x_vals, y_vals, depth=1).compute()
+        da.map_overlap(lambda x, y: integrate.trapezoid(y[:-1], x[:-1]), x_vals, y_vals, depth=1).compute(),
     ) + integrate.trapezoid(np.asarray(y_vals[-2:]), np.asarray(x_vals[-2:]))
 
     # If dx is decreasing, then area is negative
@@ -495,7 +501,9 @@ def confusion_matrix(truth: da.Array, prediction: da.Array) -> "NDArray":
 
 
 def _populate_confusion_matrix(
-    truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
+    truth: da.Array | None = None,
+    prediction: da.Array | None = None,
+    confuse_matrix: "NDArray | None" = None,
 ) -> "NDArray":
     if confuse_matrix is None:
         if truth is None or prediction is None:
@@ -505,7 +513,9 @@ def _populate_confusion_matrix(
 
 
 def matthews_corr_coeff(
-    truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
+    truth: da.Array | None = None,
+    prediction: da.Array | None = None,
+    confuse_matrix: "NDArray | None" = None,
 ) -> float:
     """
     Compute the Matthew's Correlation Coefficient
@@ -637,14 +647,16 @@ def matthews_corr_coeff_multidim(first_var: xr.DataArray, second_var: xr.DataArr
         sum_first_var_true
         * sum_second_var_true
         * (total_num_observations - sum_first_var_true)
-        * (total_num_observations - sum_second_var_true)
+        * (total_num_observations - sum_second_var_true),
     )  # pyright: ignore [reportAssignmentType]
 
     return numerator / denominator
 
 
 def critical_success_index(
-    truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
+    truth: da.Array | None = None,
+    prediction: da.Array | None = None,
+    confuse_matrix: "NDArray | None" = None,
 ) -> float:
     """
     Compute the Critical Success Index (CSI) or the Jaccard Similarity Coefficient Score
@@ -698,7 +710,9 @@ def jaccard_index_multidim(first_var: xr.DataArray, second_var: xr.DataArray, su
 
 
 def gilbert_skill_score(
-    truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
+    truth: da.Array | None = None,
+    prediction: da.Array | None = None,
+    confuse_matrix: "NDArray | None" = None,
 ) -> float:
     """
     Compute the Gilbt Skill Score
@@ -732,7 +746,9 @@ def gilbert_skill_score(
 
 
 def accuracy(
-    truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
+    truth: da.Array | None = None,
+    prediction: da.Array | None = None,
+    confuse_matrix: "NDArray | None" = None,
 ) -> float:
     """
     Compute the Accuracy (ACC)
@@ -763,7 +779,9 @@ def accuracy(
 
 
 def f1_score(
-    truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
+    truth: da.Array | None = None,
+    prediction: da.Array | None = None,
+    confuse_matrix: "NDArray | None" = None,
 ) -> float:
     """
     Compute the F1 Score
@@ -841,7 +859,9 @@ def specificity(true_negative: float, false_positive: float) -> float:
 
 
 def true_skill_score(
-    truth: da.Array | None = None, prediction: da.Array | None = None, confuse_matrix: "NDArray | None" = None
+    truth: da.Array | None = None,
+    prediction: da.Array | None = None,
+    confuse_matrix: "NDArray | None" = None,
 ) -> float:
     """
     True Skill Score (TSS) statistic

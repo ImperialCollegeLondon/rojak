@@ -31,7 +31,8 @@ def test_label_regions_2d() -> None:
     for level_index in range(6):
         from_scipy, _ = ndi.label(array[:, :, level_index])  # pyright: ignore [reportGeneralTypeIssues]
         np.testing.assert_array_equal(
-            labelled.isel(pressure_level=level_index).transpose("longitude", "latitude"), from_scipy
+            labelled.isel(pressure_level=level_index).transpose("longitude", "latitude"),
+            from_scipy,
         )
 
 
@@ -44,7 +45,8 @@ def test_label_regions_3d() -> None:
     for time_index in range(7):
         from_scipy, _ = ndi.label(array.isel(time=time_index), structure=ndi.generate_binary_structure(3, 3))  # pyright: ignore [reportGeneralTypeIssues]
         np.testing.assert_array_equal(
-            labelled.isel(time=time_index).transpose("longitude", "latitude", "pressure_level"), from_scipy
+            labelled.isel(time=time_index).transpose("longitude", "latitude", "pressure_level"),
+            from_scipy,
         )
 
 
@@ -99,18 +101,30 @@ def test_parent_region_mask_jit_equiv_guvectorize(load_cat_data, num_dim: int) -
     js_intersect_turb = is_ti1_turb & js_regions
 
     from_jit_turb: xr.DataArray = find_parent_region_of_intersection(
-        labeled_ti1, js_intersect_turb, num_dims=num_dim, numba_vectorize=False
+        labeled_ti1,
+        js_intersect_turb,
+        num_dims=num_dim,
+        numba_vectorize=False,
     )
     from_guv_turb: xr.DataArray = find_parent_region_of_intersection(
-        labeled_ti1, js_intersect_turb, num_dims=num_dim, numba_vectorize=True
+        labeled_ti1,
+        js_intersect_turb,
+        num_dims=num_dim,
+        numba_vectorize=True,
     )
     xr.testing.assert_equal(from_jit_turb, from_guv_turb)
 
     from_jit_js: xr.DataArray = find_parent_region_of_intersection(
-        labeled_js, js_intersect_turb, num_dims=num_dim, numba_vectorize=False
+        labeled_js,
+        js_intersect_turb,
+        num_dims=num_dim,
+        numba_vectorize=False,
     )
     from_guv_js: xr.DataArray = find_parent_region_of_intersection(
-        labeled_js, js_intersect_turb, num_dims=num_dim, numba_vectorize=True
+        labeled_js,
+        js_intersect_turb,
+        num_dims=num_dim,
+        numba_vectorize=True,
     )
     xr.testing.assert_equal(from_jit_js, from_guv_js)
 
@@ -129,7 +143,10 @@ def test_label_then_mask_equiv_to_single_step(load_cat_data, num_dim: int) -> No
     js_intersect_turb = is_ti1_turb & js_regions
 
     from_guv_js: xr.DataArray = find_parent_region_of_intersection(
-        labeled_js, js_intersect_turb, num_dims=num_dim, numba_vectorize=True
+        labeled_js,
+        js_intersect_turb,
+        num_dims=num_dim,
+        numba_vectorize=True,
     )
 
     if num_dim == 2:  # noqa: PLR2004
@@ -140,7 +157,8 @@ def test_label_then_mask_equiv_to_single_step(load_cat_data, num_dim: int) -> No
                     structure=ndi.generate_binary_structure(num_dim, num_dim),
                 )  # pyright: ignore [reportGeneralTypeIssues]
                 mask = _parent_region_mask(
-                    from_scipy, js_intersect_turb.isel(time=time_index, pressure_level=level_index).values
+                    from_scipy,
+                    js_intersect_turb.isel(time=time_index, pressure_level=level_index).values,
                 )
                 np.testing.assert_array_equal(
                     from_guv_js.isel(time=time_index, pressure_level=level_index).transpose("latitude", "longitude"),
@@ -149,9 +167,11 @@ def test_label_then_mask_equiv_to_single_step(load_cat_data, num_dim: int) -> No
     else:
         for time_index in range(js_regions["time"].size):
             from_scipy, _ = ndi.label(
-                js_regions.isel(time=time_index), structure=ndi.generate_binary_structure(num_dim, num_dim)
+                js_regions.isel(time=time_index),
+                structure=ndi.generate_binary_structure(num_dim, num_dim),
             )  # pyright: ignore [reportGeneralTypeIssues]
             mask = _parent_region_mask(from_scipy, js_intersect_turb.isel(time=time_index).values)
             np.testing.assert_array_equal(
-                from_guv_js.isel(time=time_index).transpose("latitude", "longitude", "pressure_level"), mask
+                from_guv_js.isel(time=time_index).transpose("latitude", "longitude", "pressure_level"),
+                mask,
             )
