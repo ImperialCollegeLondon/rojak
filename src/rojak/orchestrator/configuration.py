@@ -188,7 +188,7 @@ class TurbulenceThresholds(BaseConfigModel):
             raise InvalidConfigurationError("Values must be in ascending order")
         return self
 
-    def model_post_init(self, context: Any) -> None:  # noqa: ANN401
+    def model_post_init(self, context: Any) -> None:  # noqa: ANN401, ARG002
         self._all_severities = [self.light, self.light_to_moderate, self.moderate, self.moderate_to_severe, self.severe]
 
     @property
