@@ -168,6 +168,8 @@ def validate_era5_default_name(default_name_input: str | None) -> Era5DefaultsNa
         return "surface"
     if default_name_input == "contrail":
         return "contrail"
+    if default_name_input == "minimal-cat-contrail":
+        return "minimal-cat-contrail"
     raise InvalidEra5RequestConfigurationError("Invalid default name")
 
 
