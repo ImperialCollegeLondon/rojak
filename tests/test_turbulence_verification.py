@@ -33,7 +33,7 @@ def test_create_nearest_diagnostic_value_series_dummy_data(mocker: "MockerFixtur
     ]
     observational_data = dd.from_pandas(
         pd.DataFrame(
-            {"lat_index": list(range(3)), "lon_index": [2, 5, 8], "level_index": [2, 1, 3], "time_index": [0, 0, 1]}
+            {"lat_index": list(range(3)), "lon_index": [2, 5, 8], "level_index": [2, 1, 3], "time_index": [0, 0, 1]},
         ),
         npartitions=2,
     )
@@ -42,10 +42,12 @@ def test_create_nearest_diagnostic_value_series_dummy_data(mocker: "MockerFixtur
     diagnostic_names_mock.assert_called_once()
     diagnostic_computed_values_mock.assert_called_once()
     f3d_values = pd.Series(
-        [cat_dataset["geopotential"][indexer].data.compute() for indexer in index_into_dataset], name="f3d"
+        [cat_dataset["geopotential"][indexer].data.compute() for indexer in index_into_dataset],
+        name="f3d",
     )
     def_values = pd.Series(
-        [cat_dataset["vorticity"][indexer].data.compute() for indexer in index_into_dataset], name="def"
+        [cat_dataset["vorticity"][indexer].data.compute() for indexer in index_into_dataset],
+        name="def",
     )
 
     pd.testing.assert_series_equal(values["f3d"].compute(), f3d_values)
@@ -89,7 +91,8 @@ def test_create_nearest_diagnostic_value_series_era5_data(mocker: "MockerFixture
     diagnostic_computed_values_mock.assert_called_once()
     f3d_values = pd.Series([cat_data.u_wind()[indexer].data.compute() for indexer in index_into_dataset], name="f3d")
     def_values = pd.Series(
-        [cat_data.total_deformation()[indexer].data.compute() for indexer in index_into_dataset], name="def"
+        [cat_data.total_deformation()[indexer].data.compute() for indexer in index_into_dataset],
+        name="def",
     )
 
     pd.testing.assert_series_equal(values["f3d"].compute(), f3d_values)

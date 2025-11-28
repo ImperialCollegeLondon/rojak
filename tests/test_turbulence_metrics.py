@@ -45,7 +45,10 @@ def test_binary_classification_equiv_sklearn_example(as_pandas: bool) -> None:
 
     positive_label: int = 2
     roc = received_operating_characteristic(
-        da.asarray(y), scores, positive_classification_label=positive_label, num_intervals=-1
+        da.asarray(y),
+        scores,
+        positive_classification_label=positive_label,
+        num_intervals=-1,
     )
 
     y_as_cumsum_of_condition = np.cumsum(y == positive_label)
@@ -66,7 +69,8 @@ def test_binary_classification_rate_from_cumsum_fails(cumsum: np.typing.NDArray,
 
 
 @pytest.mark.parametrize(
-    ("truth_array", "pred_array"), [(da.eye(2), da.ones(4)), (da.ones(4), da.eye(2)), (da.eye(2), da.eye(2))]
+    ("truth_array", "pred_array"),
+    [(da.eye(2), da.ones(4)), (da.ones(4), da.eye(2)), (da.eye(2), da.eye(2))],
 )
 def test_confusion_matrix_single_dim_throw_error(truth_array: da.Array, pred_array: da.Array) -> None:
     with pytest.raises(ValueError, match="truth and prediction must be 1D"):
@@ -134,7 +138,7 @@ def test_equiv_representation_of_matthews_corr_coeff(get_two_dummy_bool_arrays: 
     table = contingency_table(first_dummy, second_dummy, "time")
     numerator: xr.DataArray = table.n_11 * table.n_00 - table.n_10 * table.n_01
     denominator: xr.DataArray = np.sqrt(
-        (table.n_11 + table.n_10) * (table.n_01 + table.n_00) * (table.n_11 + table.n_01) * (table.n_10 + table.n_00)
+        (table.n_11 + table.n_10) * (table.n_01 + table.n_00) * (table.n_11 + table.n_01) * (table.n_10 + table.n_00),
     )  # pyright: ignore [reportAssignmentType]
     other_phi = numerator / denominator
 

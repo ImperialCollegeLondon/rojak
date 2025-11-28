@@ -48,7 +48,8 @@ def _region_labeller(target_array: np.ndarray, num_dim: int = 3, connectivity: i
 
     # I'm not sure why pyright thinks there are type issues here...
     labeled, _ = ndi.label(  # pyright: ignore[reportGeneralTypeIssues]
-        target_array, structure=ndi.generate_binary_structure(rank=num_dim, connectivity=connectivity)
+        target_array,
+        structure=ndi.generate_binary_structure(rank=num_dim, connectivity=connectivity),
     )
 
     return labeled
@@ -76,7 +77,10 @@ def _check_dims_in_array(dims: list[str], array: xr.DataArray) -> None:
 
 
 def label_regions(
-    array: xr.DataArray, num_dims: int = 3, core_dims: list[str] | None = None, connectivity: int | None = None
+    array: xr.DataArray,
+    num_dims: int = 3,
+    core_dims: list[str] | None = None,
+    connectivity: int | None = None,
 ) -> xr.DataArray:
     """
     Labels connected regions

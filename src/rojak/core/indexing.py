@@ -153,12 +153,12 @@ def map_values_to_nearest_coordinate_index[T: np.datetime64 | np.number | np.ine
     spacing = get_regular_grid_spacing(coordinate)
     if spacing is None:
         raise NotImplementedError(
-            "Optimisation to map values to index into coordinate is only supported for regular grids"
+            "Optimisation to map values to index into coordinate is only supported for regular grids",
         )
     if valid_window is not None and 2 * valid_window != spacing:
         raise NotImplementedError(
             "Function currently only supports regular grids with a symmetric window specified."
-            " And the window must correspond to half of the grid spacing"
+            " And the window must correspond to half of the grid spacing",
         )
 
     approximate_index = (series - coordinate[0]) / spacing  # pyright: ignore[reportOperatorIssue]
@@ -167,7 +167,9 @@ def map_values_to_nearest_coordinate_index[T: np.datetime64 | np.number | np.ine
 
 
 def map_index_to_coordinate_value(
-    indices: "pd.Series | pd.Index", coordinate: "NDArray", series_name: str | None = None
+    indices: "pd.Series | pd.Index",
+    coordinate: "NDArray",
+    series_name: str | None = None,
 ) -> "pd.Series":
     """
     Retrieve original value based on index

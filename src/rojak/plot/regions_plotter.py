@@ -141,7 +141,7 @@ def create_mean_distances_a_to_b_lat_lon_plot(  # noqa: PLR0913
     plt.close(fg_mean.fig)
 
 
-def create_mean_distances_a_to_b_waypoints_plot(  # noqa: PLR0913
+def create_mean_distances_a_to_b_waypoints_plot(
     distances_from: xr.DataArray,
     plot_name: str,
     mean_over_dim: str = "time",

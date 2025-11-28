@@ -128,8 +128,11 @@ def create_config_context(tmp_path_factory) -> Callable:
         if data_config is None:
             data_config = DataConfig(
                 spatial_domain=SpatialDomain(
-                    minimum_latitude=-90, maximum_latitude=90, minimum_longitude=-180, maximum_longitude=180
-                )
+                    minimum_latitude=-90,
+                    maximum_latitude=90,
+                    minimum_longitude=-180,
+                    maximum_longitude=180,
+                ),
             )
         return ConfigContext(
             name=name,
