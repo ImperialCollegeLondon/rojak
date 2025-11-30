@@ -244,7 +244,7 @@ def get_a_default_cmap(colour_map: StandardColourMaps, resample_to: int | None =
                 "mcolors.LinearSegmentedColormap",
                 pypalettes.load_cmap("cancri", cmap_type="continuous", reverse=True),
             )
-            return turbulence_cmap if resample_to is None else turbulence_cmap.resampled(20)
+            return turbulence_cmap if resample_to is None else turbulence_cmap.resampled(resample_to)
         case StandardColourMaps.CORRELATION_COOL_WARM:
             return pypalettes.load_cmap("Blue2DarkRed12Steps")
         case StandardColourMaps.SEQUENTIAL_GREEN:
