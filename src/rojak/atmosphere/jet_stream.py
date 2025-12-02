@@ -1,11 +1,14 @@
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, ClassVar, assert_never
 
+import dask.array as da
 import numpy as np
 import scipy.ndimage as ndi
 import xarray as xr
+from numba import guvectorize
 from numpy.typing import NDArray
 
+from rojak.core.indexing import get_regular_grid_spacing
 from rojak.orchestrator.configuration import JetStreamAlgorithms
 from rojak.turbulence.calculations import wind_speed
 
@@ -142,6 +145,29 @@ def get_peak_mask(
     return max_mask
 
 
+@guvectorize(
+    [
+        "void(float32[:, :, :, :], int64[:, :, :, :], float32[:, :, :, :])",
+        "void(float64[:, :, :, :], int64[:, :, :, :], float64[:, :, :, :])",
+    ],
+    "(m,n,p,q),(m,n,p,d)->(m,n,p,d)",
+)
+def map_values_to_relative_latitude_coords(
+    values: np.ndarray, indices_to_rel_coords: np.ndarray, result: np.ndarray
+) -> None:
+    first_dim_size, second_dim_size, third_dim_size, lat_size = indices_to_rel_coords.shape
+    _, _, _, max_lat_index = values.shape
+    for i in range(first_dim_size):
+        for j in range(second_dim_size):
+            for k in range(third_dim_size):
+                for lat_index in range(lat_size):
+                    from_lat_at: int = indices_to_rel_coords[i, j, k, lat_index]
+                    if 0 <= from_lat_at < max_lat_index:
+                        result[i, j, k, lat_index] = values[i, j, k, from_lat_at]
+                    else:
+                        result[i, j, k, lat_index] = np.nan
+
+
 class WindSpeedCondSchiemann(JetStreamAlgorithm):
     """
     Identifies jet stream using conditions placed on the wind speed from [Schiemann2009]_
@@ -199,6 +225,50 @@ class WindSpeedCondSchiemann(JetStreamAlgorithm):
 
     def identify_jet_stream(self) -> "xr.DataArray":
         return (self._local_maxima() & (self._u_wind >= 0)).rename("jet_stream_schiemann")
+
+    def source_indices_for_composite_about_core(
+        self, num_lat_degrees: float, relative_lat_coord_name: str
+    ) -> xr.DataArray:
+        if self._wind_speed[self._latitude_coord_name].max() > 0 > self._wind_speed[self._latitude_coord_name].min():
+            raise NotImplementedError("Compositing about the jet core only implemented for single hemisphere.")
+
+        spacing: float | None = get_regular_grid_spacing(self._wind_speed[self._latitude_coord_name].values)
+        assert spacing is not None
+        grid_spacing: float = np.abs(spacing)
+
+        nsteps_each_side: int = int(num_lat_degrees / grid_spacing)
+        size_offset_coord: int = 2 * nsteps_each_side + 1
+        offsets_to_rel_coords: xr.DataArray = xr.DataArray(
+            data=(da.arange(-nsteps_each_side, nsteps_each_side + 1, dtype=int)),
+            coords={
+                relative_lat_coord_name: (
+                    da.linspace(-nsteps_each_side * grid_spacing, nsteps_each_side * grid_spacing, size_offset_coord)
+                )
+            },
+        )
+
+        unique_js_core: xr.DataArray = self.unique_jet_stream_by_hemisphere()
+        idx_of_core = unique_js_core.argmax(dim="latitude")
+        assert not isinstance(idx_of_core, dict)
+
+        return idx_of_core - offsets_to_rel_coords
+
+    def composite_about_core(
+        self, to_composite: xr.DataArray, num_lat_degrees: float, relative_lat_coord_name: str = "relative_latitude"
+    ) -> xr.DataArray:
+        indices: xr.DataArray = self.source_indices_for_composite_about_core(num_lat_degrees, relative_lat_coord_name)
+        unique_core_mask: xr.DataArray = self.unique_jet_stream_by_hemisphere().any(dim=self._latitude_coord_name)
+
+        return xr.apply_ufunc(
+            map_values_to_relative_latitude_coords,
+            to_composite.where(unique_core_mask),
+            indices,
+            input_core_dims=[[self._latitude_coord_name], [relative_lat_coord_name]],
+            output_core_dims=[[relative_lat_coord_name]],
+            join="right",
+            dask="parallelized",
+            output_dtypes=[to_composite.dtype],
+        )
 
 
 class JetStreamAlgorithmFactory:
