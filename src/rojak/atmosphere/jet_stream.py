@@ -51,7 +51,7 @@ class AlphaVelField(JetStreamAlgorithm):
             raise ValueError("Pressure levels must be strictly decreasing or increasing")
 
         max_pressure_diff: NDArray = np.abs(
-            (self._wind_speed[self._pressure_coord_name][0] - self._wind_speed[self._pressure_coord_name][-1]).values
+            (self._wind_speed[self._pressure_coord_name][0] - self._wind_speed[self._pressure_coord_name][-1]).values,
         )
 
         return (
@@ -74,7 +74,9 @@ class AlphaVelField(JetStreamAlgorithm):
 
 # Modified from: https://github.com/scikit-image/scikit-image/blob/e8a42ba85aaf5fd9322ef9ca51bc21063b22fcae/skimage/feature/peak.py#L37
 def get_peak_mask(
-    two_dimensional_slice: NDArray, threshold: float, footprint: NDArray[np.bool_] | None = None
+    two_dimensional_slice: NDArray,
+    threshold: float,
+    footprint: NDArray[np.bool_] | None = None,
 ) -> NDArray[np.bool_]:
     """
     Find peaks from a 2D array

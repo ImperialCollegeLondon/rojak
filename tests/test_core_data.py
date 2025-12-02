@@ -41,7 +41,7 @@ def make_select_domain_dummy_data():
                 "a": xr.DataArray(
                     data=generate_array_data((10, 10, 24, 4), use_numpy),
                     dims=["longitude", "latitude", "time", "level"],
-                )
+                ),
             },
             coords=default_coords,
         )
@@ -66,7 +66,7 @@ def test_select_domain_emtpy_slice(make_select_domain_dummy_data) -> None:
         minimum_level=-1,
     )
     dummy_data = make_select_domain_dummy_data(
-        {"longitude": np.linspace(-90, 0, 10), "latitude": np.linspace(-90, 0, 10)}
+        {"longitude": np.linspace(-90, 0, 10), "latitude": np.linspace(-90, 0, 10)},
     )
     down_selected = Era5Data(dummy_data).select_domain(domain, dummy_data)
     xrt.assert_equal(
@@ -112,7 +112,10 @@ def test_select_domain_emtpy_slice(make_select_domain_dummy_data) -> None:
     ],
 )
 def test_select_domain_slice_longitude(
-    make_select_domain_dummy_data, domain, new_longitude_array, longitude_slice
+    make_select_domain_dummy_data,
+    domain,
+    new_longitude_array,
+    longitude_slice,
 ) -> None:
     dummy_data = make_select_domain_dummy_data({"longitude": new_longitude_array})
     down_selected = Era5Data(dummy_data).select_domain(domain, dummy_data)
@@ -171,7 +174,10 @@ def test_select_domain_slice_longitude(
     ],
 )
 def test_select_domain_slice_latitude(
-    make_select_domain_dummy_data, domain, new_latitude_array, latitude_slice
+    make_select_domain_dummy_data,
+    domain,
+    new_latitude_array,
+    latitude_slice,
 ) -> None:
     dummy_data = make_select_domain_dummy_data({"latitude": new_latitude_array})
     down_selected = Era5Data(dummy_data).select_domain(domain, dummy_data)
@@ -310,7 +316,8 @@ def test_as_geo_dataframe(make_select_domain_dummy_data):
 
 def test_instantiate_cat_prognostic_fail_on_variables(make_select_domain_dummy_data):
     with pytest.raises(
-        ValueError, match="Attempting to instantiate CATPrognosticData with missing data variables"
+        ValueError,
+        match="Attempting to instantiate CATPrognosticData with missing data variables",
     ) as excinfo:
         CATPrognosticData(make_select_domain_dummy_data({}))
 
@@ -401,7 +408,10 @@ def test_cat_data_velocity_derivatives(mocker: "MockerFixture", make_dummy_cat_d
     [("shearing_deformation", "shear_deformation"), ("stretching_deformation", "stretching_deformation")],
 )
 def test_shear_and_stretch_deformation(
-    mocker: "MockerFixture", make_dummy_cat_data, deformation_type, method_name
+    mocker: "MockerFixture",
+    make_dummy_cat_data,
+    deformation_type,
+    method_name,
 ) -> None:
     dummy_data = make_dummy_cat_data({})
     data = CATData(dummy_data)
@@ -469,7 +479,9 @@ def get_standard_atmosphere_pressure_and_altitude():
 
 @pytest.mark.parametrize("concrete_class", [AcarsAmdarRepository, UkmoAmdarRepository])
 def test_compute_closest_pressure_level(
-    mocker: "MockerFixture", get_standard_atmosphere_pressure_and_altitude, concrete_class
+    mocker: "MockerFixture",
+    get_standard_atmosphere_pressure_and_altitude,
+    concrete_class,
 ):
     pressure, altitude = get_standard_atmosphere_pressure_and_altitude
     # See docs on why it is core.data instead of where it is imported from, i.e. core.calculations
@@ -488,7 +500,10 @@ def test_compute_closest_pressure_level(
 
 @pytest.mark.parametrize("concrete_class", [AcarsAmdarRepository, UkmoAmdarRepository])
 def test_convert_to_amdar_turbulence_data(
-    mocker: "MockerFixture", load_flat_data: pd.DataFrame, concrete_class, valid_region_for_flat_data
+    mocker: "MockerFixture",
+    load_flat_data: pd.DataFrame,
+    concrete_class,
+    valid_region_for_flat_data,
 ):
     instance = concrete_class("")
     load_mock = mocker.patch.object(instance, "load", return_value=dd.from_pandas(load_flat_data))

@@ -42,13 +42,15 @@ def dummy_turbulence_percentile_configs_with_none() -> TurbulenceThresholds:
 
 def test_turbulence_intensity_threshold_post_processor() -> None:
     processor: TurbulenceIntensityThresholds = TurbulenceIntensityThresholds(
-        dummy_turbulence_percentile_configs(), xr.DataArray(dummy_data_for_percentiles_flattened())
+        dummy_turbulence_percentile_configs(),
+        xr.DataArray(dummy_data_for_percentiles_flattened()),
     )
     output = processor.execute()
     assert output == dummy_turbulence_percentile_configs()
 
     processor_dask: TurbulenceIntensityThresholds = TurbulenceIntensityThresholds(
-        dummy_turbulence_percentile_configs(), xr.DataArray(da.asarray(dummy_data_for_percentiles_flattened()))
+        dummy_turbulence_percentile_configs(),
+        xr.DataArray(da.asarray(dummy_data_for_percentiles_flattened())),
     )
     output_dask = processor_dask.execute()
     desired = dummy_turbulence_percentile_configs()
@@ -62,16 +64,17 @@ def test_turbulence_intensity_threshold_post_processor() -> None:
                 output_dask.moderate,
                 output_dask.moderate_to_severe,
                 output_dask.severe,
-            ]
+            ],
         ),
         np.asarray(
-            [desired.light, desired.light_to_moderate, desired.moderate, desired.moderate_to_severe, desired.severe]
+            [desired.light, desired.light_to_moderate, desired.moderate, desired.moderate_to_severe, desired.severe],
         ),
         rtol=0.005,
     )
 
     processor_with_none = TurbulenceIntensityThresholds(
-        dummy_turbulence_percentile_configs_with_none(), xr.DataArray(dummy_data_for_percentiles_flattened())
+        dummy_turbulence_percentile_configs_with_none(),
+        xr.DataArray(dummy_data_for_percentiles_flattened()),
     )
     assert processor_with_none.execute() == dummy_turbulence_percentile_configs_with_none()
 
@@ -149,7 +152,9 @@ def test_relationship_between_issr_and_turbulence(load_cat_data, client, relatio
 # NOTE: Test checks that it runs and NOT the correctness
 @pytest.mark.parametrize("relationship_type", [rr.value for rr in RelationshipBetweenTypes])
 def test_relationship_between_alpha_vel_jet_stream_and_turbulence(
-    load_cat_data, client, relationship_type: RelationshipBetweenTypes
+    load_cat_data,
+    client,
+    relationship_type: RelationshipBetweenTypes,
 ):
     cat_data: CATData = load_cat_data(None, with_chunks=True)
     diagnostic_factory = DiagnosticFactory(cat_data)
