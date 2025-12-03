@@ -210,7 +210,7 @@ class WindSpeedCondSchiemann(JetStreamAlgorithm):
         min_latitude: float = self._wind_speed[self._latitude_coord_name].min()  # pyright: ignore [reportAssignmentType]
 
         jet_core_locations = self.identify_jet_stream()
-        if max_latitude > 0 and min_latitude < 0:
+        if max_latitude > 0 > min_latitude:
             # Add another level of logic so that those near the equator just turns into a single hemisphere
             # northern_hemisphere: xr.DataArray = jet_core_locations.sel(  # pyright: ignore [reportArgumentType]
             #     **{self._latitude_coord_name: slice(0, max_latitude)}  # pyright: ignore [reportArgumentType]
