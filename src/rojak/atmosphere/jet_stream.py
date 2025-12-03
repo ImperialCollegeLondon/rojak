@@ -262,15 +262,25 @@ class WindSpeedCondSchiemann(JetStreamAlgorithm):
 
         return idx_of_core - offsets_to_rel_coords
 
+    def mask_about_core(self, num_lat_degrees: float) -> xr.DataArray:
+        within_core_mask: xr.DataArray = self.unique_jet_cores.where(
+            self.unique_jet_cores.any(dim=self._latitude_coord_name)
+        )
+        distance_from_core: xr.DataArray = self._u_wind[self._latitude_coord_name] - within_core_mask.idxmax(
+            dim=self._latitude_coord_name
+        )
+
+        # pyright fails to correctly identify that np.abs is a ufunc that will return an xr.DataArray
+        return np.abs(distance_from_core) <= num_lat_degrees  # pyright: ignore[reportReturnType]
+
     def composite_about_core(
         self, to_composite: xr.DataArray, num_lat_degrees: float, relative_lat_coord_name: str = "relative_latitude"
     ) -> xr.DataArray:
         indices: xr.DataArray = self.source_indices_for_composite_about_core(num_lat_degrees, relative_lat_coord_name)
-        unique_core_mask: xr.DataArray = self.unique_jet_stream_by_hemisphere().any(dim=self._latitude_coord_name)
 
         return xr.apply_ufunc(
             map_values_to_relative_latitude_coords,
-            to_composite.where(unique_core_mask),
+            to_composite.where(self.mask_about_core(num_lat_degrees)),
             indices,
             input_core_dims=[[self._latitude_coord_name], [relative_lat_coord_name]],
             output_core_dims=[[relative_lat_coord_name]],
