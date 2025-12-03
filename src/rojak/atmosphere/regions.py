@@ -4,7 +4,9 @@ import xarray as xr
 from numba import guvectorize, int8, njit, vectorize
 
 
-def _region_labeller(target_array: np.ndarray, num_dim: int = 3, connectivity: int | None = None) -> np.ndarray:
+def _region_labeller(
+    target_array: np.ndarray, num_dim: int = 3, connectivity: int | None = None, structure: np.ndarray | None = None
+) -> np.ndarray:
     """
     Labels connected regions
 
@@ -13,6 +15,7 @@ def _region_labeller(target_array: np.ndarray, num_dim: int = 3, connectivity: i
         num_dim: number of dimensions to identify structures in
         connectivity: number of neighbours which are considered to belong to central element. If None, it will be
         ``num_dim``
+        structure: Instead of using :func:``scipy.ndimage.generate_binary_structure``, specify a custom structure
 
     Returns: labelled array
 
@@ -37,15 +40,21 @@ def _region_labeller(target_array: np.ndarray, num_dim: int = 3, connectivity: i
        [2, 2, 0, 0, 1, 0],
        [0, 0, 0, 1, 0, 0]], dtype=int32)
     """
-    if connectivity is None:
-        connectivity = num_dim
+    if structure is not None:
+        if connectivity is not None:
+            raise TypeError("If structure is specified, connectivity must be None")
+
+        assert structure.dtype == bool, "Structure must be a boolean array"
+    else:
+        if connectivity is None:
+            connectivity = num_dim
+        structure = ndi.generate_binary_structure(rank=num_dim, connectivity=connectivity)
 
     assert num_dim > 1, "Minimum spatial dimension is 2D"
 
     # I'm not sure why pyright thinks there are type issues here...
     labeled, _ = ndi.label(  # pyright: ignore[reportGeneralTypeIssues]
-        target_array,
-        structure=ndi.generate_binary_structure(rank=num_dim, connectivity=connectivity),
+        target_array, structure=structure
     )
 
     return labeled
@@ -77,6 +86,7 @@ def label_regions(
     num_dims: int = 3,
     core_dims: list[str] | None = None,
     connectivity: int | None = None,
+    structure: np.ndarray | None = None,
 ) -> xr.DataArray:
     """
     Labels connected regions
@@ -87,6 +97,7 @@ def label_regions(
         core_dims: Name of core dimensions to iterate over
         connectivity: number of neighbours which are considered to belong to central element. If None, it will be
         ``num_dim``
+        structure: Instead of using :func:``scipy.ndimage.generate_binary_structure``, specify a custom structure
 
     Returns:
         Labelled array
@@ -102,7 +113,7 @@ def label_regions(
         output_core_dims=[core_dims],
         vectorize=True,
         dask="parallelized",
-        kwargs={"num_dim": num_dims, "connectivity": connectivity},
+        kwargs={"num_dim": num_dims, "connectivity": connectivity, "structure": structure},
     )
 
 

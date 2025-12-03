@@ -21,6 +21,21 @@ def test_region_labeller_equiv_scipy_default_3d() -> None:
     np.testing.assert_array_equal(_region_labeller(array, connectivity=1), from_scipy)
 
 
+@pytest.mark.parametrize("num_dims", [2, 3])
+def test_region_labeller_equiv_scipy_custom_structure(num_dims: int) -> None:
+    custom_structure = np.zeros((3,) * num_dims, dtype=bool)
+    custom_structure[:, 1] = True
+    array = np.random.default_rng().choice(2, 5**num_dims).reshape((5,) * num_dims)
+    from_scipy, _ = ndi.label(array, structure=custom_structure)  # pyright: ignore [reportGeneralTypeIssues]
+    np.testing.assert_array_equal(_region_labeller(array, structure=custom_structure), from_scipy)
+
+
+def test_region_labeller_raise_type_error() -> None:
+    array = np.random.default_rng().choice(2, 125).reshape((5, 5, 5))
+    with pytest.raises(TypeError, match="If structure is specified, connectivity must be None"):
+        _region_labeller(array, connectivity=1, structure=np.zeros((3, 3, 3)))
+
+
 def test_label_regions_2d() -> None:
     array = xr.DataArray(
         da.from_array(np.random.default_rng().choice(2, 120).reshape((4, 5, 6))),
