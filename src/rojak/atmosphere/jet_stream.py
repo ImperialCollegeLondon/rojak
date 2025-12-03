@@ -175,6 +175,7 @@ class WindSpeedCondSchiemann(JetStreamAlgorithm):
 
     _u_wind: "xr.DataArray"
     _wind_speed: "xr.DataArray"
+    _unique_jet_cores: xr.DataArray | None
     _MINIMUM_WIND_SPEED_THRESHOLD: ClassVar[float] = 30
     _latitude_coord_name: ClassVar[str] = "latitude"
     _longitude_coord_name: ClassVar[str] = "longitude"
@@ -184,6 +185,13 @@ class WindSpeedCondSchiemann(JetStreamAlgorithm):
         assert {self._latitude_coord_name}.issubset(v_wind.coords)
         self._u_wind = u_wind
         self._wind_speed = wind_speed(u_wind, v_wind, is_abs=True)
+        self._unique_jet_cores = None
+
+    @property
+    def unique_jet_cores(self) -> xr.DataArray:
+        if self._unique_jet_cores is None:
+            self._unique_jet_cores = self.unique_jet_stream_by_hemisphere()
+        return self._unique_jet_cores
 
     def _local_maxima(self) -> xr.DataArray:
         assert {"latitude", "pressure_level"}.issubset(self._wind_speed.coords)
@@ -249,8 +257,7 @@ class WindSpeedCondSchiemann(JetStreamAlgorithm):
             },
         )
 
-        unique_js_core: xr.DataArray = self.unique_jet_stream_by_hemisphere()
-        idx_of_core = unique_js_core.argmax(dim="latitude")
+        idx_of_core = self.unique_jet_cores.argmax(dim="latitude")
         assert not isinstance(idx_of_core, dict)
 
         return idx_of_core - offsets_to_rel_coords
