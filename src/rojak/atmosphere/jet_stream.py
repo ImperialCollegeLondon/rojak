@@ -212,15 +212,17 @@ class WindSpeedCondSchiemann(JetStreamAlgorithm):
         jet_core_locations = self.identify_jet_stream()
         if max_latitude > 0 and min_latitude < 0:
             # Add another level of logic so that those near the equator just turns into a single hemisphere
-            northern_hemisphere: xr.DataArray = jet_core_locations.sel(  # pyright: ignore [reportArgumentType]
-                **{self._latitude_coord_name: slice(0, max_latitude)}  # pyright: ignore [reportArgumentType]
-            )
-            northern_hemisphere = northern_hemisphere & self.unique_jet_core_for_longitude(northern_hemisphere)
-            southern_hemisphere: xr.DataArray = jet_core_locations.sel(  # pyright: ignore [reportArgumentType]
-                **{self._latitude_coord_name: slice(min_latitude, 0)}  # pyright: ignore [reportArgumentType]
-            )
-            southern_hemisphere = southern_hemisphere & self.unique_jet_core_for_longitude(southern_hemisphere)
-            return xr.combine_by_coords([northern_hemisphere, southern_hemisphere])  # pyright: ignore [reportArgumentType, reportReturnType]
+            # northern_hemisphere: xr.DataArray = jet_core_locations.sel(  # pyright: ignore [reportArgumentType]
+            #     **{self._latitude_coord_name: slice(0, max_latitude)}  # pyright: ignore [reportArgumentType]
+            # )
+            # northern_hemisphere = northern_hemisphere & self.unique_jet_core_for_longitude(northern_hemisphere)
+            # southern_hemisphere: xr.DataArray = jet_core_locations.sel(  # pyright: ignore [reportArgumentType]
+            #     **{self._latitude_coord_name: slice(min_latitude, 0)}  # pyright: ignore [reportArgumentType]
+            # )
+            # southern_hemisphere = southern_hemisphere & self.unique_jet_core_for_longitude(southern_hemisphere)
+            # return xr.combine_by_coords([northern_hemisphere, southern_hemisphere])
+            # pyright: ignore [reportArgumentType, reportReturnType]
+            raise NotImplementedError("Identifying unique jet core locations across hemisphere not implemented")
         return jet_core_locations & self.unique_jet_core_for_longitude(jet_core_locations)
 
     def identify_jet_stream(self) -> "xr.DataArray":
