@@ -24,7 +24,12 @@ import numpy as np
 import pandas as pd
 from scipy import integrate
 
-from rojak.core.indexing import map_index_to_coordinate_value, map_order, map_values_to_nearest_coordinate_index
+from rojak.core.indexing import (
+    map_index_to_coordinate_value,
+    map_order,
+    map_values_to_nearest_coordinate_index,
+    map_values_to_nearest_index_irregular_grid,
+)
 from rojak.orchestrator.configuration import (
     AggregationMetricOption,
     SpatialGroupByStrategy,
@@ -167,10 +172,9 @@ class DiagnosticsAmdarDataHarmoniser:
         dataframe_meta[self.common_time_column_name] = pd.Series(dtype=int)
 
         observational_data = observational_data.assign(
-            level_index=da.abs(
-                observational_data["level"].to_dask_array(lengths=True)[:, np.newaxis]
-                - grid_prototype["pressure_level"].values,  # noqa: PD011
-            ).argmin(axis=1),
+            level_index=map_values_to_nearest_index_irregular_grid(
+                observational_data["level"], grid_prototype["pressure_level"].values
+            )
         ).persist()
         observational_data = observational_data.map_partitions(
             lambda df: df.assign(
