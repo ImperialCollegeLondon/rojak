@@ -159,17 +159,19 @@ class DiagnosticsAmdarDataHarmoniser:
         self._check_time_window_within_met_data(time_window, grid_prototype)
 
         observational_data: dd.DataFrame = self._amdar_data.clip_to_time_window(time_window).persist()
+
         dataframe_meta: dict[str, pd.Series] = get_dataframe_dtypes(observational_data)
         dataframe_meta["level_index"] = pd.Series(dtype=int)
+        dataframe_meta[self.latitude_index_column] = pd.Series(dtype=int)
+        dataframe_meta[self.longitude_index_column] = pd.Series(dtype=int)
+        dataframe_meta[self.common_time_column_name] = pd.Series(dtype=int)
+
         observational_data = observational_data.assign(
             level_index=da.abs(
                 observational_data["level"].to_dask_array(lengths=True)[:, np.newaxis]
                 - grid_prototype["pressure_level"].values,  # noqa: PD011
             ).argmin(axis=1),
         ).persist()
-        dataframe_meta[self.latitude_index_column] = pd.Series(dtype=int)
-        dataframe_meta[self.longitude_index_column] = pd.Series(dtype=int)
-        dataframe_meta[self.common_time_column_name] = pd.Series(dtype=int)
         observational_data = observational_data.map_partitions(
             lambda df: df.assign(
                 **{
