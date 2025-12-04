@@ -1038,7 +1038,7 @@ wheels = [
 
 [[package]]
 name = "geoviews"
-version = "1.14.1"
+version = "1.15.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bokeh" },
@@ -1052,9 +1052,9 @@ dependencies = [
     { name = "shapely" },
     { name = "xyzservices" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c2/b6/a984e5fcd5972a39ed40436b726627c2bb5794387f18d5bc5a78aced90e6/geoviews-1.14.1.tar.gz", hash = "sha256:7f07f997eb19aedb414d2afe780744321033154a36cb46788913097d9912fff9", size = 482926, upload-time = "2025-08-14T14:45:57.279Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/81/1d/2415e9913455d29dc08b6dc135d12b8e2651725baf9a799d49dec56ea064/geoviews-1.15.0.tar.gz", hash = "sha256:07481e7346d33416857e1d7a41d6cd6a8261b62314d73c7edc9e45e612fa3ac9", size = 506790, upload-time = "2025-11-14T08:48:37.483Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/56/1e/9f63bfc1db7f59c13daa3eabef0b7ae13b00fc62e6c2580a44884c9cd930/geoviews-1.14.1-py3-none-any.whl", hash = "sha256:a05fa86e96c0bc9da033846c1a6c703fa3cb241fbefe13491041bae516e3124b", size = 548671, upload-time = "2025-08-14T14:45:55.694Z" },
+    { url = "https://files.pythonhosted.org/packages/06/0a/aaf8397634c1b2264adbdcb3dfc110e1b70888ba6133fe13efb0b5b852a4/geoviews-1.15.0-py3-none-any.whl", hash = "sha256:da1252554f86c639a280bb3e7dc6acbd4722e9f4e4a8b0c65f6a9c086ed5f5b2", size = 574386, upload-time = "2025-11-14T08:48:35.986Z" },
 ]
 
 [[package]]
@@ -1115,7 +1115,7 @@ wheels = [
 
 [[package]]
 name = "hatchling"
-version = "1.27.0"
+version = "1.28.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "packaging" },
@@ -1123,9 +1123,9 @@ dependencies = [
     { name = "pluggy" },
     { name = "trove-classifiers" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8f/8a/cc1debe3514da292094f1c3a700e4ca25442489731ef7c0814358816bb03/hatchling-1.27.0.tar.gz", hash = "sha256:971c296d9819abb3811112fc52c7a9751c8d381898f36533bb16f9791e941fd6", size = 54983, upload-time = "2024-12-15T17:08:11.894Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0b/8e/e480359492affde4119a131da729dd26da742c2c9b604dff74836e47eef9/hatchling-1.28.0.tar.gz", hash = "sha256:4d50b02aece6892b8cd0b3ce6c82cb218594d3ec5836dbde75bf41a21ab004c8", size = 55365, upload-time = "2025-11-27T00:31:13.766Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/08/e7/ae38d7a6dfba0533684e0b2136817d667588ae3ec984c1a4e5df5eb88482/hatchling-1.27.0-py3-none-any.whl", hash = "sha256:d3a2f3567c4f926ea39849cdf924c7e99e6686c9c8e288ae1037c8fa2a5d937b", size = 75794, upload-time = "2024-12-15T17:08:10.364Z" },
+    { url = "https://files.pythonhosted.org/packages/0d/a5/48cb7efb8b4718b1a4c0c331e3364a3a33f614ff0d6afd2b93ee883d3c47/hatchling-1.28.0-py3-none-any.whl", hash = "sha256:dc48722b68b3f4bbfa3ff618ca07cdea6750e7d03481289ffa8be1521d18a961", size = 76075, upload-time = "2025-11-27T00:31:12.544Z" },
 ]
 
 [[package]]

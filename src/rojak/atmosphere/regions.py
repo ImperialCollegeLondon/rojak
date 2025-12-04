@@ -1,3 +1,7 @@
+from collections.abc import Callable, Sequence
+from enum import StrEnum
+from typing import assert_never, cast
+
 import numpy as np
 import scipy.ndimage as ndi
 import xarray as xr
@@ -192,10 +196,14 @@ def _bitwise_combine_guv_4d(first: np.ndarray, second: np.ndarray, result: np.nd
                     result[i, j, k, l_dim] = _bitwise_combine(first[i, j, k, l_dim], second[i, j, k, l_dim])
 
 
-def combine_two_features(first: xr.DataArray, second: xr.DataArray, is_guv: bool = True) -> xr.DataArray:
+def _check_arrays_same_shape_and_bool(first: xr.DataArray, second: xr.DataArray) -> None:
     assert first.dtype == second.dtype
     assert first.dtype == np.bool_
     assert first.shape == second.shape
+
+
+def combine_two_features(first: xr.DataArray, second: xr.DataArray, is_guv: bool = True) -> xr.DataArray:
+    _check_arrays_same_shape_and_bool(first, second)
 
     # Cast to int to do bit twiddling
     first = first.astype("int8")
@@ -207,3 +215,163 @@ def combine_two_features(first: xr.DataArray, second: xr.DataArray, is_guv: bool
     # If both,          0b111
     # return (first << 2) | (second << 1) | (first & second)
     return xr.apply_ufunc(_bitwise_combine_guv_4d if is_guv else _bitwise_combine, first, second, dask="parallelized")
+
+
+def _distance_metric_from_a_to_b(
+    from_feature: np.ndarray, to_feature: np.ndarray, distance_func: Callable, **kwargs: float | Sequence[float] | str
+) -> np.ndarray:
+    from_feature = from_feature.astype(bool)
+    to_feature = to_feature.astype(bool)
+    # As return_distances has been passed to function, I can guarantee that a single numpy array is returned
+    distance_to_feature: np.ndarray = cast("np.ndarray", distance_func(~to_feature, return_distances=True, **kwargs))
+    distance_from_feature: np.ndarray = np.full_like(from_feature, np.nan, dtype=float)
+    distance_from_feature[from_feature] = distance_to_feature[from_feature]
+    return distance_from_feature
+
+
+def euclidean_distance_from_a_to_b(
+    from_feature: np.ndarray,
+    to_feature: np.ndarray,
+    sampling: float | Sequence[float] = 1,
+) -> np.ndarray:
+    """
+    Euclidean distance from feature A to feature B
+
+    For example, to find the distance of a contrail forming region to a turbulent region, then ``from_region`` would
+    be a boolean array of where the contrail region is and ``to_region`` would be a boolean array of where
+    turbulence is present.
+
+    Note: Description of ``sampling`` arg has been copied from :func:`scipy.ndimage.distance_transform_edt`
+
+    Args:
+        from_feature: Feature to compute distances from
+        to_feature: Feature to compute distances to
+        sampling: Spacing of elements along each dimension. If a sequence, must be of length equal to the input rank;
+        if a single number, this is used for all axes. If not specified, a grid spacing of unity is implied.
+
+    Returns:
+        Array of the closest distance from the point each feature A to feature B. Any points where feature A is not
+        present will have the value ``np.nan``
+
+    Examples
+    --------
+
+    Modified from the docstring of :func:`scipy.ndimage.distance_transform_edt`
+
+    >>> to_b = np.array(([0,1,1,1,1],
+    ...                  [0,0,1,1,1],
+    ...                  [0,1,1,1,1],
+    ...                  [0,1,1,1,0],
+    ...                  [0,1,1,0,0]), dtype=bool)
+    >>> to_b = ~to_b
+    >>> from_a = np.ones_like(to_b)
+    >>> euclidean_distance_from_a_to_b(from_a, to_b)
+    array([[0.        , 1.        , 1.41421356, 2.23606798, 3.        ],
+           [0.        , 0.        , 1.        , 2.        , 2.        ],
+           [0.        , 1.        , 1.41421356, 1.41421356, 1.        ],
+           [0.        , 1.        , 1.41421356, 1.        , 0.        ],
+           [0.        , 1.        , 1.        , 0.        , 0.        ]])
+
+    If the feature we are computing distances from is never present, then all values in the array will be ``np.nan``
+
+    >>> np.isnan(euclidean_distance_from_a_to_b(np.zeros_like(to_b), to_b)).all()
+    np.True_
+
+    With a sampling of 2 units along x, 1 along y:
+
+    >>> euclidean_distance_from_a_to_b(from_a, to_b, sampling=[2, 1])
+    array([[0.        , 1.        , 2.        , 2.82842712, 3.60555128],
+           [0.        , 0.        , 1.        , 2.        , 3.        ],
+           [0.        , 1.        , 2.        , 2.23606798, 2.        ],
+           [0.        , 1.        , 2.        , 1.        , 0.        ],
+           [0.        , 1.        , 1.        , 0.        , 0.        ]])
+
+    """
+    return _distance_metric_from_a_to_b(from_feature, to_feature, ndi.distance_transform_edt, sampling=sampling)
+
+
+def chebyshev_distance_from_a_to_b(from_feature: np.ndarray, to_feature: np.ndarray) -> np.ndarray:
+    """
+    Chebyshev distance from feature A to feature B
+
+    For example, to find the distance of a contrail forming region to a turbulent region, then ``from_region`` would
+    be a boolean array of where the contrail region is and ``to_region`` would be a boolean array of where
+    turbulence is present.
+
+    Args:
+        from_feature: Feature to compute distances from
+        to_feature: Feature to compute distances to
+
+    Returns:
+        Array of the closest distance from the point each feature A to feature B. Any points where feature A is not
+        present will have the value ``np.nan``
+
+    """
+    return _distance_metric_from_a_to_b(from_feature, to_feature, ndi.distance_transform_cdt, metric="chessboard")
+
+
+class DistanceMeasure(StrEnum):
+    EUCLIDEAN = "euclidean"
+    CHEBYSHEV = "chebyshev"
+
+
+def distance_from_a_to_b(
+    from_feature: xr.DataArray,
+    to_feature: xr.DataArray,
+    distance_measure: DistanceMeasure,
+    num_dim: int = 3,
+    core_dims: list[str] | None = None,
+    sampling: float | Sequence[float] | None = None,
+) -> xr.DataArray:
+    """
+    Distance from feature A to feature B
+
+    For example, to find the distance of a contrail forming region to a turbulent region, then ``from_region`` would
+    be a boolean array of where the contrail region is and ``to_region`` would be a boolean array of where
+    turbulence is present.
+
+    Args:
+        from_feature: Feature to compute distances from
+        to_feature: Feature to compute distances to
+        distance_measure: How distance is measured
+        num_dim: Number of dimensions to compute distances over
+        core_dims: Name of core dimensions to iterate over
+        sampling: Only applicable for Euclidean distance, see :func:`scipy.ndimage.distance_transform_edt` for details
+
+    Returns:
+        Array of the closest distance from each point in feature A to feature B
+
+    """
+    _check_arrays_same_shape_and_bool(from_feature, to_feature)
+
+    core_dims = _check_num_dims_and_set_core_dims(num_dim, core_dims)
+    _check_dims_in_array(core_dims, from_feature)
+    _check_dims_in_array(core_dims, to_feature)
+
+    if distance_measure != DistanceMeasure.EUCLIDEAN and sampling is not None:
+        raise ValueError("Sampling is only supported for euclidean distance")
+
+    if distance_measure != DistanceMeasure.EUCLIDEAN:
+        func_kwargs = {}
+    else:
+        func_kwargs = {"sampling": sampling} if sampling is not None else {"sampling": 1}
+
+    match distance_measure:
+        case DistanceMeasure.EUCLIDEAN:
+            distance_function: Callable = euclidean_distance_from_a_to_b
+        case DistanceMeasure.CHEBYSHEV:
+            distance_function: Callable = chebyshev_distance_from_a_to_b
+        case _ as unreachable:
+            assert_never(unreachable)
+
+    return xr.apply_ufunc(
+        distance_function,
+        from_feature,
+        to_feature,
+        kwargs=func_kwargs,
+        input_core_dims=[core_dims, core_dims],
+        output_core_dims=[core_dims],
+        vectorize=True,
+        output_dtypes=[np.dtype(float)],
+        dask="parallelized",
+    )
