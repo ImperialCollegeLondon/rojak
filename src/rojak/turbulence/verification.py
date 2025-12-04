@@ -109,8 +109,28 @@ class DiagnosticsAmdarDataHarmoniser:
         return "level_index"
 
     @property
+    def coordinate_axes(self) -> list[str]:
+        return ["longitude", "latitude", "pressure_level", "time"]
+
+    @property
+    def index_column_names(self) -> list[str]:
+        return [
+            self.longitude_index_column,
+            self.latitude_index_column,
+            self.vertical_coordinate_index_column,
+            self.common_time_column_name,
+        ]
+
+    def coordinate_axes_to_index_col_name(self) -> dict[str, str]:
+        return dict(zip(self.coordinate_axes, self.index_column_names, strict=True))
+
+    @property
     def harmonised_diagnostics(self) -> list[str]:
         return self._diagnostics_suite.diagnostic_names()
+
+    def _get_coordinate_axis_order(self, grid_prototype: "xr.DataArray") -> list[int]:
+        assert set(self.coordinate_axes).issubset(grid_prototype.coords)
+        return list(grid_prototype.get_axis_num(self.coordinate_axes))
 
     def _create_diagnostic_value_series(
         self,
@@ -118,24 +138,16 @@ class DiagnosticsAmdarDataHarmoniser:
         observational_data: dd.DataFrame,
         dataframe_meta: dict[str, pd.Series],
     ) -> dict["DiagnosticName", dd.Series]:
-        coordinate_axes: list[str] = ["longitude", "latitude", "pressure_level", "time"]
-        assert set(coordinate_axes).issubset(grid_prototype.coords)
-        axis_order: tuple[int, ...] = grid_prototype.get_axis_num(coordinate_axes)
-        name_of_index_columns: list[str] = [
-            self.longitude_index_column,
-            self.latitude_index_column,
-            self.vertical_coordinate_index_column,
-            self.common_time_column_name,
-        ]
-        assert set(name_of_index_columns).issubset(observational_data)
+        axis_order: list[int] = self._get_coordinate_axis_order(grid_prototype)
+        assert set(self.index_column_names).issubset(observational_data)
 
         # Retrieves the index for each row of data and stores them as dask arrays
         indexing_columns: list[da.Array] = [
-            observational_data[col_name].to_dask_array(lengths=True).persist() for col_name in name_of_index_columns
+            observational_data[col_name].to_dask_array(lengths=True).persist() for col_name in self.index_column_names
         ]
         # Order of coordinate axes are not known beforehand. Therefore, use the axis order so that the index
         # values matches the dimension of the array
-        in_order_of_array_coords: list[da.Array] = map_order(indexing_columns, list(axis_order))
+        in_order_of_array_coords: list[da.Array] = map_order(indexing_columns, axis_order)
         # Combine them such that coordinates contains [(x1, y1, z1, t1), ..., (xn, yn, zn, tn)] which are the
         # values to slices from the computed diagnostic
         coordinates: da.Array = da.stack(in_order_of_array_coords, axis=1)  # shape = (4, n)
