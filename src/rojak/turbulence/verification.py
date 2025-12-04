@@ -16,12 +16,14 @@ import functools
 import logging
 from collections import defaultdict
 from collections.abc import Callable, Generator
-from typing import TYPE_CHECKING, ClassVar, Literal, assert_never
+from typing import TYPE_CHECKING, ClassVar, Literal, assert_never, cast
 
 import dask.array as da
 import dask.dataframe as dd
 import numpy as np
 import pandas as pd
+import sparse
+import xarray as xr
 from scipy import integrate
 
 from rojak.core.indexing import (
@@ -42,7 +44,6 @@ from rojak.turbulence.metrics import (
 )
 
 if TYPE_CHECKING:
-    import xarray as xr
     from numpy.typing import NDArray
 
     from rojak.core.data import AmdarTurbulenceData
@@ -217,6 +218,90 @@ class DiagnosticsAmdarDataHarmoniser:
                 as_column,
             ).persist()
         return observational_data
+
+    def _coordinates_of_observations(
+        self, observational_data: dd.DataFrame, grid_prototype: "xr.DataArray"
+    ) -> dict[str, da.Array]:
+        level_index: da.Array = cast(
+            "da.Array",
+            map_values_to_nearest_index_irregular_grid(
+                observational_data["level"], grid_prototype["pressure_level"].values
+            ),
+        )
+        latitude_index: da.Array = observational_data.map_partitions(
+            lambda df: map_values_to_nearest_coordinate_index(
+                df.latitude,
+                grid_prototype["latitude"].values,
+            ),
+            # Specifying meta this way resolves this error,
+            #   AttributeError: 'DataFrame' object has no attribute 'name'
+            meta=(self.latitude_index_column, int),
+        ).to_dask_array(lengths=True)
+        longitude_index: da.Array = observational_data.map_partitions(
+            lambda df: map_values_to_nearest_coordinate_index(
+                df.longitude,
+                grid_prototype["longitude"].values,
+            ),
+            meta=(self.longitude_index_column, int),
+        ).to_dask_array(lengths=True)
+        time_index: da.Array = observational_data.map_partitions(
+            lambda df: map_values_to_nearest_coordinate_index(
+                df.datetime,
+                grid_prototype["time"].values,
+                valid_window=self.TIME_WINDOW_DELTA,
+            ),
+            meta=(self.common_time_column_name, int),
+        ).to_dask_array(lengths=True)
+        return {
+            self.vertical_coordinate_index_column: level_index,
+            self.latitude_index_column: latitude_index,
+            self.longitude_index_column: longitude_index,
+            self.common_time_column_name: time_index,
+        }
+
+    def grid_turbulence_observation_frequency(
+        self, time_window: "Limits[np.datetime64]", positive_obs_condition: "list[DiagnosticValidationCondition]"
+    ) -> "xr.Dataset":
+        grid_prototype: xr.DataArray = self._diagnostics_suite.get_prototype_computed_diagnostic()
+        self._check_time_window_within_met_data(time_window, grid_prototype)
+
+        observational_data: dd.DataFrame = self._amdar_data.clip_to_time_window(time_window).persist()
+
+        indexing_columns: list[da.Array] = [
+            self._coordinates_of_observations(observational_data, grid_prototype)[
+                self.coordinate_axes_to_index_col_name()[coord_name]
+            ]
+            for coord_name in self.coordinate_axes
+        ]
+        # Coords for sparse COO must be in (ndim, nnz)
+        gridded_coordinates: da.Array = da.stack(
+            map_order(indexing_columns, self._get_coordinate_axis_order(grid_prototype)), axis=0
+        )  # shape = (4, n)
+
+        as_coo: dict[str, da.Array] = {
+            condition.observed_turbulence_column_name: da.map_blocks(
+                lambda coords_, was_observed, output_shape: sparse.COO(
+                    coords=coords_, data=was_observed, shape=output_shape
+                ).todense(),
+                gridded_coordinates,
+                (
+                    observational_data[condition.observed_turbulence_column_name] > condition.value_greater_than
+                ).to_dask_array(lengths=True),
+                grid_prototype.shape,
+                dtype=int,
+                drop_axis=[0, 1],
+                chunks=grid_prototype.chunks,
+            )
+            for condition in positive_obs_condition
+        }
+
+        return xr.Dataset(
+            data_vars={
+                condition_name: xr.DataArray(data=regridded, coords=grid_prototype.coords, dims=grid_prototype.dims)
+                for condition_name, regridded in as_coo.items()
+            },
+            coords=grid_prototype.coords,
+        )
 
 
 def _any_aggregation() -> dd.Aggregation:
