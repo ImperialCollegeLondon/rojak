@@ -81,6 +81,45 @@ def test_create_nearest_diagnostic_value_series_dummy_data(
     pd.testing.assert_series_equal(values["def"].compute(), def_values)
 
 
+@pytest.mark.parametrize("stack_on_axis", [0, 1])
+def test_get_gridded_coordinates(
+    mocker: "MockerFixture", load_cat_data, client, instantiate_diagnostic_amdar_data_harmoniser, stack_on_axis: int
+) -> None:
+    harmoniser = instantiate_diagnostic_amdar_data_harmoniser.harmoniser
+    cat_data: CATData = load_cat_data(None, with_chunks=True)
+
+    rand_generator = np.random.default_rng()
+    num_points: int = 30
+    indices = {
+        "lat_index": rand_generator.integers(0, high=cat_data.u_wind()["latitude"].size, size=num_points),
+        "lon_index": rand_generator.integers(0, high=cat_data.u_wind()["longitude"].size, size=num_points),
+        "level_index": rand_generator.integers(0, high=cat_data.u_wind()["pressure_level"].size, size=num_points),
+        "time_index": rand_generator.integers(0, high=cat_data.u_wind()["pressure_level"].size, size=num_points),
+    }
+
+    observational_data = dd.from_pandas(pd.DataFrame(indices), npartitions=10)
+    coords_of_obs_mock = mocker.patch.object(
+        harmoniser,
+        "_coordinates_of_observations",
+        return_value={
+            "lat_index": observational_data["lat_index"].to_dask_array(lengths=True),
+            "lon_index": observational_data["lon_index"].to_dask_array(lengths=True),
+            "level_index": observational_data["level_index"].to_dask_array(lengths=True),
+            "time_index": observational_data["time_index"].to_dask_array(lengths=True),
+        },
+    )
+
+    desired = np.stack(
+        [indices[harmoniser.coordinate_axes_to_index_col_name()[target_dim]] for target_dim in cat_data.u_wind().dims],
+        axis=stack_on_axis,
+    )
+    computed = harmoniser._get_gridded_coordinates(observational_data, cat_data.u_wind(), stack_on_axis).compute()
+
+    coords_of_obs_mock.assert_called_once()
+
+    np.testing.assert_array_equal(computed, desired)
+
+
 def test_create_nearest_diagnostic_value_series_era5_data(
     mocker: "MockerFixture", load_cat_data, client, instantiate_diagnostic_amdar_data_harmoniser
 ) -> None:
