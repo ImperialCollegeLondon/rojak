@@ -96,7 +96,7 @@ def test_get_gridded_coordinates(
         "lat_index": rand_generator.integers(0, high=cat_data.u_wind()["latitude"].size, size=num_points),
         "lon_index": rand_generator.integers(0, high=cat_data.u_wind()["longitude"].size, size=num_points),
         "level_index": rand_generator.integers(0, high=cat_data.u_wind()["pressure_level"].size, size=num_points),
-        "time_index": rand_generator.integers(0, high=cat_data.u_wind()["pressure_level"].size, size=num_points),
+        "time_index": rand_generator.integers(0, high=cat_data.u_wind()["time"].size, size=num_points),
     }
 
     observational_data = dd.from_pandas(pd.DataFrame(indices), npartitions=10)
@@ -141,7 +141,7 @@ def test_create_nearest_diagnostic_value_series_era5_data(
         "lat_index": rand_generator.integers(0, high=cat_data.u_wind()["latitude"].size, size=num_points),
         "lon_index": rand_generator.integers(0, high=cat_data.u_wind()["longitude"].size, size=num_points),
         "level_index": rand_generator.integers(0, high=cat_data.u_wind()["pressure_level"].size, size=num_points),
-        "time_index": rand_generator.integers(0, high=cat_data.u_wind()["pressure_level"].size, size=num_points),
+        "time_index": rand_generator.integers(0, high=cat_data.u_wind()["time"].size, size=num_points),
     }
     index_into_dataset = [
         {
