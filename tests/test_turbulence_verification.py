@@ -37,10 +37,21 @@ def test_create_nearest_diagnostic_value_series_dummy_data(mocker: "MockerFixtur
         ),
         npartitions=2,
     )
+    coords_of_obs_mock = mocker.patch.object(
+        harmoniser,
+        "_coordinates_of_observations",
+        return_value={
+            "lat_index": observational_data["lat_index"].to_dask_array(lengths=True),
+            "lon_index": observational_data["lon_index"].to_dask_array(lengths=True),
+            "level_index": observational_data["level_index"].to_dask_array(lengths=True),
+            "time_index": observational_data["time_index"].to_dask_array(lengths=True),
+        },
+    )
 
     values: dict = harmoniser._create_diagnostic_value_series(cat_dataset["temperature"], observational_data, {})
     diagnostic_names_mock.assert_called_once()
     diagnostic_computed_values_mock.assert_called_once()
+    coords_of_obs_mock.assert_called_once()
     f3d_values = pd.Series(
         [cat_dataset["geopotential"][indexer].data.compute() for indexer in index_into_dataset],
         name="f3d",
@@ -85,10 +96,21 @@ def test_create_nearest_diagnostic_value_series_era5_data(mocker: "MockerFixture
     ]
 
     observational_data = dd.from_pandas(pd.DataFrame(indices), npartitions=10)
+    coords_of_obs_mock = mocker.patch.object(
+        harmoniser,
+        "_coordinates_of_observations",
+        return_value={
+            "lat_index": observational_data["lat_index"].to_dask_array(lengths=True),
+            "lon_index": observational_data["lon_index"].to_dask_array(lengths=True),
+            "level_index": observational_data["level_index"].to_dask_array(lengths=True),
+            "time_index": observational_data["time_index"].to_dask_array(lengths=True),
+        },
+    )
 
     values: dict = harmoniser._create_diagnostic_value_series(cat_data.v_wind(), observational_data, {})
     diagnostic_names_mock.assert_called_once()
     diagnostic_computed_values_mock.assert_called_once()
+    coords_of_obs_mock.assert_called_once()
     f3d_values = pd.Series([cat_data.u_wind()[indexer].data.compute() for indexer in index_into_dataset], name="f3d")
     def_values = pd.Series(
         [cat_data.total_deformation()[indexer].data.compute() for indexer in index_into_dataset],
