@@ -89,6 +89,14 @@ class DiagnosticsAmdarDataHarmoniser:
         if time_window.lower < time_coordinate.min() or time_window.upper > time_coordinate.max():
             raise NotWithinTimeFrameError("Time window is not within time coordinate of met data")
 
+    def _get_grid_prototype(self, time_window: "Limits[np.datetime64]") -> "xr.DataArray":
+        grid_prototype: xr.DataArray = self._diagnostics_suite.get_prototype_computed_diagnostic()
+        self._check_time_window_within_met_data(time_window, grid_prototype)
+        return grid_prototype
+
+    def _get_observational_data(self, time_window: "Limits[np.datetime64]") -> dd.DataFrame:
+        return self._amdar_data.clip_to_time_window(time_window).persist()
+
     @property
     def common_time_column_name(self) -> str:
         return "time_index"
@@ -129,9 +137,30 @@ class DiagnosticsAmdarDataHarmoniser:
     def harmonised_diagnostics(self) -> list[str]:
         return self._diagnostics_suite.diagnostic_names()
 
-    def _get_coordinate_axis_order(self, grid_prototype: "xr.DataArray") -> list[int]:
+    def _get_gridded_coordinates(
+        self, observational_data: dd.DataFrame, grid_prototype: xr.DataArray, stack_on_axis: int
+    ) -> da.Array:
+        assert grid_prototype.ndim == len(self.coordinate_axes), (
+            "Grid prototype must have same number of dimensions as defined coordinates"
+        )
+        # Retrieves the index for each row of data and stores them as dask arrays
+        indexing_columns: list[da.Array] = [
+            self._coordinates_of_observations(observational_data, grid_prototype)[
+                self.coordinate_axes_to_index_col_name()[coord_name]
+            ]
+            for coord_name in self.coordinate_axes
+        ]
+
+        # Get order of the coordinate axes of the prototype diagnostic
         assert set(self.coordinate_axes).issubset(grid_prototype.coords)
-        return list(grid_prototype.get_axis_num(self.coordinate_axes))
+        axis_order: list[int] = list(grid_prototype.get_axis_num(self.coordinate_axes))
+
+        # Order of coordinate axes are not known beforehand. Therefore, use the axis order so that the index
+        # values matches the dimension of the array
+        in_order_of_array_coords: list[da.Array] = map_order(indexing_columns, axis_order)
+
+        # Combine the coordinates on the specified axis
+        return da.stack(in_order_of_array_coords, axis=stack_on_axis)
 
     def _create_diagnostic_value_series(
         self,
@@ -139,19 +168,11 @@ class DiagnosticsAmdarDataHarmoniser:
         observational_data: dd.DataFrame,
         dataframe_meta: dict[str, pd.Series],
     ) -> dict["DiagnosticName", dd.Series]:
-        axis_order: list[int] = self._get_coordinate_axis_order(grid_prototype)
-        assert set(self.index_column_names).issubset(observational_data)
-
-        # Retrieves the index for each row of data and stores them as dask arrays
-        indexing_columns: list[da.Array] = [
-            observational_data[col_name].to_dask_array(lengths=True).persist() for col_name in self.index_column_names
-        ]
-        # Order of coordinate axes are not known beforehand. Therefore, use the axis order so that the index
-        # values matches the dimension of the array
-        in_order_of_array_coords: list[da.Array] = map_order(indexing_columns, axis_order)
         # Combine them such that coordinates contains [(x1, y1, z1, t1), ..., (xn, yn, zn, tn)] which are the
         # values to slices from the computed diagnostic
-        coordinates: da.Array = da.stack(in_order_of_array_coords, axis=1)  # shape = (4, n)
+        coordinates: da.Array = self._get_gridded_coordinates(observational_data, grid_prototype, stack_on_axis=1)
+        assert coordinates.shape[1] == grid_prototype.ndim, "Shape of coordinates should be (nnz, ndim)"
+
         # da.Array doesn't support np advanced indexing such that coordinates can be used directly
         #   => index into it as a contiguous array
         flattened_index: da.Array = da.ravel_multi_index(coordinates.T, grid_prototype.shape).persist()
@@ -173,10 +194,8 @@ class DiagnosticsAmdarDataHarmoniser:
         }
 
     def nearest_diagnostic_value(self, time_window: "Limits[np.datetime64]") -> "dd.DataFrame":
-        grid_prototype: xr.DataArray = self._diagnostics_suite.get_prototype_computed_diagnostic()
-        self._check_time_window_within_met_data(time_window, grid_prototype)
-
-        observational_data: dd.DataFrame = self._amdar_data.clip_to_time_window(time_window).persist()
+        grid_prototype: xr.DataArray = self._get_grid_prototype(time_window)
+        observational_data: dd.DataFrame = self._get_observational_data(time_window)
 
         dataframe_meta: dict[str, pd.Series] = get_dataframe_dtypes(observational_data)
         dataframe_meta["level_index"] = pd.Series(dtype=int)
@@ -262,21 +281,16 @@ class DiagnosticsAmdarDataHarmoniser:
     def grid_turbulence_observation_frequency(
         self, time_window: "Limits[np.datetime64]", positive_obs_condition: "list[DiagnosticValidationCondition]"
     ) -> "xr.Dataset":
-        grid_prototype: xr.DataArray = self._diagnostics_suite.get_prototype_computed_diagnostic()
-        self._check_time_window_within_met_data(time_window, grid_prototype)
+        grid_prototype: xr.DataArray = self._get_grid_prototype(time_window)
+        observational_data: dd.DataFrame = self._get_observational_data(time_window)
 
-        observational_data: dd.DataFrame = self._amdar_data.clip_to_time_window(time_window).persist()
-
-        indexing_columns: list[da.Array] = [
-            self._coordinates_of_observations(observational_data, grid_prototype)[
-                self.coordinate_axes_to_index_col_name()[coord_name]
-            ]
-            for coord_name in self.coordinate_axes
-        ]
         # Coords for sparse COO must be in (ndim, nnz)
-        gridded_coordinates: da.Array = da.stack(
-            map_order(indexing_columns, self._get_coordinate_axis_order(grid_prototype)), axis=0
+        gridded_coordinates: da.Array = self._get_gridded_coordinates(
+            observational_data, grid_prototype, stack_on_axis=0
         )  # shape = (4, n)
+        assert gridded_coordinates.shape[0] == grid_prototype.ndim, (
+            "Shape of gridded coordinates must be in (ndim, nnz) for sparse COO matrix"
+        )
 
         as_coo: dict[str, da.Array] = {
             condition.observed_turbulence_column_name: da.map_blocks(
