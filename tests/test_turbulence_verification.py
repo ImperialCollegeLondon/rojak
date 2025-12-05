@@ -1,8 +1,10 @@
+from collections import namedtuple
 from typing import TYPE_CHECKING
 
 import dask.dataframe as dd
 import numpy as np
 import pandas as pd
+import pytest
 
 from rojak.core.data import AmdarTurbulenceData
 from rojak.turbulence.diagnostic import DiagnosticSuite
@@ -13,12 +15,26 @@ if TYPE_CHECKING:
 
     from rojak.core.data import CATData
 
+DataHarmoniserAndMocks = namedtuple(
+    "DataHarmoniserAndMocks", ["harmoniser", "suite_mock", "diagnostic_names_mock", "amdar_data_mock"]
+)
 
-def test_create_nearest_diagnostic_value_series_dummy_data(mocker: "MockerFixture", make_dummy_cat_data) -> None:
+
+@pytest.fixture
+def instantiate_diagnostic_amdar_data_harmoniser(mocker: "MockerFixture") -> DataHarmoniserAndMocks:
     suite_mock = mocker.Mock(spec=DiagnosticSuite)
     diagnostic_names_mock = mocker.patch.object(suite_mock, "diagnostic_names", return_value=["f3d", "def"])
     amdar_data_mock = mocker.Mock(spec=AmdarTurbulenceData)
     harmoniser = DiagnosticsAmdarDataHarmoniser(amdar_data_mock, suite_mock)
+    return DataHarmoniserAndMocks(harmoniser, suite_mock, diagnostic_names_mock, amdar_data_mock)
+
+
+def test_create_nearest_diagnostic_value_series_dummy_data(
+    mocker: "MockerFixture", make_dummy_cat_data, instantiate_diagnostic_amdar_data_harmoniser
+) -> None:
+    suite_mock = instantiate_diagnostic_amdar_data_harmoniser.suite_mock
+    diagnostic_names_mock = instantiate_diagnostic_amdar_data_harmoniser.diagnostic_names_mock
+    harmoniser = instantiate_diagnostic_amdar_data_harmoniser.harmoniser
     cat_dataset = make_dummy_cat_data({}, use_numpy=False)
     diagnostic_computed_values_mock = mocker.patch.object(
         suite_mock,
@@ -65,11 +81,12 @@ def test_create_nearest_diagnostic_value_series_dummy_data(mocker: "MockerFixtur
     pd.testing.assert_series_equal(values["def"].compute(), def_values)
 
 
-def test_create_nearest_diagnostic_value_series_era5_data(mocker: "MockerFixture", load_cat_data, client) -> None:
-    suite_mock = mocker.Mock(spec=DiagnosticSuite)
-    diagnostic_names_mock = mocker.patch.object(suite_mock, "diagnostic_names", return_value=["f3d", "def"])
-    amdar_data_mock = mocker.Mock(spec=AmdarTurbulenceData)
-    harmoniser = DiagnosticsAmdarDataHarmoniser(amdar_data_mock, suite_mock)
+def test_create_nearest_diagnostic_value_series_era5_data(
+    mocker: "MockerFixture", load_cat_data, client, instantiate_diagnostic_amdar_data_harmoniser
+) -> None:
+    suite_mock = instantiate_diagnostic_amdar_data_harmoniser.suite_mock
+    diagnostic_names_mock = instantiate_diagnostic_amdar_data_harmoniser.diagnostic_names_mock
+    harmoniser = instantiate_diagnostic_amdar_data_harmoniser.harmoniser
     cat_data: CATData = load_cat_data(None, with_chunks=True)
     diagnostic_computed_values_mock = mocker.patch.object(
         suite_mock,
