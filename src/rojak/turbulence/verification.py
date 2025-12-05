@@ -143,11 +143,13 @@ class DiagnosticsAmdarDataHarmoniser:
         assert grid_prototype.ndim == len(self.coordinate_axes), (
             "Grid prototype must have same number of dimensions as defined coordinates"
         )
+
+        coords_of_observation: dict[str, da.Array] = self._coordinates_of_observations(
+            observational_data, grid_prototype
+        )
         # Retrieves the index for each row of data and stores them as dask arrays
         indexing_columns: list[da.Array] = [
-            self._coordinates_of_observations(observational_data, grid_prototype)[
-                self.coordinate_axes_to_index_col_name()[coord_name]
-            ]
+            coords_of_observation[self.coordinate_axes_to_index_col_name()[coord_name]]
             for coord_name in self.coordinate_axes
         ]
 
