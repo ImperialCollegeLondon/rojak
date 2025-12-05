@@ -315,7 +315,12 @@ class DiagnosticsAmdarDataHarmoniser:
 
         return xr.Dataset(
             data_vars={
-                condition_name: xr.DataArray(data=regridded, coords=grid_prototype.coords, dims=grid_prototype.dims)
+                condition_name: xr.DataArray(
+                    data=regridded,
+                    coords=grid_prototype.coords,
+                    dims=grid_prototype.dims,
+                    name=f"{condition_name}_count",
+                )
                 for condition_name, regridded in as_coo.items()
             },
             coords=grid_prototype.coords,
