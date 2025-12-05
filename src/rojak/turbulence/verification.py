@@ -321,6 +321,35 @@ class DiagnosticsAmdarDataHarmoniser:
             coords=grid_prototype.coords,
         )
 
+    def grid_total_observations_count(self, time_window: "Limits[np.datetime64]") -> xr.DataArray:
+        grid_prototype: xr.DataArray = self._get_grid_prototype(time_window)
+        observational_data: dd.DataFrame = self._get_observational_data(time_window)
+
+        # Coords for sparse COO must be in (ndim, nnz)
+        gridded_coordinates: da.Array = self._get_gridded_coordinates(
+            observational_data, grid_prototype, stack_on_axis=0
+        )  # shape = (4, n)
+        assert gridded_coordinates.shape[0] == grid_prototype.ndim, (
+            "Shape of gridded coordinates must be in (ndim, nnz) for sparse COO matrix"
+        )
+
+        return xr.DataArray(
+            data=da.map_blocks(
+                lambda coords_, count, output_shape: sparse.COO(coords=coords_, data=count, shape=output_shape),
+                gridded_coordinates,
+                # Chunks of gridded coords is in the shape of ((chunks_for_ndim), (chunks_for_length))
+                # So, for the ones array, use chunks of length dimension
+                da.ones(gridded_coordinates.shape[1], dtype=int, chunks=gridded_coordinates.chunks[1]),
+                grid_prototype.shape,
+                dtype=int,
+                drop_axis=[0, 1],
+                chunks=grid_prototype.chunks,
+            ),
+            coords=grid_prototype.coords,
+            dims=grid_prototype.dims,
+            name="number_of_observations",
+        )
+
 
 def _any_aggregation() -> dd.Aggregation:
     return dd.Aggregation(
