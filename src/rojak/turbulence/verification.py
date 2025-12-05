@@ -288,8 +288,12 @@ class DiagnosticsAmdarDataHarmoniser:
                     observational_data[condition.observed_turbulence_column_name] > condition.value_greater_than
                 ).to_dask_array(lengths=True),
                 grid_prototype.shape,
+                # Returns a count of the number of times turbulence was observed at each grid point
                 dtype=int,
+                # Arrays being mapped over have shape (4, n), both axes need to be dropped as the shape of the
+                # resulting array needs to match (n_lon, n_lat, n_level, n_time)
                 drop_axis=[0, 1],
+                # Make the chunking of the resulting array must be the same as the diagnostic
                 chunks=grid_prototype.chunks,
             )
             for condition in positive_obs_condition
