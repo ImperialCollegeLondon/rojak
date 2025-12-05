@@ -282,7 +282,7 @@ class DiagnosticsAmdarDataHarmoniser:
             condition.observed_turbulence_column_name: da.map_blocks(
                 lambda coords_, was_observed, output_shape: sparse.COO(
                     coords=coords_, data=was_observed, shape=output_shape
-                ).todense(),
+                ),
                 gridded_coordinates,
                 (
                     observational_data[condition.observed_turbulence_column_name] > condition.value_greater_than
