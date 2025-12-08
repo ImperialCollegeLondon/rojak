@@ -49,7 +49,7 @@ def create_output_dir(output_dir: Path | None, source: StrEnum, intermediate_fol
 
 
 @amdar_app.command()
-def retrieve(  # noqa: PLR0913
+def retrieve(
     source: Annotated[
         AmdarDataSource,
         typer.Option(
@@ -168,6 +168,8 @@ def validate_era5_default_name(default_name_input: str | None) -> Era5DefaultsNa
         return "surface"
     if default_name_input == "contrail":
         return "contrail"
+    if default_name_input == "minimal-cat-contrail":
+        return "minimal-cat-contrail"
     raise InvalidEra5RequestConfigurationError("Invalid default name")
 
 
@@ -280,7 +282,8 @@ def repartition_parquet(
     ],
     glob_pattern: Annotated[str, typer.Option("-p", help="Glob pattern to select files")],
     num_partitions: Annotated[
-        int, typer.Option("-n", "--num-partitions", help="Number of partitions to repartition to", min=0)
+        int,
+        typer.Option("-n", "--num-partitions", help="Number of partitions to repartition to", min=0),
     ],
     is_nested: Annotated[bool, typer.Option("-r", help="Recursively check for directories")],
 ) -> None:
@@ -294,7 +297,7 @@ def repartition_parquet(
         output_location = output_dir / directory.stem
         output_location.mkdir(parents=True, exist_ok=True)
         dd.read_parquet(str(directory / glob_pattern)).repartition(npartitions=num_partitions).to_parquet(
-            str(output_location)
+            str(output_location),
         )
 
 

@@ -102,17 +102,17 @@ class CATPrognosticData:
             "northward_wind",
             "potential_vorticity",
             "vorticity",
-        ]
+        ],
     )
     required_coords: ClassVar[frozenset[str]] = frozenset(
-        ["pressure_level", "latitude", "longitude", "time", "altitude"]
+        ["pressure_level", "latitude", "longitude", "time", "altitude"],
     )
 
     def __init__(self, dataset: xr.Dataset) -> None:
         if not set(dataset.data_vars.keys()).issuperset(self.required_variables):
             missing_variables = self.required_variables - dataset.data_vars.keys()
             raise ValueError(
-                f"Attempting to instantiate CATPrognosticData with missing data variables: {missing_variables}"
+                f"Attempting to instantiate CATPrognosticData with missing data variables: {missing_variables}",
             )
         if not set(dataset.coords.keys()).issuperset(self.required_coords):
             missing_coords = self.required_coords - dataset.coords.keys()
@@ -162,7 +162,8 @@ class CATData(CATPrognosticData):
     def potential_temperature(self) -> xr.DataArray:
         if self._potential_temperature is None:
             self._potential_temperature = turb_calc.potential_temperature(
-                self.temperature(), self.temperature()["pressure_level"]
+                self.temperature(),
+                self.temperature()["pressure_level"],
             ).persist()
         return self._potential_temperature
 
@@ -233,10 +234,13 @@ class MetData(ABC):
         self._latitude_coord_name = latitude_name
 
     def select_domain(
-        self, domain: "SpatialDomain", data: xr.Dataset, level_coordinate_name: str = "level"
+        self,
+        domain: "SpatialDomain",
+        data: xr.Dataset,
+        level_coordinate_name: str = "level",
     ) -> xr.Dataset:
         assert {self._longitude_coord_name, self._latitude_coord_name, "time", level_coordinate_name}.issubset(
-            data.dims
+            data.dims,
         ), "Dataset must contain longitude, latitude, time and level dimensions"
 
         longitude_coord = data[self._longitude_coord_name]
@@ -257,12 +261,16 @@ class MetData(ABC):
                 level_coordinate_name: level_slice,
                 "time": slice(None),
                 self._longitude_coord_name: make_value_based_slice(
-                    longitude_coord.data, domain.minimum_longitude, domain.maximum_longitude
+                    longitude_coord.data,
+                    domain.minimum_longitude,
+                    domain.maximum_longitude,
                 ),
                 self._latitude_coord_name: make_value_based_slice(
-                    data[self._latitude_coord_name].data, domain.minimum_latitude, domain.maximum_latitude
+                    data[self._latitude_coord_name].data,
+                    domain.minimum_latitude,
+                    domain.maximum_latitude,
                 ),
-            }
+            },
         )
 
     @abstractmethod
@@ -274,7 +282,7 @@ class MetData(ABC):
         # Utility function to shift data to have longitude in the range of [domain_bound, 360 + domain_bound]
         # This also sorts it so that the data is then ascending from domain_bound
         shifted_data: xr.Dataset = data.assign_coords(
-            longitude=((data[self._longitude_coord_name] - domain_bound) % 360) + domain_bound
+            longitude=((data[self._longitude_coord_name] - domain_bound) % 360) + domain_bound,
         )
         return shifted_data.sortby(self._longitude_coord_name, ascending=True) if sort_data else shifted_data
 
@@ -359,7 +367,9 @@ class AmdarDataRepository(ABC):
 
     @abstractmethod
     def _call_compute_closest_pressure_level(
-        self, data_frame: "dd.DataFrame", pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]"
+        self,
+        data_frame: "dd.DataFrame",
+        pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]",
     ) -> "dd.Series":
         """
         Wrapper method to be implemented by child classes to call _compute_closest_pressure_level with the appropriate
@@ -376,7 +386,9 @@ class AmdarDataRepository(ABC):
 
     @abstractmethod
     def _instantiate_amdar_turbulence_data_class(
-        self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame"
+        self,
+        data_frame: "dd.DataFrame",
+        grid: "dgpd.GeoDataFrame",
     ) -> "AmdarTurbulenceData":
         """
         Method to instantiate a concrete instance of the AmdarTurbulenceData class
@@ -394,7 +406,10 @@ class AmdarDataRepository(ABC):
     def _time_column_rename_mapping(self) -> dict[str, str]: ...
 
     def to_amdar_turbulence_data(
-        self, target_region: "SpatialDomain | Polygon", grid_size: float, target_pressure_levels: Sequence[float]
+        self,
+        target_region: "SpatialDomain | Polygon",
+        grid_size: float,
+        target_pressure_levels: Sequence[float],
     ) -> "AmdarTurbulenceData":
         """
         Public method which coordinates the loading of data from disk and processing it such that it has been spatially
@@ -415,7 +430,8 @@ class AmdarDataRepository(ABC):
         raw_data_frame: dd.DataFrame = self.load()
         raw_data_frame = raw_data_frame.assign(
             level=self._call_compute_closest_pressure_level(
-                raw_data_frame, np.asarray(target_pressure_levels, dtype=np.float64)
+                raw_data_frame,
+                np.asarray(target_pressure_levels, dtype=np.float64),
             ),
         ).persist()
 

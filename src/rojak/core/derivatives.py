@@ -81,7 +81,9 @@ type LatLonUnits = Literal["deg", "rad"]
 
 
 def _ensure_lat_lon_in_deg(
-    latitude: "NumpyOrDataArray", longitude: "NumpyOrDataArray", units: LatLonUnits
+    latitude: "NumpyOrDataArray",
+    longitude: "NumpyOrDataArray",
+    units: LatLonUnits,
 ) -> tuple["NumpyOrDataArray", "NumpyOrDataArray"]:
     """
     >>> _ensure_lat_lon_in_deg(np.asarray([90, 0, -90]), np.asarray([360, 180, 0]), "deg")
@@ -187,10 +189,14 @@ def get_projection_correction_factors(
         # pyright is drunk. It thinks that the return type is NoReturn so it is not iterable... ¯\_(ツ)_/¯
         lon_grid, lat_grid = da.meshgrid(longitude, latitude)  # pyright: ignore[reportGeneralTypeIssues]
         parallel_scale = da.map_blocks(
-            lambda lon, lat: Proj(crs).get_factors(lon, lat, radians=is_radians).parallel_scale, lon_grid, lat_grid
+            lambda lon, lat: Proj(crs).get_factors(lon, lat, radians=is_radians).parallel_scale,
+            lon_grid,
+            lat_grid,
         ).persist()
         meridional_scale = da.map_blocks(
-            lambda lon, lat: Proj(crs).get_factors(lon, lat, radians=is_radians).meridional_scale, lon_grid, lat_grid
+            lambda lon, lat: Proj(crs).get_factors(lon, lat, radians=is_radians).meridional_scale,
+            lon_grid,
+            lat_grid,
         ).persist()
     else:
         lon_grid, lat_grid = np.meshgrid(longitude, latitude)
@@ -303,7 +309,11 @@ def spatial_gradient(
     grid_deltas = nominal_grid_spacing(array["latitude"], array["longitude"], units, geod=geod)
     if gradient_mode == GradientMode.GEOSPATIAL:
         correction_factors = get_projection_correction_factors(
-            array["latitude"], array["longitude"], is_dask_collection(array), is_radians=(units == "rad"), crs=crs
+            array["latitude"],
+            array["longitude"],
+            is_dask_collection(array),
+            is_radians=(units == "rad"),
+            crs=crs,
         )
     else:
         correction_factors = None
@@ -375,7 +385,11 @@ def vector_derivatives(
         ]
 
     correction_factors = get_projection_correction_factors(
-        u["latitude"], u["longitude"], is_dask_collection(u), is_radians=(units == "rad"), crs=crs
+        u["latitude"],
+        u["longitude"],
+        is_dask_collection(u),
+        is_radians=(units == "rad"),
+        crs=crs,
     )
 
     dp_dy: xr.DataArray = spatial_gradient(

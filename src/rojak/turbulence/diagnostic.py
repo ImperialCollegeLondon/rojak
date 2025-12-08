@@ -186,7 +186,7 @@ class Frontogenesis3D(Diagnostic):
         dtheta_dz = altitude_derivative_on_pressure_level(self._potential_temperature, self._geopotential)
 
         inverse_mag_grad_theta: xr.DataArray = np.reciprocal(
-            np.sqrt(np.square(dtheta_dx) + np.square(dtheta_dy) + np.square(dtheta_dz))
+            np.sqrt(np.square(dtheta_dx) + np.square(dtheta_dy) + np.square(dtheta_dz)),
         )  # pyright: ignore[reportAssignmentType]
         # If potential field has no changes, then there will be a division by zero
         inverse_mag_grad_theta = inverse_mag_grad_theta.fillna(0)
@@ -256,7 +256,9 @@ class Frontogenesis2D(Diagnostic):
 
     def _compute(self) -> xr.DataArray:
         dtheta: dict[SpatialGradientKeys, xr.DataArray] = spatial_gradient(
-            self._potential_temperature, "deg", GradientMode.GEOSPATIAL
+            self._potential_temperature,
+            "deg",
+            GradientMode.GEOSPATIAL,
         )
         inverse_mag_grad_theta: xr.DataArray = -np.reciprocal(magnitude_of_vector(dtheta["dfdx"], dtheta["dfdy"]))  # pyright: ignore[reportAssignmentType]
         # If potential field has no changes, then there will be a division by zero
@@ -340,7 +342,9 @@ class Endlich(Diagnostic):
             ).persist()
         else:
             d_direction_d_p_values: np.ndarray = angles_gradient(
-                self._wind_direction.values, z_axis, coord_values=values_in_z_axis
+                self._wind_direction.values,
+                z_axis,
+                coord_values=values_in_z_axis,
             )
             d_direction_d_p: xr.DataArray = self._wind_direction.copy(data=d_direction_d_p_values)
 
@@ -375,7 +379,11 @@ class TurbulenceIndex1(Diagnostic):
     _total_deformation: xr.DataArray
 
     def __init__(
-        self, u_wind: xr.DataArray, v_wind: xr.DataArray, geopotential: xr.DataArray, total_deformation: xr.DataArray
+        self,
+        u_wind: xr.DataArray,
+        v_wind: xr.DataArray,
+        geopotential: xr.DataArray,
+        total_deformation: xr.DataArray,
     ) -> None:
         super().__init__("TI1")
         self._u_wind = u_wind
@@ -553,7 +561,11 @@ class ColsonPanofsky(Diagnostic):
 
     def _compute(self) -> xr.DataArray:
         vws: xr.DataArray = vertical_wind_shear(
-            self._u_wind, self._v_wind, geopotential=self._geopotential, is_abs_velocities=True, is_vws_squared=True
+            self._u_wind,
+            self._v_wind,
+            geopotential=self._geopotential,
+            is_abs_velocities=True,
+            is_vws_squared=True,
         )
         return vws * np.square(self._length_scale) * self._richardson_term
 
@@ -637,7 +649,8 @@ class BruntVaisalaFrequency(Diagnostic):
 
     def _compute(self) -> xr.DataArray:
         d_potential_temperature_dz: xr.DataArray = altitude_derivative_on_pressure_level(
-            self._potential_temperature, self._geopotential
+            self._potential_temperature,
+            self._geopotential,
         )
         # Negative value is to ensure percentile picks up the unstable values
         return -((GRAVITATIONAL_ACCELERATION / self._potential_temperature) * d_potential_temperature_dz)
@@ -888,7 +901,7 @@ class DirectionalShear(Diagnostic):
             ).persist()
         else:
             directional_shear: xr.DataArray = direction.copy(
-                data=angles_gradient(direction.values, z_axis, values_in_z_axis)
+                data=angles_gradient(direction.values, z_axis, values_in_z_axis),
             )
         return np.abs(altitude_derivative_on_pressure_level(directional_shear, self._geopotential))  # pyright: ignore[reportReturnType]
 
@@ -947,7 +960,7 @@ class NestedGridModel2(Diagnostic):
 
     def _compute(self) -> xr.DataArray:
         vertical_temperature_gradient: xr.DataArray = np.abs(
-            altitude_derivative_on_pressure_level(self._temperature, self._geopotential)
+            altitude_derivative_on_pressure_level(self._temperature, self._geopotential),
         )  # pyright: ignore[reportAssignmentType]
         return vertical_temperature_gradient * self._total_deformation
 
@@ -975,7 +988,10 @@ class BrownIndex1(Diagnostic):
     _stretch_deformation: xr.DataArray
 
     def __init__(
-        self, shear_deformation: xr.DataArray, stretch_deformation: xr.DataArray, vorticity: xr.DataArray
+        self,
+        shear_deformation: xr.DataArray,
+        stretch_deformation: xr.DataArray,
+        vorticity: xr.DataArray,
     ) -> None:
         super().__init__("Brown1")
         self._shear_deformation = shear_deformation
@@ -985,7 +1001,7 @@ class BrownIndex1(Diagnostic):
     def _compute(self) -> xr.DataArray:
         abs_vorticity: xr.DataArray = absolute_vorticity(self._vorticity)
         return np.sqrt(
-            0.3 * np.square(abs_vorticity) + np.square(self._shear_deformation) + np.square(self._stretch_deformation)
+            0.3 * np.square(abs_vorticity) + np.square(self._shear_deformation) + np.square(self._stretch_deformation),
         )  # pyright: ignore[reportReturnType]
 
 
@@ -1019,7 +1035,11 @@ class BrownIndex2(Diagnostic):
     _geopotential: xr.DataArray
 
     def __init__(
-        self, u_wind: xr.DataArray, v_wind: xr.DataArray, geopotential: xr.DataArray, brown_index_1: xr.DataArray
+        self,
+        u_wind: xr.DataArray,
+        v_wind: xr.DataArray,
+        geopotential: xr.DataArray,
+        brown_index_1: xr.DataArray,
     ) -> None:
         super().__init__("Brown2")
         self._u_wind = u_wind
@@ -1121,7 +1141,11 @@ class DuttonIndex(Diagnostic):
     _use_dutton: bool
 
     def __init__(
-        self, u_wind: xr.DataArray, v_wind: xr.DataArray, geopotential: xr.DataArray, use_dutton: bool = True
+        self,
+        u_wind: xr.DataArray,
+        v_wind: xr.DataArray,
+        geopotential: xr.DataArray,
+        use_dutton: bool = True,
     ) -> None:
         super().__init__("Dutton Index")
         self._u_wind = u_wind
@@ -1131,10 +1155,16 @@ class DuttonIndex(Diagnostic):
 
     def horizontal_wind_shear(self, speed: xr.DataArray) -> xr.DataArray:
         x_component: xr.DataArray = (self._u_wind / speed) * spatial_gradient(
-            speed, "deg", GradientMode.GEOSPATIAL, dimension=CartesianDimension.Y
+            speed,
+            "deg",
+            GradientMode.GEOSPATIAL,
+            dimension=CartesianDimension.Y,
         )["dfdy"]
         y_component: xr.DataArray = (self._v_wind / speed) * spatial_gradient(
-            speed, "deg", GradientMode.GEOSPATIAL, dimension=CartesianDimension.X
+            speed,
+            "deg",
+            GradientMode.GEOSPATIAL,
+            dimension=CartesianDimension.X,
         )["dfdx"]
         # Follows Sharman definition of horizontal wind shear
         # return x_component - y_component
@@ -1239,7 +1269,10 @@ class DiagnosticFactory:
                 return Endlich(self._data.u_wind(), self._data.v_wind(), self._data.geopotential())
             case TurbulenceDiagnostics.TI1:
                 return TurbulenceIndex1(
-                    self._data.u_wind(), self._data.v_wind(), self._data.geopotential(), self._data.total_deformation()
+                    self._data.u_wind(),
+                    self._data.v_wind(),
+                    self._data.geopotential(),
+                    self._data.total_deformation(),
                 )
             case TurbulenceDiagnostics.TI2:
                 return TurbulenceIndex2(
@@ -1302,16 +1335,23 @@ class DiagnosticFactory:
                 return NestedGridModel1(self._data.u_wind(), self._data.v_wind(), self._data.total_deformation())
             case TurbulenceDiagnostics.NGM2:
                 return NestedGridModel2(
-                    self._data.temperature(), self._data.geopotential(), self._data.total_deformation()
+                    self._data.temperature(),
+                    self._data.geopotential(),
+                    self._data.total_deformation(),
                 )
             case TurbulenceDiagnostics.BROWN1:
                 return BrownIndex1(
-                    self._data.shear_deformation(), self._data.stretching_deformation(), self._data.vorticity()
+                    self._data.shear_deformation(),
+                    self._data.stretching_deformation(),
+                    self._data.vorticity(),
                 )
             case TurbulenceDiagnostics.BROWN2:
                 brown1: Diagnostic = self.create(TurbulenceDiagnostics.BROWN1)
                 return BrownIndex2(
-                    self._data.u_wind(), self._data.v_wind(), self._data.geopotential(), brown1.computed_value
+                    self._data.u_wind(),
+                    self._data.v_wind(),
+                    self._data.geopotential(),
+                    brown1.computed_value,
                 )
             case TurbulenceDiagnostics.NVA:
                 return NegativeVorticityAdvection(self._data.u_wind(), self._data.v_wind(), self._data.vorticity())
@@ -1338,7 +1378,8 @@ class DiagnosticSuite:
         }
 
     def computed_values(
-        self, progress_description: str
+        self,
+        progress_description: str,
     ) -> Generator[tuple["DiagnosticName", "xr.DataArray"], None, None]:
         for name, diagnostic in (
             track(self._diagnostics.items(), description=progress_description)
@@ -1363,7 +1404,8 @@ class CalibrationDiagnosticSuite(DiagnosticSuite):
         super().__init__(factory, diagnostics)
 
     def compute_thresholds(
-        self, percentile_config: "TurbulenceThresholds"
+        self,
+        percentile_config: "TurbulenceThresholds",
     ) -> Mapping["DiagnosticName", "TurbulenceThresholds"]:
         return {
             name: TurbulenceIntensityThresholds(percentile_config, diagnostic).execute()
@@ -1374,7 +1416,7 @@ class CalibrationDiagnosticSuite(DiagnosticSuite):
         return {
             name: DiagnosticHistogramDistribution(diagnostic).execute()
             for name, diagnostic in self.computed_values(
-                "Computing distribution parameters"
+                "Computing distribution parameters",
             )  # DiagnosticName, xr.DataArray
         }
 
@@ -1436,7 +1478,7 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
                     self._threshold_mode,
                 ).execute()
                 for name, diagnostic in self.computed_values(
-                    "Computing probability of encountering turbulence of a given severity"
+                    "Computing probability of encountering turbulence of a given severity",
                 )
             }
             return self._probabilities

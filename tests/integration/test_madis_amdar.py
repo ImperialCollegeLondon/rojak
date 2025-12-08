@@ -14,12 +14,18 @@ if TYPE_CHECKING:
 
 def test_climatological_edr(retrieve_single_day_madis_data):
     spatial_domain = SpatialDomain(
-        minimum_latitude=-90, maximum_latitude=90, minimum_longitude=-180, maximum_longitude=180, grid_size=0.25
+        minimum_latitude=-90,
+        maximum_latitude=90,
+        minimum_longitude=-180,
+        maximum_longitude=180,
+        grid_size=0.25,
     )
     acars_data: AcarsAmdarTurbulenceData = cast(
         "AcarsAmdarTurbulenceData",
         AcarsAmdarRepository(str(retrieve_single_day_madis_data)).to_amdar_turbulence_data(
-            spatial_domain, 0.25, [175, 200, 225, 250, 300, 350]
+            spatial_domain,
+            0.25,
+            [175, 200, 225, 250, 300, 350],
         ),
     )
     edr_distribution = acars_data.edr_distribution()
@@ -42,7 +48,7 @@ def test_repartition_parquet_files(retrieve_single_day_madis_data, tmp_path_fact
             "repartition",
             "-r",
             "-d",
-            f"{str(retrieve_single_day_madis_data)}/",
+            f"{retrieve_single_day_madis_data!s}/",
             "-o",
             str(output_dir),
             "-p",
