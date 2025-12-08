@@ -10,9 +10,11 @@ from rojak.orchestrator.configuration import Context as ConfigContext
 from rojak.orchestrator.configuration import TurbulenceEvaluationPhaseOption
 from rojak.orchestrator.turbulence import TurbulenceLauncher
 from rojak.plot.turbulence_plotter import (
-    StandardColourMaps,
     chain_diagnostic_names,
     create_configurable_multi_diagnostic_plot,
+)
+from rojak.plot.utilities import (
+    StandardColourMaps,
     get_a_default_cmap,
 )
 
