@@ -88,7 +88,7 @@ In this configuration file,
         phases:
             calibration_phases:
                 calibration_config:
-                    calibration_data_dir: met_data/era5/calibration_data
+                    calibration_data_dir: met_data/met_data/era5/calibration_data
                     percentile_thresholds:
                         light: 97.0
                         light_to_moderate: 99.1
@@ -103,7 +103,7 @@ In this configuration file,
                     - probabilities
                     - edr
                 evaluation_config:
-                    evaluation_data_dir: met_data/era5/evaluation_data
+                    evaluation_data_dir: met_data/met_data/era5/evaluation_data
 
 This configuration can be launched using the command below,
 
@@ -162,14 +162,14 @@ the domain can be limited (like in :numref:`edr-snapshot-fig`) by specifying it 
         phases:
             calibration_phases:
                 calibration_config:
-                    calibration_data_dir: met_data/era5/calibration_data
+                    calibration_data_dir: met_data/met_data/era5/calibration_data
                 phases:
                     - histogram
             evaluation_phases:
                 phases:
                     - edr
                 evaluation_config:
-                    evaluation_data_dir: met_data/era5/evaluation_data
+                    evaluation_data_dir: met_data/era5/met_data/evaluation_data
 
 .. note::
 
