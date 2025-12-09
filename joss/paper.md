@@ -39,8 +39,8 @@ In order to mitigate this safety risk, CAT diagnostics are used to forecast turb
 `rojak` is a parallelised Python library and command-line tool for using meteorological data to forecast CAT and evaluating the effectiveness of CAT diagnostics against turbulence observations.
 Currently, it supports,
 
-1. Computing turbulence diagnostics on meteorological data from European Centre for Medium-Range Weather Forecasts's (ECMWF) ERA5 reanalysis on pressure levels [@hersbach2023era5]. Moreover, it is easily extendable through a software update to support other types of meteorological data.
-2. Retrieving and processing turbulence observations from Aircraft Meteorological Data Relay (AMDAR) data archived at National Oceanic and Atmospheric Administration (NOAA)[@NCEPMeteorologicalAssimilation] and AMDAR data collected via the Met Office MetDB system [@ukmoAmdar]
+1. Computing turbulence diagnostics on meteorological data from the European Centre for Medium-Range Weather Forecasts's (ECMWF) ERA5 reanalysis on pressure levels [@hersbach2023era5]. Moreover, it is easily extendable through a software update to support other types of meteorological data.
+2. Retrieving and processing turbulence observations from Aircraft Meteorological Data Relay (AMDAR) data archived at the National Oceanic and Atmospheric Administration (NOAA)[@NCEPMeteorologicalAssimilation] and AMDAR data collected via the Met Office MetDB system [@ukmoAmdar]
 3. Computing 27 different turbulence diagnostics, such as the three-dimensional frontogenesis equation [@bluesteinSynopticdynamicMeteorologyMidlatitudes1993], turbulence index 1 and 2 [@ellrodObjectiveClearAirTurbulence1992], negative vorticity advection [@sharmanIntegratedApproachMid2006], and Brown's Richardson tendency equation [@brownNewIndicesLocate1973].
 4. Converting turbulence diagnostic values into the eddy dissipation rate (EDR) --- the International Civil Aviation Organization's (ICAO) official metric for reporting turbulence [@icaoAnnex3]
 
@@ -52,14 +52,14 @@ The name of the package, `rojak`, is inspired by its wide range turbulence diagn
 # Statement of need
 
 
-Numerous studies have investigated the influence of the climate on CAT [e.g. @kimGlobalResponseUpperlevel2023; @williamsIncreasedLightModerate2017; @storerGlobalResponseClearAir2017] and the application of turbulence diagnostics for operational forecasting [e.g. @gillObjectiveVerificationWorld2014; @sharmanIntegratedApproachMid2006; @sharmanPredictionEnergyDissipation2017; @gillEnsembleBasedTurbulence2014] in products like the Federal Aviation Authority's (FAA) Graphical Turbulence Guidance and the International Civil Aviation Organization's (ICAO) World Area Forecast System.
+Numerous studies have investigated the influence of the climate on CAT [e.g. @kimGlobalResponseUpperlevel2023; @williamsIncreasedLightModerate2017; @storerGlobalResponseClearAir2017] and the application of turbulence diagnostics for operational forecasting [e.g. @gillObjectiveVerificationWorld2014; @sharmanIntegratedApproachMid2006; @sharmanPredictionEnergyDissipation2017; @gillEnsembleBasedTurbulence2014] in products like the Federal Aviation Authority's (FAA) Graphical Turbulence Guidance and the ICAO World Area Forecast System.
 However, to the best of the author's knowledge, none of these studies have made their code publicly available. This work presents the first open-source package for aviation turbulence analysis.
 Given the inherent complexity of CAT diagnostics and the variability in how these could be implemented, `rojak` serves as a first iteration of a standardised implementation of these CAT diagnostics, providing a basis for future enhancements and refinements by the broader research community.
 Moreover, the parallelised nature of `rojak` and its architecture, which keeps it open to extensions, positions it as as an indispensable resource to bridging this gap.
 
 ![Probability of encountering light turbulence during the months December, January, February from 2018 to 2024 at 200 hPa for the three-dimensional frontogenesis (F3D) and turbulence index 1 (TI1) diagnostics \label{fig:probability_light_turbulence}](multi_diagnostic_f3d_ti1_on_200_light.png)
 
-When compared against an earlier time periods, \autoref{fig:probability_light_turbulence} can be used to characterising CAT's response to climate change.
+When compared against earlier time periods, \autoref{fig:probability_light_turbulence} can be used to characterise CAT's response to climate change.
 Depicted in the figure is the global climatological distribution of the probability of encountering light turbulence for the boreal winter months (i.e., December, January and February) from 2018 to 2024 at 200 hPa based on the two turbulence diagnostics --- the three-dimensional frontogenesis equation and turbulence index 1. This was computed using ERA5 data at 6-hourly intervals with three pressure levels (175 hPa, 200 hPa and 225 hPa) for the aforementioned time period.
 This required processing 85GB of ERA5 data.
 Thus, when the probability of encountering light turbulence in \autoref{fig:probability_light_turbulence} is compared against data from pre-industrial times, similar to @storerGlobalResponseClearAir2017, it can show the influence of climate change.
@@ -70,7 +70,7 @@ In this instance, it is an implementation of the methodology described in @willi
 
 Similarly, \autoref{fig:edr} demonstrates the application of `rojak` for operational turbulence forecasting.
 By employing the methodology described in @sharmanPredictionEnergyDissipation2017, `rojak` is able to convert three-dimensional frontogenesis and turbulence index 1 diagnostics into EDR.
-\autoref{fig:edr} shows the 6-hour turbulence forecast on the 1st of December 2024 at 00:00 GMT which can be used for flight trajectory planning to avoid turbulent regions.
+\autoref{fig:edr} shows the 6-hour turbulence forecast on the 1st of December 2024 at 00:00 GMT, which can be used for flight trajectory planning to avoid turbulent regions.
 The full range of features, including the details and references, are contained within the documentation of `rojak`.
 
 In the context of operational forecasting [e.g. methods detailed in @gillObjectiveVerificationWorld2014; @sharmanIntegratedApproachMid2006; and @pearsonPredictionEnergyDissipation2017], the comparison of turbulence diagnostics computed from meteorological data against observational data is a fundamental component. The statistical nature of using an ensemble of turbulence diagnostics which has an optimal balance of a low false positive and false negative rate mandates it.
