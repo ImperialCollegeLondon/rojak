@@ -36,7 +36,7 @@ Aviation turbulence is atmospheric turbulence occurring at length scales large e
 Clear air turbulence (CAT) is a form of aviation turbulence which cannot be detected by the onboard weather radar. Thus, pilots are unable to preemptively avoid such regions.
 In order to mitigate this safety risk, CAT diagnostics are used to forecast turbulent regions such that pilots are able to tactically avoid them.
 
-`rojak` is a parallelised python library and command-line tool for using meteorological data to forecast CAT and evaluating the effectiveness of CAT diagnostics against turbulence observations.
+`rojak` is a parallelised Python library and command-line tool for using meteorological data to forecast CAT and evaluating the effectiveness of CAT diagnostics against turbulence observations.
 Currently, it supports,
 
 1. Computing turbulence diagnostics on meteorological data from European Centre for Medium-Range Weather Forecasts's (ECMWF) ERA5 reanalysis on pressure levels [@hersbach2023era5]. Moreover, it is easily extendable through a software update to support other types of meteorological data.
@@ -78,7 +78,7 @@ The architecture of `rojak` enables it to seamlessly integrate various sources o
 `rojak` also contains a command-line interface tool which can be launched to perform a variety of aviation turbulence analyses and to retrieve the meteorological and observation data from the various data providers.
 
 In terms of the calculations performed upon the meteorological data, `MetPy` [@mayMetPyPythonPackage2016] has the greatest similarity to `rojak`. However, it does not natively support `Dask` [@manserSupportDaskArrays]. Given the size of the datasets to be processed, this presented a significant issue.
-Moreover, `MeyPy` does not implement the calculations required by the turbulence diagnostics.
+Moreover, `MetPy` does not implement the calculations required by the turbulence diagnostics.
 
 # Acknowledgements
 
