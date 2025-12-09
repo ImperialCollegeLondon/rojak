@@ -9,18 +9,21 @@ authors:
     surname: Wong
     orcid: 0009-0006-2314-2660
     corresponding: true
-    affiliation: "1, 2"
+    affiliation: "1, 2, 3"
   - name: Rafael Palacios
-    affiliation: 1
+    affiliation: "1, 2"
     orcid: 0000-0002-6706-3220
   - name: Edward Gryspeerdt
     orcid: 0000-0002-3815-4756
-    affiliation: 2
+    affiliation: 3
 affiliations:
   - index: 1
     name: Department of Aeronautics, Imperial College London, United Kingdom
     ror: 041kmwe10
   - index: 2
+    name: Brahmal Vasudevan Institute for Sustainable Aviation, Imperial College London, United Kingdom
+    ror: 041kmwe10
+  - index: 3
     name: Department of Physics, Imperial College London, United Kingdom
     ror: 041kmwe10
 date: 22 July 2025
@@ -36,7 +39,7 @@ In order to mitigate this safety risk, CAT diagnostics are used to forecast turb
 `rojak` is a parallelised python library and command-line tool for using meteorological data to forecast CAT and evaluating the effectiveness of CAT diagnostics against turbulence observations.
 Currently, it supports,
 
-1. Computing turbulence diagnostics on meteorological data from European Centre for Medium-Range Weather Forecasts's (ECMWF) ERA5 reanalysis on pressure levels [@hersbach2023era5]. Moreover, it is easily extendable to support other types of meteorological data.
+1. Computing turbulence diagnostics on meteorological data from European Centre for Medium-Range Weather Forecasts's (ECMWF) ERA5 reanalysis on pressure levels [@hersbach2023era5]. Moreover, it is easily extendable through a software update to support other types of meteorological data.
 2. Retrieving and processing turbulence observations from Aircraft Meteorological Data Relay (AMDAR) data archived at National Oceanic and Atmospheric Administration (NOAA)[@NCEPMeteorologicalAssimilation] and AMDAR data collected via the Met Office MetDB system [@ukmoAmdar]
 3. Computing 27 different turbulence diagnostics, such as the three-dimensional frontogenesis equation [@bluesteinSynopticdynamicMeteorologyMidlatitudes1993], turbulence index 1 and 2 [@ellrodObjectiveClearAirTurbulence1992], negative vorticity advection [@sharmanIntegratedApproachMid2006], and Brown's Richardson tendency equation [@brownNewIndicesLocate1973].
 4. Converting turbulence diagnostic values into the eddy dissipation rate (EDR) --- the International Civil Aviation Organization's (ICAO) official metric for reporting turbulence [@icaoAnnex3]
@@ -56,9 +59,10 @@ Moreover, the parallelised nature of `rojak` and its architecture, which keeps i
 
 ![Probability of encountering light turbulence during the months December, January, February from 2018 to 2024 at 200 hPa for the three-dimensional frontogenesis (F3D) and turbulence index 1 (TI1) diagnostics \label{fig:probability_light_turbulence}](multi_diagnostic_f3d_ti1_on_200_light.png)
 
-\autoref{fig:probability_light_turbulence} demonstrates the application of `rojak` for characterising CAT's response to climate change.
+When compared against an earlier time periods, \autoref{fig:probability_light_turbulence} can be used to characterising CAT's response to climate change.
 Depicted in the figure is the global climatological distribution of the probability of encountering light turbulence for the boreal winter months (i.e., December, January and February) from 2018 to 2024 at 200 hPa based on the two turbulence diagnostics --- the three-dimensional frontogenesis equation and turbulence index 1. This was computed using ERA5 data at 6-hourly intervals with three pressure levels (175 hPa, 200 hPa and 225 hPa) for the aforementioned time period.
 This required processing 85GB of ERA5 data.
+Thus, when the probability of encountering light turbulence in \autoref{fig:probability_light_turbulence} is compared against data from pre-industrial times, similar to @storerGlobalResponseClearAir2017, it can show the influence of climate change.
 The methodology employed by `rojak` for determining the presence of turbulence and the equations for the various turbulence diagnostics is derived from the existing aviation meteorology literature on turbulence.
 In this instance, it is an implementation of the methodology described in @williamsCanClimateModel2022.
 
@@ -76,10 +80,9 @@ The architecture of `rojak` enables it to seamlessly integrate various sources o
 In terms of the calculations performed upon the meteorological data, `MetPy` [@mayMetPyPythonPackage2016] has the greatest similarity to `rojak`. However, it does not natively support `Dask` [@manserSupportDaskArrays]. Given the size of the datasets to be processed, this presented a significant issue.
 Moreover, `MeyPy` does not implement the calculations required by the turbulence diagnostics.
 
-
 # Acknowledgements
 
-We gratefully acknowledge the Brahmal Vasudevan Institute for Sustainable Aviation at Imperial College London for funding this research and to the maintainers of the various scientific Python packages which `rojak` depends upon, such as `NumPy` [@harris2020array], `xarray` [@hoyer2017xarray], `Pandas` [@pandas], `GeoPandas` [@kelsey_jordahl_2020_3946761],  and `SciPy` [@virtanenSciPy10Fundamental2020].
+We gratefully acknowledge the Brahmal Vasudevan Institute for Sustainable Aviation at Imperial College London for funding this research.
 
 # References
 
