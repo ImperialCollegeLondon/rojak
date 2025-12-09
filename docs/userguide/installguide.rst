@@ -45,6 +45,8 @@ If you'd like the latest changes, ``rojak`` can be installed from source_
     $ cd rojak
     $ pip install -e .
 
+If you intend to run the tests and build the documentation, you will need to install `git lfs <https://git-lfs.com/>`__.
+
 To use ``rojak`` as a CLI tool that's installed from source_, the final command will need to be modified to,
 
 .. code-block::
