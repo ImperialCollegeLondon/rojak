@@ -1,3 +1,4 @@
+import warnings
 from collections import namedtuple
 from typing import TYPE_CHECKING
 
@@ -12,7 +13,7 @@ from rojak.core.data import AmdarTurbulenceData
 from rojak.orchestrator.configuration import DiagnosticValidationCondition
 from rojak.turbulence.diagnostic import DiagnosticSuite
 from rojak.turbulence.verification import DiagnosticsAmdarDataHarmoniser
-from tests.conftest import time_window_dummy_coordinate
+from tests.conftest import time_window_dummy_coordinate, time_window_for_cat_data
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
@@ -252,6 +253,88 @@ def test_grid_turbulence_observation_frequency_simple(
     )
 
 
+@pytest.mark.parametrize("min_edr", [0, 0.1, 0.22, 0.5, 1])
+def test_grid_turbulence_observation_frequency_multiple_chunks(
+    mocker: "MockerFixture", load_cat_data, client, instantiate_diagnostic_amdar_data_harmoniser, min_edr: float
+) -> None:
+    suite_mock = instantiate_diagnostic_amdar_data_harmoniser.suite_mock
+    harmoniser: DiagnosticsAmdarDataHarmoniser = instantiate_diagnostic_amdar_data_harmoniser.harmoniser
+    cat_data: CATData = load_cat_data(None, with_chunks=True)
+
+    rand_generator = np.random.default_rng()
+    num_points: int = 30
+    indices: dict[str, np.ndarray] = {
+        "lat_index": rand_generator.integers(0, high=cat_data.u_wind()["latitude"].size, size=num_points),
+        "lon_index": rand_generator.integers(0, high=cat_data.u_wind()["longitude"].size, size=num_points),
+        "level_index": rand_generator.integers(0, high=cat_data.u_wind()["pressure_level"].size, size=num_points),
+        "time_index": rand_generator.integers(0, high=cat_data.u_wind()["time"].size, size=num_points),
+    }
+    index_into_dataset = [
+        {
+            "latitude": indices["lat_index"][index],
+            "longitude": indices["lon_index"][index],
+            "pressure_level": indices["level_index"][index],
+            "time": indices["time_index"][index],
+        }
+        for index in range(num_points)
+    ]
+
+    mean: float = -3
+    std_dev: float = 1
+    indices["maxEDR"] = rand_generator.lognormal(mean=mean, sigma=std_dev, size=num_points)
+    indices["medEDR"] = rand_generator.lognormal(mean=mean, sigma=std_dev, size=num_points)
+
+    observational_data = dd.from_pandas(pd.DataFrame(indices), npartitions=10)
+    coords_of_obs_mock = mocker.patch.object(
+        harmoniser,
+        "_coordinates_of_observations",
+        return_value={
+            "lat_index": observational_data["lat_index"].to_dask_array(lengths=True),
+            "lon_index": observational_data["lon_index"].to_dask_array(lengths=True),
+            "level_index": observational_data["level_index"].to_dask_array(lengths=True),
+            "time_index": observational_data["time_index"].to_dask_array(lengths=True),
+        },
+    )
+
+    get_prototype_mock = mocker.patch.object(
+        suite_mock, "get_prototype_computed_diagnostic", return_value=cat_data.u_wind()
+    )
+    get_observational_data_mock = mocker.patch.object(
+        harmoniser, "_get_observational_data", return_value=observational_data
+    )
+
+    conditions: list[DiagnosticValidationCondition] = [
+        DiagnosticValidationCondition(observed_turbulence_column_name="maxEDR", value_greater_than=min_edr),
+        DiagnosticValidationCondition(observed_turbulence_column_name="medEDR", value_greater_than=min_edr),
+    ]
+
+    computed: xr.Dataset = harmoniser.grid_turbulence_observation_frequency(time_window_for_cat_data(), conditions)
+    get_prototype_mock.assert_called_once()
+    get_observational_data_mock.assert_called_once()
+    coords_of_obs_mock.assert_called_once()
+
+    desired_data_vars: dict[str, xr.DataArray] = {
+        cond.observed_turbulence_column_name: xr.zeros_like(cat_data.u_wind()) for cond in conditions
+    }
+    for i, index in enumerate(index_into_dataset):
+        for cond in conditions:
+            desired_data_vars[cond.observed_turbulence_column_name][index] = (
+                indices[cond.observed_turbulence_column_name][i] > min_edr
+            )
+
+    for condition in conditions:
+        col_name: str = condition.observed_turbulence_column_name
+        np.testing.assert_array_equal(
+            computed[col_name].sum(dim="time").compute().data.todense(),
+            desired_data_vars[col_name].sum(dim="time"),
+        )
+        np.testing.assert_array_equal(
+            computed[col_name].data.map_blocks(lambda block: block.todense()), desired_data_vars[col_name]
+        )
+        computed[col_name].data = computed[col_name].data.map_blocks(lambda block: block.todense())
+        xr.testing.assert_equal(computed[col_name], desired_data_vars[col_name])
+
+
 def test_grid_total_observation_count(
     mocker: "MockerFixture", make_dummy_cat_data, instantiate_diagnostic_amdar_data_harmoniser
 ) -> None:
@@ -295,3 +378,56 @@ def test_grid_total_observation_count(
 
     computed = computed.data.map_blocks(lambda block: block.todense()).compute()
     np.testing.assert_array_equal(computed, desired)
+
+
+def test_grid_total_observation_count_with_chunks(
+    mocker: "MockerFixture", load_cat_data, client, instantiate_diagnostic_amdar_data_harmoniser
+) -> None:
+    suite_mock = instantiate_diagnostic_amdar_data_harmoniser.suite_mock
+    harmoniser: DiagnosticsAmdarDataHarmoniser = instantiate_diagnostic_amdar_data_harmoniser.harmoniser
+    cat_data: CATData = load_cat_data(None, with_chunks=True)
+
+    rand_generator = np.random.default_rng()
+    num_points: int = 30
+    indices: dict[str, np.ndarray] = {
+        "lat_index": rand_generator.integers(0, high=cat_data.u_wind()["latitude"].size, size=num_points),
+        "lon_index": rand_generator.integers(0, high=cat_data.u_wind()["longitude"].size, size=num_points),
+        "level_index": rand_generator.integers(0, high=cat_data.u_wind()["pressure_level"].size, size=num_points),
+        "time_index": rand_generator.integers(0, high=cat_data.u_wind()["time"].size, size=num_points),
+    }
+    observational_data = dd.from_pandas(pd.DataFrame(indices), npartitions=10)
+    coords_of_obs_mock = mocker.patch.object(
+        harmoniser,
+        "_coordinates_of_observations",
+        return_value={
+            "lat_index": observational_data["lat_index"].to_dask_array(lengths=True),
+            "lon_index": observational_data["lon_index"].to_dask_array(lengths=True),
+            "level_index": observational_data["level_index"].to_dask_array(lengths=True),
+            "time_index": observational_data["time_index"].to_dask_array(lengths=True),
+        },
+    )
+
+    get_prototype_mock = mocker.patch.object(
+        suite_mock, "get_prototype_computed_diagnostic", return_value=cat_data.u_wind()
+    )
+
+    computed = harmoniser.grid_total_observations_count(time_window_for_cat_data())
+    get_prototype_mock.assert_called_once()
+    coords_of_obs_mock.assert_called_once()
+
+    desired: xr.DataArray = xr.zeros_like(cat_data.u_wind(), dtype=int)
+    for index in range(num_points):
+        desired[
+            {
+                "latitude": indices["lat_index"][index],
+                "longitude": indices["lon_index"][index],
+                "pressure_level": indices["level_index"][index],
+                "time": indices["time_index"][index],
+            }
+        ] = 1
+
+    # Ignore sending large graph warning
+    warnings.filterwarnings("ignore", category=UserWarning, module="distributed")
+    assert sparse.all(computed.data == desired.to_numpy())
+
+    np.testing.assert_array_equal(computed.data.map_blocks(lambda block: block.todense()), desired)

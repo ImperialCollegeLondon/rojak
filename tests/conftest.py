@@ -90,6 +90,10 @@ def load_era5_data() -> Callable:
     return _load_era5_data
 
 
+def time_window_for_cat_data() -> Limits["np.datetime64"]:
+    return Limits(np.datetime64("2018-08-01T00"), np.datetime64("2018-08-01T18"))
+
+
 @pytest.fixture
 def load_cat_data(load_era5_data) -> Callable:
     def _load_cat_data(domain: SpatialDomain | None, with_chunks: bool = False) -> "CATData":

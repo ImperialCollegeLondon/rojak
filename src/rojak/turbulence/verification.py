@@ -65,6 +65,30 @@ def get_dataframe_dtypes(data_frame: "dd.DataFrame") -> dict[str, pd.Series]:
     return {col_name: pd.Series(dtype=col_dtype) for col_name, col_dtype in data_frame.dtypes.to_dict().items()}
 
 
+def to_coo_array(
+    coordinates: da.Array,
+    data_at_coords: da.Array,
+    output_dtype: np.dtype,
+    resulting_shape: tuple[int, ...],
+    resulting_chunks: tuple[tuple[int, ...], ...] | int | str,
+    fill_value: float | int | None,
+    axis_to_drop: list[int] | None = None,
+) -> da.Array:
+    instantiate_coo = functools.partial(sparse.COO, shape=resulting_shape, fill_value=fill_value)
+
+    def to_coo(coords_: da.Array, data_: da.Array) -> sparse.COO:
+        return instantiate_coo(coords_, data_)
+
+    if axis_to_drop is None:
+        axis_to_drop = list(range(coordinates.ndim))
+
+    as_coo: sparse.COO = da.map_blocks(
+        to_coo, coordinates, data_at_coords, dtype=output_dtype, drop_axis=axis_to_drop
+    ).compute()
+
+    return da.from_array(as_coo, chunks=resulting_chunks)  # pyright: ignore[reportArgumentType]
+
+
 class DiagnosticsAmdarDataHarmoniser:
     """
     Class brings together the turbulence diagnostics computed from meteorological data and AMDAR observational data
@@ -293,24 +317,23 @@ class DiagnosticsAmdarDataHarmoniser:
         assert gridded_coordinates.shape[0] == grid_prototype.ndim, (
             "Shape of gridded coordinates must be in (ndim, nnz) for sparse COO matrix"
         )
+        target_chunks: tuple[tuple[int, ...], ...] | None = grid_prototype.chunks
+        assert target_chunks is not None
 
         as_coo: dict[str, da.Array] = {
-            condition.observed_turbulence_column_name: da.map_blocks(
-                lambda coords_, was_observed, output_shape: sparse.COO(
-                    coords=coords_, data=was_observed, shape=output_shape
-                ),
+            condition.observed_turbulence_column_name: to_coo_array(
                 gridded_coordinates,
                 (
                     observational_data[condition.observed_turbulence_column_name] > condition.value_greater_than
                 ).to_dask_array(lengths=True),
-                grid_prototype.shape,
                 # Returns a count of the number of times turbulence was observed at each grid point
-                dtype=int,
+                np.dtype(np.int_),
+                grid_prototype.shape,
+                target_chunks,
+                0,
                 # Arrays being mapped over have shape (4, n), both axes need to be dropped as the shape of the
                 # resulting array needs to match (n_lon, n_lat, n_level, n_time)
-                drop_axis=[0, 1],
-                # Make the chunking of the resulting array must be the same as the diagnostic
-                chunks=grid_prototype.chunks,
+                axis_to_drop=[0, 1],
             )
             for condition in positive_obs_condition
         }
@@ -339,18 +362,20 @@ class DiagnosticsAmdarDataHarmoniser:
         assert gridded_coordinates.shape[0] == grid_prototype.ndim, (
             "Shape of gridded coordinates must be in (ndim, nnz) for sparse COO matrix"
         )
+        target_chunks: tuple[tuple[int, ...], ...] | None = grid_prototype.chunks
+        assert target_chunks is not None
 
         return xr.DataArray(
-            data=da.map_blocks(
-                lambda coords_, count, output_shape: sparse.COO(coords=coords_, data=count, shape=output_shape),
+            data=to_coo_array(
                 gridded_coordinates,
                 # Chunks of gridded coords is in the shape of ((chunks_for_ndim), (chunks_for_length))
                 # So, for the ones array, use chunks of length dimension
                 da.ones(gridded_coordinates.shape[1], dtype=int, chunks=gridded_coordinates.chunks[1]),
+                np.dtype(np.int_),
                 grid_prototype.shape,
-                dtype=int,
-                drop_axis=[0, 1],
-                chunks=grid_prototype.chunks,
+                target_chunks,
+                0,
+                axis_to_drop=[0, 1],
             ),
             coords=grid_prototype.coords,
             dims=grid_prototype.dims,
