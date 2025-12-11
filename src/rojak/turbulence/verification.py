@@ -351,6 +351,65 @@ class DiagnosticsAmdarDataHarmoniser:
             coords=grid_prototype.coords,
         )
 
+    def grid_positive_turb_observations(
+        self, time_window: "Limits[np.datetime64]", positive_obs_condition: "list[DiagnosticValidationCondition]"
+    ) -> xr.Dataset:
+        grid_prototype: xr.DataArray = self._get_grid_prototype(time_window)
+        # target_columns = [cond.observed_turbulence_column_name for cond in positive_obs_condition] + [
+        #     "longitude",
+        #     "latitude",
+        #     "datetime",
+        #     "level",
+        # ]
+        # observational_data: dd.DataFrame = self._get_observational_data(time_window)[target_columns]
+        observational_data: dd.DataFrame = self._get_observational_data(time_window)
+
+        coordinates: da.Array = self._get_gridded_coordinates(observational_data, grid_prototype, stack_on_axis=1).T
+        # assert coordinates.shape[1] == grid_prototype.ndim, "Shape of coordinates should be (nnz, ndim)"
+
+        data_variables: dict[str, xr.DataArray] = {}
+        for condition in positive_obs_condition:
+            was_observed: da.Array = (
+                observational_data[condition.observed_turbulence_column_name] > condition.value_greater_than
+            ).to_dask_array(lengths=True)
+
+            positive_obs_idx: da.Array = da.ravel_multi_index(
+                coordinates[:, da.flatnonzero(was_observed)], grid_prototype.shape
+            )
+            positive_obs_idx.compute_chunk_sizes()
+
+            data_for_da: da.Array
+            if positive_obs_idx.size > 0:
+                positive_obs_idx = positive_obs_idx.persist()
+
+                data_for_da: da.Array = da.zeros(grid_prototype.shape, dtype=np.int_).ravel().persist()
+                data_for_da[positive_obs_idx] = 1  # pyright: ignore[reportIndexIssue]
+
+                # Logic for adding the number of observations up
+                # pyright: ignore[reportGeneralTypeIssues]
+                # unique_values, unique_counts = da.unique(positive_obs_idx, return_counts=True)
+                # # Arrays have unknown sizes so evaluate them
+                # unique_counts = unique_counts.compute_chunk_sizes()
+                # unique_values = unique_values.compute_chunk_sizes()
+                # multiple_obs_mask = (unique_counts > 1).compute_chunk_sizes()
+                # multiple_obs_idx = unique_values[multiple_obs_mask].compute_chunk_sizes()
+                # if multiple_obs_idx.size > 0:
+                #     data_for_da[multiple_obs_idx] = unique_counts[multiple_obs_idx]
+                # test_grid_turbulence_observation_frequency_multiple_chunks
+
+                # pyright - false positive on there not being the mreshape method on dask.Array
+                data_for_da = data_for_da.reshape(grid_prototype.shape)  # pyright: ignore[reportAttributeAccessIssue]
+            else:
+                data_for_da = da.zeros(grid_prototype.shape)
+
+            data_variables[condition.observed_turbulence_column_name] = xr.DataArray(
+                data=data_for_da.persist(),
+                coords=grid_prototype.coords,
+                dims=grid_prototype.dims,
+            )
+
+        return xr.Dataset(data_vars=data_variables, coords=grid_prototype.coords)
+
     def grid_total_observations_count(self, time_window: "Limits[np.datetime64]") -> xr.DataArray:
         grid_prototype: xr.DataArray = self._get_grid_prototype(time_window)
         observational_data: dd.DataFrame = self._get_observational_data(time_window)
