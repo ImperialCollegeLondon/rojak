@@ -16,6 +16,7 @@ import functools
 import logging
 from collections import defaultdict
 from collections.abc import Callable, Generator
+from enum import Enum, auto
 from typing import TYPE_CHECKING, ClassVar, Literal, assert_never, cast
 
 import dask.array as da
@@ -87,6 +88,186 @@ def to_coo_array(
     ).compute()
 
     return da.from_array(as_coo, chunks=resulting_chunks)  # pyright: ignore[reportArgumentType]
+
+
+class IndexingFormat(Enum):
+    COORDINATES = auto()
+    FLAT = auto()
+
+
+class AmdarDataHarmoniser:
+    _observational_data: dd.DataFrame
+    _grid_prototype: xr.DataArray
+
+    _time_coord: str
+    _level_coord: str
+    _latitude_coord: str
+    _longitude_coord: str
+    _coordinate_axes: list[str]
+    _time_window_delta: np.timedelta64
+
+    latitude_column: ClassVar[str] = "latitude"
+    longitude_column: ClassVar[str] = "longitude"
+    time_column: ClassVar[str] = "datetime"
+    level_column: ClassVar[str] = "level"
+
+    lat_index_column: ClassVar[str] = "lat_index"
+    lon_index_column: ClassVar[str] = "lon_index"
+    time_index_column: ClassVar[str] = "time_index"
+    level_index_column: ClassVar[str] = "level_index"
+
+    def __init__(  # noqa: PLR0913
+        self,
+        amdar_data: "AmdarTurbulenceData",
+        grid_prototype: xr.DataArray,
+        time_window: "Limits[np.datetime64]",
+        time_coord: str = "time",
+        level_coord: str = "pressure_level",
+        latitude_coord: str = "latitude",
+        longitude_coord: str = "longitude",
+        time_window_delta: np.timedelta64 | None = None,
+    ) -> None:
+        if time_window.lower < grid_prototype[time_coord].min() or time_window.upper > grid_prototype[time_coord].max():
+            raise NotWithinTimeFrameError("Time window is not within time coordinate of met data")
+
+        required_coords: set[str] = {longitude_coord, latitude_coord, time_coord, level_coord}
+        assert required_coords.issubset(grid_prototype.coords)
+        assert required_coords.issubset(grid_prototype.dims)
+        assert grid_prototype.ndim == len(required_coords)
+
+        self._observational_data = amdar_data.clip_to_time_window(time_window).persist()
+        self._grid_prototype = grid_prototype
+
+        self._time_coord = time_coord
+        self._level_coord = level_coord
+        self._latitude_coord = latitude_coord
+        self._longitude_coord = longitude_coord
+        self._coordinate_axes = list(required_coords)
+        if time_window_delta is None:
+            self._time_window_delta = np.timedelta64(3, "h")
+        else:
+            self._time_window_delta = time_window_delta
+
+    def coordinates_of_observations(self) -> dict[str, da.Array]:
+        level_index: da.Array = cast(
+            "da.Array",
+            map_values_to_nearest_index_irregular_grid(
+                self._observational_data[self.level_column], self._grid_prototype[self._level_coord].values
+            ),
+        )
+        latitude_index: da.Array = self._observational_data.map_partitions(
+            lambda df: map_values_to_nearest_coordinate_index(
+                df[self.latitude_column],
+                self._grid_prototype[self._latitude_coord].values,
+            ),
+            # Specifying meta this way resolves this error,
+            #   AttributeError: 'DataFrame' object has no attribute 'name'
+            meta=(self.lat_index_column, int),
+        ).to_dask_array(lengths=True)
+        longitude_index: da.Array = self._observational_data.map_partitions(
+            lambda df: map_values_to_nearest_coordinate_index(
+                df[self.longitude_column],
+                self._grid_prototype[self._longitude_coord].values,
+            ),
+            meta=(self.lon_index_column, int),
+        ).to_dask_array(lengths=True)
+        time_index: da.Array = self._observational_data.map_partitions(
+            lambda df: map_values_to_nearest_coordinate_index(
+                df[self.time_column],
+                self._grid_prototype[self._time_coord].values,
+                valid_window=self._time_window_delta,
+            ),
+            meta=(self.time_index_column, int),
+        ).to_dask_array(lengths=True)
+        return {
+            self.level_index_column: level_index,
+            self.lat_index_column: latitude_index,
+            self.lon_index_column: longitude_index,
+            self.time_index_column: time_index,
+        }
+
+    def observations_index_to_grid(self, indexing_format: IndexingFormat, stack_on_axis: int | None = None) -> da.Array:
+        coords_of_observation: dict[str, da.Array] = self.coordinates_of_observations()
+
+        map_coord_axes_to_columns: dict[str, str] = {
+            self._longitude_coord: self.lon_index_column,
+            self._latitude_coord: self.lat_index_column,
+            self._time_coord: self.time_index_column,
+            self._level_coord: self.level_index_column,
+        }
+        # Retrieves the index for each row of data and stores them as dask arrays
+        indexing_columns: list[da.Array] = [
+            coords_of_observation[map_coord_axes_to_columns[coord_name]] for coord_name in self._coordinate_axes
+        ]
+
+        axis_order: list[int] = list(self._grid_prototype.get_axis_num(self._coordinate_axes))
+        # Order of coordinate axes are not known beforehand. Therefore, use the axis order so that the index
+        # values matches the dimension of the array
+        in_order_of_array_coords: list[da.Array] = map_order(indexing_columns, axis_order)
+
+        match indexing_format:
+            case IndexingFormat.COORDINATES:
+                if stack_on_axis is None:
+                    raise TypeError("stack_on_axis cannot be None, if coordinates are to be returned")
+                # Combine the coordinates on the specified axis
+                return da.stack(in_order_of_array_coords, axis=stack_on_axis)
+            case IndexingFormat.FLAT:
+                # Combine them such that coordinates contains [(x1, y1, z1, t1), ..., (xn, yn, zn, tn)] which are the
+                # values to slices from the computed diagnostic
+                coordinates: da.Array = da.stack(in_order_of_array_coords, axis=1)
+                return da.ravel_multi_index(coordinates.T, self._grid_prototype.shape)
+            case _ as unreachable:
+                assert_never(unreachable)
+
+    def has_observation(self) -> xr.DataArray:
+        raveled_index: da.Array = self.observations_index_to_grid(IndexingFormat.FLAT)
+        store_into: da.Array = da.zeros(self._grid_prototype.size, dtype=bool).persist()
+
+        if raveled_index.size > 0:
+            store_into[raveled_index] = True  # pyright:ignore[reportIndexIssue]
+
+        store_into = store_into.reshape(self._grid_prototype.shape).rechunk(self._grid_prototype.chunks)  # pyright: ignore[reportAttributeAccessIssue]
+
+        return xr.DataArray(
+            data=store_into,
+            coords=self._grid_prototype.coords,
+            dims=self._grid_prototype.dims,
+            name="number_of_observations",
+        )
+
+    def grid_has_postitive_turbulence_observation(
+        self, positive_obs_condition: "list[DiagnosticValidationCondition]"
+    ) -> xr.Dataset:
+        assert {condition.observed_turbulence_column_name for condition in positive_obs_condition}.issubset(
+            self._observational_data.columns
+        )
+        raveled_index: da.Array = self.observations_index_to_grid(IndexingFormat.FLAT)
+
+        data_vars: dict[str, xr.DataArray] = {}
+        for condition in positive_obs_condition:
+            was_observed: da.Array = (
+                self._observational_data[condition.observed_turbulence_column_name] > condition.value_greater_than
+            ).to_dask_array(lengths=True)
+            positive_obs_idx: da.Array = raveled_index[da.flatnonzero(was_observed)]
+            positive_obs_idx.compute_chunk_sizes()  # pyright: ignore[reportAttributeAccessIssue]
+
+            store_into_dataarray: da.Array = da.zeros(self._grid_prototype.size, dtype=bool).persist()
+            if positive_obs_idx.size > 0:
+                positive_obs_idx = positive_obs_idx.persist()
+                store_into_dataarray[positive_obs_idx] = True  # pyright: ignore[reportIndexIssue]
+
+            store_into_dataarray = store_into_dataarray.reshape(self._grid_prototype.shape).rechunk(  # pyright:ignore[reportAttributeAccessIssue]
+                self._grid_prototype.chunks
+            )
+
+            data_vars[condition.observed_turbulence_column_name] = xr.DataArray(
+                data=store_into_dataarray,
+                coords=self._grid_prototype.coords,
+                dims=self._grid_prototype.dims,
+                name=condition.observed_turbulence_column_name,
+            )
+
+        return xr.Dataset(data_vars=data_vars, coords=self._grid_prototype.coords)
 
 
 class DiagnosticsAmdarDataHarmoniser:
