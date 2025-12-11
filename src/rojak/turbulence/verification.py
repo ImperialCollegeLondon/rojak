@@ -256,7 +256,7 @@ class AmdarDataHarmoniser:
             name="number_of_observations",
         )
 
-    def grid_has_postitive_turbulence_observation(
+    def grid_has_positive_turbulence_observation(
         self, positive_obs_condition: "list[DiagnosticValidationCondition]"
     ) -> xr.Dataset:
         assert {condition.observed_turbulence_column_name for condition in positive_obs_condition}.issubset(
