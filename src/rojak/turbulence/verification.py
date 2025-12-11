@@ -169,14 +169,18 @@ class AmdarDataHarmoniser:
         else:
             self._time_window_delta = time_window_delta
 
+    @property
+    def observational_data(self) -> dd.DataFrame:
+        return self._observational_data
+
     def coordinates_of_observations(self) -> ObservationCoordinates:
         level_index: da.Array = cast(
             "da.Array",
             map_values_to_nearest_index_irregular_grid(
-                self._observational_data[self.level_column], self._grid_prototype[self._level_coord].values
+                self.observational_data[self.level_column], self._grid_prototype[self._level_coord].values
             ),
         )
-        latitude_index: dd.Series = self._observational_data.map_partitions(
+        latitude_index: dd.Series = self.observational_data.map_partitions(
             lambda df: map_values_to_nearest_coordinate_index(
                 df[self.latitude_column],
                 self._grid_prototype[self._latitude_coord].values,
@@ -185,14 +189,14 @@ class AmdarDataHarmoniser:
             #   AttributeError: 'DataFrame' object has no attribute 'name'
             meta=(self.lat_index_column, int),
         )
-        longitude_index: dd.Series = self._observational_data.map_partitions(
+        longitude_index: dd.Series = self.observational_data.map_partitions(
             lambda df: map_values_to_nearest_coordinate_index(
                 df[self.longitude_column],
                 self._grid_prototype[self._longitude_coord].values,
             ),
             meta=(self.lon_index_column, int),
         )
-        time_index: dd.Series = self._observational_data.map_partitions(
+        time_index: dd.Series = self.observational_data.map_partitions(
             lambda df: map_values_to_nearest_coordinate_index(
                 df[self.time_column],
                 self._grid_prototype[self._time_coord].values,
@@ -260,14 +264,14 @@ class AmdarDataHarmoniser:
         self, positive_obs_condition: "list[DiagnosticValidationCondition]"
     ) -> xr.Dataset:
         assert {condition.observed_turbulence_column_name for condition in positive_obs_condition}.issubset(
-            self._observational_data.columns
+            self.observational_data.columns
         )
         raveled_index: da.Array = self.observations_index_to_grid(IndexingFormat.FLAT)
 
         data_vars: dict[str, xr.DataArray] = {}
         for condition in positive_obs_condition:
             was_observed: da.Array = (
-                self._observational_data[condition.observed_turbulence_column_name] > condition.value_greater_than
+                self.observational_data[condition.observed_turbulence_column_name] > condition.value_greater_than
             ).to_dask_array(lengths=True)
             positive_obs_idx: da.Array = raveled_index[da.flatnonzero(was_observed)]
             positive_obs_idx.compute_chunk_sizes()  # pyright: ignore[reportAttributeAccessIssue]
