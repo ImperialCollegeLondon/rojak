@@ -17,7 +17,7 @@ import logging
 from collections import defaultdict
 from collections.abc import Callable, Generator
 from enum import Enum, auto
-from typing import TYPE_CHECKING, ClassVar, Literal, assert_never, cast
+from typing import TYPE_CHECKING, ClassVar, Literal, NamedTuple, assert_never, cast
 
 import dask.array as da
 import dask.dataframe as dd
@@ -90,6 +90,27 @@ def to_coo_array(
     return da.from_array(as_coo, chunks=resulting_chunks)  # pyright: ignore[reportArgumentType]
 
 
+class ObservationCoordinates(NamedTuple):
+    vertical_index: da.Array
+    latitude_index: dd.Series
+    longitude_index: dd.Series
+    time_index: dd.Series
+
+    def as_arrays(
+        self,
+        lat_index_key: str = "lat_index",
+        lon_index_key: str = "lon_index",
+        vertical_index_key: str = "level_index",
+        time_index_key: str = "time_index",
+    ) -> dict[str, da.Array]:
+        return {
+            lon_index_key: self.latitude_index.to_dask_array(lengths=True),
+            lat_index_key: self.longitude_index.to_dask_array(lengths=True),
+            time_index_key: self.time_index.to_dask_array(lengths=True),
+            vertical_index_key: self.vertical_index,
+        }
+
+
 class IndexingFormat(Enum):
     COORDINATES = auto()
     FLAT = auto()
@@ -148,14 +169,14 @@ class AmdarDataHarmoniser:
         else:
             self._time_window_delta = time_window_delta
 
-    def coordinates_of_observations(self) -> dict[str, da.Array]:
+    def coordinates_of_observations(self) -> ObservationCoordinates:
         level_index: da.Array = cast(
             "da.Array",
             map_values_to_nearest_index_irregular_grid(
                 self._observational_data[self.level_column], self._grid_prototype[self._level_coord].values
             ),
         )
-        latitude_index: da.Array = self._observational_data.map_partitions(
+        latitude_index: dd.Series = self._observational_data.map_partitions(
             lambda df: map_values_to_nearest_coordinate_index(
                 df[self.latitude_column],
                 self._grid_prototype[self._latitude_coord].values,
@@ -163,31 +184,31 @@ class AmdarDataHarmoniser:
             # Specifying meta this way resolves this error,
             #   AttributeError: 'DataFrame' object has no attribute 'name'
             meta=(self.lat_index_column, int),
-        ).to_dask_array(lengths=True)
-        longitude_index: da.Array = self._observational_data.map_partitions(
+        )
+        longitude_index: dd.Series = self._observational_data.map_partitions(
             lambda df: map_values_to_nearest_coordinate_index(
                 df[self.longitude_column],
                 self._grid_prototype[self._longitude_coord].values,
             ),
             meta=(self.lon_index_column, int),
-        ).to_dask_array(lengths=True)
-        time_index: da.Array = self._observational_data.map_partitions(
+        )
+        time_index: dd.Series = self._observational_data.map_partitions(
             lambda df: map_values_to_nearest_coordinate_index(
                 df[self.time_column],
                 self._grid_prototype[self._time_coord].values,
                 valid_window=self._time_window_delta,
             ),
             meta=(self.time_index_column, int),
-        ).to_dask_array(lengths=True)
-        return {
-            self.level_index_column: level_index,
-            self.lat_index_column: latitude_index,
-            self.lon_index_column: longitude_index,
-            self.time_index_column: time_index,
-        }
+        )
+        return ObservationCoordinates(
+            level_index,
+            latitude_index,
+            longitude_index,
+            time_index,
+        )
 
     def observations_index_to_grid(self, indexing_format: IndexingFormat, stack_on_axis: int | None = None) -> da.Array:
-        coords_of_observation: dict[str, da.Array] = self.coordinates_of_observations()
+        coords_of_observation: dict[str, da.Array] = self.coordinates_of_observations().as_arrays()
 
         map_coord_axes_to_columns: dict[str, str] = {
             self._longitude_coord: self.lon_index_column,
