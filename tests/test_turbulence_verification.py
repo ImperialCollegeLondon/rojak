@@ -1,6 +1,8 @@
 import warnings
 from collections import namedtuple
-from typing import TYPE_CHECKING
+from collections.abc import Callable
+from enum import Enum, auto
+from typing import TYPE_CHECKING, assert_never
 
 import dask.dataframe as dd
 import numpy as np
@@ -12,10 +14,11 @@ import xarray as xr
 from rojak.core.data import AmdarTurbulenceData
 from rojak.orchestrator.configuration import DiagnosticValidationCondition
 from rojak.turbulence.diagnostic import DiagnosticSuite
-from rojak.turbulence.verification import DiagnosticsAmdarDataHarmoniser
+from rojak.turbulence.verification import AmdarDataHarmoniser, DiagnosticsAmdarDataHarmoniser, ObservationCoordinates
 from tests.conftest import time_window_dummy_coordinate, time_window_for_cat_data
 
 if TYPE_CHECKING:
+    import dask.array as da
     from pytest_mock import MockerFixture
 
     from rojak.core.data import CATData
@@ -23,6 +26,8 @@ if TYPE_CHECKING:
 DataHarmoniserAndMocks = namedtuple(
     "DataHarmoniserAndMocks", ["harmoniser", "suite_mock", "diagnostic_names_mock", "amdar_data_mock"]
 )
+
+TestCaseValues = namedtuple("TestCaseValues", ["index_into_dataset", "observational_data"])
 
 
 @pytest.fixture
@@ -32,6 +37,94 @@ def instantiate_diagnostic_amdar_data_harmoniser(mocker: "MockerFixture") -> Dat
     amdar_data_mock = mocker.Mock(spec=AmdarTurbulenceData)
     harmoniser = DiagnosticsAmdarDataHarmoniser(amdar_data_mock, suite_mock)
     return DataHarmoniserAndMocks(harmoniser, suite_mock, diagnostic_names_mock, amdar_data_mock)
+
+
+class TestCaseSize(Enum):
+    SMALL = auto()
+    LARGE = auto()
+
+
+@pytest.fixture
+def get_test_case(load_cat_data) -> Callable[[TestCaseSize], TestCaseValues]:
+    def _get_test_case(size: TestCaseSize) -> TestCaseValues:
+        rand_generator = np.random.default_rng()
+        match size:
+            case TestCaseSize.SMALL:
+                index_into_dataset = [
+                    {"latitude": 0, "longitude": 2, "pressure_level": 2, "time": 0},
+                    {"latitude": 1, "longitude": 5, "pressure_level": 1, "time": 0},
+                    {"latitude": 2, "longitude": 8, "pressure_level": 3, "time": 1},
+                ]
+                edr_values = rand_generator.lognormal(-3, 1, size=3)
+                observational_data: dd.DataFrame = dd.from_pandas(
+                    pd.DataFrame(
+                        {
+                            "lat_index": list(range(3)),
+                            "lon_index": [2, 5, 8],
+                            "level_index": [2, 1, 3],
+                            "time_index": [0, 0, 1],
+                            "maxEDR": edr_values,
+                            "medEDR": edr_values,
+                        },
+                    ),
+                    npartitions=2,
+                )
+                return TestCaseValues(index_into_dataset, observational_data)
+            case TestCaseSize.LARGE:
+                cat_data: CATData = load_cat_data(None, with_chunks=True)
+                num_points: int = 30
+                indices: dict[str, np.ndarray] = {
+                    "lat_index": rand_generator.integers(0, high=cat_data.u_wind()["latitude"].size, size=num_points),
+                    "lon_index": rand_generator.integers(0, high=cat_data.u_wind()["longitude"].size, size=num_points),
+                    "level_index": rand_generator.integers(
+                        0, high=cat_data.u_wind()["pressure_level"].size, size=num_points
+                    ),
+                    "time_index": rand_generator.integers(0, high=cat_data.u_wind()["time"].size, size=num_points),
+                }
+                index_into_dataset = [
+                    {
+                        "latitude": indices["lat_index"][index],
+                        "longitude": indices["lon_index"][index],
+                        "pressure_level": indices["level_index"][index],
+                        "time": indices["time_index"][index],
+                    }
+                    for index in range(num_points)
+                ]
+
+                mean: float = -3
+                std_dev: float = 1
+                indices["maxEDR"] = rand_generator.lognormal(mean=mean, sigma=std_dev, size=num_points)
+                indices["medEDR"] = rand_generator.lognormal(mean=mean, sigma=std_dev, size=num_points)
+
+                observational_data: dd.DataFrame = dd.from_pandas(pd.DataFrame(indices), npartitions=10)
+                return TestCaseValues(index_into_dataset, observational_data)
+            case _ as unreachable:
+                assert_never(unreachable)
+
+    return _get_test_case
+
+
+@pytest.mark.parametrize("case_size", [TestCaseSize.SMALL, TestCaseSize.LARGE])
+def test_observation_coordinates_as_arrays(get_test_case, case_size: TestCaseSize) -> None:
+    case = get_test_case(case_size)
+    coords: ObservationCoordinates = ObservationCoordinates(
+        case.observational_data["level_index"].to_dask_array(lengths=True),
+        case.observational_data["lat_index"],
+        case.observational_data["lon_index"],
+        case.observational_data["time_index"],
+    )
+
+    index_col_names = [
+        AmdarDataHarmoniser.level_index_column,
+        AmdarDataHarmoniser.time_index_column,
+        AmdarDataHarmoniser.lat_index_column,
+        AmdarDataHarmoniser.lon_index_column,
+    ]
+    as_arrays: dict[str, da.Array] = coords.as_arrays()
+    for col_name in index_col_names:
+        np.testing.assert_array_equal(
+            as_arrays[col_name], case.observational_data[col_name].to_dask_array(lengths=True)
+        )
 
 
 def test_create_nearest_diagnostic_value_series_dummy_data(
