@@ -105,8 +105,8 @@ class ObservationCoordinates(NamedTuple):
         time_index_key: str = "time_index",
     ) -> dict[str, da.Array]:
         return {
-            lon_index_key: self.latitude_index.to_dask_array(lengths=True),
-            lat_index_key: self.longitude_index.to_dask_array(lengths=True),
+            lon_index_key: self.longitude_index.to_dask_array(lengths=True),
+            lat_index_key: self.latitude_index.to_dask_array(lengths=True),
             time_index_key: self.time_index.to_dask_array(lengths=True),
             vertical_index_key: self.vertical_index,
         }
