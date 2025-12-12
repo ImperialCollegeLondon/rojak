@@ -10,7 +10,10 @@ import pytest
 import xarray as xr
 
 from rojak.core.data import AmdarTurbulenceData
-from rojak.orchestrator.configuration import DiagnosticValidationCondition
+from rojak.orchestrator.configuration import (
+    DiagnosticValidationCondition,
+    SpatialGroupByStrategy,
+)
 from rojak.turbulence.verification import (
     AmdarDataHarmoniser,
     DiagnosticsAmdarVerification,
@@ -343,3 +346,46 @@ class TestDiagnosticAmdarVerification:
 
         pd.testing.assert_series_equal(with_diagnostics["f3d"].compute(), f3d_values)
         pd.testing.assert_series_equal(with_diagnostics["def"].compute(), def_values)
+
+    # NOTE: Only checks that this method runs and the total is correct. It does NOT establish whether the grouping is
+    # correct
+    @pytest.mark.parametrize("groupby_strategy", [item.value for item in SpatialGroupByStrategy])
+    @pytest.mark.parametrize("min_edr", [0, 0.1, 0.22, 0.5, 1])
+    @pytest.mark.parametrize("case_size", possible_test_case_sizes)
+    def test_num_obs_per_has_correct_total(
+        self,
+        mocker: "MockerFixture",
+        case_size: TestCaseSize,
+        min_edr: float,
+        groupby_strategy: SpatialGroupByStrategy,
+        load_cat_data,
+        get_test_case,
+        client,
+    ) -> None:
+        case: TestCaseValues = get_test_case(case_size)
+        amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
+
+        cat_data: CATData = load_cat_data(None, with_chunks=True)
+        data_harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
+            amdar_turb_data_mock, cat_data.u_wind(), time_window_for_cat_data()
+        )
+        get_coords_mock = mocker.patch.object(
+            data_harmoniser,
+            "coordinates_of_observations",
+            return_value=coords_of_obs_return_value(case.observational_data),
+        )
+
+        diagnostics_mock: xr.Dataset = xr.Dataset(
+            data_vars={"f3d": cat_data.u_wind(), "def": cat_data.total_deformation()}
+        )
+        verifier: DiagnosticsAmdarVerification = DiagnosticsAmdarVerification(data_harmoniser, diagnostics_mock)
+
+        conditions: list[DiagnosticValidationCondition] = [
+            DiagnosticValidationCondition(observed_turbulence_column_name="maxEDR", value_greater_than=min_edr),
+            DiagnosticValidationCondition(observed_turbulence_column_name="medEDR", value_greater_than=min_edr),
+        ]
+
+        number_of_observations: dd.DataFrame = verifier.num_obs_per(conditions, groupby_strategy)
+        get_coords_mock.assert_called()
+
+        assert number_of_observations["num_obs"].sum().compute() == len(case.index_into_dataset)

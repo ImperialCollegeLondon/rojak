@@ -508,10 +508,6 @@ class DiagnosticsAmdarVerification:
                 assert_never(unreachable)
 
     @staticmethod
-    def _get_partition_level_values(partition: pd.Index, level_name: str) -> pd.Index:
-        return partition.get_level_values(level_name)
-
-    @staticmethod
     def _concat_columns_as_str(data_frame: dd.DataFrame, column_names: list[str], separator: str = "_") -> dd.Series:
         multi_index_columns = [data_frame[col_name].astype(str) for col_name in column_names]
         return functools.reduce(lambda left, right: left + separator + right, multi_index_columns)
@@ -522,14 +518,17 @@ class DiagnosticsAmdarVerification:
         grouped_columns: list[str],
         trigger_reset_index: bool,
     ) -> dd.DataFrame:
-        data_frame = data_frame.map_partitions(
-            lambda df: df.assign(
+        # Converted lambda to named function and inlined the static method as running it in pytest threw a
+        # tokenisation error from dask
+        def assign_grouped_column(data_frame_: pd.DataFrame, grouped_columns_: list[str]) -> pd.DataFrame:
+            return data_frame_.assign(
                 **{
-                    grouped_column: self._get_partition_level_values(df.index, grouped_column)
-                    for grouped_column in grouped_columns
-                },
-            ),
-        )
+                    grouped_column: data_frame_.index.get_level_values(grouped_column)
+                    for grouped_column in grouped_columns_
+                }
+            )
+
+        data_frame = data_frame.map_partitions(assign_grouped_column, grouped_columns)
 
         if self.grid_box_column in set(grouped_columns) and trigger_reset_index:
             # set_index is an expensive operation due to the shuffles it triggers
