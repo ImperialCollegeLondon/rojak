@@ -133,22 +133,22 @@ def test_observation_coordinates_as_arrays(get_test_case, case_size: TestCaseSiz
         )
 
 
+def coords_of_obs_return_value(obs_data: dd.DataFrame) -> ObservationCoordinates:
+    return ObservationCoordinates(
+        obs_data["level_index"].to_dask_array(lengths=True),
+        obs_data["lat_index"],
+        obs_data["lon_index"],
+        obs_data["time_index"],
+    )
+
+
+def amdar_data_mock(mocker: "MockerFixture", obs_data: "dd.DataFrame") -> AmdarTurbDataMock:
+    amdar_turb_data_mock = mocker.Mock(spec=AmdarTurbulenceData)
+    df_mock = mocker.patch.object(amdar_turb_data_mock, "clip_to_time_window", return_value=obs_data)
+    return AmdarTurbDataMock(amdar_turb_data_mock, df_mock)
+
+
 class TestAmdarDataHarmoniser:
-    @staticmethod
-    def amdar_data_mock(mocker: "MockerFixture", obs_data: "dd.DataFrame") -> AmdarTurbDataMock:
-        amdar_data_mock = mocker.Mock(spec=AmdarTurbulenceData)
-        df_mock = mocker.patch.object(amdar_data_mock, "clip_to_time_window", return_value=obs_data)
-        return AmdarTurbDataMock(amdar_data_mock, df_mock)
-
-    @staticmethod
-    def coords_of_obs_return_value(obs_data: dd.DataFrame) -> ObservationCoordinates:
-        return ObservationCoordinates(
-            obs_data["level_index"].to_dask_array(lengths=True),
-            obs_data["lat_index"],
-            obs_data["lon_index"],
-            obs_data["time_index"],
-        )
-
     @pytest.mark.parametrize("indexing_format", [IndexingFormat.COORDINATES, IndexingFormat.FLAT])
     @pytest.mark.parametrize("case_size", possible_test_case_sizes)
     def test_observations_index_to_grid_fails(
@@ -161,7 +161,7 @@ class TestAmdarDataHarmoniser:
         client,
     ) -> None:
         case: TestCaseValues = get_test_case(case_size)
-        amdar_turb_data_mock, _ = self.amdar_data_mock(mocker, case.observational_data)
+        amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
         cat_data: CATData = load_cat_data(None, with_chunks=True)
         data_harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
@@ -171,7 +171,7 @@ class TestAmdarDataHarmoniser:
         get_coords_mock = mocker.patch.object(
             data_harmoniser,
             "coordinates_of_observations",
-            return_value=self.coords_of_obs_return_value(case.observational_data),
+            return_value=coords_of_obs_return_value(case.observational_data),
         )
 
         phrase_to_match: str = (
@@ -193,7 +193,7 @@ class TestAmdarDataHarmoniser:
         self, mocker: "MockerFixture", stack_on_axis: int, case_size: TestCaseSize, load_cat_data, get_test_case, client
     ) -> None:
         case: TestCaseValues = get_test_case(case_size)
-        amdar_turb_data_mock, _ = self.amdar_data_mock(mocker, case.observational_data)
+        amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
         cat_data: CATData = load_cat_data(None, with_chunks=True)
         data_harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
@@ -203,7 +203,7 @@ class TestAmdarDataHarmoniser:
         get_coords_mock = mocker.patch.object(
             data_harmoniser,
             "coordinates_of_observations",
-            return_value=self.coords_of_obs_return_value(case.observational_data),
+            return_value=coords_of_obs_return_value(case.observational_data),
         )
 
         assert cat_data.u_wind().get_axis_num(["latitude", "longitude", "time", "pressure_level"]) == (0, 1, 2, 3)
@@ -228,7 +228,7 @@ class TestAmdarDataHarmoniser:
         self, mocker: "MockerFixture", case_size: TestCaseSize, load_cat_data, get_test_case, client
     ) -> None:
         case: TestCaseValues = get_test_case(case_size)
-        amdar_turb_data_mock, _ = self.amdar_data_mock(mocker, case.observational_data)
+        amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
         cat_data: CATData = load_cat_data(None, with_chunks=True)
         data_harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
@@ -238,7 +238,7 @@ class TestAmdarDataHarmoniser:
         get_coords_mock = mocker.patch.object(
             data_harmoniser,
             "coordinates_of_observations",
-            return_value=self.coords_of_obs_return_value(case.observational_data),
+            return_value=coords_of_obs_return_value(case.observational_data),
         )
 
         flattened_idx = data_harmoniser.observations_index_to_grid(IndexingFormat.FLAT)
@@ -251,7 +251,7 @@ class TestAmdarDataHarmoniser:
         self, mocker: "MockerFixture", case_size: TestCaseSize, load_cat_data, get_test_case, client
     ) -> None:
         case: TestCaseValues = get_test_case(case_size)
-        amdar_turb_data_mock, _ = self.amdar_data_mock(mocker, case.observational_data)
+        amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
         cat_data: CATData = load_cat_data(None, with_chunks=True)
         data_harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
@@ -261,7 +261,7 @@ class TestAmdarDataHarmoniser:
         get_coords_mock = mocker.patch.object(
             data_harmoniser,
             "coordinates_of_observations",
-            return_value=self.coords_of_obs_return_value(case.observational_data),
+            return_value=coords_of_obs_return_value(case.observational_data),
         )
 
         desired: xr.DataArray = xr.zeros_like(cat_data.u_wind(), dtype=int)
@@ -281,7 +281,7 @@ class TestAmdarDataHarmoniser:
         self, mocker: "MockerFixture", case_size: TestCaseSize, min_edr: float, load_cat_data, get_test_case, client
     ) -> None:
         case: TestCaseValues = get_test_case(case_size)
-        amdar_turb_data_mock, _ = self.amdar_data_mock(mocker, case.observational_data)
+        amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
         cat_data: CATData = load_cat_data(None, with_chunks=True)
         data_harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
@@ -305,7 +305,7 @@ class TestAmdarDataHarmoniser:
         get_coords_mock = mocker.patch.object(
             data_harmoniser,
             "coordinates_of_observations",
-            return_value=self.coords_of_obs_return_value(case.observational_data),
+            return_value=coords_of_obs_return_value(case.observational_data),
         )
         computed: xr.Dataset = data_harmoniser.grid_has_positive_turbulence_observation(conditions)
         get_coords_mock.assert_called_once()
