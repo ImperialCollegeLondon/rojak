@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 import sparse
 import xarray as xr
+from dask.base import is_dask_collection
 from scipy import integrate
 
 from rojak.core.indexing import (
@@ -173,6 +174,13 @@ class AmdarDataHarmoniser:
     def observational_data(self) -> dd.DataFrame:
         return self._observational_data
 
+    @property
+    def grid_prototype(self) -> xr.DataArray:
+        return self._grid_prototype
+
+    def harmonised_coordinates(self) -> list[str]:
+        return self._coordinate_axes
+
     def coordinates_of_observations(self) -> ObservationCoordinates:
         level_index: da.Array = cast(
             "da.Array",
@@ -293,6 +301,17 @@ class AmdarDataHarmoniser:
             )
 
         return xr.Dataset(data_vars=data_vars, coords=self._grid_prototype.coords)
+
+    def observation_data_with_indices(self) -> dd.DataFrame:
+        coords_of_observation: ObservationCoordinates = self.coordinates_of_observations()
+        return self.observational_data.assign(
+            **{
+                self.level_index_column: coords_of_observation.vertical_index,
+                self.lat_index_column: coords_of_observation.latitude_index,
+                self.lon_index_column: coords_of_observation.latitude_index,
+                self.time_index_column: coords_of_observation.time_index,
+            }
+        )
 
 
 class DiagnosticsAmdarDataHarmoniser:
@@ -759,40 +778,87 @@ class RocVerificationResult:
 
 # Keep this extendable for verification against other forms of data??
 class DiagnosticsAmdarVerification:
-    _data_harmoniser: "DiagnosticsAmdarDataHarmoniser"
+    _data_harmoniser: "AmdarDataHarmoniser"
     _harmonised_data: "dd.DataFrame | None"
-    _time_window: "Limits[np.datetime64]"
+    _turbulence_diagnostics: xr.Dataset
 
-    def __init__(self, data_harmoniser: "DiagnosticsAmdarDataHarmoniser", time_window: "Limits[np.datetime64]") -> None:
+    _grid_box_column: str
+
+    def __init__(
+        self,
+        data_harmoniser: AmdarDataHarmoniser,
+        turbulence_diagnostics: xr.Dataset,
+        grid_box_column: str = "index_right",
+    ) -> None:
+        assert grid_box_column in data_harmoniser.observational_data.columns
+
+        if not set(data_harmoniser.harmonised_coordinates()).issubset(turbulence_diagnostics.coords):
+            raise ValueError(
+                "Coordinates of grid prototype amdar harmonised with does not match turbulence diagnostics"
+            )
+        for harmonised_coord in data_harmoniser.harmonised_coordinates():
+            if not np.issubdtype(turbulence_diagnostics[harmonised_coord].dtype, np.datetime64) and not np.allclose(
+                turbulence_diagnostics[harmonised_coord], data_harmoniser.grid_prototype[harmonised_coord]
+            ):
+                raise ValueError(
+                    "Values of coordinates of grid prototype amdar harmonised are not equal to diagnostics"
+                )
+
+        if not is_dask_collection(turbulence_diagnostics):
+            raise TypeError("Turbulence diagnostics must have dask-backed arrays")
+
         self._data_harmoniser = data_harmoniser
         self._harmonised_data = None
-        self._time_window = time_window
+
+        self._turbulence_diagnostics = turbulence_diagnostics
+        self._grid_box_column = grid_box_column
+
+    def _add_nearest_diagnostic_value(self) -> dd.DataFrame:
+        raveled_index: da.Array = self._data_harmoniser.observations_index_to_grid(IndexingFormat.FLAT).persist()
+        target_dataframe: dd.DataFrame = self._data_harmoniser.observation_data_with_indices().persist()
+        return target_dataframe.assign(
+            **{
+                diagnostic_name: da.ravel(diagnostic_dataarray.data)[raveled_index].to_dask_dataframe(
+                    meta=pd.DataFrame({diagnostic_name: pd.Series(dtype=float)}),
+                    index=target_dataframe.index,
+                    columns=diagnostic_name,
+                )
+                for diagnostic_name, diagnostic_dataarray in self._turbulence_diagnostics.data_vars.items()
+            }
+        )
+
+    @property
+    def harmonised_diagnostics(self) -> list[str]:
+        return list(map(str, self._turbulence_diagnostics.keys()))
+
+    @property
+    def grid_box_column(self) -> str:
+        return self._grid_box_column
 
     @property
     def data(self) -> "dd.DataFrame":
         if self._harmonised_data is None:
-            data: dd.DataFrame = self._data_harmoniser.nearest_diagnostic_value(self._time_window).persist()
-            self._harmonised_data = data
-            return self._harmonised_data
+            self._harmonised_data = self._add_nearest_diagnostic_value().persist()
+        assert isinstance(self._harmonised_data, dd.DataFrame)
         return self._harmonised_data
 
     def _grid_spatial_columns(self, group_by_strategy: SpatialGroupByStrategy) -> list[str]:
         match group_by_strategy:
             case SpatialGroupByStrategy.GRID_BOX:
                 return [
-                    self._data_harmoniser.grid_box_column_name,
-                    self._data_harmoniser.vertical_coordinate_index_column,
+                    self.grid_box_column,
+                    AmdarDataHarmoniser.level_index_column,
                 ]
             case SpatialGroupByStrategy.GRID_POINT:
                 return [
-                    self._data_harmoniser.latitude_index_column,
-                    self._data_harmoniser.longitude_index_column,
-                    self._data_harmoniser.vertical_coordinate_index_column,
+                    AmdarDataHarmoniser.lat_index_column,
+                    AmdarDataHarmoniser.lon_index_column,
+                    AmdarDataHarmoniser.level_index_column,
                 ]
             case SpatialGroupByStrategy.HORIZONTAL_BOX:
-                return [self._data_harmoniser.grid_box_column_name]
+                return [self.grid_box_column]
             case SpatialGroupByStrategy.HORIZONTAL_POINT:
-                return [self._data_harmoniser.latitude_index_column, self._data_harmoniser.longitude_index_column]
+                return [AmdarDataHarmoniser.lat_index_column, AmdarDataHarmoniser.lon_index_column]
             case _ as unreachable:
                 assert_never(unreachable)
 
@@ -820,12 +886,12 @@ class DiagnosticsAmdarVerification:
             ),
         )
 
-        if self._data_harmoniser.grid_box_column_name in set(grouped_columns) and trigger_reset_index:
+        if self.grid_box_column in set(grouped_columns) and trigger_reset_index:
             # set_index is an expensive operation due to the shuffles it triggers
             #   However, this cost has been undertaken as it means that the data can be joined INTO a GeoPandas
             #   grid turning the entire thing into a GeoDataFrame without having to invoke dgpd.from_dask_dataframe.
             #   It also means that the crs will be inherited and not require manual intervention
-            data_frame = data_frame.set_index(data_frame[self._data_harmoniser.grid_box_column_name], drop=True)
+            data_frame = data_frame.set_index(data_frame[self.grid_box_column], drop=True)
         elif trigger_reset_index:
             data_frame = data_frame.reset_index(drop=True)
 
@@ -841,18 +907,18 @@ class DiagnosticsAmdarVerification:
         assert {"pressure_level", "longitude", "latitude"}.issubset(prototype_array.coords)
         index_columns: list[str] = list(
             {
-                self._data_harmoniser.longitude_index_column,
-                self._data_harmoniser.latitude_index_column,
-                self._data_harmoniser.vertical_coordinate_index_column,
+                AmdarDataHarmoniser.lon_index_column,
+                AmdarDataHarmoniser.lat_index_column,
+                AmdarDataHarmoniser.level_index_column,
             }.intersection(grouped_columns),
         )
         if not index_columns:  # set is empty
             return data_frame
 
         col_name_mapping: dict[str, str] = {
-            self._data_harmoniser.longitude_index_column: "longitude",
-            self._data_harmoniser.latitude_index_column: "latitude",
-            self._data_harmoniser.vertical_coordinate_index_column: "pressure_level",
+            AmdarDataHarmoniser.lon_index_column: "longitude",
+            AmdarDataHarmoniser.lat_index_column: "latitude",
+            AmdarDataHarmoniser.level_index_column: "pressure_level",
         }
 
         data_frame_dtypes = get_dataframe_dtypes(data_frame)
@@ -899,7 +965,7 @@ class DiagnosticsAmdarVerification:
         target_data: dd.DataFrame = self.data
         space_columns = self._grid_spatial_columns(group_by_strategy)
         validation_columns = self._get_validation_column_names(validation_conditions)
-        target_cols = space_columns + validation_columns + self._data_harmoniser.harmonised_diagnostics
+        target_cols = space_columns + validation_columns + self.harmonised_diagnostics
         target_data = target_data[target_cols]
 
         # 1) Use the columns that will be used to spatially group the data as the index of the dataframe
@@ -931,7 +997,7 @@ class DiagnosticsAmdarVerification:
             for condition in validation_conditions
         }
         auc_by_diagnostic: dict[str, dd.DataFrame] = {}
-        for diagnostic_name in self._data_harmoniser.harmonised_diagnostics:
+        for diagnostic_name in self.harmonised_diagnostics:
             columns_for_diagnostic: list[str] = [*space_columns, diagnostic_name, *validation_columns]
             data_for_diagnostic: dd.DataFrame = target_data[columns_for_diagnostic]
             # 2) Sort values so that diagnostic is in descending order as required by the ROC calculation
@@ -965,14 +1031,13 @@ class DiagnosticsAmdarVerification:
         self,
         validation_conditions: "list[DiagnosticValidationCondition]",
     ) -> RocVerificationResult:
-        turbulence_diagnostics = self._data_harmoniser.harmonised_diagnostics
+        turbulence_diagnostics = self.harmonised_diagnostics
         validation_columns = self._get_validation_column_names(validation_conditions)
         space_time_columns: list[str] = [
-            # self._data_harmoniser.grid_box_column_name,
-            "lat_index",
-            "lon_index",
-            "level_index",
-            self._data_harmoniser.common_time_column_name,
+            AmdarDataHarmoniser.lat_index_column,
+            AmdarDataHarmoniser.lon_index_column,
+            AmdarDataHarmoniser.level_index_column,
+            AmdarDataHarmoniser.time_index_column,
         ]
         target_columns: list[str] = space_time_columns + turbulence_diagnostics + validation_columns
         target_data = self.data[target_columns]

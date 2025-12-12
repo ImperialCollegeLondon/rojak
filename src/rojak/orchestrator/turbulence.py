@@ -56,7 +56,7 @@ from rojak.turbulence.diagnostic import (
     EvaluationDiagnosticSuite,
 )
 from rojak.turbulence.verification import (
-    DiagnosticsAmdarDataHarmoniser,
+    AmdarDataHarmoniser,
     DiagnosticsAmdarVerification,
 )
 from rojak.utilities.types import DistributionParameters, Limits
@@ -499,16 +499,18 @@ class DiagnosticsAmdarLauncher:
             self._spatial_domain.grid_size,
             diagnostic_suite.get_prototype_computed_diagnostic()["pressure_level"].to_numpy().tolist(),
         )
-        harmoniser = DiagnosticsAmdarDataHarmoniser(amdar_data, diagnostic_suite)
         time_window_as_np_datetime: Limits[np.datetime64] = Limits(
             np.datetime64(self._time_window.lower),
             np.datetime64(self._time_window.upper),
         )
+        harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
+            amdar_data, diagnostic_suite.get_prototype_computed_diagnostic(), time_window_as_np_datetime
+        )
 
         if self._validation_conditions:
             logger.info("Starting validation of diagnostics with amdar data")
-            verifier = DiagnosticsAmdarVerification(harmoniser, time_window_as_np_datetime)
-            chained_names: str = chain_diagnostic_names(harmoniser.harmonised_diagnostics)
+            verifier = DiagnosticsAmdarVerification(harmoniser, diagnostic_suite.as_dataset())
+            chained_names: str = chain_diagnostic_names(diagnostic_suite.diagnostic_names())
 
             if self._group_by_strategy is not None:
                 assert self._aggregation_metric is not None
@@ -529,7 +531,7 @@ class DiagnosticsAmdarLauncher:
                 if not is_agg_by_point:
                     for diagnostic_name in grid_auc:
                         grid_auc[diagnostic_name] = amdar_data.grid.join(grid_auc[diagnostic_name], how="right").drop(
-                            columns=[harmoniser.grid_box_column_name],
+                            columns=[verifier.grid_box_column],
                         )
                     num_observations = amdar_data.grid.join(num_observations, how="right")
                 auc_plots = create_interactive_aggregated_auc_plots(
