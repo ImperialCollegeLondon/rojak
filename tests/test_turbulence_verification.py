@@ -250,6 +250,35 @@ class TestAmdarDataHarmoniser:
         coords_idx = data_harmoniser.observations_index_to_grid(IndexingFormat.COORDINATES, stack_on_axis=1)
         np.testing.assert_array_equal(flattened_idx, np.ravel_multi_index(coords_idx.T, cat_data.u_wind().shape))
 
+    @pytest.mark.parametrize("case_size", possible_test_case_sizes)
+    def test_has_observation(
+        self, mocker: "MockerFixture", case_size: TestCaseSize, load_cat_data, get_test_case, client
+    ) -> None:
+        case: TestCaseValues = get_test_case(case_size)
+        amdar_turb_data_mock, _ = self.amdar_data_mock(mocker, case.observational_data)
+
+        cat_data: CATData = load_cat_data(None, with_chunks=True)
+        data_harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
+            amdar_turb_data_mock, cat_data.u_wind(), time_window_for_cat_data()
+        )
+
+        get_coords_mock = mocker.patch.object(
+            data_harmoniser,
+            "coordinates_of_observations",
+            return_value=self.coords_of_obs_return_value(case.observational_data),
+        )
+
+        desired: xr.DataArray = xr.zeros_like(cat_data.u_wind(), dtype=int)
+        num_points: int = len(case.index_into_dataset)
+        for index in case.index_into_dataset:
+            desired[index] = 1
+
+        was_observed: xr.DataArray = data_harmoniser.has_observation()
+        get_coords_mock.assert_called_once()
+        np.testing.assert_array_equal(was_observed, desired)
+
+        assert was_observed.sum().compute() == num_points
+
 
 def test_create_nearest_diagnostic_value_series_dummy_data(
     mocker: "MockerFixture", make_dummy_cat_data, instantiate_diagnostic_amdar_data_harmoniser
