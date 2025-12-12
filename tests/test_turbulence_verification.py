@@ -304,6 +304,7 @@ class TestAmdarDataHarmoniser:
                 desired_data_vars[col_name].sum(dim="time"),
             )
             np.testing.assert_array_equal(computed[col_name], desired_data_vars[col_name])
+            assert computed[col_name].sum().compute() == np.sum(case.indices[col_name] > min_edr)
 
 
 class TestDiagnosticAmdarVerification:
