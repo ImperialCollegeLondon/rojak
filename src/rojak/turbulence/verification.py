@@ -23,7 +23,6 @@ import dask.array as da
 import dask.dataframe as dd
 import numpy as np
 import pandas as pd
-import sparse
 import xarray as xr
 from dask.base import is_dask_collection
 from scipy import integrate
@@ -64,30 +63,6 @@ class NotWithinTimeFrameError(Exception):
 
 def get_dataframe_dtypes(data_frame: "dd.DataFrame") -> dict[str, pd.Series]:
     return {col_name: pd.Series(dtype=col_dtype) for col_name, col_dtype in data_frame.dtypes.to_dict().items()}
-
-
-def to_coo_array(
-    coordinates: da.Array,
-    data_at_coords: da.Array,
-    output_dtype: np.dtype,
-    resulting_shape: tuple[int, ...],
-    resulting_chunks: tuple[tuple[int, ...], ...] | int | str,
-    fill_value: float | int | None,
-    axis_to_drop: list[int] | None = None,
-) -> da.Array:
-    instantiate_coo = functools.partial(sparse.COO, shape=resulting_shape, fill_value=fill_value)
-
-    def to_coo(coords_: da.Array, data_: da.Array) -> sparse.COO:
-        return instantiate_coo(coords_, data_)
-
-    if axis_to_drop is None:
-        axis_to_drop = list(range(coordinates.ndim))
-
-    as_coo: sparse.COO = da.map_blocks(
-        to_coo, coordinates, data_at_coords, dtype=output_dtype, drop_axis=axis_to_drop
-    ).compute()
-
-    return da.from_array(as_coo, chunks=resulting_chunks)  # pyright: ignore[reportArgumentType]
 
 
 class ObservationCoordinates(NamedTuple):
