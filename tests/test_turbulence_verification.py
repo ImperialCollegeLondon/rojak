@@ -14,7 +14,12 @@ import xarray as xr
 from rojak.core.data import AmdarTurbulenceData
 from rojak.orchestrator.configuration import DiagnosticValidationCondition
 from rojak.turbulence.diagnostic import DiagnosticSuite
-from rojak.turbulence.verification import AmdarDataHarmoniser, DiagnosticsAmdarDataHarmoniser, ObservationCoordinates
+from rojak.turbulence.verification import (
+    AmdarDataHarmoniser,
+    DiagnosticsAmdarDataHarmoniser,
+    IndexingFormat,
+    ObservationCoordinates,
+)
 from tests.conftest import time_window_dummy_coordinate, time_window_for_cat_data
 
 if TYPE_CHECKING:
@@ -29,6 +34,8 @@ DataHarmoniserAndMocks = namedtuple(
 
 TestCaseValues = namedtuple("TestCaseValues", ["index_into_dataset", "observational_data"])
 
+AmdarTurbDataMock = namedtuple("AmdarTurbDataMock", ["amdar_data_mock", "observational_data_mock"])
+
 
 @pytest.fixture
 def instantiate_diagnostic_amdar_data_harmoniser(mocker: "MockerFixture") -> DataHarmoniserAndMocks:
@@ -42,6 +49,9 @@ def instantiate_diagnostic_amdar_data_harmoniser(mocker: "MockerFixture") -> Dat
 class TestCaseSize(Enum):
     SMALL = auto()
     LARGE = auto()
+
+
+possible_test_case_sizes: list[TestCaseSize] = [TestCaseSize.SMALL, TestCaseSize.LARGE]
 
 
 @pytest.fixture
@@ -104,7 +114,7 @@ def get_test_case(load_cat_data) -> Callable[[TestCaseSize], TestCaseValues]:
     return _get_test_case
 
 
-@pytest.mark.parametrize("case_size", [TestCaseSize.SMALL, TestCaseSize.LARGE])
+@pytest.mark.parametrize("case_size", possible_test_case_sizes)
 def test_observation_coordinates_as_arrays(get_test_case, case_size: TestCaseSize) -> None:
     case = get_test_case(case_size)
     coords: ObservationCoordinates = ObservationCoordinates(
@@ -125,6 +135,82 @@ def test_observation_coordinates_as_arrays(get_test_case, case_size: TestCaseSiz
         np.testing.assert_array_equal(
             as_arrays[col_name], case.observational_data[col_name].to_dask_array(lengths=True)
         )
+
+
+class TestAmdarDataHarmoniser:
+    @staticmethod
+    def amdar_data_mock(mocker: "MockerFixture", obs_data: "dd.DataFrame") -> AmdarTurbDataMock:
+        amdar_data_mock = mocker.Mock(spec=AmdarTurbulenceData)
+        df_mock = mocker.patch.object(amdar_data_mock, "clip_to_time_window", return_value=obs_data)
+        return AmdarTurbDataMock(amdar_data_mock, df_mock)
+
+    @staticmethod
+    def coords_of_obs_return_value(obs_data: dd.DataFrame) -> ObservationCoordinates:
+        return ObservationCoordinates(
+            obs_data["level_index"].to_dask_array(lengths=True),
+            obs_data["lat_index"],
+            obs_data["lon_index"],
+            obs_data["time_index"],
+        )
+
+    @pytest.mark.parametrize("case_size", possible_test_case_sizes)
+    def test_observations_index_to_grid_fails(
+        self, mocker: "MockerFixture", case_size: TestCaseSize, load_cat_data, get_test_case
+    ) -> None:
+        case: TestCaseValues = get_test_case(case_size)
+        amdar_turb_data_mock, _ = self.amdar_data_mock(mocker, case.observational_data)
+
+        cat_data: CATData = load_cat_data(None, with_chunks=True)
+        data_harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
+            amdar_turb_data_mock, cat_data.u_wind(), time_window_for_cat_data()
+        )
+
+        get_coords_mock = mocker.patch.object(
+            data_harmoniser,
+            "coordinates_of_observations",
+            return_value=self.coords_of_obs_return_value(case.observational_data),
+        )
+
+        with pytest.raises(TypeError, match="stack_on_axis cannot be None, if coordinates are to be returned"):
+            data_harmoniser.observations_index_to_grid(IndexingFormat.COORDINATES)
+
+        get_coords_mock.assert_called_once()
+
+    @pytest.mark.parametrize("case_size", possible_test_case_sizes)
+    @pytest.mark.parametrize("stack_on_axis", [0, 1])
+    def test_observations_index_to_grid_coords(
+        self, mocker: "MockerFixture", stack_on_axis: int, case_size: TestCaseSize, load_cat_data, get_test_case
+    ) -> None:
+        case: TestCaseValues = get_test_case(case_size)
+        amdar_turb_data_mock, _ = self.amdar_data_mock(mocker, case.observational_data)
+
+        cat_data: CATData = load_cat_data(None, with_chunks=True)
+        data_harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
+            amdar_turb_data_mock, cat_data.u_wind(), time_window_for_cat_data()
+        )
+
+        get_coords_mock = mocker.patch.object(
+            data_harmoniser,
+            "coordinates_of_observations",
+            return_value=self.coords_of_obs_return_value(case.observational_data),
+        )
+
+        assert cat_data.u_wind().get_axis_num(["latitude", "longitude", "time", "pressure_level"]) == (0, 1, 2, 3)
+
+        coords: list[tuple[int, int, int, int]] = [
+            (item["latitude"], item["longitude"], item["time"], item["pressure_level"])
+            for item in case.index_into_dataset
+        ]
+
+        mapped_to_grid_rows = data_harmoniser.observations_index_to_grid(
+            IndexingFormat.COORDINATES, stack_on_axis=stack_on_axis
+        )
+        get_coords_mock.assert_called_once()
+
+        desired: np.ndarray = np.asarray(coords)
+        if stack_on_axis == 0:
+            desired = desired.T
+        np.testing.assert_array_equal(mapped_to_grid_rows, desired)
 
 
 def test_create_nearest_diagnostic_value_series_dummy_data(
