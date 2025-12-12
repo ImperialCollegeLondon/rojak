@@ -1399,7 +1399,9 @@ class DiagnosticSuite:
         return prototype
 
     def as_dataset(self) -> xr.Dataset:
-        return xr.Dataset(data_vars=self.computed_values_as_dict())
+        return xr.Dataset(
+            data_vars=self.computed_values_as_dict(), coords=self.get_prototype_computed_diagnostic().coords
+        )
 
 
 class CalibrationDiagnosticSuite(DiagnosticSuite):
