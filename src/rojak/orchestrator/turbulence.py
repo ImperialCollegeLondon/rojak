@@ -516,7 +516,6 @@ class DiagnosticsAmdarLauncher:
                 assert self._aggregation_metric is not None
                 grid_auc = verifier.aggregate_by_auc(
                     self._validation_conditions,
-                    diagnostic_suite.get_prototype_computed_diagnostic(),
                     self._group_by_strategy,
                     self._min_group_size,
                     self._aggregation_metric,

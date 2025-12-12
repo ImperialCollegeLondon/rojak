@@ -624,7 +624,6 @@ class DiagnosticsAmdarVerification:
     def aggregate_by_auc(
         self,
         validation_conditions: "list[DiagnosticValidationCondition]",
-        prototype_diagnostic: "xr.DataArray",
         group_by_strategy: SpatialGroupByStrategy,
         minimum_group_size: int,
         aggregation_metric: AggregationMetricOption,
@@ -665,7 +664,7 @@ class DiagnosticsAmdarVerification:
             grid_point_auc = self._retrieve_index_column_values(
                 grid_point_auc,
                 space_columns,
-                prototype_diagnostic,
+                self._data_harmoniser.grid_prototype,
                 True,
             )
             auc_by_diagnostic[diagnostic_name] = grid_point_auc.persist()
