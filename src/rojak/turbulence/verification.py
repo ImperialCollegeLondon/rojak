@@ -818,11 +818,13 @@ class DiagnosticsAmdarVerification:
         target_dataframe: dd.DataFrame = self._data_harmoniser.observation_data_with_indices().persist()
         return target_dataframe.assign(
             **{
-                diagnostic_name: da.ravel(diagnostic_dataarray.data)[raveled_index].to_dask_dataframe(
+                diagnostic_name: da.ravel(diagnostic_dataarray.data)[raveled_index]
+                .to_dask_dataframe(
                     meta=pd.DataFrame({diagnostic_name: pd.Series(dtype=float)}),
                     index=target_dataframe.index,
                     columns=diagnostic_name,
                 )
+                .persist()
                 for diagnostic_name, diagnostic_dataarray in self._turbulence_diagnostics.data_vars.items()
             }
         )
