@@ -63,7 +63,7 @@ def get_test_case(load_cat_data) -> Callable[[TestCaseSize], TestCaseValues]:
                 index_into_dataset = [
                     {"latitude": 0, "longitude": 2, "pressure_level": 2, "time": 0},
                     {"latitude": 1, "longitude": 5, "pressure_level": 1, "time": 0},
-                    {"latitude": 2, "longitude": 8, "pressure_level": 3, "time": 1},
+                    {"latitude": 2, "longitude": 8, "pressure_level": 0, "time": 1},
                 ]
                 edr_values = rand_generator.lognormal(-3, 1, size=3)
                 observational_data: dd.DataFrame = dd.from_pandas(
@@ -71,7 +71,7 @@ def get_test_case(load_cat_data) -> Callable[[TestCaseSize], TestCaseValues]:
                         {
                             "lat_index": list(range(3)),
                             "lon_index": [2, 5, 8],
-                            "level_index": [2, 1, 3],
+                            "level_index": [2, 1, 0],
                             "time_index": [0, 0, 1],
                             "maxEDR": edr_values,
                             "medEDR": edr_values,
@@ -153,9 +153,16 @@ class TestAmdarDataHarmoniser:
             obs_data["time_index"],
         )
 
+    @pytest.mark.parametrize("indexing_format", [IndexingFormat.COORDINATES, IndexingFormat.FLAT])
     @pytest.mark.parametrize("case_size", possible_test_case_sizes)
     def test_observations_index_to_grid_fails(
-        self, mocker: "MockerFixture", case_size: TestCaseSize, load_cat_data, get_test_case
+        self,
+        mocker: "MockerFixture",
+        case_size: TestCaseSize,
+        indexing_format: IndexingFormat,
+        load_cat_data,
+        get_test_case,
+        client,
     ) -> None:
         case: TestCaseValues = get_test_case(case_size)
         amdar_turb_data_mock, _ = self.amdar_data_mock(mocker, case.observational_data)
@@ -171,15 +178,23 @@ class TestAmdarDataHarmoniser:
             return_value=self.coords_of_obs_return_value(case.observational_data),
         )
 
-        with pytest.raises(TypeError, match="stack_on_axis cannot be None, if coordinates are to be returned"):
-            data_harmoniser.observations_index_to_grid(IndexingFormat.COORDINATES)
+        phrase_to_match: str = (
+            "stack_on_axis cannot be None"
+            if indexing_format == IndexingFormat.COORDINATES
+            else "stack_on_axis must be None"
+        )
+
+        with pytest.raises(TypeError, match=phrase_to_match):
+            data_harmoniser.observations_index_to_grid(
+                indexing_format, stack_on_axis=None if indexing_format == IndexingFormat.COORDINATES else 0
+            )
 
         get_coords_mock.assert_called_once()
 
     @pytest.mark.parametrize("case_size", possible_test_case_sizes)
     @pytest.mark.parametrize("stack_on_axis", [0, 1])
     def test_observations_index_to_grid_coords(
-        self, mocker: "MockerFixture", stack_on_axis: int, case_size: TestCaseSize, load_cat_data, get_test_case
+        self, mocker: "MockerFixture", stack_on_axis: int, case_size: TestCaseSize, load_cat_data, get_test_case, client
     ) -> None:
         case: TestCaseValues = get_test_case(case_size)
         amdar_turb_data_mock, _ = self.amdar_data_mock(mocker, case.observational_data)
@@ -211,6 +226,29 @@ class TestAmdarDataHarmoniser:
         if stack_on_axis == 0:
             desired = desired.T
         np.testing.assert_array_equal(mapped_to_grid_rows, desired)
+
+    @pytest.mark.parametrize("case_size", possible_test_case_sizes)
+    def test_observations_index_to_grid_ravel_equiv_coords(
+        self, mocker: "MockerFixture", case_size: TestCaseSize, load_cat_data, get_test_case, client
+    ) -> None:
+        case: TestCaseValues = get_test_case(case_size)
+        amdar_turb_data_mock, _ = self.amdar_data_mock(mocker, case.observational_data)
+
+        cat_data: CATData = load_cat_data(None, with_chunks=True)
+        data_harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
+            amdar_turb_data_mock, cat_data.u_wind(), time_window_for_cat_data()
+        )
+
+        get_coords_mock = mocker.patch.object(
+            data_harmoniser,
+            "coordinates_of_observations",
+            return_value=self.coords_of_obs_return_value(case.observational_data),
+        )
+
+        flattened_idx = data_harmoniser.observations_index_to_grid(IndexingFormat.FLAT)
+        get_coords_mock.assert_called_once()
+        coords_idx = data_harmoniser.observations_index_to_grid(IndexingFormat.COORDINATES, stack_on_axis=1)
+        np.testing.assert_array_equal(flattened_idx, np.ravel_multi_index(coords_idx.T, cat_data.u_wind().shape))
 
 
 def test_create_nearest_diagnostic_value_series_dummy_data(

@@ -245,6 +245,8 @@ class AmdarDataHarmoniser:
                 # Combine the coordinates on the specified axis
                 return da.stack(in_order_of_array_coords, axis=stack_on_axis)
             case IndexingFormat.FLAT:
+                if stack_on_axis is not None:
+                    raise TypeError("stack_on_axis must be None, if flattened indices are to be returned")
                 # Combine them such that coordinates contains [(x1, y1, z1, t1), ..., (xn, yn, zn, tn)] which are the
                 # values to slices from the computed diagnostic
                 coordinates: da.Array = da.stack(in_order_of_array_coords, axis=1)
