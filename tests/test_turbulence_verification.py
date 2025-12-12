@@ -32,7 +32,7 @@ DataHarmoniserAndMocks = namedtuple(
     "DataHarmoniserAndMocks", ["harmoniser", "suite_mock", "diagnostic_names_mock", "amdar_data_mock"]
 )
 
-TestCaseValues = namedtuple("TestCaseValues", ["index_into_dataset", "observational_data"])
+TestCaseValues = namedtuple("TestCaseValues", ["index_into_dataset", "observational_data", "indices"])
 
 AmdarTurbDataMock = namedtuple("AmdarTurbDataMock", ["amdar_data_mock", "observational_data_mock"])
 
@@ -66,20 +66,16 @@ def get_test_case(load_cat_data) -> Callable[[TestCaseSize], TestCaseValues]:
                     {"latitude": 2, "longitude": 8, "pressure_level": 0, "time": 1},
                 ]
                 edr_values = rand_generator.lognormal(-3, 1, size=3)
-                observational_data: dd.DataFrame = dd.from_pandas(
-                    pd.DataFrame(
-                        {
-                            "lat_index": list(range(3)),
-                            "lon_index": [2, 5, 8],
-                            "level_index": [2, 1, 0],
-                            "time_index": [0, 0, 1],
-                            "maxEDR": edr_values,
-                            "medEDR": edr_values,
-                        },
-                    ),
-                    npartitions=2,
-                )
-                return TestCaseValues(index_into_dataset, observational_data)
+                indices: dict[str, np.ndarray] = {
+                    "lat_index": np.arange(3),
+                    "lon_index": np.asarray([2, 5, 8]),
+                    "level_index": np.asarray([2, 1, 0]),
+                    "time_index": np.asarray([0, 0, 1]),
+                    "maxEDR": edr_values,
+                    "medEDR": edr_values,
+                }
+                observational_data: dd.DataFrame = dd.from_pandas(pd.DataFrame(indices), npartitions=2)
+                return TestCaseValues(index_into_dataset, observational_data, indices)
             case TestCaseSize.LARGE:
                 cat_data: CATData = load_cat_data(None, with_chunks=True)
                 num_points: int = 30
@@ -107,7 +103,7 @@ def get_test_case(load_cat_data) -> Callable[[TestCaseSize], TestCaseValues]:
                 indices["medEDR"] = rand_generator.lognormal(mean=mean, sigma=std_dev, size=num_points)
 
                 observational_data: dd.DataFrame = dd.from_pandas(pd.DataFrame(indices), npartitions=10)
-                return TestCaseValues(index_into_dataset, observational_data)
+                return TestCaseValues(index_into_dataset, observational_data, indices)
             case _ as unreachable:
                 assert_never(unreachable)
 
@@ -278,6 +274,49 @@ class TestAmdarDataHarmoniser:
         np.testing.assert_array_equal(was_observed, desired)
 
         assert was_observed.sum().compute() == num_points
+
+    @pytest.mark.parametrize("case_size", possible_test_case_sizes)
+    @pytest.mark.parametrize("min_edr", [0, 0.1, 0.22, 0.5, 1])
+    def test_has_positive_turbulence_observation(
+        self, mocker: "MockerFixture", case_size: TestCaseSize, min_edr: float, load_cat_data, get_test_case, client
+    ) -> None:
+        case: TestCaseValues = get_test_case(case_size)
+        amdar_turb_data_mock, _ = self.amdar_data_mock(mocker, case.observational_data)
+
+        cat_data: CATData = load_cat_data(None, with_chunks=True)
+        data_harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
+            amdar_turb_data_mock, cat_data.u_wind(), time_window_for_cat_data()
+        )
+
+        conditions: list[DiagnosticValidationCondition] = [
+            DiagnosticValidationCondition(observed_turbulence_column_name="maxEDR", value_greater_than=min_edr),
+            DiagnosticValidationCondition(observed_turbulence_column_name="medEDR", value_greater_than=min_edr),
+        ]
+
+        desired_data_vars: dict[str, xr.DataArray] = {
+            cond.observed_turbulence_column_name: xr.zeros_like(cat_data.u_wind()) for cond in conditions
+        }
+        for i, indexer in enumerate(case.index_into_dataset):
+            for cond in conditions:
+                desired_data_vars[cond.observed_turbulence_column_name][indexer] = (
+                    case.indices[cond.observed_turbulence_column_name][i] > min_edr
+                )
+
+        get_coords_mock = mocker.patch.object(
+            data_harmoniser,
+            "coordinates_of_observations",
+            return_value=self.coords_of_obs_return_value(case.observational_data),
+        )
+        computed: xr.Dataset = data_harmoniser.grid_has_positive_turbulence_observation(conditions)
+        get_coords_mock.assert_called_once()
+
+        for condition in conditions:
+            col_name: str = condition.observed_turbulence_column_name
+            np.testing.assert_array_equal(
+                computed[col_name].sum(dim="time"),
+                desired_data_vars[col_name].sum(dim="time"),
+            )
+            np.testing.assert_array_equal(computed[col_name], desired_data_vars[col_name])
 
 
 def test_create_nearest_diagnostic_value_series_dummy_data(

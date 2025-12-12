@@ -283,20 +283,15 @@ class AmdarDataHarmoniser:
             was_observed: da.Array = (
                 self.observational_data[condition.observed_turbulence_column_name] > condition.value_greater_than
             ).to_dask_array(lengths=True)
-            positive_obs_idx: da.Array = raveled_index[da.flatnonzero(was_observed)]
-            positive_obs_idx.compute_chunk_sizes()  # pyright: ignore[reportAttributeAccessIssue]
 
-            store_into_dataarray: da.Array = da.zeros(self._grid_prototype.size, dtype=bool).persist()
-            if positive_obs_idx.size > 0:
-                positive_obs_idx = positive_obs_idx.persist()
-                store_into_dataarray[positive_obs_idx] = True  # pyright: ignore[reportIndexIssue]
-
+            store_into_dataarray: da.Array = da.zeros(self._grid_prototype.size, dtype=bool)
+            store_into_dataarray[raveled_index] = was_observed  # pyright: ignore[reportIndexIssue]
             store_into_dataarray = store_into_dataarray.reshape(self._grid_prototype.shape).rechunk(  # pyright:ignore[reportAttributeAccessIssue]
                 self._grid_prototype.chunks
             )
 
             data_vars[condition.observed_turbulence_column_name] = xr.DataArray(
-                data=store_into_dataarray,
+                data=store_into_dataarray.persist(),
                 coords=self._grid_prototype.coords,
                 dims=self._grid_prototype.dims,
                 name=condition.observed_turbulence_column_name,
