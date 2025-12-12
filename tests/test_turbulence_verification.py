@@ -11,6 +11,7 @@ import xarray as xr
 
 from rojak.core.data import AmdarTurbulenceData
 from rojak.orchestrator.configuration import (
+    AggregationMetricOption,
     DiagnosticValidationCondition,
     SpatialGroupByStrategy,
 )
@@ -389,3 +390,48 @@ class TestDiagnosticAmdarVerification:
         get_coords_mock.assert_called()
 
         assert number_of_observations["num_obs"].sum().compute() == len(case.index_into_dataset)
+
+    @pytest.mark.parametrize("groupby_strategy", [item.value for item in SpatialGroupByStrategy])
+    @pytest.mark.parametrize("min_edr", [0, 0.1, 0.22, 0.5, 1])
+    @pytest.mark.parametrize("case_size", possible_test_case_sizes)
+    def test_aggregate_by_auc_runs(
+        self,
+        mocker: "MockerFixture",
+        case_size: TestCaseSize,
+        min_edr: float,
+        groupby_strategy: SpatialGroupByStrategy,
+        load_cat_data,
+        get_test_case,
+        client,
+    ) -> None:
+        case: TestCaseValues = get_test_case(case_size)
+        amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
+
+        cat_data: CATData = load_cat_data(None, with_chunks=True)
+        data_harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
+            amdar_turb_data_mock, cat_data.u_wind(), time_window_for_cat_data()
+        )
+        get_coords_mock = mocker.patch.object(
+            data_harmoniser,
+            "coordinates_of_observations",
+            return_value=coords_of_obs_return_value(case.observational_data),
+        )
+
+        diagnostics_mock: xr.Dataset = xr.Dataset(
+            data_vars={"f3d": cat_data.u_wind(), "def": cat_data.total_deformation()}
+        )
+        verifier: DiagnosticsAmdarVerification = DiagnosticsAmdarVerification(data_harmoniser, diagnostics_mock)
+
+        conditions: list[DiagnosticValidationCondition] = [
+            DiagnosticValidationCondition(observed_turbulence_column_name="maxEDR", value_greater_than=min_edr),
+            DiagnosticValidationCondition(observed_turbulence_column_name="medEDR", value_greater_than=min_edr),
+        ]
+
+        auc_for_diagnostic: dict[str, dd.DataFrame] = verifier.aggregate_by_auc(
+            conditions, groupby_strategy, 5, AggregationMetricOption.AUC
+        )
+        get_coords_mock.assert_called()
+
+        print(auc_for_diagnostic)
+        for computed_auc in auc_for_diagnostic.values():
+            print(computed_auc.compute())
