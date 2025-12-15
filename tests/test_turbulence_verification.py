@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
     from rojak.core.data import CATData
+    from rojak.turbulence.verification import RocVerificationResult
 
 
 TestCaseValues = namedtuple("TestCaseValues", ["index_into_dataset", "observational_data", "indices"])
@@ -435,3 +436,51 @@ class TestDiagnosticAmdarVerification:
         print(auc_for_diagnostic)
         for computed_auc in auc_for_diagnostic.values():
             print(computed_auc.compute())
+
+    @pytest.mark.parametrize("min_edr", [0, 0.1, 0.22, 0.5, 1])
+    @pytest.mark.parametrize("case_size", possible_test_case_sizes)
+    def test_nearst_value_roc_runs(
+        self,
+        mocker: "MockerFixture",
+        case_size: TestCaseSize,
+        min_edr: float,
+        load_cat_data,
+        get_test_case,
+        client,
+    ) -> None:
+        case: TestCaseValues = get_test_case(case_size)
+        amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
+
+        cat_data: CATData = load_cat_data(None, with_chunks=True)
+        data_harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
+            amdar_turb_data_mock, cat_data.u_wind(), time_window_for_cat_data()
+        )
+        get_coords_mock = mocker.patch.object(
+            data_harmoniser,
+            "coordinates_of_observations",
+            return_value=coords_of_obs_return_value(case.observational_data),
+        )
+
+        diagnostics_mock: xr.Dataset = xr.Dataset(
+            data_vars={"f3d": cat_data.u_wind(), "def": cat_data.total_deformation()}
+        )
+        verifier: DiagnosticsAmdarVerification = DiagnosticsAmdarVerification(data_harmoniser, diagnostics_mock)
+
+        conditions: list[DiagnosticValidationCondition] = [
+            DiagnosticValidationCondition(observed_turbulence_column_name="maxEDR", value_greater_than=min_edr),
+            DiagnosticValidationCondition(observed_turbulence_column_name="medEDR", value_greater_than=min_edr),
+        ]
+        roc_verification_result: RocVerificationResult = verifier.nearest_value_roc(conditions)
+        get_coords_mock.assert_called()
+
+        for _, by_diagnostic_roc in roc_verification_result.iterate_by_amdar_column():
+            ##### Can't test AUC as there might not be enough true positives for it not to fail
+            # auc_for_col: dict[str, float] = roc_verification_result.auc_for_amdar_column(amdar_verification_col)
+            # for diagnostic, auc_for_diagnostic in auc_for_col.items():
+            #     print(f"AUC for {diagnostic}: {auc_for_diagnostic}")
+
+            for classification_result in by_diagnostic_roc.values():
+                print(
+                    f"tp: {classification_result.true_positives.compute()}, "
+                    f"fp: {classification_result.false_positives.compute()}"
+                )
