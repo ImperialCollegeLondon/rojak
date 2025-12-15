@@ -6,8 +6,12 @@ import xarray as xr
 
 from rojak.atmosphere.jet_stream import JetStreamAlgorithmFactory
 from rojak.atmosphere.regions import (
+    DistanceMeasure,
     _parent_region_mask,
     _region_labeller,
+    chebyshev_distance_from_a_to_b,
+    distance_from_a_to_b,
+    euclidean_distance_from_a_to_b,
     find_parent_region_of_intersection,
     label_regions,
 )
@@ -31,7 +35,8 @@ def test_label_regions_2d() -> None:
     for level_index in range(6):
         from_scipy, _ = ndi.label(array[:, :, level_index])  # pyright: ignore [reportGeneralTypeIssues]
         np.testing.assert_array_equal(
-            labelled.isel(pressure_level=level_index).transpose("longitude", "latitude"), from_scipy
+            labelled.isel(pressure_level=level_index).transpose("longitude", "latitude"),
+            from_scipy,
         )
 
 
@@ -44,7 +49,8 @@ def test_label_regions_3d() -> None:
     for time_index in range(7):
         from_scipy, _ = ndi.label(array.isel(time=time_index), structure=ndi.generate_binary_structure(3, 3))  # pyright: ignore [reportGeneralTypeIssues]
         np.testing.assert_array_equal(
-            labelled.isel(time=time_index).transpose("longitude", "latitude", "pressure_level"), from_scipy
+            labelled.isel(time=time_index).transpose("longitude", "latitude", "pressure_level"),
+            from_scipy,
         )
 
 
@@ -84,52 +90,78 @@ def test_label_regions_assertion_error(core_dims: list[str] | None) -> None:
 TI1_THRESHOLD: float = 1.3947336218633176e-10
 
 
+@pytest.fixture
+def get_is_ti1_turb(load_cat_data) -> xr.DataArray:
+    return (
+        DiagnosticFactory(load_cat_data(None, with_chunks=True)).create(TurbulenceDiagnostics.TI1).computed_value
+        > TI1_THRESHOLD
+    )
+
+
+@pytest.fixture
+def get_js_regions(load_cat_data) -> xr.DataArray:
+    return (
+        JetStreamAlgorithmFactory(load_cat_data(None, with_chunks=True))
+        .create(JetStreamAlgorithms.ALPHA_VEL_KOCH)
+        .identify_jet_stream()
+    )
+
+
 @pytest.mark.parametrize("num_dim", [2, 3])
-def test_parent_region_mask_jit_equiv_guvectorize(load_cat_data, num_dim: int) -> None:
-    cat_data = load_cat_data(None, with_chunks=True)
-    is_ti1_turb: xr.DataArray = (
-        DiagnosticFactory(cat_data).create(TurbulenceDiagnostics.TI1).computed_value > TI1_THRESHOLD
-    )
-    js_regions: xr.DataArray = (
-        JetStreamAlgorithmFactory(cat_data).create(JetStreamAlgorithms.ALPHA_VEL_KOCH).identify_jet_stream()
-    )
+def test_parent_region_mask_jit_equiv_guvectorize(
+    get_is_ti1_turb: xr.DataArray, get_js_regions: xr.DataArray, num_dim: int
+) -> None:
+    is_ti1_turb: xr.DataArray = get_is_ti1_turb
+    js_regions: xr.DataArray = get_js_regions
     labeled_ti1: xr.DataArray = label_regions(is_ti1_turb, num_dims=num_dim)
     labeled_js: xr.DataArray = label_regions(js_regions, num_dims=num_dim)
 
     js_intersect_turb = is_ti1_turb & js_regions
 
     from_jit_turb: xr.DataArray = find_parent_region_of_intersection(
-        labeled_ti1, js_intersect_turb, num_dims=num_dim, numba_vectorize=False
+        labeled_ti1,
+        js_intersect_turb,
+        num_dims=num_dim,
+        numba_vectorize=False,
     )
     from_guv_turb: xr.DataArray = find_parent_region_of_intersection(
-        labeled_ti1, js_intersect_turb, num_dims=num_dim, numba_vectorize=True
+        labeled_ti1,
+        js_intersect_turb,
+        num_dims=num_dim,
+        numba_vectorize=True,
     )
     xr.testing.assert_equal(from_jit_turb, from_guv_turb)
 
     from_jit_js: xr.DataArray = find_parent_region_of_intersection(
-        labeled_js, js_intersect_turb, num_dims=num_dim, numba_vectorize=False
+        labeled_js,
+        js_intersect_turb,
+        num_dims=num_dim,
+        numba_vectorize=False,
     )
     from_guv_js: xr.DataArray = find_parent_region_of_intersection(
-        labeled_js, js_intersect_turb, num_dims=num_dim, numba_vectorize=True
+        labeled_js,
+        js_intersect_turb,
+        num_dims=num_dim,
+        numba_vectorize=True,
     )
     xr.testing.assert_equal(from_jit_js, from_guv_js)
 
 
 @pytest.mark.parametrize("num_dim", [2, 3])
-def test_label_then_mask_equiv_to_single_step(load_cat_data, num_dim: int) -> None:
-    cat_data = load_cat_data(None, with_chunks=True)
-    is_ti1_turb: xr.DataArray = (
-        DiagnosticFactory(cat_data).create(TurbulenceDiagnostics.TI1).computed_value > TI1_THRESHOLD
-    )
-    js_regions: xr.DataArray = (
-        JetStreamAlgorithmFactory(cat_data).create(JetStreamAlgorithms.ALPHA_VEL_KOCH).identify_jet_stream()
-    )
+def test_label_then_mask_equiv_to_single_step(
+    get_is_ti1_turb: xr.DataArray, get_js_regions: xr.DataArray, num_dim: int
+) -> None:
+    is_ti1_turb: xr.DataArray = get_is_ti1_turb
+    js_regions: xr.DataArray = get_js_regions
     labeled_js: xr.DataArray = label_regions(js_regions, num_dims=num_dim)
 
     js_intersect_turb = is_ti1_turb & js_regions
 
     from_guv_js: xr.DataArray = find_parent_region_of_intersection(
-        labeled_js, js_intersect_turb, num_dims=num_dim, numba_vectorize=True
+        labeled_js,
+        js_intersect_turb,
+        num_dims=num_dim,
+        numba_vectorize=True,
     )
 
     if num_dim == 2:  # noqa: PLR2004
@@ -140,7 +172,8 @@ def test_label_then_mask_equiv_to_single_step(load_cat_data, num_dim: int) -> No
                     structure=ndi.generate_binary_structure(num_dim, num_dim),
                 )  # pyright: ignore [reportGeneralTypeIssues]
                 mask = _parent_region_mask(
-                    from_scipy, js_intersect_turb.isel(time=time_index, pressure_level=level_index).values
+                    from_scipy,
+                    js_intersect_turb.isel(time=time_index, pressure_level=level_index).values,
                 )
                 np.testing.assert_array_equal(
                     from_guv_js.isel(time=time_index, pressure_level=level_index).transpose("latitude", "longitude"),
@@ -149,9 +182,72 @@ def test_label_then_mask_equiv_to_single_step(load_cat_data, num_dim: int) -> No
     else:
         for time_index in range(js_regions["time"].size):
             from_scipy, _ = ndi.label(
-                js_regions.isel(time=time_index), structure=ndi.generate_binary_structure(num_dim, num_dim)
+                js_regions.isel(time=time_index),
+                structure=ndi.generate_binary_structure(num_dim, num_dim),
             )  # pyright: ignore [reportGeneralTypeIssues]
             mask = _parent_region_mask(from_scipy, js_intersect_turb.isel(time=time_index).values)
             np.testing.assert_array_equal(
-                from_guv_js.isel(time=time_index).transpose("latitude", "longitude", "pressure_level"), mask
+                from_guv_js.isel(time=time_index).transpose("latitude", "longitude", "pressure_level"),
+                mask,
             )
+
+
+@pytest.mark.parametrize("distance_measure", [e.value for e in DistanceMeasure])
+@pytest.mark.parametrize("num_dim", [2, 3])
+def test_distance_from_a_to_b_equiv_in_multi_dim(
+    get_is_ti1_turb: xr.DataArray, get_js_regions: xr.DataArray, num_dim: int, distance_measure: DistanceMeasure
+) -> None:
+    js_regions = get_js_regions
+    turb_regions = get_is_ti1_turb
+    computed_distance: xr.DataArray = distance_from_a_to_b(
+        js_regions, turb_regions, distance_measure=distance_measure, num_dim=num_dim
+    )
+    distance_func_to_test = (
+        euclidean_distance_from_a_to_b
+        if distance_measure == DistanceMeasure.EUCLIDEAN
+        else chebyshev_distance_from_a_to_b
+    )
+    if num_dim == 2:  # noqa: PLR2004
+        for time_index in range(js_regions["time"].size):
+            for level_index in range(js_regions["pressure_level"].size):
+                np.testing.assert_array_equal(
+                    computed_distance.isel(time=time_index, pressure_level=level_index).transpose(
+                        "latitude", "longitude"
+                    ),
+                    distance_func_to_test(
+                        js_regions.isel(time=time_index, pressure_level=level_index).to_numpy(),
+                        turb_regions.isel(time=time_index, pressure_level=level_index).to_numpy(),
+                    ),
+                )
+    else:
+        for time_index in range(js_regions["time"].size):
+            np.testing.assert_array_equal(
+                computed_distance.isel(time=time_index).transpose("latitude", "longitude", "pressure_level"),
+                distance_func_to_test(
+                    js_regions.isel(time=time_index).to_numpy(),
+                    turb_regions.isel(time=time_index).to_numpy(),
+                ),
+            )
+
+
+@pytest.mark.parametrize("distance_measure", [e.value for e in DistanceMeasure])
+def test_distance_a_to_b_2d_not_equiv_3d(
+    get_is_ti1_turb: xr.DataArray, get_js_regions: xr.DataArray, distance_measure: DistanceMeasure
+) -> None:
+    with pytest.raises(AssertionError):
+        xr.testing.assert_allclose(
+            distance_from_a_to_b(get_js_regions, get_is_ti1_turb, distance_measure=distance_measure, num_dim=2),
+            distance_from_a_to_b(get_js_regions, get_is_ti1_turb, distance_measure=distance_measure, num_dim=3),
+        )
+
+
+@pytest.mark.parametrize("distance_measure", [e.value for e in DistanceMeasure])
+@pytest.mark.parametrize("num_dim", [2, 3])
+def test_distance_a_to_b_inverse_not_equiv(
+    get_is_ti1_turb: xr.DataArray, get_js_regions: xr.DataArray, distance_measure: DistanceMeasure, num_dim: int
+) -> None:
+    with pytest.raises(AssertionError):
+        xr.testing.assert_allclose(
+            distance_from_a_to_b(get_js_regions, get_is_ti1_turb, distance_measure=distance_measure, num_dim=num_dim),
+            distance_from_a_to_b(get_is_ti1_turb, get_js_regions, distance_measure=distance_measure, num_dim=num_dim),
+        )

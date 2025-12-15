@@ -49,6 +49,10 @@ cat_data_default: dict = {
     "download_format": "unarchived",
 }
 
+minimal_cat_contrails_default: dict = cat_data_default | {
+    "variable": cat_data_default["variable"] + ["relative_humidity"]
+}
+
 surface_data_contrails_default: dict = {
     "product_type": ["reanalysis"],
     "variable": [
@@ -114,6 +118,7 @@ data_defaults: dict[str, dict] = {
     "cat": cat_data_default,
     "surface": surface_data_contrails_default,
     "contrail": contrail_cat_data_default,
+    "minimal-cat-contrail": minimal_cat_contrails_default,
     "blank": blank_default,
 }
 

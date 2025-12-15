@@ -56,7 +56,7 @@ from rojak.turbulence.diagnostic import (
     EvaluationDiagnosticSuite,
 )
 from rojak.turbulence.verification import (
-    DiagnosticsAmdarDataHarmoniser,
+    AmdarDataHarmoniser,
     DiagnosticsAmdarVerification,
 )
 from rojak.utilities.types import DistributionParameters, Limits
@@ -133,7 +133,9 @@ class CalibrationStage:
         self._start_time = start_time
 
     def launch(
-        self, diagnostics: list["TurbulenceDiagnostics"], chunks: Mapping
+        self,
+        diagnostics: list["TurbulenceDiagnostics"],
+        chunks: Mapping,
     ) -> Mapping[TurbulenceCalibrationPhaseOption, Result]:
         suite: CalibrationDiagnosticSuite | None = (
             self.create_diagnostic_suite(diagnostics, chunks) if self._config.calibration_data_dir is not None else None
@@ -145,7 +147,9 @@ class CalibrationStage:
         return result
 
     def create_diagnostic_suite(
-        self, diagnostics: list["TurbulenceDiagnostics"], chunks: Mapping
+        self,
+        diagnostics: list["TurbulenceDiagnostics"],
+        chunks: Mapping,
     ) -> "CalibrationDiagnosticSuite":
         assert self._config.calibration_data_dir is not None
         logger.debug("Loading CATData")
@@ -156,7 +160,9 @@ class CalibrationStage:
         return CalibrationDiagnosticSuite(DiagnosticFactory(calibration_data), diagnostics)
 
     def run_phase(
-        self, current_phase: TurbulenceCalibrationPhaseOption, suite: CalibrationDiagnosticSuite | None
+        self,
+        current_phase: TurbulenceCalibrationPhaseOption,
+        suite: CalibrationDiagnosticSuite | None,
     ) -> Result:
         match current_phase:
             case TurbulenceCalibrationPhaseOption.THRESHOLDS:
@@ -177,7 +183,8 @@ class CalibrationStage:
         return Result(thresholds)
 
     def perform_calibration(
-        self, suite: CalibrationDiagnosticSuite | None
+        self,
+        suite: CalibrationDiagnosticSuite | None,
     ) -> Result[Mapping["DiagnosticName", "TurbulenceThresholds"]]:
         assert suite is not None
         assert self._config.percentile_thresholds is not None
@@ -252,7 +259,9 @@ class EvaluationStage:
         return EvaluationStageResult(suite, {phase: self.run_phase(phase, suite) for phase in self._phases})
 
     def create_diagnostic_suite(
-        self, diagnostics: list["TurbulenceDiagnostics"], chunks: Mapping
+        self,
+        diagnostics: list["TurbulenceDiagnostics"],
+        chunks: Mapping,
     ) -> EvaluationDiagnosticSuite:
         assert self._config.evaluation_data_dir is not None
         logger.debug("Loading CATData")
@@ -281,12 +290,13 @@ class EvaluationStage:
             distribution_parameters=dist_params,
         )
 
-    def run_phase(self, phase: TurbulenceEvaluationPhaseOption, suite: EvaluationDiagnosticSuite) -> Result:  # noqa: PLR0911
+    def run_phase(self, phase: TurbulenceEvaluationPhaseOption, suite: EvaluationDiagnosticSuite) -> Result:
         match phase:
             case TurbulenceEvaluationPhaseOption.PROBABILITIES:
                 result = suite.probabilities
                 for pressure_level, severity in itertools.product(
-                    self._config.pressure_levels, self._config.severities
+                    self._config.pressure_levels,
+                    self._config.severities,
                 ):
                     chained_names: str = chain_diagnostic_names(result.keys())
                     create_multi_turbulence_diagnotics_probability_plot(
@@ -294,12 +304,12 @@ class EvaluationStage:
                             data_vars={
                                 name: diagnostic.sel(pressure_level=pressure_level, severity=severity)
                                 for name, diagnostic in result.items()
-                            }
+                            },
                         ),
                         suite.diagnostic_names(),
                         str(
                             self._plots_dir / f"multi_diagnostic_{chained_names}_on_{pressure_level:.0f}_{severity}"
-                            f".{self._image_format}"
+                            f".{self._image_format}",
                         ),
                     )
                 return Result(result)
@@ -489,21 +499,23 @@ class DiagnosticsAmdarLauncher:
             self._spatial_domain.grid_size,
             diagnostic_suite.get_prototype_computed_diagnostic()["pressure_level"].to_numpy().tolist(),
         )
-        harmoniser = DiagnosticsAmdarDataHarmoniser(amdar_data, diagnostic_suite)
         time_window_as_np_datetime: Limits[np.datetime64] = Limits(
-            np.datetime64(self._time_window.lower), np.datetime64(self._time_window.upper)
+            np.datetime64(self._time_window.lower),
+            np.datetime64(self._time_window.upper),
+        )
+        harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
+            amdar_data, diagnostic_suite.get_prototype_computed_diagnostic(), time_window_as_np_datetime
         )
 
         if self._validation_conditions:
             logger.info("Starting validation of diagnostics with amdar data")
-            verifier = DiagnosticsAmdarVerification(harmoniser, time_window_as_np_datetime)
-            chained_names: str = chain_diagnostic_names(harmoniser.harmonised_diagnostics)
+            verifier = DiagnosticsAmdarVerification(harmoniser, diagnostic_suite.as_dataset())
+            chained_names: str = chain_diagnostic_names(diagnostic_suite.diagnostic_names())
 
             if self._group_by_strategy is not None:
                 assert self._aggregation_metric is not None
                 grid_auc = verifier.aggregate_by_auc(
                     self._validation_conditions,
-                    diagnostic_suite.get_prototype_computed_diagnostic(),
                     self._group_by_strategy,
                     self._min_group_size,
                     self._aggregation_metric,
@@ -518,7 +530,7 @@ class DiagnosticsAmdarLauncher:
                 if not is_agg_by_point:
                     for diagnostic_name in grid_auc:
                         grid_auc[diagnostic_name] = amdar_data.grid.join(grid_auc[diagnostic_name], how="right").drop(
-                            columns=[harmoniser.grid_box_column_name]
+                            columns=[verifier.grid_box_column],
                         )
                     num_observations = amdar_data.grid.join(num_observations, how="right")
                 auc_plots = create_interactive_aggregated_auc_plots(
@@ -530,7 +542,7 @@ class DiagnosticsAmdarLauncher:
                     auc_plots,
                     str(
                         self._plots_dir
-                        / f"regional_{self._aggregation_metric}_{chained_names}_on_{str(self._group_by_strategy)}"
+                        / f"regional_{self._aggregation_metric}_{chained_names}_on_{self._group_by_strategy!s}",
                     ),
                     "png",
                     savefig_kwargs={"dpi": 400},
@@ -548,14 +560,14 @@ class DiagnosticsAmdarLauncher:
                             "clipping_colors": {"min": GREY_HEX_CODE},
                         },
                     ),
-                    str(self._plots_dir / f"num_observations_for_{str(self._group_by_strategy)}"),
+                    str(self._plots_dir / f"num_observations_for_{self._group_by_strategy!s}"),
                     "png",
                     savefig_kwargs={"dpi": 400},
                 )
 
                 save_hv_plot(
                     create_histogram_n_obs(num_observations, hist_kwargs={"normed": True, "ylabel": "Density"}),
-                    str(self._plots_dir / f"num_obs_histogram_for_{str(self._group_by_strategy)}"),
+                    str(self._plots_dir / f"num_obs_histogram_for_{self._group_by_strategy!s}"),
                     "png",
                     savefig_kwargs={"dpi": 400},
                 )
@@ -563,7 +575,7 @@ class DiagnosticsAmdarLauncher:
                 bottom_counts: float = num_observations["num_obs"].quantile(q=0.25, method="tdigest").compute()
                 save_hv_plot(
                     create_histogram_n_obs(num_observations.loc[num_observations["num_obs"] <= bottom_counts]),
-                    str(self._plots_dir / f"num_obs_histogram_for_{str(self._group_by_strategy)}"),
+                    str(self._plots_dir / f"num_obs_histogram_for_{self._group_by_strategy!s}"),
                     "png",
                     savefig_kwargs={"dpi": 400},
                 )

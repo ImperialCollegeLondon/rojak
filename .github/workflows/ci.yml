@@ -41,7 +41,7 @@ jobs:
     if: ${{ !github.event.pull_request.draft }}
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           lfs: true
       - name: Install uv and set the python version
@@ -59,6 +59,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Test with pytest
+        timeout-minutes: 60
         run: |
           uv run pytest --cov=rojak --cov-branch --cov-report=xml -n auto
         env:

@@ -22,15 +22,26 @@ extend-select = [
     "TID", # Tidy imports
     "TC", # Type checking
     "PT", # Pytest style
-    #    "ARG", # Checks for unused arguments
+    "ARG", # Checks for unused arguments
     "PERF", # Linter for performance anti-patterns
     "PL", # pylint - static code analyser
     "UP", # Upgrade old Python syntax
     "PD", # linter for pandas
+
+    "BLE",
+    "COM",
+    "PIE",
+    "Q",
+    "RSE",
+    "SLF",
+    "F",
+    "FURB",
+    "RUF",
 ]
+ignore = ["ISC001", "COM812"]
 
 [lint.extend-per-file-ignores]
-"tests/*.py" = ["ANN"]
+"tests/*.py" = ["ANN", "SLF", "ARG"]
 
 [lint.pylint]
 max-args = 7

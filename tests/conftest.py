@@ -12,6 +12,7 @@ from shapely import box
 from rojak.core.data import CATPrognosticData
 from rojak.datalib.ecmwf.era5 import Era5Data
 from rojak.orchestrator.configuration import SpatialDomain
+from rojak.utilities.types import Limits
 
 if TYPE_CHECKING:
     from shapely.geometry.polygon import Polygon
@@ -20,6 +21,10 @@ if TYPE_CHECKING:
 
 # Add fixtures from dask.distributed
 pytest_plugins = ["distributed.utils_test"]
+
+
+def time_window_dummy_coordinate() -> Limits["np.datetime64"]:
+    return Limits(np.datetime64("2005-02-01T00"), np.datetime64("2005-02-01T23"))
 
 
 def time_coordinate():
@@ -85,13 +90,20 @@ def load_era5_data() -> Callable:
     return _load_era5_data
 
 
+def time_window_for_cat_data() -> Limits["np.datetime64"]:
+    return Limits(np.datetime64("2018-08-01T00"), np.datetime64("2018-08-01T18"))
+
+
 @pytest.fixture
 def load_cat_data(load_era5_data) -> Callable:
     def _load_cat_data(domain: SpatialDomain | None, with_chunks: bool = False) -> "CATData":
         data: Era5Data = load_era5_data(with_chunks=with_chunks)
         if domain is None:
             domain = SpatialDomain(
-                minimum_latitude=-90, maximum_latitude=90, minimum_longitude=-180, maximum_longitude=180
+                minimum_latitude=-90,
+                maximum_latitude=90,
+                minimum_longitude=-180,
+                maximum_longitude=180,
             )
         return data.to_clear_air_turbulence_data(domain)
 

@@ -34,49 +34,111 @@ if TYPE_CHECKING:
     import dask_geopandas as dgpd
 
 ALL_AMDAR_DATA_VARS: frozenset[str] = frozenset(
-    {'nStaticIds', 'staticIds', 'lastRecord', 'invTime', 'prevRecord', 'inventory', 'globalInventory', 'firstOverflow',
-     'isOverflow', 'firstInBin', 'lastInBin', 'QCT', 'ICT', 'missingInputMinutes', 'minDate', 'maxDate', 'minSecs',
-     'maxSecs', 'latitude', 'latitudeDD', 'latitudeQCA', 'latitudeQCR', 'latitudeQCD', 'longitude', 'longitudeDD',
-     'longitudeQCA', 'longitudeQCR', 'longitudeQCD', 'altitude', 'altitudeDD', 'altitudeQCA', 'altitudeQCR',
-     'altitudeQCD', 'GPSaltitude', 'baroAltitude', 'timeObs', 'timeObsDD', 'timeObsQCA', 'timeObsQCR', 'timeObsQCD',
-     'temperature', 'temperatureDD', 'temperatureQCA', 'temperatureQCR', 'temperatureQCD', 'temperatureICA',
-     'temperatureICR', 'windDir', 'windDirDD', 'windDirQCA', 'windDirQCR', 'windDirQCD', 'windSpeed', 'windSpeedDD',
-     'windSpeedQCA', 'windSpeedQCR', 'windSpeedQCD', 'heading', 'mach', 'trueAirSpeed', 'trueAirSpeedDD',
-     'trueAirSpeedQCA', 'trueAirSpeedQCR', 'trueAirSpeedQCD', 'waterVaporMR', 'downlinkedRH', 'RHfromWVMR',
-     'rhUncertainty', 'sensor1RelativeHumidity', 'sensor2RelativeHumidity', 'dewpoint', 'dewpointDD', 'dewpointQCA',
-     'dewpointQCR', 'dewpointQCD', 'dewpointICA', 'dewpointICR', 'dewpointUncertainty', 'medTurbulence', 'medEDR',
-     'medEDRDD', 'medEDRQCA', 'medEDRQCR', 'medEDRQCD', 'maxTurbulence', 'maxEDR', 'maxEDRDD', 'maxEDRQCA', 'maxEDRQCR',
-     'maxEDRQCD', 'turbIndex', 'turbIndexDD', 'turbIndexQCA', 'turbIndexQCR', 'turbIndexQCD', 'timeMaxTurbulence',
-     'vertAccel', 'vertGust', 'icingCondition', 'icingConditionDD', 'icingConditionQCA', 'icingConditionQCR',
-     'icingConditionQCD', 'en_tailNumber', 'flight', 'tailNumber', 'dataType', 'dataSource', 'dataDescriptor',
-     'errorType', 'rollFlag', 'rollQuality', 'waterVaporQC', 'interpolatedTime', 'interpolatedLL', 'tempError',
-     'dewpointError', 'windDirError', 'windSpeedError', 'speedError', 'bounceError', 'icingError', 'trueAirSpeedError',
-     'turbulenceError', 'correctedFlag', 'rptStation', 'timeReceived', 'fileTimeFSL', 'origAirport', 'orig_airport_id',
-     'destAirport', 'dest_airport_id', 'indAltitude', 'relHumidity', 'sounding_flag', 'soundingSecs',
-     'sounding_airport_id', 'phaseFlight', 'tamdarCarrier3', 'tamdarCarrier', 'tamdarAcType', 'filterSetNum',
-     'wvssTest1'})  # fmt: skip
+    {"nStaticIds", "staticIds", "lastRecord", "invTime", "prevRecord", "inventory", "globalInventory", "firstOverflow",
+     "isOverflow", "firstInBin", "lastInBin", "QCT", "ICT", "missingInputMinutes", "minDate", "maxDate", "minSecs",
+     "maxSecs", "latitude", "latitudeDD", "latitudeQCA", "latitudeQCR", "latitudeQCD", "longitude", "longitudeDD",
+     "longitudeQCA", "longitudeQCR", "longitudeQCD", "altitude", "altitudeDD", "altitudeQCA", "altitudeQCR",
+     "altitudeQCD", "GPSaltitude", "baroAltitude", "timeObs", "timeObsDD", "timeObsQCA", "timeObsQCR", "timeObsQCD",
+     "temperature", "temperatureDD", "temperatureQCA", "temperatureQCR", "temperatureQCD", "temperatureICA",
+     "temperatureICR", "windDir", "windDirDD", "windDirQCA", "windDirQCR", "windDirQCD", "windSpeed", "windSpeedDD",
+     "windSpeedQCA", "windSpeedQCR", "windSpeedQCD", "heading", "mach", "trueAirSpeed", "trueAirSpeedDD",
+     "trueAirSpeedQCA", "trueAirSpeedQCR", "trueAirSpeedQCD", "waterVaporMR", "downlinkedRH", "RHfromWVMR",
+     "rhUncertainty", "sensor1RelativeHumidity", "sensor2RelativeHumidity", "dewpoint", "dewpointDD", "dewpointQCA",
+     "dewpointQCR", "dewpointQCD", "dewpointICA", "dewpointICR", "dewpointUncertainty", "medTurbulence", "medEDR",
+     "medEDRDD", "medEDRQCA", "medEDRQCR", "medEDRQCD", "maxTurbulence", "maxEDR", "maxEDRDD", "maxEDRQCA", "maxEDRQCR",
+     "maxEDRQCD", "turbIndex", "turbIndexDD", "turbIndexQCA", "turbIndexQCR", "turbIndexQCD", "timeMaxTurbulence",
+     "vertAccel", "vertGust", "icingCondition", "icingConditionDD", "icingConditionQCA", "icingConditionQCR",
+     "icingConditionQCD", "en_tailNumber", "flight", "tailNumber", "dataType", "dataSource", "dataDescriptor",
+     "errorType", "rollFlag", "rollQuality", "waterVaporQC", "interpolatedTime", "interpolatedLL", "tempError",
+     "dewpointError", "windDirError", "windSpeedError", "speedError", "bounceError", "icingError", "trueAirSpeedError",
+     "turbulenceError", "correctedFlag", "rptStation", "timeReceived", "fileTimeFSL", "origAirport", "orig_airport_id",
+     "destAirport", "dest_airport_id", "indAltitude", "relHumidity", "sounding_flag", "soundingSecs",
+     "sounding_airport_id", "phaseFlight", "tamdarCarrier3", "tamdarCarrier", "tamdarAcType", "filterSetNum",
+     "wvssTest1"})  # fmt: skip
 
 
 class MadisAmdarPreprocessor(DataPreprocessor):
     filepaths: list[Path]
-    data_vars_for_turbulence: set[str] = {"altitude", "altitudeDD", "bounceError", "correctedFlag", "dataDescriptor",
-        "dataSource", "dataType", "dest_airport_id", "en_tailNumber", "heading", "interpolatedLL", "interpolatedTime",
-        "latitude", "latitudeDD", "longitude", "longitudeDD", "mach", "maxEDR", "maxEDRDD", "maxTurbulence",
-        "medEDR", "medEDRDD", "medTurbulence", "orig_airport_id", "phaseFlight", "speedError", "tempError",
-        "temperature", "temperatureDD", "timeMaxTurbulence", "timeObs", "timeObsDD",  "trueAirSpeed", "rollFlag",
-        "trueAirSpeedDD", "trueAirSpeedError", "turbIndex", "turbIndexDD", "turbulenceError", "baroAltitude",
-        "vertAccel", "vertGust", "windDir", "windDirDD", "windDirError", "windSpeed", "windSpeedDD", "windSpeedError",
-    }  # fmt: skip
-    quality_control_vars: set[str] = {"altitudeDD", "windSpeedDD", "timeObsDD", "latitudeDD", "longitudeDD",
-        "maxEDRDD", "medEDRDD", "temperatureDD", "trueAirSpeedDD", "turbIndexDD", "windDirDD"}  # fmt: skip
-    error_vars: set[str] = {"bounceError", "speedError", "turbulenceError",
-        ## Including the ones below ends up making a lot of data nan. Leave that data in and let the user decide
-        ## what to do with it later
-        # "tempError",
-        # "trueAirSpeedError",
-        # "windDirError",
-        # "windSpeedError",
-    }  # fmt: skip
+    data_vars_for_turbulence: frozenset[str] = frozenset(
+        {
+            "altitude",
+            "altitudeDD",
+            "bounceError",
+            "correctedFlag",
+            "dataDescriptor",
+            "dataSource",
+            "dataType",
+            "dest_airport_id",
+            "en_tailNumber",
+            "heading",
+            "interpolatedLL",
+            "interpolatedTime",
+            "latitude",
+            "latitudeDD",
+            "longitude",
+            "longitudeDD",
+            "mach",
+            "maxEDR",
+            "maxEDRDD",
+            "maxTurbulence",
+            "medEDR",
+            "medEDRDD",
+            "medTurbulence",
+            "orig_airport_id",
+            "phaseFlight",
+            "speedError",
+            "tempError",
+            "temperature",
+            "temperatureDD",
+            "timeMaxTurbulence",
+            "timeObs",
+            "timeObsDD",
+            "trueAirSpeed",
+            "rollFlag",
+            "trueAirSpeedDD",
+            "trueAirSpeedError",
+            "turbIndex",
+            "turbIndexDD",
+            "turbulenceError",
+            "baroAltitude",
+            "vertAccel",
+            "vertGust",
+            "windDir",
+            "windDirDD",
+            "windDirError",
+            "windSpeed",
+            "windSpeedDD",
+            "windSpeedError",
+        },
+    )
+    quality_control_vars: frozenset[str] = frozenset(
+        {
+            "altitudeDD",
+            "windSpeedDD",
+            "timeObsDD",
+            "latitudeDD",
+            "longitudeDD",
+            "maxEDRDD",
+            "medEDRDD",
+            "temperatureDD",
+            "trueAirSpeedDD",
+            "turbIndexDD",
+            "windDirDD",
+        },
+    )
+    error_vars: frozenset[str] = frozenset(
+        {
+            "bounceError",
+            "speedError",
+            "turbulenceError",
+            ## Including the ones below ends up making a lot of data nan. Leave that data in and let the user decide
+            ## what to do with it later
+            # "tempError",
+            # "trueAirSpeedError",
+            # "windDirError",
+            # "windSpeedError",
+        },
+    )
     dimension_name: str = "recNum"
     relative_to_root_path: list[Path] | None = None
 
@@ -104,7 +166,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
             else:
                 if not filepaths.is_file():
                     raise ValueError(
-                        f"File {filepaths} is not a file. As glob pattern is not defined this must be a file"
+                        f"File {filepaths} is not a file. As glob pattern is not defined this must be a file",
                     )
                 self.filepaths = [filepaths]
 
@@ -142,7 +204,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
             | (dataset[data_var] == b"C")
             | (dataset[data_var] == b"S")
             | (dataset[data_var] == b"V")
-            | (dataset[data_var] == b"G")
+            | (dataset[data_var] == b"G"),
         )
 
     def drop_invalid_qc_data(self, dataset: xr.Dataset) -> xr.Dataset:
@@ -192,7 +254,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
             data = self.drop_invalid_error_data(data)
 
             variables_to_keep: list[str] = list(
-                (data.data_vars.keys() & self.data_vars_for_turbulence) - self.quality_control_vars - self.error_vars
+                (data.data_vars.keys() & self.data_vars_for_turbulence) - self.quality_control_vars - self.error_vars,
             )
             output_file: Path = (
                 output_directory / f"{filepath.stem}.parquet"
@@ -281,12 +343,16 @@ class AcarsAmdarRepository(AmdarDataRepository):
         return amdar_data
 
     def _call_compute_closest_pressure_level(
-        self, data_frame: "dd.DataFrame", pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]"
+        self,
+        data_frame: "dd.DataFrame",
+        pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]",
     ) -> "dd.Series":
         return self._compute_closest_pressure_level(data_frame, pressure_levels, "altitude")
 
     def _instantiate_amdar_turbulence_data_class(
-        self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame"
+        self,
+        data_frame: "dd.DataFrame",
+        grid: "dgpd.GeoDataFrame",
     ) -> "AmdarTurbulenceData":
         return AcarsAmdarTurbulenceData(data_frame, grid)
 
