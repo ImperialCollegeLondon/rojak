@@ -208,7 +208,7 @@ def load_from_folder(
     path_to_folder: "Path",
     glob_pattern: str = "*.nc",
     chunks: Mapping | None = None,
-    engine: Literal["netcdf4", "scipy", "pydap", "h5netcdf", "zarr"] = "h5netcdf",
+    engine: Literal["netcdf4", "scipy", "pydap", "h5netcdf", "zarr"] = "netcdf4",
     is_decoded: bool = True,
 ) -> "xr.Dataset":
     if chunks is None:
