@@ -271,7 +271,7 @@ class TurbulentRegionsBySeverity(PostProcessor):
         self._threshold_mode = threshold_mode
         self._has_parent = has_parent
 
-    def execute(self) -> xr.DataArray | list[xr.DataArray]:
+    def execute(self) -> xr.DataArray | list[xr.DataArray] | xr.DataTree:
         by_severity = []
         for severity in self._severities:
             bounds: Limits = self._thresholds.get_bounds(severity, self._threshold_mode)
