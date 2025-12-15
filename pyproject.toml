@@ -79,6 +79,7 @@ dev = [
     "bokeh", # For dask dashboard
     "scipy-stubs",
     "hatch-vcs",
+    "basedpyright",
 ]
 test = [
     "pytest",

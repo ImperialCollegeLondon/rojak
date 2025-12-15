@@ -82,7 +82,7 @@ def valid_region_for_flat_data() -> "Polygon":
 @pytest.fixture
 def load_era5_data() -> Callable:
     def _load_era5_data(with_chunks: bool = False) -> Era5Data:
-        dataset: xr.Dataset = xr.open_dataset("tests/_static/test_era5_data.nc", engine="h5netcdf")
+        dataset: xr.Dataset = xr.open_dataset("tests/_static/test_era5_data.nc", engine="netcdf4")
         if with_chunks:
             dataset = dataset.chunk(chunks={"valid_time": 2})
         return Era5Data(dataset)
