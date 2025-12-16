@@ -30,3 +30,5 @@ class ClimatologicalEDRConstants(NamedTuple):
 
 # From Sharman 2017
 OVERALL_CLIMATOLOGICAL_PARAMETER = ClimatologicalEDRConstants(-2.572, 0.5067)
+# Climatological EDR values computed from 2020-2024
+TWENTIES_CLIMATOLOGICAL_PARAMETER = ClimatologicalEDRConstants(-3.627092, 0.951802)
