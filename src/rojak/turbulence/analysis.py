@@ -16,7 +16,7 @@ import itertools
 from abc import ABC
 from collections.abc import Hashable, Mapping
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, NamedTuple, assert_never
+from typing import TYPE_CHECKING, Any, assert_never
 
 import dask.array as da
 import numpy as np
@@ -27,6 +27,7 @@ from pydantic.dataclasses import dataclass as pydantic_dataclass
 from rich.progress import track
 
 from rojak.core.analysis import PostProcessor
+from rojak.core.constants import SHARMAN_17_CLIMATOLOGICAL_PARAMETER
 from rojak.orchestrator.configuration import (
     RelationshipBetweenTypes,
     TurbulenceSeverity,
@@ -42,15 +43,6 @@ if TYPE_CHECKING:
 
 type IntensityName = str
 type IntensityValues = dict[IntensityName, float]
-
-
-class ClimatologicalEDRConstants(NamedTuple):
-    c1: float
-    c2: float
-
-
-# From Sharman 2017
-OVERALL_CLIMATOLOGICAL_PARAMETER = ClimatologicalEDRConstants(-2.572, 0.5067)
 
 
 class TurbulenceIntensityThresholds(PostProcessor):
@@ -374,8 +366,8 @@ class TransformToEDR(PostProcessor):
             self._c1 = c1
             self._c2 = c2
         elif c1 is None and c2 is None:
-            self._c1 = OVERALL_CLIMATOLOGICAL_PARAMETER.c1
-            self._c2 = OVERALL_CLIMATOLOGICAL_PARAMETER.c2
+            self._c1 = SHARMAN_17_CLIMATOLOGICAL_PARAMETER.c1
+            self._c2 = SHARMAN_17_CLIMATOLOGICAL_PARAMETER.c2
         else:
             raise TypeError("Both c1 and c2 must be both be provided or omitted")
 
