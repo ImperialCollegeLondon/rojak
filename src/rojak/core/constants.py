@@ -12,6 +12,8 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+from typing import NamedTuple
+
 MAX_LATITUDE: float = 90.0
 MAX_LONGITUDE: float = 180.0
 # Physical constants
@@ -19,3 +21,12 @@ GRAVITATIONAL_ACCELERATION: float = 9.80665  # m / s^2
 GAS_CONSTANT_DRY_AIR: float = 287  # R_d: J / (K kg)
 GAS_CONSTANT_VAPOUR: float = 461.51  # R_v: J / (K kg)
 ABSOLUTE_ZERO: float = -273.15  # C
+
+
+class ClimatologicalEDRConstants(NamedTuple):
+    c1: float
+    c2: float
+
+
+# From Sharman 2017
+OVERALL_CLIMATOLOGICAL_PARAMETER = ClimatologicalEDRConstants(-2.572, 0.5067)
