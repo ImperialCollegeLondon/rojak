@@ -16,7 +16,7 @@ import fnmatch
 import gzip
 import shutil
 import tempfile
-from collections.abc import Iterable
+from collections.abc import Container, Hashable, Iterable
 from ftplib import FTP
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -208,9 +208,9 @@ class MadisAmdarPreprocessor(DataPreprocessor):
         )
 
     def drop_invalid_qc_data(self, dataset: xr.Dataset) -> xr.Dataset:
-        qc_vars_present: set[str] = dataset.data_vars.keys() & self.quality_control_vars
+        qc_vars_present: Container[Hashable] = dataset.data_vars.keys() & self.quality_control_vars
         for var in qc_vars_present:
-            dataset = self.__mask_invalid_qc_for_var(dataset, var)
+            dataset = self.__mask_invalid_qc_for_var(dataset, str(var))
         return dataset.dropna(self.dimension_name, subset=qc_vars_present)
 
     @staticmethod
@@ -221,9 +221,9 @@ class MadisAmdarPreprocessor(DataPreprocessor):
         return dataset.where((dataset[data_var] == ord("p")) | (dataset[data_var] == ord("-")))
 
     def drop_invalid_error_data(self, dataset: xr.Dataset) -> xr.Dataset:
-        error_vars_present: set[str] = dataset.data_vars.keys() & self.error_vars
+        error_vars_present: Container[Hashable] = dataset.data_vars.keys() & self.error_vars
         for var in error_vars_present:
-            dataset = self.__mask_invalid_error_var(dataset, var)
+            dataset = self.__mask_invalid_error_var(dataset, str(var))
         return dataset.dropna(self.dimension_name, subset=error_vars_present)
 
     def apply_preprocessor(self, output_directory: Path) -> None:
@@ -239,7 +239,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
                 drop_variables=ALL_AMDAR_DATA_VARS - self.data_vars_for_turbulence,
             )
 
-            turbulence_subset: set[str] = data.data_vars.keys() & {
+            turbulence_subset: Container[Hashable] = data.data_vars.keys() & {
                 "maxEDR",
                 "medEDR",
                 "turbIndex",
@@ -253,7 +253,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
             data = self.drop_invalid_qc_data(data)
             data = self.drop_invalid_error_data(data)
 
-            variables_to_keep: list[str] = list(
+            variables_to_keep: list[Hashable] = list(
                 (data.data_vars.keys() & self.data_vars_for_turbulence) - self.quality_control_vars - self.error_vars,
             )
             output_file: Path = (
