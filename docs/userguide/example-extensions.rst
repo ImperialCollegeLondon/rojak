@@ -11,4 +11,3 @@ Loading data from a different meteorological data source (i.e. not ERA5 data) ca
 3. **Providing the adaptor**: Implement the abstract method :py:meth:`MetData.to_clear_air_turbulence_data` on the new class. This method must return a :py:class:`rojak.core.data.CATData` instance.
 4. **Verifying compatibility**: Add unit tests that confirm ``to_clear_air_turbulence_data()`` returns a valid ``CATData`` and that required fields are correctly mapped.
 5. **Using with diagnostics**: Convert your ``MetData`` instance via :py:meth:`to_clear_air_turbulence_data()` and pass the returned ``CATData`` to ``rojak.turbulence.diagnostic.DiagnosticFactory`` to instantiate diagnostics.
-
