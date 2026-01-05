@@ -12,6 +12,12 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
 
+def combined_regions_cbar_norm(cmap: mcolors.Colormap) -> tuple[mcolors.BoundaryNorm, list[float]]:
+    boundaries: list[int] = [0, 0b001, 0b100, 0b111, 8]
+    new_cbar_tick_locations = [(first + second) / 2 for first, second in itertools.pairwise(boundaries[1:])]
+    return mcolors.BoundaryNorm(boundaries, cmap.N), new_cbar_tick_locations
+
+
 def create_regions_snapshot_plot(  # noqa: PLR0913
     da_to_plot: xr.DataArray,
     first_feature_name: str,
@@ -22,11 +28,10 @@ def create_regions_snapshot_plot(  # noqa: PLR0913
     latitude_coord: str = "latitude",
     col_coord: str = "pressure_level",
     projection: "ccrs.Projection" = _PLATE_CARREE,
-) -> None:
+    return_facet_grid: bool = False,
+) -> xr.plot.FacetGrid | None:  # pyright: ignore[reportAttributeAccessIssue]
     cmap = get_a_default_cmap(StandardColourMaps.FEATURE_REGIONS)
-    boundaries: list[int] = [0, 0b001, 0b100, 0b111, 8]
-    new_cbar_tick_locations = [(first + second) / 2 for first, second in itertools.pairwise(boundaries[1:])]
-    cbar_norm = mcolors.BoundaryNorm(boundaries, cmap.N)
+    cbar_norm, new_cbar_tick_locations = combined_regions_cbar_norm(cmap)
     default_plot_kwargs = {
         "x": longitude_coord,
         "y": latitude_coord,
@@ -34,7 +39,7 @@ def create_regions_snapshot_plot(  # noqa: PLR0913
         "cmap": cmap,
         "norm": cbar_norm,
         "transform": projection,
-        "subplot_kws": {"projection": projection},
+        # "subplot_kws": {"projection": projection},
         "cbar_kwargs": {
             "orientation": "horizontal",
             "spacing": "uniform",
@@ -47,10 +52,52 @@ def create_regions_snapshot_plot(  # noqa: PLR0913
     fg.map(lambda: plt.gca().coastlines(lw=0.3))  # pyright: ignore[reportAttributeAccessIssue]
     fg.cbar.set_ticks(
         new_cbar_tick_locations,
-        labels=[first_feature_name, second_feature_name, f"{first_feature_name} & {second_feature_name}"],
+        labels=[second_feature_name, first_feature_name, f"{first_feature_name} & {second_feature_name}"],
     )
+
+    if return_facet_grid:
+        return fg
+
     fg.fig.savefig(plot_name, dpi=400, bbox_inches="tight")
     plt.close(fg.fig)
+    return None
+
+
+def create_interpolated_combined_regions_plot(
+    da_to_plot: xr.DataArray,
+    first_feature_name: str,
+    second_feature_name: str,
+    plot_name: str,
+    return_facet_grid: bool = False,
+    plot_kwargs: dict | None = None,
+) -> xr.plot.FacetGrid:  # pyright: ignore[reportAttributeAccessIssue]
+    cmap = get_a_default_cmap(StandardColourMaps.FEATURE_REGIONS)
+    cbar_norm, new_cbar_tick_locations = combined_regions_cbar_norm(cmap)
+    default_plot_kwargs = {
+        "cmap": cmap,
+        "norm": cbar_norm,
+        # "cbar_kwargs": {
+        #     "orientation": "horizontal",
+        #     "spacing": "uniform",
+        # "pad": 0.02,
+        # "shrink": 0.6,
+        # "ticks": new_cbar_tick_locations,
+        # "ticklabels":  [first_feature_name, second_feature_name, f"{first_feature_name} & {second_feature_name}"]
+        # },
+        **(plot_kwargs if plot_kwargs is not None else {}),
+    }
+    fg: xr.plot.FacetGrid = da_to_plot.plot(**default_plot_kwargs)  # pyright: ignore[reportAttributeAccessIssue]
+    fg.colorbar.set_ticks(
+        new_cbar_tick_locations,
+        labels=[second_feature_name, first_feature_name, f"{first_feature_name} & {second_feature_name}"],
+    )
+
+    if return_facet_grid:
+        return fg
+
+    fg.fig.savefig(plot_name, dpi=400, bbox_inches="tight")
+    plt.close(fg.fig)
+    return None
 
 
 def create_distance_from_a_to_b_instantaneous_lat_lon_plot(  # noqa:PLR0913
