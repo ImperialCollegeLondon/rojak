@@ -13,6 +13,7 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
     "Topic :: Scientific/Engineering",
@@ -79,6 +80,7 @@ dev = [
     "bokeh", # For dask dashboard
     "scipy-stubs",
     "hatch-vcs",
+    "basedpyright",
 ]
 test = [
     "pytest",
@@ -126,3 +128,7 @@ exclude_also = [
     '@(abc\.)?abstractmethod',
     '^\s*(logger|logging)\.\w+\(.*\)', # ignore logging statements
 ]
+
+[tool.esbonio.sphinx]
+buildCommand = ["sphinx-build", "-M", "dirhtml", "docs", "docs/_build"]
+pythonCommand = ["uv", "run", "--group", "docs", "python"]

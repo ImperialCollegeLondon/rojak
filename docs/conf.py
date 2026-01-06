@@ -48,6 +48,9 @@ autoclass_content = "both"
 autodoc_member_order = "groupwise"
 autodoc_typehints = "both"
 
+# Figure numbering
+numfig: bool = True
+
 # Mapping to other project documentation
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
