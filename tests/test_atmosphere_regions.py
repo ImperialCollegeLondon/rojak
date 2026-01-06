@@ -95,7 +95,7 @@ def get_is_ti1_turb(load_cat_data) -> xr.DataArray:
     return (
         DiagnosticFactory(load_cat_data(None, with_chunks=True)).create(TurbulenceDiagnostics.TI1).computed_value
         > TI1_THRESHOLD
-    )
+    ).compute()
 
 
 @pytest.fixture
@@ -104,7 +104,7 @@ def get_js_regions(load_cat_data) -> xr.DataArray:
         JetStreamAlgorithmFactory(load_cat_data(None, with_chunks=True))
         .create(JetStreamAlgorithms.ALPHA_VEL_KOCH)
         .identify_jet_stream()
-    )
+    ).compute()
 
 
 @pytest.mark.parametrize("num_dim", [2, 3])
