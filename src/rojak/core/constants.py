@@ -12,15 +12,15 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from typing import NamedTuple
+from typing import Final, NamedTuple
 
-MAX_LATITUDE: float = 90.0
-MAX_LONGITUDE: float = 180.0
+MAX_LATITUDE: Final[float] = 90.0
+MAX_LONGITUDE: Final[float] = 180.0
 # Physical constants
-GRAVITATIONAL_ACCELERATION: float = 9.80665  # m / s^2
-GAS_CONSTANT_DRY_AIR: float = 287  # R_d: J / (K kg)
-GAS_CONSTANT_VAPOUR: float = 461.51  # R_v: J / (K kg)
-ABSOLUTE_ZERO: float = -273.15  # C
+GRAVITATIONAL_ACCELERATION: Final[float] = 9.80665  # m / s^2
+GAS_CONSTANT_DRY_AIR: Final[float] = 287  # R_d: J / (K kg)
+GAS_CONSTANT_VAPOUR: Final[float] = 461.51  # R_v: J / (K kg)
+ABSOLUTE_ZERO: Final[float] = -273.15  # C
 
 
 class ClimatologicalEDRConstants(NamedTuple):
@@ -29,6 +29,6 @@ class ClimatologicalEDRConstants(NamedTuple):
 
 
 # From Sharman 2017
-SHARMAN_17_CLIMATOLOGICAL_PARAMETER = ClimatologicalEDRConstants(-2.572, 0.5067)
+SHARMAN_17_CLIMATOLOGICAL_PARAMETER: Final[ClimatologicalEDRConstants] = ClimatologicalEDRConstants(-2.572, 0.5067)
 # Climatological EDR values computed from 2020-2024
-TWENTIES_CLIMATOLOGICAL_PARAMETER = ClimatologicalEDRConstants(-3.627092, 0.951802)
+TWENTIES_CLIMATOLOGICAL_PARAMETER: Final[ClimatologicalEDRConstants] = ClimatologicalEDRConstants(-3.627092, 0.951802)
