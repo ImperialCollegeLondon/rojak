@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from rojak.turbulence.verification import RocVerificationResult
 
 
-TestCaseValues = namedtuple("TestCaseValues", ["index_into_dataset", "observational_data", "indices"])
+ThisTestCaseValues = namedtuple("TestCaseValues", ["index_into_dataset", "observational_data", "indices"])
 
 AmdarTurbDataMock = namedtuple("AmdarTurbDataMock", ["amdar_data_mock", "observational_data_mock"])
 
@@ -45,8 +45,8 @@ possible_test_case_sizes: list[ThisTestCaseSize] = [ThisTestCaseSize.SMALL, This
 
 
 @pytest.fixture
-def get_test_case(load_cat_data) -> Callable[[ThisTestCaseSize], TestCaseValues]:
-    def _get_test_case(size: ThisTestCaseSize) -> TestCaseValues:
+def get_test_case(load_cat_data) -> Callable[[ThisTestCaseSize], ThisTestCaseValues]:
+    def _get_test_case(size: ThisTestCaseSize) -> ThisTestCaseValues:
         rand_generator = np.random.default_rng()
         match size:
             case ThisTestCaseSize.SMALL:
@@ -66,7 +66,7 @@ def get_test_case(load_cat_data) -> Callable[[ThisTestCaseSize], TestCaseValues]
                     "index_right": np.arange(3),
                 }
                 observational_data: dd.DataFrame = dd.from_pandas(pd.DataFrame(indices), npartitions=2)
-                return TestCaseValues(index_into_dataset, observational_data, indices)
+                return ThisTestCaseValues(index_into_dataset, observational_data, indices)
             case ThisTestCaseSize.LARGE:
                 cat_data: CATData = load_cat_data(None, with_chunks=True)
                 num_points: int = 30
@@ -95,7 +95,7 @@ def get_test_case(load_cat_data) -> Callable[[ThisTestCaseSize], TestCaseValues]
                 indices["index_right"] = np.arange(num_points)
 
                 observational_data: dd.DataFrame = dd.from_pandas(pd.DataFrame(indices), npartitions=10)
-                return TestCaseValues(index_into_dataset, observational_data, indices)
+                return ThisTestCaseValues(index_into_dataset, observational_data, indices)
             case _ as unreachable:
                 assert_never(unreachable)
 
@@ -152,7 +152,7 @@ class TestAmdarDataHarmoniser:
         get_test_case,
         client,
     ) -> None:
-        case: TestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
         cat_data: CATData = load_cat_data(None, with_chunks=True)
@@ -190,7 +190,7 @@ class TestAmdarDataHarmoniser:
         get_test_case,
         client,
     ) -> None:
-        case: TestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
         cat_data: CATData = load_cat_data(None, with_chunks=True)
@@ -225,7 +225,7 @@ class TestAmdarDataHarmoniser:
     def test_observations_index_to_grid_ravel_equiv_coords(
         self, mocker: "MockerFixture", case_size: ThisTestCaseSize, load_cat_data, get_test_case, client
     ) -> None:
-        case: TestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
         cat_data: CATData = load_cat_data(None, with_chunks=True)
@@ -248,7 +248,7 @@ class TestAmdarDataHarmoniser:
     def test_has_observation(
         self, mocker: "MockerFixture", case_size: ThisTestCaseSize, load_cat_data, get_test_case, client
     ) -> None:
-        case: TestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
         cat_data: CATData = load_cat_data(None, with_chunks=True)
@@ -278,7 +278,7 @@ class TestAmdarDataHarmoniser:
     def test_has_positive_turbulence_observation(
         self, mocker: "MockerFixture", case_size: ThisTestCaseSize, min_edr: float, load_cat_data, get_test_case, client
     ) -> None:
-        case: TestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
         cat_data: CATData = load_cat_data(None, with_chunks=True)
@@ -323,7 +323,7 @@ class TestDiagnosticAmdarVerification:
     def test_data_with_diagnostics(
         self, mocker: "MockerFixture", case_size: ThisTestCaseSize, load_cat_data, get_test_case, client
     ) -> None:
-        case: TestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
         cat_data: CATData = load_cat_data(None, with_chunks=True)
@@ -370,7 +370,7 @@ class TestDiagnosticAmdarVerification:
         get_test_case,
         client,
     ) -> None:
-        case: TestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
         cat_data: CATData = load_cat_data(None, with_chunks=True)
@@ -420,7 +420,7 @@ class TestDiagnosticAmdarVerification:
         get_test_case,
         client,
     ) -> None:
-        case: TestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
         cat_data: CATData = load_cat_data(None, with_chunks=True)
@@ -463,7 +463,7 @@ class TestDiagnosticAmdarVerification:
         get_test_case,
         client,
     ) -> None:
-        case: TestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
         cat_data: CATData = load_cat_data(None, with_chunks=True)
