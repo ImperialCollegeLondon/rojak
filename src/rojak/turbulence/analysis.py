@@ -35,10 +35,17 @@ from rojak.orchestrator.configuration import (
     TurbulenceThresholdMode,
     TurbulenceThresholds,
 )
-from rojak.turbulence.metrics import contingency_table, jaccard_index_multidim, matthews_corr_coeff_multidim
+from rojak.turbulence.metrics import (
+    contingency_table,
+    jaccard_index_multidim,
+    matthews_corr_coeff,
+    matthews_corr_coeff_multidim,
+)
 from rojak.utilities.types import (
     DistributionParameters,
     Limits,
+    all_dtypes_match,
+    all_dtypes_same,
     is_xr_data_array,
     is_xr_dataset,
 )
@@ -501,6 +508,91 @@ class CorrelationBetweenDiagnostics(PostProcessor):
             corr_btw_diagnostics.loc[{"diagnostic1": second_diagnostic, "diagnostic2": first_diagnostic}] = this_corr
 
         return corr_btw_diagnostics
+
+
+class MatthewsCorrelationOnDataset(PostProcessor):
+    _is_dataset: xr.Dataset
+    _with_vars: str
+
+    def __init__(self, is_dataset: xr.Dataset, with_vars: str, /) -> None:
+        """
+        Class computes the Matthew's Correlation Coefficient between DataArrays within a Dataset. Thus, it requires
+        the data to be booleans
+
+        Args:
+            is_dataset: Dataset containing boolean data
+            with_vars: Name of variables in the dataset, e.g. diagnostic
+        """
+        super().__init__()
+
+        if not is_dask_collection(is_dataset):
+            raise TypeError("Dataset containing turbulence diagnostic forecast must be dask collection")
+
+        if not all_dtypes_same(is_dataset):
+            raise TypeError("Dataset must contain DataArrays with the same dtype")
+
+        if not all_dtypes_match(is_dataset, np.bool_):
+            raise TypeError("Dataset must contain DataArrays boolean dtypes")
+
+        self._is_dataset = is_dataset.astype(int)
+        self._with_vars = with_vars
+
+    def execute(self) -> xr.DataArray:
+        data_array_names = list(self._is_dataset.keys())
+        num_data_arrays: int = len(data_array_names)
+
+        corr_btw_data_arrays: xr.DataArray = xr.DataArray(
+            data=np.ones((num_data_arrays, num_data_arrays)),
+            dims=(f"{self._with_vars}1", f"{self._with_vars}2"),
+            coords={f"{self._with_vars}1": data_array_names, f"{self._with_vars}2": data_array_names},
+        )
+
+        for first_data_array, second_data_array in itertools.combinations(data_array_names, 2):
+            correlation_between: float = matthews_corr_coeff(
+                truth=da.ravel(self._is_dataset[first_data_array].data),
+                prediction=da.ravel(self._is_dataset[second_data_array].data),
+            )
+            corr_btw_data_arrays.loc[
+                {f"{self._with_vars}1": first_data_array, f"{self._with_vars}2": second_data_array}
+            ] = correlation_between
+            corr_btw_data_arrays.loc[
+                {f"{self._with_vars}1": second_data_array, f"{self._with_vars}2": first_data_array}
+            ] = correlation_between
+
+        return corr_btw_data_arrays
+
+
+class MatthewsCorrelationOnThresholdedDiagnostics(PostProcessor):
+    _diagnostic_indices: xr.Dataset
+    _severities: list["TurbulenceSeverity"]
+    _thresholds: "Mapping[DiagnosticName, TurbulenceThresholds]"
+    _threshold_mode: "TurbulenceThresholdMode"
+
+    def __init__(
+        self,
+        diagnostic_indices: xr.Dataset,
+        severities: list["TurbulenceSeverity"],
+        thresholds: "Mapping[DiagnosticName, TurbulenceThresholds]",
+        threshold_mode: "TurbulenceThresholdMode",
+    ) -> None:
+        super().__init__()
+        self._diagnostic_indices = diagnostic_indices
+        self._severities = severities
+        self._thresholds = thresholds
+        self._threshold_mode = threshold_mode
+
+    def execute(self) -> xr.DataArray:
+        correlation_across_severities: list[xr.DataArray] = []
+        for severity in track(self._severities, "Computing correlation for each severity"):
+            threshold_applied = TurbulentRegionFromThreshold(
+                self._diagnostic_indices, severity, self._thresholds, self._threshold_mode
+            ).execute()
+            assert is_xr_dataset(threshold_applied)
+            correlation_across_severities.append(
+                MatthewsCorrelationOnDataset(threshold_applied, "diagnostic").execute()
+            )
+
+        return xr.concat(correlation_across_severities, "severity").assign_coords(coords={"severity": self._severities})
 
 
 class Hemisphere(StrEnum):
