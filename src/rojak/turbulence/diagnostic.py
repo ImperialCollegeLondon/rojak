@@ -1460,9 +1460,6 @@ class DiagnosticSuite:
         #   implementations and may change in the future.
 
         # output_path.mkdir(parents=True, exist_ok=True) # apparently, to_zarr handles directory creation??
-        if "zarr_format" not in to_zarr_kwargs:
-            # If zarr_format is not specified, it will detect the format based on the zarr-python library
-            to_zarr_kwargs["zarr_format"] = 2
         return self.as_dataset().to_zarr(store=output_path, mode="w", zarr_format=zarr_format, **to_zarr_kwargs)
 
 
