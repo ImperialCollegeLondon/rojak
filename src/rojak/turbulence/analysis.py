@@ -843,7 +843,9 @@ class RelationshipBetweenFactory:
     _other_feature: xr.DataArray
     _sum_over_dim: str
 
-    def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dim: str = "time") -> None:
+    def __init__(
+        self, this_feature: xr.DataArray, other_feature: xr.DataArray, /, *, sum_over_dim: str = "time"
+    ) -> None:
         self._this_feature = this_feature
         self._other_feature = other_feature
         self._sum_over_dim = sum_over_dim
