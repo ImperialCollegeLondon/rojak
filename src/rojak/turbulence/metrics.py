@@ -513,6 +513,7 @@ def _populate_confusion_matrix(
 
 
 def matthews_corr_coeff(
+    *,
     truth: da.Array | None = None,
     prediction: da.Array | None = None,
     confuse_matrix: "NDArray | None" = None,
