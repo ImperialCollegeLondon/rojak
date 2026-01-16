@@ -16,7 +16,7 @@ import itertools
 from abc import ABC
 from collections.abc import Hashable, Mapping
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, NamedTuple, assert_never
+from typing import TYPE_CHECKING, Any, assert_never
 
 import dask.array as da
 import numpy as np
@@ -24,25 +24,25 @@ import xarray as xr
 from dask.base import is_dask_collection
 from numpy.typing import NDArray
 from pydantic.dataclasses import dataclass as pydantic_dataclass
+from rich.progress import track
 
 from rojak.core.analysis import PostProcessor
-from rojak.orchestrator.configuration import TurbulenceSeverity, TurbulenceThresholdMode, TurbulenceThresholds
-from rojak.utilities.types import Limits
+from rojak.core.constants import SHARMAN_17_CLIMATOLOGICAL_PARAMETER
+from rojak.orchestrator.configuration import (
+    RelationshipBetweenTypes,
+    TurbulenceSeverity,
+    TurbulenceThresholdMode,
+    TurbulenceThresholds,
+)
+from rojak.turbulence.metrics import contingency_table, jaccard_index_multidim, matthews_corr_coeff_multidim
+from rojak.utilities.types import DistributionParameters, Limits
 
 if TYPE_CHECKING:
+    from rojak.atmosphere.jet_stream import AlphaVelField
     from rojak.turbulence.diagnostic import DiagnosticName
 
 type IntensityName = str
 type IntensityValues = dict[IntensityName, float]
-
-
-class ClimatologicalEDRConstants(NamedTuple):
-    c1: float
-    c2: float
-
-
-# From Sharman 2017
-OVERALL_CLIMATOLOGICAL_PARAMETER = ClimatologicalEDRConstants(-2.572, 0.5067)
 
 
 class TurbulenceIntensityThresholds(PostProcessor):
@@ -83,14 +83,16 @@ class TurbulenceIntensityThresholds(PostProcessor):
     def execute(self) -> TurbulenceThresholds:
         not_none_mask = [index for index, item in enumerate(self._percentile_config.all_severities) if item is not None]
         not_none_percentiles = self._compute_percentiles(
-            np.asarray(self._percentile_config.all_severities, dtype=np.float64)[not_none_mask]
+            np.asarray(self._percentile_config.all_severities, dtype=np.float64)[not_none_mask],
         )
         mapping_to_severity = self._find_index_without_nones()
         return TurbulenceThresholds(
             **{
                 str(severity): index_map if index_map is None else not_none_percentiles[index_map]
                 for index_map, severity in zip(
-                    mapping_to_severity, TurbulenceSeverity.get_in_ascending_order(), strict=False
+                    mapping_to_severity,
+                    TurbulenceSeverity.get_in_ascending_order(),
+                    strict=False,
                 )
             },
             _all_severities=[],
@@ -205,7 +207,10 @@ class DiagnosticHistogramDistribution(PostProcessor):
         log_of_diagnostic = da.log(flattened_array)
         min_and_max = da.percentile(log_of_diagnostic, [0, 100], internal_method="tdigest").compute()
         h, bins = da.histogram(  # pyright: ignore [reportGeneralTypeIssues]
-            log_of_diagnostic, bins=self._NUM_HIST_BINS, range=(min_and_max[0], min_and_max[1]), density=True
+            log_of_diagnostic,
+            bins=self._NUM_HIST_BINS,
+            range=(min_and_max[0], min_and_max[1]),
+            density=True,
         )
         return HistogramData(
             hist_values=h.compute(),
@@ -258,12 +263,14 @@ class TurbulentRegionsBySeverity(PostProcessor):
         self._threshold_mode = threshold_mode
         self._has_parent = has_parent
 
-    def execute(self) -> xr.DataArray | list[xr.DataArray]:
+    def execute(self) -> xr.DataArray | list[xr.DataArray] | xr.DataTree:
         by_severity = []
         for severity in self._severities:
             bounds: Limits = self._thresholds.get_bounds(severity, self._threshold_mode)
             this_severity = xr.where(
-                (self._computed_diagnostic >= bounds.lower) & (self._computed_diagnostic < bounds.upper), True, False
+                (self._computed_diagnostic >= bounds.lower) & (self._computed_diagnostic < bounds.upper),
+                True,
+                False,
             )
             by_severity.append(this_severity if self._has_parent else this_severity.compute())
         return by_severity if self._has_parent else xr.concat(by_severity, xr.Variable("severity", self._severities))
@@ -288,9 +295,14 @@ class TurbulenceProbabilityBySeverity(_EvaluationPostProcessor):
         super().__init__(
             components={
                 "turbulent_regions": TurbulentRegionsBySeverity(
-                    computed_diagnostic, pressure_levels, severities, thresholds, threshold_mode, has_parent=True
-                )
-            }
+                    computed_diagnostic,
+                    pressure_levels,
+                    severities,
+                    thresholds,
+                    threshold_mode,
+                    has_parent=True,
+                ),
+            },
         )
         self._num_time_steps: int = computed_diagnostic["time"].size
         self._severities = severities
@@ -305,6 +317,23 @@ class TurbulenceProbabilityBySeverity(_EvaluationPostProcessor):
         return xr.concat(probabilities, xr.Variable("severity", self._severities))
 
 
+class ComputeDistributionParametersForEDR(PostProcessor):
+    _computed_diagnostic: xr.DataArray
+
+    def __init__(self, computed_diagnostic: xr.DataArray) -> None:
+        super().__init__()
+        self._computed_diagnostic = computed_diagnostic
+
+    def execute(self) -> DistributionParameters:
+        diagnostic_values = da.asarray(self._computed_diagnostic.data).flatten()
+        diagnostic_values = (diagnostic_values[diagnostic_values > 0]).compute_chunk_sizes()
+        log_of_diagnostic = da.log(diagnostic_values)
+        return DistributionParameters(
+            mean=da.nanmean(log_of_diagnostic).compute(),
+            variance=da.nanvar(log_of_diagnostic).compute(),
+        )
+
+
 class TransformToEDR(PostProcessor):
     """
     Transforms turbulence diagnostic values into EDR
@@ -315,25 +344,44 @@ class TransformToEDR(PostProcessor):
     """
 
     _computed_diagnostic: xr.DataArray
-    _mean: float
-    _variance: float
-    _has_parent: bool
+    _mean: float | None
+    _variance: float | None
+    _c1: float
+    _c2: float
 
     def __init__(
-        self, computed_diagnostic: xr.DataArray, mean: float, variance: float, has_parent: bool = False
+        self,
+        computed_diagnostic: xr.DataArray,
+        mean: float | None = None,
+        variance: float | None = None,
+        c1: float | None = None,
+        c2: float | None = None,
     ) -> None:
         super().__init__()
         self._computed_diagnostic = computed_diagnostic
+        assert (mean is not None and variance is not None) or (mean is None and variance is None)
         self._mean = mean
         self._variance = variance
-        self._has_parent = has_parent
+        if c1 is not None and c2 is not None:
+            self._c1 = c1
+            self._c2 = c2
+        elif c1 is None and c2 is None:
+            self._c1 = SHARMAN_17_CLIMATOLOGICAL_PARAMETER.c1
+            self._c2 = SHARMAN_17_CLIMATOLOGICAL_PARAMETER.c2
+        else:
+            raise TypeError("Both c1 and c2 must be both be provided or omitted")
 
     def execute(self) -> xr.DataArray:
+        if self._mean is None or self._variance is None:
+            distribution_parameters = ComputeDistributionParametersForEDR(self._computed_diagnostic).execute()
+            self._mean = distribution_parameters.mean
+            self._variance = distribution_parameters.variance
+
         # See ECMWF document for details
         # b = c_2 / standard_deviation
-        scaling: float = OVERALL_CLIMATOLOGICAL_PARAMETER.c2 / np.sqrt(self._variance)
+        scaling: float = self._c2 / np.sqrt(self._variance)
         # a = c_2 - b * mean
-        offset: float = OVERALL_CLIMATOLOGICAL_PARAMETER.c1 - scaling * self._mean
+        offset: float = self._c1 - scaling * self._mean
         unmapped_index = xr.where(self._computed_diagnostic > 0, self._computed_diagnostic, 0)
         # Numpy doesn't support fractional powers of negative numbers so pull the negative out
         # https://stackoverflow.com/a/45384691
@@ -355,7 +403,9 @@ class CorrelationBetweenDiagnostics(PostProcessor):
     _sel_condition: Mapping[str, Any]
 
     def __init__(
-        self, computed_indices: dict["DiagnosticName", xr.DataArray], sel_condition: Mapping[str, Any]
+        self,
+        computed_indices: dict["DiagnosticName", xr.DataArray],
+        sel_condition: Mapping[str, Any],
     ) -> None:
         self._computed_indices = computed_indices
         self._diagnostic_names = list(self._computed_indices.keys())
@@ -428,7 +478,7 @@ class LatitudinalCorrelationBetweenDiagnostics(PostProcessor):
         self._sel_condition = sel_condition
 
     @staticmethod
-    def _apply_region_filter(array: xr.DataArray, hemisphere: Hemisphere, region: LatitudinalRegion) -> xr.DataArray:  # noqa: PLR0911
+    def _apply_region_filter(array: xr.DataArray, hemisphere: Hemisphere, region: LatitudinalRegion) -> xr.DataArray:
         extratropic_latitudes: Limits = Limits(lower=25, upper=65)
         entire_tropics: Limits = Limits(lower=-25, upper=25)
         half_tropics: Limits = Limits(lower=0, upper=25)
@@ -527,7 +577,7 @@ class LatitudinalCorrelationBetweenDiagnostics(PostProcessor):
     def execute(self) -> xr.DataArray:
         possible_coordinates: set[str] = {"latitude", "longitude", "valid_time"}
         remaining_coordinates: list[Hashable] = [
-            coord for coord in list(self._computed_indices.values())[0].dims if coord in possible_coordinates
+            coord for coord in next(iter(self._computed_indices.values())).dims if coord in possible_coordinates
         ]
         num_diagnostics: int = len(self._diagnostic_names)
         correlations: xr.DataArray = xr.DataArray(
@@ -542,7 +592,8 @@ class LatitudinalCorrelationBetweenDiagnostics(PostProcessor):
         )
         for first_diagnostic, second_diagnostic in itertools.combinations(self._diagnostic_names, 2):
             for hemisphere, region in itertools.product(
-                self._hemispheres, self._regions
+                self._hemispheres,
+                self._regions,
             ):  # Hemisphere, LatitudinalRegion
                 this_correlation: xr.DataArray = xr.corr(
                     self._apply_region_filter(self._computed_indices[first_diagnostic], hemisphere, region)
@@ -571,3 +622,164 @@ class LatitudinalCorrelationBetweenDiagnostics(PostProcessor):
                     }
                 ] = this_correlation
         return correlations
+
+
+class RelationshipBetween(PostProcessor):
+    _this_feature: xr.DataArray
+    _other_feature: xr.DataArray
+    _sum_over_dim: str
+
+    def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dim: str = "time") -> None:
+        assert this_feature.dtype == other_feature.dtype
+        assert this_feature.dtype == np.bool_  # For now, require the two to have a boolean dtype
+        assert {"longitude", "latitude", "pressure_level", "time"}.issubset(this_feature.coords)
+        assert set(this_feature.coords).issuperset(other_feature.coords)
+
+        self._this_feature = this_feature
+        self._other_feature = other_feature
+        self._sum_over_dim = sum_over_dim
+
+    def execute(self) -> xr.DataArray: ...
+
+
+class JaccardIndex(RelationshipBetween):
+    def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time") -> None:
+        super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
+
+    def execute(self) -> xr.DataArray:
+        return jaccard_index_multidim(self._this_feature, self._other_feature, self._sum_over_dim)
+
+
+class ProbabilityThisGivenOther(RelationshipBetween):
+    def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time") -> None:
+        super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
+
+    def execute(self) -> xr.DataArray:
+        table = contingency_table(self._this_feature, self._other_feature, self._sum_over_dim)
+        return table.n_11 / (table.n_11 + table.n_10)
+
+
+class ProbabilityThisGivenNotOther(RelationshipBetween):
+    def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time") -> None:
+        super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
+
+    def execute(self) -> xr.DataArray:
+        table = contingency_table(self._this_feature, self._other_feature, self._sum_over_dim)
+        return table.n_10 / (table.n_00 + table.n_10)
+
+
+class MatthewsCorrelation(RelationshipBetween):
+    def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time") -> None:
+        super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
+
+    def execute(self) -> xr.DataArray:
+        return matthews_corr_coeff_multidim(self._this_feature, self._other_feature, self._sum_over_dim)
+
+
+class RelationshipBetweenFactory:
+    _this_feature: xr.DataArray
+    _other_feature: xr.DataArray
+    _sum_over_dim: str
+
+    def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dim: str = "time") -> None:
+        self._this_feature = this_feature
+        self._other_feature = other_feature
+        self._sum_over_dim = sum_over_dim
+
+    def create(self, type_of_relationship: RelationshipBetweenTypes) -> RelationshipBetween:
+        match type_of_relationship:
+            case RelationshipBetweenTypes.JACCARD_INDEX:
+                return JaccardIndex(self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim)
+            case RelationshipBetweenTypes.PROBABILITY_THIS_GIVEN_OTHER:
+                return ProbabilityThisGivenOther(
+                    self._this_feature,
+                    self._other_feature,
+                    sum_over_dims=self._sum_over_dim,
+                )
+            case RelationshipBetweenTypes.PROBABILITY_OTHER_GIVEN_THIS:
+                return ProbabilityThisGivenOther(
+                    self._other_feature,
+                    self._this_feature,
+                    sum_over_dims=self._sum_over_dim,
+                )
+            case RelationshipBetweenTypes.PROBABILITY_THIS_GIVEN_NOT_OTHER:
+                return ProbabilityThisGivenNotOther(
+                    self._this_feature,
+                    self._other_feature,
+                    sum_over_dims=self._sum_over_dim,
+                )
+            case RelationshipBetweenTypes.PROBABILITY_OTHER_GIVEN_NOT_THIS:
+                return ProbabilityThisGivenNotOther(
+                    self._other_feature,
+                    self._this_feature,
+                    sum_over_dims=self._sum_over_dim,
+                )
+            case RelationshipBetweenTypes.MATTHEWS_CORRELATION:
+                return MatthewsCorrelation(self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim)
+            case _ as unreachable:
+                assert_never(unreachable)
+
+
+class RelationshipBetweenXAndTurbulence(PostProcessor):
+    _other_feature: xr.DataArray
+    _turbulence_diagnostics: xr.Dataset
+    _relationship_type: RelationshipBetweenTypes
+    _diagnostic_thresholds: Mapping[str, float] | None
+    _feature_name: str
+
+    def __init__(
+        self,
+        other_feature: xr.DataArray,
+        turbulence_diagnostics: xr.Dataset,
+        relationship_between: RelationshipBetweenTypes,
+        diagnostic_thresholds: Mapping[str, float] | None = None,
+        feature_name: str | None = None,
+    ) -> None:
+        if diagnostic_thresholds is not None:
+            assert set(diagnostic_thresholds.keys()).issuperset(turbulence_diagnostics.keys())
+
+        self._other_feature = other_feature
+        self._turbulence_diagnostics = turbulence_diagnostics
+        self._relationship_type = relationship_between
+        self._diagnostic_thresholds = diagnostic_thresholds
+        self._feature_name = feature_name if feature_name is not None else "feature"
+
+    def execute(self) -> xr.Dataset:
+        return xr.Dataset(
+            data_vars={
+                diagnostic_name: RelationshipBetweenFactory(
+                    self._other_feature,
+                    turbulence_diagnostics
+                    if self._diagnostic_thresholds is None
+                    else turbulence_diagnostics >= self._diagnostic_thresholds[str(diagnostic_name)],
+                )
+                .create(self._relationship_type)
+                .execute()
+                for diagnostic_name, turbulence_diagnostics in track(
+                    self._turbulence_diagnostics.items(),
+                    f"Relationship between {self._feature_name} and turbulence diagnostics",
+                )
+            },
+        )
+
+
+class RelationshipBetweenAlphaVelAndTurbulence(RelationshipBetweenXAndTurbulence):
+    _alpha_vel: "AlphaVelField"
+    _turbulence_diagnostics: xr.Dataset
+    _relationship_type: RelationshipBetweenTypes
+    _diagnostic_thresholds: Mapping[str, float] | None
+
+    def __init__(
+        self,
+        alpha_vel: "AlphaVelField",
+        turbulence_diagnostics: xr.Dataset,
+        relationship_between: RelationshipBetweenTypes,
+        diagnostic_thresholds: Mapping[str, float] | None = None,
+    ) -> None:
+        super().__init__(
+            alpha_vel.identify_jet_stream(),
+            turbulence_diagnostics,
+            relationship_between,
+            diagnostic_thresholds=diagnostic_thresholds,
+            feature_name="alpha vel jet stream",
+        )

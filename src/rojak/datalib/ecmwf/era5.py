@@ -43,7 +43,7 @@ class InvalidEra5RequestConfigurationError(Exception):
         super().__init__(message)
 
 
-type Era5DefaultsName = Literal["cat", "surface", "contrail"] | None
+type Era5DefaultsName = Literal["cat", "surface", "contrail", "minimal-cat-contrail"] | None
 type Era5DatasetName = Literal["pressure-level", "single-level"]
 
 
@@ -66,7 +66,7 @@ class Era5Retriever(DataRetriever):
         if default_name is None:
             if pressure_levels is None or variables is None:
                 raise InvalidEra5RequestConfigurationError(
-                    "Default not specified. As such, which variables and pressure levels must be specified."
+                    "Default not specified. As such, which variables and pressure levels must be specified.",
                 )
             self.request_body = blank_default
         else:

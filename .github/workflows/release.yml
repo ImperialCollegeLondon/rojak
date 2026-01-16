@@ -32,8 +32,8 @@ jobs:
 #        os: [ubuntu-latest, windows-latest, macos-latest]
 #
 #    steps:
-#      - uses: actions/checkout@v5
-#      - uses: astral-sh/setup-uv@v6
+#      - uses: actions/checkout@v6
+#      - uses: astral-sh/setup-uv@v7
 #      - name: Build wheels
 #        uses: pypa/cibuildwheel@v3.0.1
 #        env:
@@ -43,7 +43,7 @@ jobs:
 #          CIBW_TEST_COMMAND: >
 #            pytest {project}/tests
 #      - name: Upload wheels
-#        uses: actions/upload-artifact@v4
+#        uses: actions/upload-artifact@v6
 #        with:
 #          name: wheels-${{ matrix.os }}
 #          path: ./dist/*.whl
@@ -52,11 +52,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
       - run: uv build --wheel
       - name: Upload wheel
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: wheel
           path: ./dist/*.whl
@@ -66,14 +66,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - run: uv build --sdist
       - name: Upload sdist
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: sdist
           path: ./dist/*.tar.gz
@@ -91,7 +91,7 @@ jobs:
     if: ${{ github.ref_type == 'tag' }}
 
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v7
         with:
           path: dist
           merge-multiple: true
@@ -114,7 +114,7 @@ jobs:
       id-token: write
 
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v7
         with:
           path: dist
           merge-multiple: true

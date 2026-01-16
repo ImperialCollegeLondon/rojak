@@ -49,7 +49,9 @@ if TYPE_CHECKING:
 @pytest.fixture
 def create_diagnostic_suite(load_cat_data: Callable) -> Callable:
     def _create_diagnostic_suite(
-        turbulence_diagnostics: list[TurbulenceDiagnostics], is_parallel: bool, is_calibration: bool
+        turbulence_diagnostics: list[TurbulenceDiagnostics],
+        is_parallel: bool,
+        is_calibration: bool,
     ) -> DiagnosticSuite:
         cat_data: CATData = load_cat_data(None, with_chunks=is_parallel)
         cat_factory = DiagnosticFactory(cat_data)  # BEWARE of the meowing
@@ -99,7 +101,11 @@ def create_diagnostic_suite(load_cat_data: Callable) -> Callable:
     ],
 )
 def test_turbulence_diagnostics_compute_on_distributed(
-    client, load_cat_data, diagnostic: TurbulenceDiagnostics, target_class, create_diagnostic_suite
+    client,
+    load_cat_data,
+    diagnostic: TurbulenceDiagnostics,
+    target_class,
+    create_diagnostic_suite,
 ) -> None:
     factory = DiagnosticFactory(load_cat_data(None, with_chunks=True))
     instantiated_diagnostic = factory.create(diagnostic)
@@ -123,7 +129,9 @@ def test_turbulence_diagnostics_compute_on_distributed(
 
 @pytest.mark.parametrize("diagnostic", [e.value for e in TurbulenceDiagnostics])
 def test_turbulence_diagnostics_serial_and_distributed_are_equivalent(
-    client, load_cat_data, diagnostic: TurbulenceDiagnostics
+    client,
+    load_cat_data,
+    diagnostic: TurbulenceDiagnostics,
 ) -> None:
     distributed_factory = DiagnosticFactory(load_cat_data(None, with_chunks=True))
     serial_factory = DiagnosticFactory(load_cat_data(None, with_chunks=False))

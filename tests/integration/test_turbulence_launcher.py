@@ -56,7 +56,7 @@ def create_calibration_only_config(create_config_context) -> Callable:
                         calibration_data_dir=Path("tests/_static/"),
                         percentile_thresholds=TurbulenceThresholds(light=0.97, light_to_moderate=98.0, moderate=99.0),
                     ),
-                )
+                ),
             ),
         )
         return create_config_context("calibration_only", turb_config=turbulence_config)
@@ -67,7 +67,9 @@ def create_calibration_only_config(create_config_context) -> Callable:
 @pytest.fixture
 def create_evaluation_config_restore_from_outputs(create_config_context) -> Callable:
     def _evaluation_config_restore_from_outputs(
-        diagnostics: list[TurbulenceDiagnostics], path_to_thresholds: Path, path_to_distribution_params: Path
+        diagnostics: list[TurbulenceDiagnostics],
+        path_to_thresholds: Path,
+        path_to_distribution_params: Path,
     ) -> ConfigContext:
         turbulence_config = TurbulenceConfig(
             chunks={"pressure_level": 3, "latitude": 721, "longitude": 1440, "valid_time": 2},
@@ -115,11 +117,11 @@ def marry_up_output_files(files: list[Path]) -> CalibrationOutputFiles:
         case [file_path] if file_path.stem.startswith("distribution_params"):
             return CalibrationOutputFiles(thresholds=None, distribution=files[0])
         case [file_path1, file_path2] if file_path1.stem.startswith("thresholds") and file_path2.stem.startswith(
-            "distribution_params"
+            "distribution_params",
         ):
             return CalibrationOutputFiles(thresholds=files[0], distribution=files[1])
         case [file_path1, file_path2] if file_path2.stem.startswith("thresholds") and file_path1.stem.startswith(
-            "distribution_params"
+            "distribution_params",
         ):
             return CalibrationOutputFiles(thresholds=files[1], distribution=files[0])
         case _ as unreachable:
@@ -143,20 +145,22 @@ def test_turbulence_calibration_only(create_calibration_only_config: Callable, c
     assert output_files.distribution is not None
 
     distribution_params: dict[str, HistogramData] = DISTRIBUTION_PARAMS_TYPE_ADAPTER.validate_json(
-        output_files.distribution.read_text()
+        output_files.distribution.read_text(),
     )
     thresholds: dict[str, TurbulenceThresholds] = THRESHOLDS_TYPE_ADAPTER.validate_json(
-        output_files.thresholds.read_text()
+        output_files.thresholds.read_text(),
     )
     calibrated_diagnostics = set(calibration_config.turbulence_config.diagnostics)
     assert calibrated_diagnostics.intersection(thresholds.keys()) == calibrated_diagnostics.union(thresholds.keys())
     assert calibrated_diagnostics.intersection(distribution_params.keys()) == calibrated_diagnostics.union(
-        distribution_params.keys()
+        distribution_params.keys(),
     )
 
 
 def test_turbulence_evaluation_restore_from_file(
-    create_calibration_only_config, client, create_evaluation_config_restore_from_outputs
+    create_calibration_only_config,
+    client,
+    create_evaluation_config_restore_from_outputs,
 ):
     calibration_config: ConfigContext = create_calibration_only_config(4)
     assert calibration_config.turbulence_config is not None
@@ -170,7 +174,9 @@ def test_turbulence_evaluation_restore_from_file(
     assert output_files.distribution is not None
 
     evaluation_config: ConfigContext = create_evaluation_config_restore_from_outputs(
-        calibration_config.turbulence_config.diagnostics, output_files.thresholds, output_files.distribution
+        calibration_config.turbulence_config.diagnostics,
+        output_files.thresholds,
+        output_files.distribution,
     )
     assert evaluation_config.turbulence_config is not None
     assert evaluation_config.turbulence_config.phases is not None
@@ -195,7 +201,7 @@ def test_turbulence_calibration_and_evaluation(create_config_context, client, re
         # TurbulenceEvaluationPhaseOption.REGIONAL_CORRELATION_EDR,
     ]
     turbulence_config = TurbulenceConfig(
-        chunks={"pressure_level": 3, "latitude": 721, "longitude": 1440, "valid_time": 3},
+        chunks={"pressure_level": 6, "latitude": 721, "longitude": 1440, "valid_time": 3},
         diagnostics=diagnostics,
         phases=TurbulencePhases(
             calibration_phases=TurbulenceCalibrationPhases(
@@ -227,11 +233,14 @@ def test_turbulence_calibration_and_evaluation(create_config_context, client, re
 @pytest.mark.cdsapi
 @pytest.mark.xfail(reason="The code path within the launcher to invoke the harmonisation has been removed")
 def test_turbulence_amdar_acars_harmonisation(
-    create_config_context, client, retrieve_era5_cat_data, retrieve_single_day_madis_data
+    create_config_context,
+    client,
+    retrieve_era5_cat_data,
+    retrieve_single_day_madis_data,
 ) -> None:
     diagnostics: list[TurbulenceDiagnostics] = randomly_select_diagnostics(2)
     turbulence_config = TurbulenceConfig(
-        chunks={"pressure_level": 3, "latitude": 721, "longitude": 1440, "valid_time": 3},
+        chunks={"pressure_level": 6, "latitude": 721, "longitude": 1440, "valid_time": 3},
         diagnostics=diagnostics,
         phases=TurbulencePhases(
             calibration_phases=TurbulenceCalibrationPhases(
@@ -254,20 +263,27 @@ def test_turbulence_amdar_acars_harmonisation(
     )
     data_config = DataConfig(
         spatial_domain=SpatialDomain(
-            minimum_latitude=25, maximum_latitude=54, minimum_longitude=-125, maximum_longitude=2, grid_size=0.25
+            minimum_latitude=25,
+            maximum_latitude=54,
+            minimum_longitude=-125,
+            maximum_longitude=2,
+            grid_size=0.25,
         ),
         amdar_config=AmdarConfig(
             data_dir=retrieve_single_day_madis_data,
             data_source=AmdarDataSource.MADIS,
             glob_pattern="**/*.parquet",
             time_window=Limits(
-                datetime.datetime(2024, month=1, day=1), datetime.datetime(2024, month=1, day=1, hour=18)
+                datetime.datetime(2024, month=1, day=1),
+                datetime.datetime(2024, month=1, day=1, hour=18),
             ),
             save_harmonised_data=True,
         ),
     )
     config: ConfigContext = create_config_context(
-        "diagnostic_amdar_harmonisation_acars", turb_config=turbulence_config, data_config=data_config
+        "diagnostic_amdar_harmonisation_acars",
+        turb_config=turbulence_config,
+        data_config=data_config,
     )
     launcher_result = TurbulenceLauncher(config).launch()
     assert launcher_result is not None
@@ -277,7 +293,7 @@ def test_turbulence_amdar_acars_harmonisation(
     assert harmonisation_output_dir.is_dir()
     parquet_files = harmonisation_output_dir.glob("*.parquet")
     assert list(parquet_files)  # check list is not empty
-    loaded_output_data = dd.read_parquet(f"{str(harmonisation_output_dir)}/**/*.parquet")
+    loaded_output_data = dd.read_parquet(f"{harmonisation_output_dir!s}/**/*.parquet")
     loaded_output_data.head()  # evaluate the first few rows to check it is valid
 
 
@@ -298,7 +314,8 @@ def test_turbulence_amdar_acars_harmonisation(
     ],
 )
 @pytest.mark.parametrize(
-    "agg_metric", [AggregationMetricOption.TSS, AggregationMetricOption.AUC, AggregationMetricOption.PREVALENCE, None]
+    "agg_metric",
+    [AggregationMetricOption.TSS, AggregationMetricOption.AUC, AggregationMetricOption.PREVALENCE, None],
 )
 @pytest.mark.cdsapi
 @pytest.mark.skipif(os.getenv("CI") is not None, reason="Test is so slow, runners time out")
@@ -315,7 +332,7 @@ def test_turbulence_amdar_roc(
 
     diagnostics: list[TurbulenceDiagnostics] = randomly_select_diagnostics(5)
     turbulence_config = TurbulenceConfig(
-        chunks={"pressure_level": 3, "latitude": 721, "longitude": 1440, "valid_time": 3},
+        chunks={"pressure_level": 6, "latitude": 721, "longitude": 1440, "valid_time": 3},
         diagnostics=diagnostics,
         phases=TurbulencePhases(
             calibration_phases=TurbulenceCalibrationPhases(
@@ -339,14 +356,19 @@ def test_turbulence_amdar_roc(
     ]
     data_config = DataConfig(
         spatial_domain=SpatialDomain(
-            minimum_latitude=25, maximum_latitude=54, minimum_longitude=-125, maximum_longitude=2, grid_size=0.25
+            minimum_latitude=25,
+            maximum_latitude=54,
+            minimum_longitude=-125,
+            maximum_longitude=2,
+            grid_size=0.25,
         ),
         amdar_config=AmdarConfig(
             data_dir=retrieve_single_day_madis_data,
             data_source=AmdarDataSource.MADIS,
             glob_pattern="**/*.parquet",
             time_window=Limits(
-                datetime.datetime(2024, month=1, day=1), datetime.datetime(2024, month=1, day=1, hour=18)
+                datetime.datetime(2024, month=1, day=1),
+                datetime.datetime(2024, month=1, day=1, hour=18),
             ),
             diagnostic_validation=DiagnosticValidationConfig(
                 validation_conditions=validation_conditions,
@@ -356,7 +378,9 @@ def test_turbulence_amdar_roc(
         ),
     )
     config: ConfigContext = create_config_context(
-        "diagnostic_amdar_acars_roc", turb_config=turbulence_config, data_config=data_config
+        "diagnostic_amdar_acars_roc",
+        turb_config=turbulence_config,
+        data_config=data_config,
     )
     _ = TurbulenceLauncher(config).launch()
 

@@ -67,13 +67,15 @@ def no_phases_calibration(calibration_config: TurbulenceCalibrationConfig):
 
 def threshold_phases_calibration(calibration_config: TurbulenceCalibrationConfig):
     return TurbulenceCalibrationPhases(
-        phases=[TurbulenceCalibrationPhaseOption.THRESHOLDS], calibration_config=calibration_config
+        phases=[TurbulenceCalibrationPhaseOption.THRESHOLDS],
+        calibration_config=calibration_config,
     )
 
 
 def dist_param_phases_calibration(calibration_config: TurbulenceCalibrationConfig):
     return TurbulenceCalibrationPhases(
-        phases=[TurbulenceCalibrationPhaseOption.HISTOGRAM], calibration_config=calibration_config
+        phases=[TurbulenceCalibrationPhaseOption.HISTOGRAM],
+        calibration_config=calibration_config,
     )
 
 
@@ -86,13 +88,18 @@ def output_thresholds() -> dict:
 def output_dist_params() -> dict:
     return {
         "def": HistogramData(
-            hist_values=np.asarray([1.0, 2.0, 3.0, 4.0]), bins=np.asarray([4.0, 5.0, 6.0, 7.0]), mean=99.0, variance=0.4
-        )
+            hist_values=np.asarray([1.0, 2.0, 3.0, 4.0]),
+            bins=np.asarray([4.0, 5.0, 6.0, 7.0]),
+            mean=99.0,
+            variance=0.4,
+        ),
     }
 
 
 def test_calibration_stage_launch_no_calibration_data(
-    mocker: "MockerFixture", tmp_path, calibration_config_thresholds_only
+    mocker: "MockerFixture",
+    tmp_path,
+    calibration_config_thresholds_only,
 ) -> None:
     calibration = CalibrationStage(
         no_phases_calibration(calibration_config_thresholds_only),
@@ -107,7 +114,9 @@ def test_calibration_stage_launch_no_calibration_data(
 
 
 def test_calibration_stage_launch_calibration_data(
-    mocker: "MockerFixture", tmp_path_factory, calibration_config_data_dir
+    mocker: "MockerFixture",
+    tmp_path_factory,
+    calibration_config_data_dir,
 ) -> None:
     calibration = CalibrationStage(
         no_phases_calibration(calibration_config_data_dir),
@@ -145,7 +154,10 @@ def dump_to_file(tmp_path_factory, calibration_config_data_dir, mocker: "MockerF
 
 
 def test_calibration_stage_perform_calibration(
-    mocker: "MockerFixture", tmp_path_factory, calibration_config_data_dir, output_thresholds
+    mocker: "MockerFixture",
+    tmp_path_factory,
+    calibration_config_data_dir,
+    output_thresholds,
 ) -> None:
     start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
     calibration = CalibrationStage(
@@ -209,7 +221,9 @@ def test_calibration_stage_compute_distribution_params(
 
     suite_mock = mocker.Mock()
     compute_dist_params_mock = mocker.patch.object(
-        suite_mock, "compute_distribution_parameters", return_value=output_dist_params
+        suite_mock,
+        "compute_distribution_parameters",
+        return_value=output_dist_params,
     )
     mock_suite_creation = mocker.patch.object(calibration, "create_diagnostic_suite", return_value=suite_mock)
 

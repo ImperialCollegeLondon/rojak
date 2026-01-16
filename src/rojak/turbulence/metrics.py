@@ -21,6 +21,7 @@ import pandas as pd
 import xarray as xr
 from dask.base import is_dask_collection
 from scipy import integrate
+from sparse import COO
 
 from rojak.utilities.types import is_dask_array, is_np_array, is_xr_data_array
 
@@ -112,7 +113,9 @@ def received_operating_characteristic(
     true_positive = true_positive / true_positive[-1]
 
     return BinaryClassificationResult(
-        false_positives=false_positive, true_positives=true_positive, thresholds=thresholds
+        false_positives=false_positive,
+        true_positives=true_positive,
+        thresholds=thresholds,
     )
 
 
@@ -192,12 +195,12 @@ def binary_classification_curve(
     if sorted_truth.dtype != bool:
         if positive_classification_label is None:
             raise ValueError(
-                f"positive_classification_label must be specified if truth array is not bool ({sorted_truth.dtype})"
+                f"positive_classification_label must be specified if truth array is not bool ({sorted_truth.dtype})",
             )
         sorted_truth = sorted_truth == positive_classification_label
 
     diff_values: da.Array = da.diff(sorted_values)
-    if not da.all(diff_values <= 0).compute():
+    if da.any(diff_values > 0).compute():
         raise ValueError("values must be strictly decreasing")
     diff_values = da.abs(diff_values)
 
@@ -220,7 +223,9 @@ def binary_classification_curve(
     false_positive = 1 + threshold_indices - true_positive
 
     return BinaryClassificationResult(
-        false_positives=false_positive, true_positives=true_positive, thresholds=sorted_values[threshold_indices]
+        false_positives=false_positive,
+        true_positives=true_positive,
+        thresholds=sorted_values[threshold_indices],
     )
 
 
@@ -252,7 +257,8 @@ def _(
 
 @binary_classification_rate_from_cumsum.register
 def _binary_classification_from_cumsum(
-    cumsum_for_group: np.ndarray, min_true_positives: int = 2
+    cumsum_for_group: np.ndarray,
+    min_true_positives: int = 2,
 ) -> BinaryClassificationRateFromLabels | None:
     group_size: int = cumsum_for_group.size
     true_positive_rate = cumsum_for_group
@@ -278,7 +284,8 @@ def _binary_classification_from_cumsum(
     )
 
     return BinaryClassificationRateFromLabels(
-        true_positives_rate=true_positive_rate, false_positives_rate=false_positive_rate
+        true_positives_rate=true_positive_rate,
+        false_positives_rate=false_positive_rate,
     )
 
 
@@ -325,7 +332,7 @@ def _parallel_area_under_curve(x_values: da.Array | xr.DataArray, y_values: da.A
         raise ValueError("x_value must be increasing or decreasing")
 
     area: float | NDArray = np.add.reduce(
-        da.map_overlap(lambda x, y: integrate.trapezoid(y[:-1], x[:-1]), x_vals, y_vals, depth=1).compute()
+        da.map_overlap(lambda x, y: integrate.trapezoid(y[:-1], x[:-1]), x_vals, y_vals, depth=1).compute(),
     ) + integrate.trapezoid(np.asarray(y_vals[-2:]), np.asarray(x_vals[-2:]))
 
     # If dx is decreasing, then area is negative
@@ -401,16 +408,461 @@ def area_under_curve(
     return _serial_area_under_curve(x_values, y_values)
 
 
-def _check_roc_curve_input_validity(roc_curve: BinaryClassificationResult) -> None:
-    if roc_curve.true_positives[0] != 0 or roc_curve.false_positives[0] != 0:
-        raise ValueError("First value of POD and POFD must be 0")
-    if da.max(roc_curve.true_positives).compute() > 1:
-        raise ValueError("Maximum value of POD must be less than or equal to 1")
-    if da.min(roc_curve.true_positives).compute() < 0:
-        raise ValueError("Minimum value of POD must be greater than or equal to 0")
+def mean_absolute_error(truth: da.Array, prediction: da.Array) -> float:
+    """
+    Mean Absolute Error (MAE)
+
+    .. math::
+        MAE(y, \\hat{y}) = \\frac{1}{n_{samples}} \\sum_{i=0}^{n_{samples} - 1} | y_i - \\hat{y_i} |
+
+    where :math:`n_{samples}` is the number of samples, :math:`y_i` is the truth value and :math:`\\hat{y_i}` is the
+    corresponding predicted value.
 
 
-def true_skill_score(roc_curve: BinaryClassificationResult) -> da.Array:
+    Args:
+        truth:
+        prediction:
+
+    Returns:
+
+    Examples
+    --------
+
+    This example is modified from the scikit-learn's `user guide on MAE`_
+
+    >>> y_true = da.asarray([3, -0.5, 2, 7])
+    >>> y_pred = da.asarray([2.5, 0.0, 2, 8])
+    >>> float(mean_absolute_error(y_true, y_pred).compute())
+    0.5
+
+    .. _user guide on MAE: https://scikit-learn.org/stable/modules/model_evaluation.html#mean-absolute-error
+
+    """
+    assert truth.ndim == 1
+    assert prediction.ndim == 1
+    return da.mean(da.abs(truth - prediction))
+
+
+def _check_array_is_boolean(array: da.Array) -> None:
+    assert is_dask_collection(array)
+    if array.dtype != bool and not da.isin(array, [0, 1]).all().compute():
+        raise ValueError("Array must be boolean")
+
+
+# Modified from: https://github.com/scikit-learn/scikit-learn/blob/c60dae20604f8b9e585fc18a8fa0e0fb50712179/sklearn/metrics/_classification.py#L371
+def confusion_matrix(truth: da.Array, prediction: da.Array) -> "NDArray":
+    """
+    Compute the confusion matrix
+
+    This is a simplified dask-friendly implementation of :func:`scikit-learn:sklearn.metrics.confusion_matrix` for the
+    binary classification problem.
+
+    Args:
+        truth: dask array of shape (n_samples,)
+            Ground truth (correct) target values.
+        prediction: dask array of shape (n_samples,)
+            Estimated targets as returned by a classifier.
+
+    Returns:
+        Confusion matrix in the order of (tn, fp, fn, tp)
+
+    Examples
+    --------
+
+    This example is modified from the docstring of :func:`scikit-learn:sklearn.metrics.confusion_matrix`
+
+    >>> y_true = da.asarray([0, 1, 0, 1])
+    >>> y_pred = da.asarray([1, 1, 1, 0])
+    >>> tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel().tolist()
+    >>> (tn, fp, fn, tp)
+    (0, 2, 1, 1)
+
+    This example is modified from the user guide `documentation on confusion matrix`_:
+
+    >>> x_true = da.asarray([0, 0, 0, 1, 1, 1, 1, 1])
+    >>> x_pred = da.asarray([0, 1, 0, 1, 0, 1, 0, 1])
+    >>> tn, fp, fn, tp = confusion_matrix(x_true, x_pred).ravel().tolist()
+    >>> tn, fp, fn, tp
+    (2, 1, 2, 3)
+
+    .. _documentation on confusion matrix: https://scikit-learn.org/stable/modules/model_evaluation.html#confusion-matrix
+
+    """
+    if truth.ndim != 1 or prediction.ndim != 1:
+        raise ValueError("truth and prediction must be 1D")
+
+    _check_array_is_boolean(truth)
+    _check_array_is_boolean(prediction)
+
+    sample_weights: da.Array = da.ones(truth.shape[0], dtype=np.int_)
+    matrix: COO = COO((truth, prediction), sample_weights, shape=(2, 2))
+
+    return matrix.todense()
+
+
+def _populate_confusion_matrix(
+    truth: da.Array | None = None,
+    prediction: da.Array | None = None,
+    confuse_matrix: "NDArray | None" = None,
+) -> "NDArray":
+    if confuse_matrix is None:
+        if truth is None or prediction is None:
+            raise ValueError("If confusion matrix is None, must provide truth and prediction")
+        return confusion_matrix(truth, prediction)
+    return confuse_matrix
+
+
+def matthews_corr_coeff(
+    truth: da.Array | None = None,
+    prediction: da.Array | None = None,
+    confuse_matrix: "NDArray | None" = None,
+) -> float:
+    """
+    Compute the Matthew's Correlation Coefficient
+
+    Args:
+        truth: dask array of shape (n_samples,)
+            Ground truth (correct) target values.
+        prediction: dask array of shape (n_samples,)
+            Estimated targets as returned by a classifier.
+        confuse_matrix: Numpy array of shape (2, 2)
+            Result from computing the confusion matrix using :func:`confusion_matrix`.
+            If this is ``None``, then the result is computed using :func:`confusion_matrix` using ``truth`` and
+            ``prediction``.
+
+    Returns:
+
+    Examples
+    --------
+
+    Example from Wikipedia page on `Matthew's Correlation Coefficient`_
+
+    >>> actual = da.asarray([1,1,1,1,1,1,1,1,0,0,0,0])
+    >>> pred = da.asarray([0,0,1,1,1,1,1,1,0,0,0,1])
+    >>> float(matthews_corr_coeff(truth=actual, prediction=pred))
+    0.478
+    >>> float(matthews_corr_coeff(confuse_matrix=confusion_matrix(actual, pred)))
+    0.478
+
+    .. _Matthew's Correlation Coefficient: https://en.wikipedia.org/wiki/Phi_coefficient#Example
+
+    """
+    confuse_matrix = _populate_confusion_matrix(truth, prediction, confuse_matrix)
+    tn, fp, fn, tp = confuse_matrix.ravel().tolist()
+    numerator = tp * tn - fp * fn
+    denominator = np.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
+
+    return numerator / denominator
+
+
+class ContingencyTable(NamedTuple):
+    n_00: xr.DataArray
+    n_11: xr.DataArray
+    n_01: xr.DataArray
+    n_10: xr.DataArray
+
+
+def contingency_table(first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str) -> ContingencyTable:
+    """
+    Contingency Table for multidimensional arrays
+
+    Computed contingency table as defined as,
+
+    .. math::
+
+       \\begin{array}{c|c|c|c}
+           & y = 1 & y = 0 & \\text{Total} \\\\
+           \\hline
+           x = 1 & n_{11} & n_{10} & n_{1\\bullet} \\\\
+           x = 0 & n_{01} & n_{00} & n_{0\\bullet} \\\\
+           \\hline
+           \\text{Total} & n_{\\bullet1} & n_{\\bullet0} & n
+       \\end{array}
+
+    Args:
+        first_var: First binary variable
+        second_var: Second binary variable
+        sum_over: Dimension to sum over to compute the number of observations
+
+    Returns:
+        Instance of :class:`ContingencyTable`
+
+    """
+    assert set(first_var.dims) == set(second_var.dims)
+    assert sum_over in first_var.dims
+    assert first_var.dtype == second_var.dtype
+    assert first_var.dtype == np.bool_
+
+    return ContingencyTable(
+        n_11=(first_var & second_var).sum(dim=sum_over),
+        n_10=(first_var & (~second_var)).sum(dim=sum_over),
+        n_01=((~first_var) & second_var).sum(dim=sum_over),
+        n_00=(~(first_var | second_var)).sum(dim=sum_over),
+    )
+
+
+def matthews_corr_coeff_multidim(first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str) -> xr.DataArray:
+    """
+    Matthews Correlation Coefficient for multidimensional arrays
+
+    This assumes that the inputs are binary variables such that the contingency table is as follows
+    (see `Wikipedia on MCC`_):
+
+    .. math::
+
+       \\begin{array}{c|c|c|c}
+           & y = 1 & y = 0 & \\text{Total} \\\\
+           \\hline
+           x = 1 & n_{11} & n_{10} & n_{1\\bullet} \\\\
+           x = 0 & n_{01} & n_{00} & n_{0\\bullet} \\\\
+           \\hline
+           \\text{Total} & n_{\\bullet1} & n_{\\bullet0} & n
+       \\end{array}
+
+    Such that the Matthew's Correlation Coefficient (:math:`\\varphi`) is given as,
+
+    .. math::
+       \\varphi = \\frac{n n_{11} - n_{1\\bullet} n_{\\bullet 1}}
+       {\\sqrt{n_{1\\bullet} n_{\\bullet 1} (n - n_{1\\bullet})(n - n_{\\bullet 1})}}.
+
+    Args:
+        first_var: First binary variable
+        second_var: Second binary variable
+        sum_over: Dimension to sum over to compute the number of observations
+
+    Returns:
+        Array containing Matthew's Correlation Coefficient reduced over the ``sum_over`` dimension
+
+    .. _Wikipedia on MCC: https://en.wikipedia.org/wiki/Phi_coefficient#Definition
+    """
+    table: ContingencyTable = contingency_table(first_var, second_var, sum_over)
+    total_num_observations: int = first_var[sum_over].size
+
+    sum_first_var_true: xr.DataArray = table.n_11 + table.n_10
+    sum_second_var_true: xr.DataArray = table.n_11 + table.n_01
+
+    numerator: xr.DataArray = total_num_observations * table.n_11 - sum_first_var_true * sum_second_var_true
+    # Pyright is not aware that sqrt is DataArray ufunc
+    denominator: xr.DataArray = np.sqrt(
+        sum_first_var_true
+        * sum_second_var_true
+        * (total_num_observations - sum_first_var_true)
+        * (total_num_observations - sum_second_var_true),
+    )  # pyright: ignore [reportAssignmentType]
+
+    return numerator / denominator
+
+
+def critical_success_index(
+    truth: da.Array | None = None,
+    prediction: da.Array | None = None,
+    confuse_matrix: "NDArray | None" = None,
+) -> float:
+    """
+    Compute the Critical Success Index (CSI) or the Jaccard Similarity Coefficient Score
+
+    Args:
+        truth:
+        prediction:
+        confuse_matrix:
+
+    Returns:
+
+    Examples
+    --------
+
+    >>> y_true = da.asarray([0, 1, 1])
+    >>> y_pred = da.asarray([1, 1, 1])
+    >>> critical_success_index(truth=y_true, prediction=y_pred)
+    0.666
+
+    """
+    confuse_matrix = _populate_confusion_matrix(truth, prediction, confuse_matrix)
+    _, fp, fn, tp = confuse_matrix.ravel().tolist()
+
+    return tp / (tp + fn + fp)
+
+
+def jaccard_index_multidim(first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str) -> xr.DataArray:
+    """
+    Jaccard Index or Critical Success Index for multidimensional data
+
+    From `Wikipedia`_ Jaccard Index is defined as,
+
+    .. math::
+
+       J(A, B) = \\frac{|A \\cap B|}{|A \\cup B|}
+
+    Args:
+        first_var: First binary variable
+        second_var: Second binary variable
+        sum_over: Dimension to sum over to compute the number of observations
+
+    Returns:
+        Array containing Jaccard Index or Critical Success Index
+
+    .. _Wikipedia: https://en.wikipedia.org/wiki/Jaccard_index
+
+    """
+    table: ContingencyTable = contingency_table(first_var, second_var, sum_over)
+    total_num_observations: int = first_var[sum_over].size
+    return table.n_11 / (total_num_observations - table.n_00)
+
+
+def gilbert_skill_score(
+    truth: da.Array | None = None,
+    prediction: da.Array | None = None,
+    confuse_matrix: "NDArray | None" = None,
+) -> float:
+    """
+    Compute the Gilbt Skill Score
+
+    Args:
+        truth:
+        prediction:
+        confuse_matrix:
+
+    Returns:
+
+    Examples
+    --------
+
+    >>> y_true = da.asarray([0, 1, 1, 1])
+    >>> y_pred = da.asarray([1, 1, 1, 0])
+    >>> gilbert_skill_score(truth=y_true, prediction=y_pred)
+    -0.1429
+
+    """
+    confuse_matrix = _populate_confusion_matrix(truth, prediction, confuse_matrix)
+    tn, fp, fn, tp = confuse_matrix.ravel().tolist()
+
+    n_samples: float = tn + fp + fn + tp
+    chance_hits: float = ((tp + fp) * (tp + fn)) / n_samples
+
+    numerator: float = tp - chance_hits
+    denominator: float = tp + fp + fn - chance_hits
+
+    return numerator / denominator
+
+
+def accuracy(
+    truth: da.Array | None = None,
+    prediction: da.Array | None = None,
+    confuse_matrix: "NDArray | None" = None,
+) -> float:
+    """
+    Compute the Accuracy (ACC)
+
+    Args:
+        truth:
+        prediction:
+        confuse_matrix:
+
+    Returns:
+
+    Examples
+    --------
+
+    >>> y_true = da.asarray([0, 1, 1, 1])
+    >>> y_pred = da.ones_like(y_true)
+    >>> accuracy(truth=y_true, prediction=y_pred)
+    0.75
+
+    """
+    confuse_matrix = _populate_confusion_matrix(truth, prediction, confuse_matrix)
+    tn, fp, fn, tp = confuse_matrix.ravel().tolist()
+
+    real_positives: float = tp + fn
+    real_negatives: float = fp + tn
+
+    return (tp + tn) / (real_positives + real_negatives)
+
+
+def f1_score(
+    truth: da.Array | None = None,
+    prediction: da.Array | None = None,
+    confuse_matrix: "NDArray | None" = None,
+) -> float:
+    """
+    Compute the F1 Score
+
+    Args:
+        truth:
+        prediction:
+        confuse_matrix:
+
+    Returns:
+
+    Examples
+    --------
+
+    >>> y_pred = da.asarray([0, 1, 0, 0])
+    >>> y_true = da.asarray([0, 1, 0, 1])
+    >>> f1_score(truth=y_true, prediction=y_pred)
+    0.666
+
+    """
+    confuse_matrix = _populate_confusion_matrix(truth, prediction, confuse_matrix)
+    _, fp, fn, tp = confuse_matrix.ravel().tolist()
+    return 2 * tp / (2 * tp + fp + fn)
+
+
+def sensitivity(true_positive: float, false_negative: float) -> float:
+    """
+    Sensitivity statistical metric
+
+    Args:
+        true_positive:
+        false_negative:
+
+    Returns:
+
+    Examples
+    --------
+
+    From worked example on `Wikipedia`_:
+
+    >>> sensitivity(20, 10)
+    0.667
+
+    .. _Wikipedia: https://en.wikipedia.org/wiki/Sensitivity_and_specificity#Confusion_matrix
+
+    """
+    assert true_positive >= 0
+    assert false_negative >= 0
+    return true_positive / (true_positive + false_negative)
+
+
+def specificity(true_negative: float, false_positive: float) -> float:
+    """
+    Specificity statistical metric
+    Args:
+        true_negative:
+        false_positive:
+
+    Returns:
+
+    Examples
+    --------
+
+    From worked example on `Wikipedia`_:
+
+    >>> specificity(1820, 180)
+    0.91
+
+    .. _Wikipedia: https://en.wikipedia.org/wiki/Sensitivity_and_specificity#Confusion_matrix
+
+    """
+    assert true_negative >= 0
+    assert false_positive >= 0
+    return true_negative / (true_negative + false_positive)
+
+
+def true_skill_score(
+    truth: da.Array | None = None,
+    prediction: da.Array | None = None,
+    confuse_matrix: "NDArray | None" = None,
+) -> float:
     """
     True Skill Score (TSS) statistic
 
@@ -428,8 +880,7 @@ def true_skill_score(roc_curve: BinaryClassificationResult) -> da.Array:
     This is also the definition used in [Sharman2006]_
 
     """
-    _check_roc_curve_input_validity(roc_curve)
+    confuse_matrix = _populate_confusion_matrix(truth, prediction, confuse_matrix)
+    tn, fp, fn, tp = confuse_matrix.ravel().tolist()
 
-    sensitivity = roc_curve.true_positives
-    specificity = roc_curve.false_positives
-    return sensitivity + specificity - 1
+    return sensitivity(tp, fn) + specificity(tn, fp) - 1

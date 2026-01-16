@@ -15,8 +15,10 @@
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
+import dask.array as da
 import numpy as np
 import pandas as pd
+from dask.base import is_dask_collection
 
 if TYPE_CHECKING:
     import dask.dataframe as dd
@@ -88,6 +90,14 @@ def get_regular_grid_spacing[T: np.number | np.inexact | np.datetime64 | np.time
     return None
 
 
+def map_values_to_nearest_index_irregular_grid(
+    series: "dd.Series | pd.Series", coordinate: "NDArray"
+) -> "da.Array | NDArray":
+    parent_package = da if is_dask_collection(series) else np
+    array: da.Array | NDArray = series.to_dask_array(lengths=True) if is_dask_collection(series) else series.to_numpy()
+    return parent_package.abs(array[:, np.newaxis] - coordinate).argmin(axis=1)
+
+
 def map_values_to_nearest_coordinate_index[T: np.datetime64 | np.number | np.inexact](
     series: "dd.Series | pd.Series",
     coordinate: "NDArray[T]",
@@ -153,12 +163,12 @@ def map_values_to_nearest_coordinate_index[T: np.datetime64 | np.number | np.ine
     spacing = get_regular_grid_spacing(coordinate)
     if spacing is None:
         raise NotImplementedError(
-            "Optimisation to map values to index into coordinate is only supported for regular grids"
+            "Optimisation to map values to index into coordinate is only supported for regular grids",
         )
     if valid_window is not None and 2 * valid_window != spacing:
         raise NotImplementedError(
             "Function currently only supports regular grids with a symmetric window specified."
-            " And the window must correspond to half of the grid spacing"
+            " And the window must correspond to half of the grid spacing",
         )
 
     approximate_index = (series - coordinate[0]) / spacing  # pyright: ignore[reportOperatorIssue]
@@ -167,7 +177,9 @@ def map_values_to_nearest_coordinate_index[T: np.datetime64 | np.number | np.ine
 
 
 def map_index_to_coordinate_value(
-    indices: "pd.Series | pd.Index", coordinate: "NDArray", series_name: str | None = None
+    indices: "pd.Series | pd.Index",
+    coordinate: "NDArray",
+    series_name: str | None = None,
 ) -> "pd.Series":
     """
     Retrieve original value based on index
