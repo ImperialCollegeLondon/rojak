@@ -542,6 +542,8 @@ def matthews_corr_coeff(
     >>> pred = da.asarray([0,0,1,1,1,1,1,1,0,0,0,1])
     >>> float(matthews_corr_coeff(truth=actual, prediction=pred))
     0.478
+    >>> float(matthews_corr_coeff(truth=pred, prediction=actual))
+    0.478
     >>> float(matthews_corr_coeff(confuse_matrix=confusion_matrix(actual, pred)))
     0.478
 
