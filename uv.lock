@@ -3584,7 +3584,7 @@ requires-dist = [
     { name = "sparse" },
     { name = "typer", marker = "extra == 'cli'" },
     { name = "xarray" },
-    { name = "zarr", specifier = ">=2,<3" },
+    { name = "zarr" },
 ]
 provides-extras = ["amdar", "cli", "ecmwf", "plot"]
 

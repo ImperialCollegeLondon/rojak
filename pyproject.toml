@@ -33,7 +33,7 @@ dependencies = [
     "scipy",
     "sparse",
     "xarray",
-    "zarr>=2,<3", # For outputing diagnostics to file and use zarr 2.0 spec as 3.0 is under development
+    "zarr",
 ]
 
 [project.urls]
