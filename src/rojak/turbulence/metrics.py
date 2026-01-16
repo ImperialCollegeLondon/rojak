@@ -553,9 +553,9 @@ def matthews_corr_coeff(
     confuse_matrix = _populate_confusion_matrix(truth, prediction, confuse_matrix)
     tn, fp, fn, tp = confuse_matrix.ravel().tolist()
     numerator = tp * tn - fp * fn
-    denominator = np.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
+    denominator = float((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
 
-    return numerator / denominator
+    return numerator / np.sqrt(denominator)
 
 
 class ContingencyTable(NamedTuple):
