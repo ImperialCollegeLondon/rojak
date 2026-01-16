@@ -1617,3 +1617,6 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
     @property
     def pressure_levels(self) -> list[float] | None:
         return self._pressure_levels
+
+    def thresholds(self) -> "Mapping[DiagnosticName, TurbulenceThresholds] | None":
+        return self._probability_thresholds

@@ -48,6 +48,7 @@ from rojak.turbulence.analysis import (
     CorrelationBetweenDiagnostics,
     HistogramData,
     LatitudinalCorrelationBetweenDiagnostics,
+    MatthewsCorrelationOnThresholdedDiagnostics,
 )
 from rojak.turbulence.diagnostic import (
     CalibrationDiagnosticSuite,
@@ -294,7 +295,7 @@ class EvaluationStage:
             distribution_parameters=dist_params,
         )
 
-    def run_phase(self, phase: TurbulenceEvaluationPhaseOption, suite: EvaluationDiagnosticSuite) -> Result:
+    def run_phase(self, phase: TurbulenceEvaluationPhaseOption, suite: EvaluationDiagnosticSuite) -> Result:  # noqa: PLR0912
         match phase:
             case TurbulenceEvaluationPhaseOption.PROBABILITIES:
                 result = suite.probabilities
@@ -336,7 +337,7 @@ class EvaluationStage:
                     corr_on_what = "probability"
                 else:
                     corr_on_what = "edr"
-                correlation = CorrelationBetweenDiagnostics(dict(correlation_on), condition).execute()
+                correlation = CorrelationBetweenDiagnostics(dict(correlation_on), sel_condition=condition).execute()
                 chained_names: str = chain_diagnostic_names(correlation_on.keys())
                 create_diagnostic_correlation_plot(
                     correlation,
@@ -373,6 +374,18 @@ class EvaluationStage:
                     "diagnostic2",
                 )
                 return Result(correlation)
+            case TurbulenceEvaluationPhaseOption.MATTHEWS_CORRELATION:
+                thresholds = suite.thresholds()
+                if thresholds is None:
+                    raise ValueError("Thresholds must be present to compute Matthews correlation")
+                matthews_correlation: xr.DataArray = MatthewsCorrelationOnThresholdedDiagnostics(
+                    suite.as_dataset(), self._config.severities, thresholds, self._config.threshold_mode
+                ).execute()
+                chained_names: str = chain_diagnostic_names(suite.diagnostic_names())
+                _ = matthews_correlation.to_zarr(
+                    self._output_dir / f"matthews_corr_{chained_names}.zarr", mode="w", zarr_format=2
+                )
+                return Result(matthews_correlation)
             case _ as unreachable:
                 assert_never(unreachable)
 
