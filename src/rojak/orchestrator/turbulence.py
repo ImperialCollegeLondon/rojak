@@ -231,15 +231,17 @@ class EvaluationStage:
     _phases: list[TurbulenceEvaluationPhaseOption]
     _config: "TurbulenceEvaluationConfig"
     _spatial_domain: "SpatialDomain"
+    _output_dir: "Path"
     _plots_dir: "Path"
     _start_time: TimeStr
     _image_format: str
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         calibration_result: Mapping[TurbulenceCalibrationPhaseOption, Result],
         phases_config: "TurbulenceEvaluationPhases",
         domain: "SpatialDomain",
+        output_dir: "Path",
         plots_dir: "Path",
         name: RunName,
         start_time: TimeStr,
@@ -252,6 +254,8 @@ class EvaluationStage:
         self._start_time = start_time
         self._plots_dir = plots_dir / name
         self._plots_dir.mkdir(parents=True, exist_ok=True)
+        self._output_dir = output_dir / name
+        self._output_dir.mkdir(parents=True, exist_ok=True)
         self._image_format = image_format
 
     def launch(self, diagnostics: list["TurbulenceDiagnostics"], chunks: dict) -> EvaluationStageResult:
@@ -398,6 +402,7 @@ class TurbulenceLauncher:
                 calibration_result,
                 self._config.phases.evaluation_phases,
                 self._context.data_config.spatial_domain,
+                self._context.output_dir,
                 self._context.plots_dir,
                 self._context.name,
                 self._start_time,
