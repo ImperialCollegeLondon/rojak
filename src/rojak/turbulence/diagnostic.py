@@ -1426,6 +1426,11 @@ class DiagnosticSuite:
         _, prototype = next(self.computed_values(""))
         return prototype
 
+    def as_dataset(self) -> xr.Dataset:
+        return xr.Dataset(
+            data_vars=self.computed_values_as_dict(), coords=self.get_prototype_computed_diagnostic().coords
+        )
+
     @classmethod
     def load_from_zarr(
         cls, path: "Path", target_diagnostics: list[TurbulenceDiagnostics], *, open_zarr_kwargs: dict | None = None
@@ -1439,15 +1444,26 @@ class DiagnosticSuite:
             xr.open_zarr(path, **(open_zarr_kwargs if open_zarr_kwargs is not None else {})), target_diagnostics
         )
 
-    def export_as_zarr(self, output_path: "Path") -> xr.backends.ZarrStore:  # pyright: ignore[reportAttributeAccessIssue]
-        as_dataset = xr.Dataset(data_vars=self.computed_values_as_dict())
-        output_path.mkdir(parents=True, exist_ok=True)
-        return as_dataset.to_zarr(store=output_path, mode="w")
+    def export_as_zarr(
+        self,
+        output_path: "Path",
+        /,
+        *,
+        zarr_format: int | None = 2,
+        **to_zarr_kwargs,  # noqa: ANN003
+    ) -> xr.backends.ZarrStore:  # pyright: ignore[reportAttributeAccessIssue]
+        # For the dependencies that rojak uses, the default zarr format will be 3. As consolidated metadata is not part
+        # of the spec yet, default to using v2 spec.
+        #
+        # .venv/lib/python3.12/site-packages/zarr/api/asynchronous.py:247: ZarrUserWarning: Consolidated metadata
+        #   is currently not part in the Zarr format 3 specification. It may not be supported by other zarr
+        #   implementations and may change in the future.
 
-    def as_dataset(self) -> xr.Dataset:
-        return xr.Dataset(
-            data_vars=self.computed_values_as_dict(), coords=self.get_prototype_computed_diagnostic().coords
-        )
+        # output_path.mkdir(parents=True, exist_ok=True) # apparently, to_zarr handles directory creation??
+        if "zarr_format" not in to_zarr_kwargs:
+            # If zarr_format is not specified, it will detect the format based on the zarr-python library
+            to_zarr_kwargs["zarr_format"] = 2
+        return self.as_dataset().to_zarr(store=output_path, mode="w", zarr_format=zarr_format, **to_zarr_kwargs)
 
 
 class CalibrationDiagnosticSuite(DiagnosticSuite):
