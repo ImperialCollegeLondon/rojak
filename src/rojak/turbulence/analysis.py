@@ -13,6 +13,7 @@
 #  limitations under the License.
 
 import itertools
+import sys
 from abc import ABC
 from collections.abc import Hashable, Mapping
 from enum import StrEnum
@@ -35,11 +36,21 @@ from rojak.orchestrator.configuration import (
     TurbulenceThresholds,
 )
 from rojak.turbulence.metrics import contingency_table, jaccard_index_multidim, matthews_corr_coeff_multidim
-from rojak.utilities.types import DistributionParameters, Limits
+from rojak.utilities.types import (
+    DistributionParameters,
+    Limits,
+    is_xr_data_array,
+    is_xr_dataset,
+)
 
 if TYPE_CHECKING:
     from rojak.atmosphere.jet_stream import AlphaVelField
     from rojak.turbulence.diagnostic import DiagnosticName
+
+if sys.version_info >= (3, 13):
+    from typing import TypeIs
+else:
+    from typing_extensions import TypeIs
 
 type IntensityName = str
 type IntensityValues = dict[IntensityName, float]
@@ -233,6 +244,64 @@ class _EvaluationPostProcessor(PostProcessor, ABC):
         self._components = components if components is not None else {}
 
 
+class TurbulentRegionFromThreshold(PostProcessor):
+    _computed_diagnostic: xr.DataArray | xr.Dataset
+    _severity: "TurbulenceSeverity"
+    _thresholds: "TurbulenceThresholds| Mapping[DiagnosticName, TurbulenceThresholds]"
+    _threshold_mode: "TurbulenceThresholdMode"
+
+    def __init__(
+        self,
+        computed_diagnostic: xr.DataArray | xr.Dataset,
+        severity: "TurbulenceSeverity",
+        thresholds: "TurbulenceThresholds | Mapping[DiagnosticName, TurbulenceThresholds]",
+        threshold_mode: "TurbulenceThresholdMode",
+        /,
+        **sel_condition,  # noqa: ANN003
+    ) -> None:
+        super().__init__()
+
+        if is_xr_dataset(computed_diagnostic):
+            if not self._is_mapping(thresholds):
+                raise TypeError("If diagnostics are passed in as xr.Dataset, thresholds must be a mapping")
+
+            if not set(computed_diagnostic.data_vars.keys()).issubset(thresholds.keys()):
+                raise ValueError("Diagnostics must be a subset of thresholds")
+        elif is_xr_data_array(computed_diagnostic) and self._is_mapping(thresholds):
+            raise TypeError(
+                "If diagnostics are passed in as xr.DataArray, threshold for it (not mapping) must be passed"
+            )
+
+        self._computed_diagnostic = computed_diagnostic.sel(**sel_condition)
+        self._severity = severity
+        self._thresholds = thresholds
+        self._threshold_mode = threshold_mode
+
+    @staticmethod
+    def _is_mapping(
+        threshold: "TurbulenceThresholds | Mapping[DiagnosticName, TurbulenceThresholds]",
+    ) -> TypeIs[Mapping["DiagnosticName", "TurbulenceThresholds"]]:
+        return isinstance(threshold, Mapping)
+
+    def _execute_on_dataarray(self, this_da: xr.DataArray, this_threshold: "TurbulenceThresholds") -> xr.DataArray:
+        bounds: Limits = this_threshold.get_bounds(self._severity, self._threshold_mode)
+        return (this_da >= bounds.lower) & (this_da < bounds.upper)
+
+    def execute(self) -> xr.DataArray | xr.Dataset:
+        if is_xr_data_array(self._computed_diagnostic) and not self._is_mapping(self._thresholds):
+            return self._execute_on_dataarray(self._computed_diagnostic, self._thresholds)
+        if is_xr_dataset(self._computed_diagnostic) and self._is_mapping(self._thresholds):
+            return xr.Dataset(
+                data_vars={
+                    diagnostic_name: self._execute_on_dataarray(this_diagnostic, self._thresholds[str(diagnostic_name)])
+                    for diagnostic_name, this_diagnostic in self._computed_diagnostic.items()
+                },
+                coords=self._computed_diagnostic.coords,
+            )
+        # https://typing.python.org/en/latest/guides/unreachable.html#marking-code-as-unreachable
+        raise AssertionError("Unreachable")
+
+
 class TurbulentRegionsBySeverity(PostProcessor):
     """
     Computes turbulent regions by severity for a given turbulence diagnostic
@@ -241,6 +310,7 @@ class TurbulentRegionsBySeverity(PostProcessor):
     turbulence is present.
     """
 
+    # TODO: Make this architecture more flexible. Currently, it locks the user in a lot
     _computed_diagnostic: xr.DataArray
     _severities: list["TurbulenceSeverity"]
     _thresholds: "TurbulenceThresholds"
