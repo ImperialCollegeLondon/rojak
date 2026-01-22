@@ -499,7 +499,7 @@ class Ncsu1(Diagnostic):
         assert VelocityDerivative.DV_DY in vector_derivatives
         self._du_dx = vector_derivatives[VelocityDerivative.DU_DX]
         self._dv_dy = vector_derivatives[VelocityDerivative.DV_DY]
-        self._ri = xr.where(ri > self.RI_THRESHOLD, ri, self.RI_THRESHOLD)
+        self._ri = ri.clip(min=self.RI_THRESHOLD)
         self._vorticity = vorticity
 
     def _compute(self) -> xr.DataArray:
