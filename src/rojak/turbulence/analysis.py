@@ -63,7 +63,7 @@ type IntensityName = str
 type IntensityValues = dict[IntensityName, float]
 
 
-class TurbulenceIntensityThresholds(PostProcessor):
+class TurbulenceIntensityThresholds(PostProcessor[TurbulenceThresholds]):
     """
     Computes threshold diagnostic value for each turbulence intensity using percentiles
 
@@ -191,7 +191,7 @@ class HistogramData:
         return hash((self.hist_values, self.bins, self.mean, self.variance))
 
 
-class DiagnosticHistogramDistribution(PostProcessor):
+class DiagnosticHistogramDistribution(PostProcessor[HistogramData]):
     """
     Computes histogram bins for log-normal distribution of turbulence diagnostics.
 
@@ -251,7 +251,7 @@ class _EvaluationPostProcessor(PostProcessor, ABC):
         self._components = components if components is not None else {}
 
 
-class TurbulentRegionFromThreshold(PostProcessor):
+class TurbulentRegionFromThreshold(PostProcessor[xr.DataArray | xr.Dataset]):
     _computed_diagnostic: xr.DataArray | xr.Dataset
     _severity: "TurbulenceSeverity"
     _thresholds: "TurbulenceThresholds| Mapping[DiagnosticName, TurbulenceThresholds]"
@@ -309,7 +309,7 @@ class TurbulentRegionFromThreshold(PostProcessor):
         raise AssertionError("Unreachable")
 
 
-class TurbulentRegionsBySeverity(PostProcessor):
+class TurbulentRegionsBySeverity(PostProcessor[xr.DataArray | list[xr.DataArray] | xr.DataTree]):
     """
     Computes turbulent regions by severity for a given turbulence diagnostic
 
@@ -394,7 +394,7 @@ class TurbulenceProbabilityBySeverity(_EvaluationPostProcessor):
         return xr.concat(probabilities, xr.Variable("severity", self._severities))
 
 
-class ComputeDistributionParametersForEDR(PostProcessor):
+class ComputeDistributionParametersForEDR(PostProcessor[DistributionParameters]):
     _computed_diagnostic: xr.DataArray
 
     def __init__(self, computed_diagnostic: xr.DataArray) -> None:
@@ -411,7 +411,7 @@ class ComputeDistributionParametersForEDR(PostProcessor):
         )
 
 
-class TransformToEDR(PostProcessor):
+class TransformToEDR(PostProcessor[xr.DataArray]):
     """
     Transforms turbulence diagnostic values into EDR
 
@@ -468,7 +468,7 @@ class TransformToEDR(PostProcessor):
         return mapped_index
 
 
-class CorrelationBetweenDiagnostics(PostProcessor):
+class CorrelationBetweenDiagnostics(PostProcessor[xr.DataArray]):
     """
     Computes the correlation between turbulence diagnostics
 
@@ -510,7 +510,7 @@ class CorrelationBetweenDiagnostics(PostProcessor):
         return corr_btw_diagnostics
 
 
-class MatthewsCorrelationOnDataset(PostProcessor):
+class MatthewsCorrelationOnDataset(PostProcessor[xr.DataArray]):
     _is_dataset: xr.Dataset
     _with_vars: str
 
@@ -562,7 +562,7 @@ class MatthewsCorrelationOnDataset(PostProcessor):
         return corr_btw_data_arrays
 
 
-class MatthewsCorrelationOnThresholdedDiagnostics(PostProcessor):
+class MatthewsCorrelationOnThresholdedDiagnostics(PostProcessor[xr.DataArray]):
     _diagnostic_indices: xr.Dataset
     _severities: list["TurbulenceSeverity"]
     _thresholds: "Mapping[DiagnosticName, TurbulenceThresholds]"
@@ -609,7 +609,7 @@ class LatitudinalRegion(StrEnum):
     TROPICS = "tropics"
 
 
-class LatitudinalCorrelationBetweenDiagnostics(PostProcessor):
+class LatitudinalCorrelationBetweenDiagnostics(PostProcessor[xr.DataArray]):
     """
     Computes the correlation between turbulence diagnostics by latitudinal region
     """
@@ -788,7 +788,7 @@ class LatitudinalCorrelationBetweenDiagnostics(PostProcessor):
         return correlations
 
 
-class RelationshipBetween(PostProcessor):
+class RelationshipBetween(PostProcessor[xr.DataArray]):
     _this_feature: xr.DataArray
     _other_feature: xr.DataArray
     _sum_over_dim: str
@@ -886,7 +886,7 @@ class RelationshipBetweenFactory:
                 assert_never(unreachable)
 
 
-class RelationshipBetweenXAndTurbulence(PostProcessor):
+class RelationshipBetweenXAndTurbulence(PostProcessor[xr.Dataset]):
     _other_feature: xr.DataArray
     _turbulence_diagnostics: xr.Dataset
     _relationship_type: RelationshipBetweenTypes
