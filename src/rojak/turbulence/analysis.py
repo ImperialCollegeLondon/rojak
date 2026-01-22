@@ -459,7 +459,7 @@ class TransformToEDR(PostProcessor):
         scaling: float = self._c2 / np.sqrt(self._variance)
         # a = c_2 - b * mean
         offset: float = self._c1 - scaling * self._mean
-        unmapped_index = xr.where(self._computed_diagnostic > 0, self._computed_diagnostic, 0)
+        unmapped_index = self._computed_diagnostic.clip(min=0)
         # Numpy doesn't support fractional powers of negative numbers so pull the negative out
         # https://stackoverflow.com/a/45384691
         # return exponent_term * (np.sign(self.computed_value()) * (np.abs(self.computed_value()) ** scaling))
