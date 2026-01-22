@@ -185,11 +185,9 @@ class Frontogenesis3D(Diagnostic):
         dtheta_dy = theta_horz_gradient["dfdy"]
         dtheta_dz = altitude_derivative_on_pressure_level(self._potential_temperature, self._geopotential)
 
-        inverse_mag_grad_theta: xr.DataArray = np.reciprocal(
-            np.sqrt(np.square(dtheta_dx) + np.square(dtheta_dy) + np.square(dtheta_dz)),
-        )  # pyright: ignore[reportAssignmentType]
+        mag_grad_theta: xr.DataArray = np.sqrt(np.square(dtheta_dx) + np.square(dtheta_dy) + np.square(dtheta_dz))  # pyright: ignore[reportAssignmentType]
         # If potential field has no changes, then there will be a division by zero
-        inverse_mag_grad_theta = inverse_mag_grad_theta.fillna(0)
+        inverse_mag_grad_theta: xr.DataArray = np.reciprocal(mag_grad_theta, where=mag_grad_theta != 0)  # pyright: ignore[reportAssignmentType]
 
         return inverse_mag_grad_theta * (
             self.x_component(dtheta_dx, dtheta_dy)
