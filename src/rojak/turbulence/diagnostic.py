@@ -187,7 +187,7 @@ class Frontogenesis3D(Diagnostic):
 
         mag_grad_theta: xr.DataArray = np.sqrt(np.square(dtheta_dx) + np.square(dtheta_dy) + np.square(dtheta_dz))  # pyright: ignore[reportAssignmentType]
         # If potential field has no changes, then there will be a division by zero
-        inverse_mag_grad_theta: xr.DataArray = np.reciprocal(mag_grad_theta, where=mag_grad_theta != 0)  # pyright: ignore[reportAssignmentType]
+        inverse_mag_grad_theta: xr.DataArray = -np.reciprocal(mag_grad_theta, where=mag_grad_theta != 0)  # pyright: ignore[reportAssignmentType]
 
         return inverse_mag_grad_theta * (
             self.x_component(dtheta_dx, dtheta_dy)
