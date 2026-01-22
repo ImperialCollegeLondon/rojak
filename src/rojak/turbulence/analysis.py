@@ -574,9 +574,11 @@ class MatthewsCorrelationOnThresholdedDiagnostics(PostProcessor):
         severities: list["TurbulenceSeverity"],
         thresholds: "Mapping[DiagnosticName, TurbulenceThresholds]",
         threshold_mode: "TurbulenceThresholdMode",
+        /,
+        **sel_condition,  # noqa: ANN003
     ) -> None:
         super().__init__()
-        self._diagnostic_indices = diagnostic_indices
+        self._diagnostic_indices = diagnostic_indices.sel(**sel_condition)
         self._severities = severities
         self._thresholds = thresholds
         self._threshold_mode = threshold_mode
