@@ -88,7 +88,7 @@ class Diagnostic(ABC):
     @property
     def computed_value(self) -> xr.DataArray:
         if self._computed_value is None:
-            self._computed_value = self._compute().persist()
+            self._computed_value = self._compute().rename(self.name).persist()
         return self._computed_value
 
 
