@@ -505,7 +505,7 @@ class Ncsu1(Diagnostic):
     def _compute(self) -> xr.DataArray:
         vorticity_term: xr.DataArray = magnitude_of_geospatial_gradient(self._vorticity)
         advection_term: xr.DataArray = self._u_wind * self._du_dx + self._v_wind * self._dv_dy
-        advection_term = xr.where(advection_term > 0, advection_term, 0)
+        advection_term = advection_term.clip(min=0)
         return (vorticity_term * advection_term) / self._ri
 
 
