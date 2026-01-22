@@ -1087,7 +1087,7 @@ class NegativeVorticityAdvection(Diagnostic):
             * spatial_gradient(abs_vorticity, "deg", GradientMode.GEOSPATIAL, dimension=CartesianDimension.Y)["dfdy"]
         )
         nva: xr.DataArray = -x_component - y_component
-        return xr.where(nva < 0, 0, nva)
+        return nva.clip(min=0)
 
 
 class DuttonIndex(Diagnostic):
