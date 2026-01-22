@@ -202,7 +202,7 @@ def wind_direction(u_wind: xr.DataArray, v_wind: xr.DataArray) -> xr.DataArray:
     direction: xr.DataArray = np.pi / 2 - np.arctan2(-v_wind, -u_wind)  # pyright: ignore [reportAssignmentType]
     # Direction in radians in range of [-pi, pi]
     # Meteorological wind direction angle must be [0, 2pi]
-    met_wind_direction: xr.DataArray = xr.where(direction <= 0.0, direction + 2 * np.pi, direction)
+    met_wind_direction: xr.DataArray = direction % (2 * np.pi)  # modulo is a ufunc and will map (-)ive to (+)ive
     # If u and v are zero, np.arctan2([0.0], [0.0]) = -3.14159265
     return xr.where((u_wind == 0) & (v_wind == 0), 0, met_wind_direction)
 
