@@ -613,7 +613,6 @@ class UBF(Diagnostic):
         self._vorticity = vorticity
         self._jacobian = jacobian
 
-    # Appears to work IF AND ONLY IF processes=False
     def _compute(self) -> xr.DataArray:
         coriolis_vorticity_term: xr.DataArray = self._coriolis_parameter * self._vorticity
         coriolis_deriv: xr.DataArray = latitudinal_derivative(self._coriolis_parameter)
