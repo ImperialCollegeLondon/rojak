@@ -260,9 +260,9 @@ class Frontogenesis2D(Diagnostic):
             "deg",
             GradientMode.GEOSPATIAL,
         )
-        inverse_mag_grad_theta: xr.DataArray = -np.reciprocal(magnitude_of_vector(dtheta["dfdx"], dtheta["dfdy"]))  # pyright: ignore[reportAssignmentType]
+        mag_grad_theta: xr.DataArray = magnitude_of_vector(dtheta["dfdx"], dtheta["dfdy"])
         # If potential field has no changes, then there will be a division by zero
-        inverse_mag_grad_theta = inverse_mag_grad_theta.fillna(0)
+        inverse_mag_grad_theta: xr.DataArray = -np.reciprocal(mag_grad_theta, where=mag_grad_theta != 0)  # pyright: ignore[reportAssignmentType]
 
         return inverse_mag_grad_theta * (
             np.square(dtheta["dfdx"]) * self._du_dx
