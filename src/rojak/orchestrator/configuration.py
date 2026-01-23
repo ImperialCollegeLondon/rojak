@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Self, assert_never
 
 import numpy as np
 import yaml
-from pydantic import AfterValidator, BaseModel, Field, ValidationError, model_validator
+from pydantic import AfterValidator, BaseModel, DirectoryPath, Field, ValidationError, model_validator
 from pydantic.types import PositiveInt
 
 from rojak.datalib.madis.amdar import AcarsAmdarTurbulenceData
@@ -46,6 +46,9 @@ def _dir_must_exist(path: Path) -> Path:
 def _make_dir_if_not_present(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+CreateDirectoryPath = Annotated[DirectoryPath, AfterValidator(_make_dir_if_not_present)]
 
 
 class TurbulenceSeverity(StrEnum):

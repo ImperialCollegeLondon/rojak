@@ -1,4 +1,11 @@
+from pathlib import Path
+from typing import Annotated
+
 import typer
+from distributed import Client
+
+from rojak.orchestrator.lite_configuration import DistributionParametersContext
+from rojak.orchestrator.lite_controller import compute_distribution_parameters
 
 # Root application for this interface
 lite_app = typer.Typer(help="Lite run of rojak for lower memory usage")
@@ -8,3 +15,24 @@ turbulence_app = typer.Typer(help="Computations related to turbulence")
 
 # Add applications related to lite app here
 lite_app.add_typer(turbulence_app, name="turbulence")
+
+
+@turbulence_app.command()
+def distribution_parameters(
+    config_file: Annotated[
+        Path,
+        typer.Argument(
+            help="Path to configuration file",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+            resolve_path=True,
+        ),
+    ],
+) -> None:
+    print("Distribution parameters")
+    client = Client()
+    context: DistributionParametersContext = DistributionParametersContext.from_yaml(config_file)
+    compute_distribution_parameters(context)
+    _ = client.close()
