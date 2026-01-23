@@ -4,7 +4,7 @@ from typing import Annotated
 import typer
 from distributed import Client
 
-from rojak.orchestrator.lite_configuration import DistributionParametersContext
+from rojak.orchestrator.lite_configuration import TurbulenceContextWithOutput
 from rojak.orchestrator.lite_controller import compute_distribution_parameters
 
 # Root application for this interface
@@ -31,8 +31,7 @@ def distribution_parameters(
         ),
     ],
 ) -> None:
-    print("Distribution parameters")
     client = Client()
-    context: DistributionParametersContext = DistributionParametersContext.from_yaml(config_file)
+    context: TurbulenceContextWithOutput = TurbulenceContextWithOutput.from_yaml(config_file)
     compute_distribution_parameters(context)
     _ = client.close()

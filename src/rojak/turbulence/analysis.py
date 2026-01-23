@@ -406,8 +406,8 @@ class ComputeDistributionParametersForEDR(PostProcessor[DistributionParameters])
         diagnostic_values = (diagnostic_values[diagnostic_values > 0]).compute_chunk_sizes()
         log_of_diagnostic = da.log(diagnostic_values)
         return DistributionParameters(
-            mean=da.nanmean(log_of_diagnostic).compute(),
-            variance=da.nanvar(log_of_diagnostic).compute(),
+            mean=float(da.nanmean(log_of_diagnostic).compute()),
+            variance=float(da.nanvar(log_of_diagnostic).compute()),
         )
 
 
