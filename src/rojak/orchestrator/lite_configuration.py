@@ -6,6 +6,7 @@ from rojak.orchestrator.configuration import (
     MetDataSource,
     SpatialDomain,
     TurbulenceDiagnostics,
+    TurbulenceThresholds,
 )
 
 
@@ -44,3 +45,7 @@ class BaseTurbulenceContext(BaseConfigModel):
 
 class TurbulenceContextWithOutput(BaseTurbulenceContext):
     output_dir: CreateDirectoryPath = Field(description="Output directory", repr=True, frozen=True)
+
+
+class DiagnosticThresholdsContext(TurbulenceContextWithOutput):
+    percentile_thresholds: TurbulenceThresholds = Field(description="Percentile thresholds", repr=True, frozen=True)

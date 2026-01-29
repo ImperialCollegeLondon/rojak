@@ -6,20 +6,30 @@ from rich.progress import track
 
 from rojak.core.data import load_from_folder
 from rojak.datalib.ecmwf.era5 import Era5Data
-from rojak.orchestrator.configuration import MetDataSource
-from rojak.turbulence.analysis import ComputeDistributionParametersForEDR
+from rojak.orchestrator.configuration import MetDataSource, TurbulenceThresholds
+from rojak.turbulence.analysis import ComputeDistributionParametersForEDR, HistogramData, TurbulenceIntensityThresholds
 from rojak.turbulence.diagnostic import DiagnosticFactory
 from rojak.utilities.types import DistributionParameters
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
     import xarray as xr
 
     from rojak.core.data import CATData
-    from rojak.orchestrator.lite_configuration import BaseTurbulenceContext, TurbulenceContextWithOutput
+    from rojak.orchestrator.lite_configuration import (
+        BaseTurbulenceContext,
+        DiagnosticThresholdsContext,
+        TurbulenceContextWithOutput,
+    )
 
 
+# See pydantic docs about only instantiating the type adapter once
+# https://docs.pydantic.dev/latest/concepts/performance/#typeadapter-instantiated-once
+# str is DiagnosticName
+THRESHOLDS_TYPE_ADAPTER: TypeAdapter[dict[str, TurbulenceThresholds]] = TypeAdapter(dict[str, TurbulenceThresholds])
+HISTOGRAM_DATA_TYPE_ADAPTER: TypeAdapter[dict[str, HistogramData]] = TypeAdapter(dict[str, HistogramData])
 DISTRIBUTION_PARAMS_TYPE_ADAPTER: TypeAdapter[dict[str, DistributionParameters]] = TypeAdapter(
     dict[str, DistributionParameters]
 )
@@ -68,4 +78,21 @@ def compute_distribution_parameters(context: "TurbulenceContextWithOutput", /) -
         start_time,
         DISTRIBUTION_PARAMS_TYPE_ADAPTER,
         "distribution_params",
+    )
+
+
+def compute_thresholds(context: "DiagnosticThresholdsContext", /) -> None:
+    start_time: str = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
+    diagnostic_factory: DiagnosticFactory = _instantiate_diagnostic_factory(context)
+
+    diagnostic_thresholds: Mapping[str, TurbulenceThresholds] = {}
+    for diagnostic in track(context.diagnostics):
+        computed_diagnostic: xr.DataArray = diagnostic_factory.create(diagnostic).computed_value.persist()
+        diagnostic_thresholds[diagnostic] = TurbulenceIntensityThresholds(
+            context.percentile_thresholds, computed_diagnostic
+        ).execute()
+        del computed_diagnostic
+
+    export_json(
+        diagnostic_thresholds, (context.output_dir / context.name), start_time, THRESHOLDS_TYPE_ADAPTER, "thresholds"
     )

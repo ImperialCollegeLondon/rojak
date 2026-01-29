@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, NamedTuple, assert_never
 
 import numpy as np
 import xarray as xr
-from pydantic import TypeAdapter
 
 from rojak.core import data
 from rojak.datalib.ecmwf.era5 import Era5Data
@@ -32,6 +31,7 @@ from rojak.orchestrator.configuration import (
     TurbulenceEvaluationPhaseOption,
     TurbulenceThresholds,
 )
+from rojak.orchestrator.lite_controller import HISTOGRAM_DATA_TYPE_ADAPTER, THRESHOLDS_TYPE_ADAPTER, export_json
 from rojak.plot.turbulence_plotter import (
     GREY_HEX_CODE,
     chain_diagnostic_names,
@@ -101,13 +101,6 @@ class Result[T]:
     @property
     def result(self) -> T:
         return self._result
-
-
-# See pydantic docs about only instantiating the type adapter once
-# https://docs.pydantic.dev/latest/concepts/performance/#typeadapter-instantiated-once
-# str is DiagnosticName
-THRESHOLDS_TYPE_ADAPTER: TypeAdapter = TypeAdapter(dict[str, TurbulenceThresholds])
-DISTRIBUTION_PARAMS_TYPE_ADAPTER: TypeAdapter = TypeAdapter(dict[str, HistogramData])
 
 
 class CalibrationStage:
@@ -194,26 +187,28 @@ class CalibrationStage:
         return Result(thresholds)
 
     def export_thresholds(self, diagnostic_thresholds: Mapping["DiagnosticName", "TurbulenceThresholds"]) -> None:
-        target_dir: Path = (self._output_dir / self._name).resolve()
-        target_dir.mkdir(parents=True, exist_ok=True)
-        output_file: Path = target_dir / f"thresholds_{self._start_time}.json"
-
-        with output_file.open("wb") as output_json:
-            output_json.write(THRESHOLDS_TYPE_ADAPTER.dump_json(diagnostic_thresholds, indent=4))
+        export_json(
+            dict(diagnostic_thresholds),
+            (self._output_dir / self._name),
+            self._start_time,
+            THRESHOLDS_TYPE_ADAPTER,
+            "thresholds",
+        )
 
     def load_distribution_parameters_from_file(self) -> Result:
         assert self._config.diagnostic_distribution_file_path is not None
         json_str: str = self._config.diagnostic_distribution_file_path.read_text()
-        distribution_parameters = DISTRIBUTION_PARAMS_TYPE_ADAPTER.validate_json(json_str)
+        distribution_parameters = HISTOGRAM_DATA_TYPE_ADAPTER.validate_json(json_str)
         return Result(distribution_parameters)
 
     def export_distribution_parameters(self, diagnostic_thresholds: Mapping["DiagnosticName", "HistogramData"]) -> None:
-        target_dir: Path = (self._output_dir / self._name).resolve()
-        target_dir.mkdir(parents=True, exist_ok=True)
-        output_file: Path = target_dir / f"distribution_params_{self._start_time}.json"
-
-        with output_file.open("wb") as output_json:
-            output_json.write(DISTRIBUTION_PARAMS_TYPE_ADAPTER.dump_json(diagnostic_thresholds, indent=4))
+        export_json(
+            dict(diagnostic_thresholds),
+            self._output_dir / self._name,
+            self._start_time,
+            HISTOGRAM_DATA_TYPE_ADAPTER,
+            "distribution_params",
+        )
 
     def compute_distribution_parameters(self, suite: CalibrationDiagnosticSuite | None) -> Result:
         assert suite is not None
@@ -382,8 +377,12 @@ class EvaluationStage:
                     suite.as_dataset(), self._config.severities, thresholds, self._config.threshold_mode
                 ).execute()
                 chained_names: str = chain_diagnostic_names(suite.diagnostic_names())
+                # From the zarr docs, Path is part of the StoreLike type alias. However, pyright is not picking this up
+                #   see: https://zarr.readthedocs.io/en/v3.1.5/api/zarr/storage/
                 _ = matthews_correlation.to_zarr(
-                    self._output_dir / f"matthews_corr_{chained_names}.zarr", mode="w", zarr_format=2
+                    self._output_dir / f"matthews_corr_{chained_names}.zarr",  # pyright: ignore[reportArgumentType]
+                    mode="w",
+                    zarr_format=2,
                 )
                 for level in self._config.pressure_levels:
                     matthews_correlation_on_level: xr.DataArray = MatthewsCorrelationOnThresholdedDiagnostics(
@@ -393,8 +392,13 @@ class EvaluationStage:
                         self._config.threshold_mode,
                         pressure_level=level,
                     ).execute()
+                    # From the zarr docs, Path is part of the StoreLike type alias. However, pyright is not
+                    # picking this up
+                    #   see: https://zarr.readthedocs.io/en/v3.1.5/api/zarr/storage/
                     _ = matthews_correlation_on_level.to_zarr(
-                        self._output_dir / f"matthews_corr_{level:.0f}_{chained_names}.zarr", mode="w", zarr_format=2
+                        self._output_dir / f"matthews_corr_{level:.0f}_{chained_names}.zarr",  # pyright: ignore[reportArgumentType]
+                        mode="w",
+                        zarr_format=2,
                     )
 
                 return Result(matthews_correlation)
