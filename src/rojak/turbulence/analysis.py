@@ -343,11 +343,9 @@ class TurbulentRegionsBySeverity(PostProcessor[xr.DataArray | list[xr.DataArray]
     def execute(self) -> xr.DataArray | list[xr.DataArray] | xr.DataTree:
         by_severity = []
         for severity in self._severities:
-            bounds: Limits = self._thresholds.get_bounds(severity, self._threshold_mode)
-            this_severity = xr.where(
-                (self._computed_diagnostic >= bounds.lower) & (self._computed_diagnostic < bounds.upper),
-                True,
-                False,
+            bounds: Limits[float] = self._thresholds.get_bounds(severity, self._threshold_mode)
+            this_severity: xr.DataArray = (self._computed_diagnostic >= bounds.lower) & (
+                self._computed_diagnostic < bounds.upper
             )
             by_severity.append(this_severity if self._has_parent else this_severity.compute())
         return by_severity if self._has_parent else xr.concat(by_severity, xr.Variable("severity", self._severities))
@@ -387,9 +385,7 @@ class TurbulenceProbabilityBySeverity(_EvaluationPostProcessor):
     def execute(self) -> xr.DataArray:
         by_severity: list[xr.DataArray] | xr.DataArray = self._components["turbulent_regions"].execute()
         assert isinstance(by_severity, list)
-        probabilities = [
-            (this_severity.sum(dim="time").compute() / self._num_time_steps) * 100 for this_severity in by_severity
-        ]
+        probabilities = [this_severity.mean() * 100 for this_severity in by_severity]
         # hmmm.... I'm not sure if this will behave the way I expect with the new dimension
         return xr.concat(probabilities, xr.Variable("severity", self._severities))
 
