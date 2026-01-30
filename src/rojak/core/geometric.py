@@ -1,14 +1,17 @@
 import itertools
 from collections.abc import Callable
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 import dask_geopandas as dgpd
 import geopandas as gpd
+import numba
 import numpy as np
 import pyproj
 from shapely import geometry
 from shapely.prepared import prep
 
+from rojak.core.constants import EARTH_AVG_RADIUS
 from rojak.utilities.types import Coordinate
 
 if TYPE_CHECKING:
@@ -203,3 +206,60 @@ def geodesic_waypoints_between(
             terminus_idx=0,
         ),
     )
+
+
+class DistanceUnits(StrEnum):
+    METERS = "meters"
+    KILOMETERS = "kilometers"
+
+
+@numba.njit
+def haversine_distance(
+    lon_1: np.ndarray,
+    lat_1: np.ndarray,
+    lon_2: np.ndarray,
+    lat_2: np.ndarray,
+    # distance_units: DistanceUnits = DistanceUnits.KILOMETERS,
+    /,
+) -> np.ndarray:
+    """
+    Haversine distance in m between two points as pairs of longitude and latitude
+
+    Args:
+        lon_1: Array of longitude in degrees for first pair
+        lat_1: Array of latitudes in degrees for first pair
+        lon_2: Array of longitude in degrees for second pair
+        lat_2: Array of latitudes in degrees for second pair
+
+    Returns:
+        haversine distance in meters
+
+    References:
+        `Wikipedia on haversine distance <https://en.wikipedia.org/wiki/Haversine_formula#Formulation>`__
+        Equation 19 in `this paper <https://doi.org/10.1017%2FS0373463309990415>`__
+
+    Examples:
+    >>> float(haversine_distance(np.array(77.037),np.array(38.898), np.array(2.294), np.array(48.858)))
+    5846.8
+
+    """
+
+    # List it out makes it numba friendly
+    lon_1 = np.radians(lon_1)
+    lon_2 = np.radians(lon_2)
+    lat_1 = np.radians(lat_1)
+    lat_2 = np.radians(lat_2)
+
+    delta_lat: np.ndarray = lat_2 - lat_1
+    delta_lon: np.ndarray = lon_2 - lon_1
+    sine_half_delta_lat: np.ndarray = np.sin(delta_lat / 2)
+    sine_half_delta_lon: np.ndarray = np.sin(delta_lon / 2)
+
+    haversine_theta: np.ndarray = (
+        sine_half_delta_lat * sine_half_delta_lat
+        + np.cos(lat_1) * np.cos(lat_2) * sine_half_delta_lon * sine_half_delta_lon
+    )
+
+    theta: np.ndarray = 2 * np.arcsin(np.sqrt(haversine_theta))
+    # earth_radius: float = EARTH_AVG_RADIUS if distance_units == DistanceUnits.METERS else EARTH_AVG_RADIUS * 1e-3
+    return theta * EARTH_AVG_RADIUS
