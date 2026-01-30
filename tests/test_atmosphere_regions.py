@@ -14,6 +14,8 @@ from rojak.atmosphere.regions import (
     euclidean_distance_from_a_to_b,
     find_parent_region_of_intersection,
     label_regions,
+    nearest_haversine_distance,
+    shortest_haversine_distance_from_a_to_b,
 )
 from rojak.orchestrator.configuration import JetStreamAlgorithms, TurbulenceDiagnostics
 from rojak.turbulence.diagnostic import DiagnosticFactory
@@ -251,3 +253,29 @@ def test_distance_a_to_b_inverse_not_equiv(
             distance_from_a_to_b(get_js_regions, get_is_ti1_turb, distance_measure=distance_measure, num_dim=num_dim),
             distance_from_a_to_b(get_is_ti1_turb, get_js_regions, distance_measure=distance_measure, num_dim=num_dim),
         )
+
+
+def test_great_circle_distance_from_a_to_b_equiv_in_multi_dim(
+    get_is_ti1_turb: xr.DataArray, get_js_regions: xr.DataArray
+):
+    js_regions = get_js_regions
+    turb_regions = get_is_ti1_turb
+    computed_distance: xr.DataArray = shortest_haversine_distance_from_a_to_b(
+        js_regions,
+        turb_regions,
+    )
+
+    latitude_coord = js_regions["latitude"].to_numpy()
+    longitude_coord = js_regions["longitude"].to_numpy()
+
+    for time_index in range(js_regions["time"].size):
+        for level_index in range(js_regions["pressure_level"].size):
+            np.testing.assert_array_equal(
+                computed_distance.isel(time=time_index, pressure_level=level_index).transpose("latitude", "longitude"),
+                nearest_haversine_distance(
+                    js_regions.isel(time=time_index, pressure_level=level_index).to_numpy(),
+                    turb_regions.isel(time=time_index, pressure_level=level_index).to_numpy(),
+                    latitude_coord,
+                    longitude_coord,
+                ),
+            )
