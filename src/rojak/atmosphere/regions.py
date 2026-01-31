@@ -7,6 +7,8 @@ import scipy.ndimage as ndi
 import xarray as xr
 from numba import guvectorize, int8, njit, vectorize
 
+from rojak.core.geometric import haversine_distance
+
 
 def _region_labeller(target_array: np.ndarray, num_dim: int = 3, connectivity: int | None = None) -> np.ndarray:
     """
@@ -74,6 +76,11 @@ def _check_num_dims_and_set_core_dims(num_dims: int, core_dims: list[str] | None
 
 def _check_dims_in_array(dims: list[str], array: xr.DataArray) -> None:
     assert set(dims).issubset(array.dims)
+
+
+def _check_in_dims_and_coordinates(names: list[str], must_be_in: xr.DataArray) -> None:
+    _check_dims_in_array(names, must_be_in)
+    assert set(names).issubset(must_be_in.coords.keys())
 
 
 def label_regions(
@@ -375,3 +382,74 @@ def distance_from_a_to_b(
         output_dtypes=[np.dtype(float)],
         dask="parallelized",
     )
+
+
+def nearest_haversine_distance(
+    from_feature: np.ndarray,
+    to_feature: np.ndarray,
+    lat_coords_1d: np.ndarray,
+    lon_coords_1d: np.ndarray,
+    /,
+) -> np.ndarray:
+    # Short-circuit on the trivial case
+    if not np.any(from_feature) or not np.any(to_feature):
+        return np.full(from_feature.shape, np.nan, dtype=float)
+
+    # Indices of the nearest to_feature point
+    #    indices_to_nearest[0] will be row indices (for latitude)
+    #    indices_to_nearest[1] will be column indices (for longitude)
+    indices_to_nearest: np.ndarray = cast(
+        "np.ndarray", ndi.distance_transform_edt(~to_feature, return_distances=False, return_indices=True)
+    )
+
+    # Maps the indices to the lat and lon values from the coordinate
+    nearest_lat = lat_coords_1d[indices_to_nearest[0]]
+    nearest_lon = lon_coords_1d[indices_to_nearest[1]]
+
+    # Construct base grid to compute distances from
+    source_lon_grid, source_lat_grid = np.meshgrid(lon_coords_1d, lat_coords_1d)
+    distance = haversine_distance(
+        source_lon_grid,
+        source_lat_grid,
+        nearest_lon,
+        nearest_lat,
+    )
+    # Mask out points that are not in from_feature
+    distance[~from_feature] = np.nan
+
+    return distance
+
+
+def shortest_haversine_distance_from_a_to_b(
+    from_feature: xr.DataArray,
+    to_feature: xr.DataArray,
+    /,
+    longitude_dim_name: str = "longitude",
+    latitude_dim_name: str = "latitude",
+) -> xr.DataArray:
+    _check_arrays_same_shape_and_bool(from_feature, to_feature)
+
+    horizontal_dims = [latitude_dim_name, longitude_dim_name]
+    _check_in_dims_and_coordinates(horizontal_dims, from_feature)
+    _check_in_dims_and_coordinates(horizontal_dims, to_feature)
+
+    from_feature = from_feature.astype(bool)
+    to_feature = to_feature.astype(bool)
+
+    return xr.apply_ufunc(
+        nearest_haversine_distance,
+        from_feature,
+        to_feature,
+        from_feature[latitude_dim_name],
+        from_feature[longitude_dim_name],
+        input_core_dims=[
+            horizontal_dims,
+            horizontal_dims,
+            [latitude_dim_name],
+            [longitude_dim_name],
+        ],
+        output_core_dims=[horizontal_dims],
+        dask="parallelized",
+        vectorize=True,
+        output_dtypes=[np.dtype(float)],  # Use float for distance, not original dtype
+    ).rename("shortest_haversine_distance")
