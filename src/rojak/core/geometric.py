@@ -240,7 +240,7 @@ def haversine_distance(
 
     Examples:
     >>> float(haversine_distance(np.array(77.037),np.array(38.898), np.array(2.294), np.array(48.858)))
-    5846.8
+    5846821.4
 
     """
 
