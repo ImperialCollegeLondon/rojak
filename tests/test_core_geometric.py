@@ -1,12 +1,15 @@
 import geopandas as gpd
+import numpy as np
 import pytest
 from geopandas.testing import assert_geodataframe_equal
+from pyproj import Geod
 from shapely import geometry
 
 from rojak.core.geometric import (
     create_grid_data_frame,
     create_polygon_spatial_grid_buckets,
     create_rectangular_spatial_grid_buckets,
+    haversine_distance,
 )
 from rojak.orchestrator.configuration import SpatialDomain
 
@@ -51,3 +54,17 @@ def test_create_grid_data_frame_polygon():
     df_it_should_have = create_polygon_spatial_grid_buckets(geom, 0.25)
 
     assert_geodataframe_equal(df_from_create_grid, gpd.GeoDataFrame(geometry=df_it_should_have, crs="epsg:4326"))
+
+
+def test_haversine_distance():
+    target_shape = (40, 50)
+    rng = np.random.default_rng()
+    lon_1 = (rng.random(size=target_shape, dtype=float) * 360.0) - 180.0
+    lon_2 = (rng.random(size=target_shape, dtype=float) * 360.0) - 180.0
+    lat_1 = (rng.random(size=target_shape, dtype=float) * 180.0) - 90.0
+    lat_2 = (rng.random(size=target_shape, dtype=float) * 180.0) - 90.0
+
+    distances = haversine_distance(lon_1, lat_1, lon_2, lat_2)
+    geod = Geod(ellps="WGS84")
+    _, _, geod_distances = geod.inv(lon_1, lat_1, lon_2, lat_2)
+    np.testing.assert_allclose(distances, geod_distances, rtol=1e-2)
