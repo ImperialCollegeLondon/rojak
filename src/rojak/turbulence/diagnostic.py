@@ -88,7 +88,7 @@ class Diagnostic(ABC):
     @property
     def computed_value(self) -> xr.DataArray:
         if self._computed_value is None:
-            self._computed_value = self._compute().persist()
+            self._computed_value = self._compute().rename(self.name).persist()
         return self._computed_value
 
 
@@ -185,11 +185,9 @@ class Frontogenesis3D(Diagnostic):
         dtheta_dy = theta_horz_gradient["dfdy"]
         dtheta_dz = altitude_derivative_on_pressure_level(self._potential_temperature, self._geopotential)
 
-        inverse_mag_grad_theta: xr.DataArray = np.reciprocal(
-            np.sqrt(np.square(dtheta_dx) + np.square(dtheta_dy) + np.square(dtheta_dz)),
-        )  # pyright: ignore[reportAssignmentType]
+        mag_grad_theta: xr.DataArray = np.sqrt(np.square(dtheta_dx) + np.square(dtheta_dy) + np.square(dtheta_dz))  # pyright: ignore[reportAssignmentType]
         # If potential field has no changes, then there will be a division by zero
-        inverse_mag_grad_theta = inverse_mag_grad_theta.fillna(0)
+        inverse_mag_grad_theta: xr.DataArray = -np.reciprocal(mag_grad_theta, where=mag_grad_theta != 0)  # pyright: ignore[reportAssignmentType]
 
         return inverse_mag_grad_theta * (
             self.x_component(dtheta_dx, dtheta_dy)
@@ -260,9 +258,9 @@ class Frontogenesis2D(Diagnostic):
             "deg",
             GradientMode.GEOSPATIAL,
         )
-        inverse_mag_grad_theta: xr.DataArray = -np.reciprocal(magnitude_of_vector(dtheta["dfdx"], dtheta["dfdy"]))  # pyright: ignore[reportAssignmentType]
+        mag_grad_theta: xr.DataArray = magnitude_of_vector(dtheta["dfdx"], dtheta["dfdy"])
         # If potential field has no changes, then there will be a division by zero
-        inverse_mag_grad_theta = inverse_mag_grad_theta.fillna(0)
+        inverse_mag_grad_theta: xr.DataArray = -np.reciprocal(mag_grad_theta, where=mag_grad_theta != 0)  # pyright: ignore[reportAssignmentType]
 
         return inverse_mag_grad_theta * (
             np.square(dtheta["dfdx"]) * self._du_dx
@@ -501,13 +499,13 @@ class Ncsu1(Diagnostic):
         assert VelocityDerivative.DV_DY in vector_derivatives
         self._du_dx = vector_derivatives[VelocityDerivative.DU_DX]
         self._dv_dy = vector_derivatives[VelocityDerivative.DV_DY]
-        self._ri = xr.where(ri > self.RI_THRESHOLD, ri, self.RI_THRESHOLD)
+        self._ri = ri.clip(min=self.RI_THRESHOLD)
         self._vorticity = vorticity
 
     def _compute(self) -> xr.DataArray:
         vorticity_term: xr.DataArray = magnitude_of_geospatial_gradient(self._vorticity)
         advection_term: xr.DataArray = self._u_wind * self._du_dx + self._v_wind * self._dv_dy
-        advection_term = xr.where(advection_term > 0, advection_term, 0)
+        advection_term = advection_term.clip(min=0)
         return (vorticity_term * advection_term) / self._ri
 
 
@@ -615,7 +613,6 @@ class UBF(Diagnostic):
         self._vorticity = vorticity
         self._jacobian = jacobian
 
-    # Appears to work IF AND ONLY IF processes=False
     def _compute(self) -> xr.DataArray:
         coriolis_vorticity_term: xr.DataArray = self._coriolis_parameter * self._vorticity
         coriolis_deriv: xr.DataArray = latitudinal_derivative(self._coriolis_parameter)
@@ -1090,7 +1087,7 @@ class NegativeVorticityAdvection(Diagnostic):
             * spatial_gradient(abs_vorticity, "deg", GradientMode.GEOSPATIAL, dimension=CartesianDimension.Y)["dfdy"]
         )
         nva: xr.DataArray = -x_component - y_component
-        return xr.where(nva < 0, 0, nva)
+        return nva.clip(min=0)
 
 
 class DuttonIndex(Diagnostic):

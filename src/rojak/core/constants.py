@@ -21,6 +21,8 @@ GRAVITATIONAL_ACCELERATION: float = 9.80665  # m / s^2
 GAS_CONSTANT_DRY_AIR: float = 287  # R_d: J / (K kg)
 GAS_CONSTANT_VAPOUR: float = 461.51  # R_v: J / (K kg)
 ABSOLUTE_ZERO: float = -273.15  # C
+# https://physics.nist.gov/cgi-bin/cuu/Value?gn
+EARTH_AVG_RADIUS: float = 6371008.7714  # m
 
 
 class ClimatologicalEDRConstants(NamedTuple):

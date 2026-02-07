@@ -15,8 +15,8 @@ This example will enable you to generate plots, like in :numref:`turbulence-perc
 
     Probability of encountering light turbulence during the months December, January, February from 2018 to 2024 at 200 hPa for the three-dimensional frontogenesis (F3D) and turbulence index 1 (TI1) diagnostics.
 
-The first step in the process is acquiring the calibration ECMWF ERA5 data from CDS_. 
-The ``rojak`` command below requests 6-hourly data from the 1st and 15th of every month from 1980 to 1989 and places it in the folder ``met_data/era5/calibration_data``. 
+The first step in the process is acquiring the calibration ECMWF ERA5 data from CDS_.
+The ``rojak`` command below requests 6-hourly data from the 1st and 15th of every month from 1980 to 1989 and places it in the folder ``met_data/era5/calibration_data``.
 It uses the default configuration for clear air turbulence (CAT) to specify which variables to request, the product type, which pressure levels and the data format.
 
 .. attention::
@@ -48,7 +48,7 @@ The next step is to request the data for the evaluation dataset. In :numref:`tur
 
 With these datasets, we can now use ``rojak`` to run the analyses.
 :numref:`turbulence-probability-config-yaml` is a ``yaml`` file that will be used to control the analysis performed by ``rojak``.
-In this configuration file, 
+In this configuration file,
 
 1. *Line 1*: Defines the configuration for the input data. Here, it only specifies the spatial domain which the analysis is for. In this case, it is for the entire globe.
 2. *Line 11*: This is the start of the settings for the CAT analysis. This corresponds to the :py:class:`rojak.orchestrator.configuration.TurbulenceConfig`.
