@@ -16,6 +16,8 @@ from rojak.atmosphere.regions import (
     label_regions,
     nearest_haversine_distance,
     shortest_haversine_distance_from_a_to_b,
+    shortest_vertical_distance_from_a_to_b,
+    vertical_distance_to_positive,
 )
 from rojak.orchestrator.configuration import JetStreamAlgorithms, TurbulenceDiagnostics
 from rojak.turbulence.diagnostic import DiagnosticFactory
@@ -279,3 +281,33 @@ def test_great_circle_distance_from_a_to_b_equiv_in_multi_dim(
                     longitude_coord,
                 ),
             )
+
+
+@pytest.mark.parametrize("mask_by", [True, False])
+@pytest.mark.parametrize("all_present", [True, False])
+def test_shortest_and_vertical_distance_to_positive_trivial(
+    all_present: bool, mask_by: bool, make_dummy_cat_data
+) -> None:
+    dummy_data = make_dummy_cat_data({})
+    dummy_array: xr.DataArray = (
+        xr.ones_like(dummy_data["temperature"], dtype=bool)
+        if all_present
+        else xr.zeros_like(dummy_data["temperature"], dtype=bool)
+    )
+    mask_array: xr.DataArray = (
+        xr.ones_like(dummy_data["temperature"], dtype=bool)
+        if mask_by
+        else xr.zeros_like(dummy_data["temperature"], dtype=bool)
+    )
+
+    # If all present, the
+    vert_dist_desired = (
+        xr.zeros_like(dummy_array, dtype=int) if all_present else xr.full_like(dummy_array, np.inf, dtype=float)
+    )
+
+    computed_vert_dist = vertical_distance_to_positive(dummy_array)
+    np.testing.assert_array_equal(computed_vert_dist, vert_dist_desired)
+
+    computed_shortest_vert = shortest_vertical_distance_from_a_to_b(mask_array, dummy_array)
+    shortest_vert_desired = computed_vert_dist if mask_by else xr.full_like(dummy_array, np.inf, dtype=float)
+    np.testing.assert_array_equal(computed_shortest_vert, shortest_vert_desired)
