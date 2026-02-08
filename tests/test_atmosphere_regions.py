@@ -7,6 +7,7 @@ import xarray as xr
 from rojak.atmosphere.jet_stream import JetStreamAlgorithmFactory
 from rojak.atmosphere.regions import (
     DistanceMeasure,
+    DistanceMode,
     _parent_region_mask,
     _region_labeller,
     chebyshev_distance_from_a_to_b,
@@ -283,10 +284,11 @@ def test_great_circle_distance_from_a_to_b_equiv_in_multi_dim(
             )
 
 
+@pytest.mark.parametrize("distance_mode", [item.value for item in DistanceMode])
 @pytest.mark.parametrize("mask_by", [True, False])
 @pytest.mark.parametrize("all_present", [True, False])
 def test_shortest_and_vertical_distance_to_positive_trivial(
-    all_present: bool, mask_by: bool, make_dummy_cat_data
+    all_present: bool, mask_by: bool, distance_mode: DistanceMode, make_dummy_cat_data
 ) -> None:
     dummy_data = make_dummy_cat_data({})
     dummy_array: xr.DataArray = (
@@ -305,9 +307,11 @@ def test_shortest_and_vertical_distance_to_positive_trivial(
         xr.zeros_like(dummy_array, dtype=int) if all_present else xr.full_like(dummy_array, np.inf, dtype=float)
     )
 
-    computed_vert_dist = vertical_distance_to_positive(dummy_array)
+    computed_vert_dist = vertical_distance_to_positive(dummy_array, distance_mode=distance_mode)
     np.testing.assert_array_equal(computed_vert_dist, vert_dist_desired)
 
-    computed_shortest_vert = shortest_vertical_distance_from_a_to_b(mask_array, dummy_array)
+    computed_shortest_vert = shortest_vertical_distance_from_a_to_b(
+        mask_array, dummy_array, distance_mode=distance_mode
+    )
     shortest_vert_desired = computed_vert_dist if mask_by else xr.full_like(dummy_array, np.inf, dtype=float)
     np.testing.assert_array_equal(computed_shortest_vert, shortest_vert_desired)

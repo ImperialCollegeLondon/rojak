@@ -466,7 +466,7 @@ def vertical_distance_to_positive(
     /,
     *,
     vertical_coord_name: str = "pressure_level",
-    distance_mode: DistanceMode = DistanceMode.ABSOLUTE,
+    distance_mode: DistanceMode = DistanceMode.RELATIVE,
 ) -> xr.DataArray | xr.Dataset:
     _check_in_dims_and_coordinates([vertical_coord_name], target_data)
 
@@ -480,9 +480,17 @@ def vertical_distance_to_positive(
 
     vertical_coord = target_data[vertical_coord_name]
     vertical_coord_size: int = vertical_coord.size
-    offset: np.ndarray = np.arange(vertical_coord_size)[:, np.newaxis] - np.arange(vertical_coord_size)
+    offset: np.ndarray
+    match distance_mode:
+        case DistanceMode.ABSOLUTE:
+            vertical_coord_as_np = vertical_coord.to_numpy()
+            offset = np.abs(vertical_coord_as_np[:, np.newaxis] - vertical_coord_as_np[np.newaxis, :])
+        case DistanceMode.RELATIVE:
+            offset = np.abs(np.arange(vertical_coord_size)[:, np.newaxis] - np.arange(vertical_coord_size))
+        case _ as unreachable:
+            assert_never(unreachable)
     offset_amounts = xr.DataArray(
-        np.abs(offset) if distance_mode == DistanceMode.ABSOLUTE else offset,
+        offset,
         dims=[vert_target_name, vert_src_name],
         coords={vert_target_name: vertical_coord.to_numpy(), vert_src_name: vertical_coord.to_numpy()},
     )
@@ -501,7 +509,7 @@ def shortest_vertical_distance_from_a_to_b(
     /,
     *,
     vertical_coord_name: str = "pressure_level",
-    distance_mode: DistanceMode = DistanceMode.ABSOLUTE,
+    distance_mode: DistanceMode = DistanceMode.RELATIVE,
 ) -> xr.DataArray | xr.Dataset:
     _check_arrays_same_shape_and_bool(from_feature, to_feature)
     _check_in_dims_and_coordinates([vertical_coord_name], from_feature)
