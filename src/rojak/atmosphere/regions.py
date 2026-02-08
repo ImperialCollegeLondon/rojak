@@ -1,5 +1,5 @@
 from collections.abc import Callable, Sequence
-from enum import Enum, StrEnum, auto
+from enum import StrEnum
 from typing import assert_never, cast
 
 import numpy as np
@@ -456,9 +456,9 @@ def shortest_haversine_distance_from_a_to_b(
     ).rename("shortest_haversine_distance")
 
 
-class DistanceMode(Enum):
-    ABSOLUTE = auto()
-    RELATIVE = auto()
+class DistanceMode(StrEnum):
+    ABSOLUTE = "absolute"
+    RELATIVE = "relative"
 
 
 def vertical_distance_to_positive(
