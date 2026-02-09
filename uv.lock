@@ -1118,7 +1118,7 @@ wheels = [
 
 [[package]]
 name = "geoviews"
-version = "1.15.0"
+version = "1.15.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bokeh" },
@@ -1132,9 +1132,9 @@ dependencies = [
     { name = "shapely" },
     { name = "xyzservices" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/81/1d/2415e9913455d29dc08b6dc135d12b8e2651725baf9a799d49dec56ea064/geoviews-1.15.0.tar.gz", hash = "sha256:07481e7346d33416857e1d7a41d6cd6a8261b62314d73c7edc9e45e612fa3ac9", size = 506790, upload-time = "2025-11-14T08:48:37.483Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/76/dc/e74f5997e41933aa30aea5786c407a10e1cf169bfdceeb4173111c02d5de/geoviews-1.15.1.tar.gz", hash = "sha256:c72097ef4f24895c46f95834e5c19ac185ea1c34fd610f0f956421ba515d4aad", size = 507037, upload-time = "2026-01-13T17:34:38.197Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/06/0a/aaf8397634c1b2264adbdcb3dfc110e1b70888ba6133fe13efb0b5b852a4/geoviews-1.15.0-py3-none-any.whl", hash = "sha256:da1252554f86c639a280bb3e7dc6acbd4722e9f4e4a8b0c65f6a9c086ed5f5b2", size = 574386, upload-time = "2025-11-14T08:48:35.986Z" },
+    { url = "https://files.pythonhosted.org/packages/63/90/d0323acc02966204035bb5bcaf7385d5a1f2b5359410eb6a09f2ce380f94/geoviews-1.15.1-py3-none-any.whl", hash = "sha256:f369eb94907476e9233abe77bdd6b92340872a20845df7da0341f9a4a13309c8", size = 574718, upload-time = "2026-01-13T17:34:36.562Z" },
 ]
 
 [[package]]
