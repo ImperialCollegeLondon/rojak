@@ -18,10 +18,9 @@ import numpy as np
 import xarray as xr
 
 from rojak.core import derivatives
-from rojak.core.constants import GRAVITATIONAL_ACCELERATION
+from rojak.core.constants import EARTH_AVG_RADIUS, GRAVITATIONAL_ACCELERATION
 
 # https://physics.nist.gov/cgi-bin/cuu/Value?gn
-EARTH_AVG_RADIUS: float = 6371008.7714  # m
 EARTH_ANGULAR_VELOCITY: float = 7292115e-11  # rad/s
 
 
@@ -52,7 +51,11 @@ def stretching_deformation(du_dx: xr.DataArray, dv_dy: xr.DataArray) -> xr.DataA
 
 
 def total_deformation(
-    du_dx: xr.DataArray, du_dy: xr.DataArray, dv_dx: xr.DataArray, dv_dy: xr.DataArray, is_squared: bool
+    du_dx: xr.DataArray,
+    du_dy: xr.DataArray,
+    dv_dx: xr.DataArray,
+    dv_dy: xr.DataArray,
+    is_squared: bool,
 ) -> xr.DataArray:
     """
     Total deformation
@@ -71,12 +74,17 @@ def total_deformation(
             :math:`D_{\\text{sh}}^{2} + D_{\\text{st}}^{2}`
     """
     return magnitude_of_vector(
-        shearing_deformation(dv_dx, du_dy), stretching_deformation(du_dx, dv_dy), is_squared=is_squared
+        shearing_deformation(dv_dx, du_dy),
+        stretching_deformation(du_dx, dv_dy),
+        is_squared=is_squared,
     )
 
 
 def magnitude_of_vector(
-    x_component: xr.DataArray, y_component: xr.DataArray, is_abs: bool = False, is_squared: bool = False
+    x_component: xr.DataArray,
+    y_component: xr.DataArray,
+    is_abs: bool = False,
+    is_squared: bool = False,
 ) -> xr.DataArray:
     """
     Magnitude of vector
@@ -94,7 +102,7 @@ def magnitude_of_vector(
     x_component = np.abs(x_component) if is_abs else x_component  # pyright: ignore[reportAssignmentType]
     y_component = np.abs(y_component) if is_abs else y_component  # pyright: ignore[reportAssignmentType]
 
-    return (x_component * x_component + y_component * y_component) if is_squared else np.hypot(x_component, y_component)  # pyright: ignore[reportReturnType]
+    return (np.square(x_component) + np.square(y_component)) if is_squared else np.hypot(x_component, y_component)  # pyright: ignore[reportReturnType]
 
 
 def vertical_component_vorticity(dvdx: xr.DataArray, dudy: xr.DataArray) -> xr.DataArray:
@@ -112,7 +120,9 @@ def vertical_component_vorticity(dvdx: xr.DataArray, dudy: xr.DataArray) -> xr.D
 
 
 def altitude_derivative_on_pressure_level(
-    function: xr.DataArray, geopotential: xr.DataArray, level_coord_name: str = "pressure_level"
+    function: xr.DataArray,
+    geopotential: xr.DataArray,
+    level_coord_name: str = "pressure_level",
 ) -> xr.DataArray:
     """
     Derivative w.r.t. altitude for data on pressure level
@@ -343,7 +353,10 @@ def vertical_wind_shear(
 
 
 def wind_speed(
-    u_wind: xr.DataArray, v_wind: xr.DataArray, is_abs: bool = False, is_squared: bool = False
+    u_wind: xr.DataArray,
+    v_wind: xr.DataArray,
+    is_abs: bool = False,
+    is_squared: bool = False,
 ) -> xr.DataArray:
     """
     Wind speed

@@ -1,11 +1,17 @@
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
+import dask.array as da
 import numpy as np
 import pandas as pd
 import pytest
 
-from rojak.core.indexing import get_regular_grid_spacing, make_value_based_slice, map_values_to_nearest_coordinate_index
+from rojak.core.indexing import (
+    get_regular_grid_spacing,
+    make_value_based_slice,
+    map_order,
+    map_values_to_nearest_coordinate_index,
+)
 
 if TYPE_CHECKING:
     import dask.dataframe as dd
@@ -26,7 +32,10 @@ if TYPE_CHECKING:
     ],
 )
 def test_make_value_based_slice(
-    coordinate: Sequence, min_value: float | None, max_value: float | None, expected_slice: slice
+    coordinate: Sequence,
+    min_value: float | None,
+    max_value: float | None,
+    expected_slice: slice,
 ) -> None:
     computed_slice = make_value_based_slice(coordinate, min_value, max_value)
     assert computed_slice == expected_slice
@@ -47,13 +56,19 @@ def test_make_value_based_slice(
         ),
         (
             np.arange(
-                np.datetime64("1970-01-01"), np.datetime64("1970-01-02"), np.timedelta64(6, "h"), dtype="datetime64[h]"
+                np.datetime64("1970-01-01"),
+                np.datetime64("1970-01-02"),
+                np.timedelta64(6, "h"),
+                dtype="datetime64[h]",
             ),
             np.timedelta64(6, "h"),
         ),
         (
             np.arange(
-                np.datetime64("1970-01-01"), np.datetime64("1970-01-02"), np.timedelta64(30, "m"), dtype="datetime64[s]"
+                np.datetime64("1970-01-01"),
+                np.datetime64("1970-01-02"),
+                np.timedelta64(30, "m"),
+                dtype="datetime64[s]",
             ),
             np.timedelta64(30, "m"),
         ),
@@ -75,7 +90,11 @@ def test_get_regular_grid_spacing_not_implemented(array: "NDArray") -> None:
     ("series", "array", "window", "expected"),
     [
         pytest.param(
-            None, np.eye(3, 3), None, pytest.raises(ValueError, match="Coordinate must be 1D not 2D"), id="not_1d"
+            None,
+            np.eye(3, 3),
+            None,
+            pytest.raises(ValueError, match="Coordinate must be 1D not 2D"),
+            id="not_1d",
         ),
         pytest.param(
             pd.Series(np.arange(10)),
@@ -150,3 +169,31 @@ def test_get_regular_grid_spacing_not_implemented(array: "NDArray") -> None:
 def test_map_value_to_coordinate_index_fails(series: "dd.Series", array: "NDArray", window, expected) -> None:
     with expected:
         map_values_to_nearest_coordinate_index(series, array, valid_window=window)
+
+
+@pytest.mark.parametrize(
+    ("on", "by", "matches"),
+    [
+        (list(range(3)), list(range(5)), "Order mapping must be on lists of the same length"),
+        (list(range(5)), list(range(3)), "Order mapping must be on lists of the same length"),
+        (list(range(3)), [None] * 3, "Order of items must have unique values"),
+        (list(range(3)), [50] * 3, "Order of items must have unique values"),
+        (list(range(3)), list(range(1, 4)), "Order of items must be increasing by 1 from 0 to length"),
+    ],
+)
+def test_map_order_failure(on: list, by: list[int], matches: str) -> None:
+    with pytest.raises(ValueError, match=matches):
+        map_order(on, by)
+
+
+@pytest.mark.parametrize(
+    ("on", "by", "matches"),
+    [
+        ([np.ones(3), np.ones(3) * 5, np.ones(9) * 15], [2, 0, 1], [np.ones(3) * 5, np.ones(9) * 15, np.ones(3)]),
+        ([da.ones(3), da.ones(3) * 5, da.ones(9) * 15], [2, 0, 1], [da.ones(3) * 5, da.ones(9) * 15, da.ones(3)]),
+    ],
+)
+def test_map_order(on: list, by: list[int], matches: list) -> None:
+    reordered = map_order(on, by)
+    for computed, expected in zip(reordered, matches, strict=True):
+        np.testing.assert_array_equal(computed, expected)

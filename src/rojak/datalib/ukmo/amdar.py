@@ -16,42 +16,74 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import dask.dataframe as dd
+import numpy as np
 
 from rojak.core.data import AmdarDataRepository, AmdarTurbulenceData
 
 if TYPE_CHECKING:
     import dask_geopandas as dgpd
-    import numpy as np
 
 
 class UkmoAmdarRepository(AmdarDataRepository):
     TIME_COLUMNS: ClassVar[frozenset[str]] = frozenset({"year", "month", "day", "hour", "minute", "second"})
     TURBULENCE_COL_INDICES: ClassVar[list[int]] = [0, 1, 2, 3, 4, 5, 11, 12, 13, 14, 15, 20, 21, 22, 24, 25, 26, 27, 28,
                                                   30, 32]  # fmt: skip
-    COLUMN_NAMES: ClassVar[list[str]] = ['year', 'month', 'day', 'hour', 'minute', 'second', 'registration_number',
-                                           'call_sign', 'latitude', 'longitude', 'altitude', 'roll_angle', 'pressure',
-                                           'flight_phase', 'wind_direction', 'wind_speed', 'vert_gust_velocity',
-                                           'vert_gust_acceleration', 'turbulence_degree', 'air_temperature',
-                                           'relative_humidity']  # fmt: skip
+    MIN_COL_INDICES: ClassVar[list[int]] = [0, 1, 2, 3, 4, 5, 13, 14, 15, 20, 22, 26, 27, 28]
+    COLUMN_NAMES: ClassVar[list[str]] = ["year", "month", "day", "hour", "minute", "second", "registration_number",
+                                           "call_sign", "latitude", "longitude", "altitude", "roll_angle", "pressure",
+                                           "flight_phase", "wind_direction", "wind_speed", "vert_gust_velocity",
+                                           "vert_gust_acceleration", "turbulence_degree", "air_temperature",
+                                           "relative_humidity"]  # fmt: skip
+    MIN_COL_NAMES: ClassVar[list[str]] = [
+        "year",
+        "month",
+        "day",
+        "hour",
+        "minute",
+        "second",
+        "latitude",
+        "longitude",
+        "altitude",
+        "roll_angle",
+        "flight_phase",
+        "vert_gust_velocity",
+        "vert_gust_acceleration",
+        "turbulence_degree",
+    ]
 
     def __init__(self, path: str | list) -> None:
-        super().__init__(path)
+        super().__init__(path, True)
 
     def load(
-        self, target_columns: Iterable[str | int] | None = None, column_names: list[str] | None = None
+        self,
+        target_columns: Iterable[str | int] | None = None,
+        column_names: list[str] | None = None,
     ) -> dd.DataFrame:
         if target_columns is None:
-            target_columns = UkmoAmdarRepository.TURBULENCE_COL_INDICES
+            target_columns = (
+                UkmoAmdarRepository.TURBULENCE_COL_INDICES
+                if not self._use_min_turbulence_vars
+                else UkmoAmdarRepository.MIN_COL_INDICES
+            )
         if column_names is None:
-            column_names = UkmoAmdarRepository.COLUMN_NAMES
+            column_names = (
+                UkmoAmdarRepository.COLUMN_NAMES
+                if not self._use_min_turbulence_vars
+                else UkmoAmdarRepository.MIN_COL_NAMES
+            )
 
         col_names = set(column_names)
         assert col_names.issuperset(UkmoAmdarRepository.TIME_COLUMNS), "Columns must contain all the time column names"
         assert "turbulence_degree" in col_names, "Turbulence degree must be in column names"
 
-        # 1. skiprows - skips the 183 rows which contain the properties
-        # 2. encoding - from utf-8 to cp1252 (legacy windows byte encoding) as UnicodeDecodeError: 'utf-8' codec can't
-        #    decode byte: invalid start byte is occasionally thrown when reading in the data
+        col_dtypes: dict[str, object] = dict.fromkeys(column_names, np.float64)
+        if "call_sign" in col_dtypes:
+            col_dtypes["call_sign"] = str
+        if "registration_number" in col_dtypes:
+            col_dtypes["registration_number"] = str
+
+        # encoding - from utf-8 to cp1252 (legacy windows byte encoding) as UnicodeDecodeError: 'utf-8' codec can't
+        # decode byte: invalid start byte is occasionally thrown when reading in the data
         data: dd.DataFrame = dd.read_csv(
             self._path_to_files,
             skiprows=1,
@@ -60,6 +92,7 @@ class UkmoAmdarRepository(AmdarDataRepository):
             header=0,
             names=column_names,
             encoding="cp1252",
+            dtype=col_dtypes,
         )
         data = data.fillna(value={"second": 0})  # Prevents NaNs from making valid datetime a NaT
         data["datetime"] = dd.to_datetime(data[["year", "month", "day", "hour", "minute", "second"]])
@@ -79,12 +112,16 @@ class UkmoAmdarRepository(AmdarDataRepository):
         return data.optimize()
 
     def _call_compute_closest_pressure_level(
-        self, data_frame: "dd.DataFrame", pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]"
+        self,
+        data_frame: "dd.DataFrame",
+        pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]",
     ) -> "dd.Series":
         return self._compute_closest_pressure_level(data_frame, pressure_levels, "altitude")
 
     def _instantiate_amdar_turbulence_data_class(
-        self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame"
+        self,
+        data_frame: "dd.DataFrame",
+        grid: "dgpd.GeoDataFrame",
     ) -> "AmdarTurbulenceData":
         return UkmoAmdarTurbulenceData(data_frame, grid)
 
@@ -103,5 +140,6 @@ class UkmoAmdarTurbulenceData(AmdarTurbulenceData):
         # roll_angle is NA in entire month of Jan and May in 2024
         return data_frame
 
-    def turbulence_column_names(self) -> list[str]:
-        return ["turbulence_degree"]
+    @staticmethod
+    def turbulence_column_names() -> list[str]:
+        return ["turbulence_degree", "vert_gust_velocity", "vert_gust_acceleration"]

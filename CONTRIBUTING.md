@@ -16,7 +16,7 @@ Please follow the [Code of Conduct](CODE_OF_CONDUCT.md) in all your interactions
 
 ## Found a bug?
 
-Open an [issue](https://github.com/ImperialCollegeLondon/rojak/issues)! Fill out the issue template accordingly and we'll figure it out from there. 
+Open an [issue](https://github.com/ImperialCollegeLondon/rojak/issues)! Fill out the issue template accordingly and we'll figure it out from there.
 
 ## Need Help with the Library?
 
