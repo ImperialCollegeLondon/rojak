@@ -478,13 +478,12 @@ def vertical_distance_to_positive(
     vert_src_name: str = "vertical_source"
     vert_target_name: str = "vertical_target"
 
-    vertical_coord = target_data[vertical_coord_name]
+    vertical_coord: np.ndarray = target_data[vertical_coord_name].to_numpy()
     vertical_coord_size: int = vertical_coord.size
     offset: np.ndarray
     match distance_mode:
         case DistanceMode.ABSOLUTE:
-            vertical_coord_as_np = vertical_coord.to_numpy()
-            offset = np.abs(vertical_coord_as_np[:, np.newaxis] - vertical_coord_as_np[np.newaxis, :])
+            offset = np.abs(vertical_coord[:, np.newaxis] - vertical_coord[np.newaxis, :])
         case DistanceMode.RELATIVE:
             offset = np.abs(np.arange(vertical_coord_size)[:, np.newaxis] - np.arange(vertical_coord_size))
         case _ as unreachable:
@@ -492,7 +491,7 @@ def vertical_distance_to_positive(
     offset_amounts = xr.DataArray(
         offset,
         dims=[vert_target_name, vert_src_name],
-        coords={vert_target_name: vertical_coord.to_numpy(), vert_src_name: vertical_coord.to_numpy()},
+        coords={vert_target_name: vertical_coord, vert_src_name: vertical_coord},
     )
 
     expanded: xr.DataArray | xr.Dataset = target_data.astype(int).rename({vertical_coord_name: vert_src_name})
