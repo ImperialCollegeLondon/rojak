@@ -473,7 +473,7 @@ def vertical_distance_to_positive(
     if is_xr_data_array(target_data):
         assert target_data.dtype == np.dtype(bool)
     else:
-        assert target_data.dtypes.keys == {np.dtype(bool)}
+        assert set(target_data.dtypes.values()) == {np.dtype(bool)}
 
     vert_src_name: str = "vertical_source"
     vert_target_name: str = "vertical_target"
