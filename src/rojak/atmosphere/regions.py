@@ -8,6 +8,7 @@ import xarray as xr
 from numba import guvectorize, int8, njit, vectorize
 
 from rojak.core.geometric import haversine_distance
+from rojak.utilities.types import is_xr_data_array
 
 
 def _region_labeller(
@@ -83,11 +84,11 @@ def _check_num_dims_and_set_core_dims(num_dims: int, core_dims: list[str] | None
     return core_dims
 
 
-def _check_dims_in_array(dims: list[str], array: xr.DataArray) -> None:
+def _check_dims_in_array(dims: list[str], array: xr.DataArray | xr.Dataset) -> None:
     assert set(dims).issubset(array.dims)
 
 
-def _check_in_dims_and_coordinates(names: list[str], must_be_in: xr.DataArray) -> None:
+def _check_in_dims_and_coordinates(names: list[str], must_be_in: xr.DataArray | xr.Dataset) -> None:
     _check_dims_in_array(names, must_be_in)
     assert set(names).issubset(must_be_in.coords.keys())
 
@@ -464,3 +465,67 @@ def shortest_haversine_distance_from_a_to_b(
         vectorize=True,
         output_dtypes=[np.dtype(float)],  # Use float for distance, not original dtype
     ).rename("shortest_haversine_distance")
+
+
+class DistanceMode(StrEnum):
+    ABSOLUTE = "absolute"
+    RELATIVE = "relative"
+
+
+def vertical_distance_to_positive(
+    target_data: xr.DataArray | xr.Dataset,
+    /,
+    *,
+    vertical_coord_name: str = "pressure_level",
+    distance_mode: DistanceMode = DistanceMode.RELATIVE,
+) -> xr.DataArray | xr.Dataset:
+    _check_in_dims_and_coordinates([vertical_coord_name], target_data)
+
+    if is_xr_data_array(target_data):
+        assert target_data.dtype == np.dtype(bool)
+    else:
+        assert set(target_data.dtypes.values()) == {np.dtype(bool)}
+
+    vert_src_name: str = "vertical_source"
+    vert_target_name: str = "vertical_target"
+
+    vertical_coord: np.ndarray = target_data[vertical_coord_name].to_numpy()
+    vertical_coord_size: int = vertical_coord.size
+    offset: np.ndarray
+    match distance_mode:
+        case DistanceMode.ABSOLUTE:
+            offset = np.abs(vertical_coord[:, np.newaxis] - vertical_coord[np.newaxis, :])
+        case DistanceMode.RELATIVE:
+            offset = np.abs(np.arange(vertical_coord_size)[:, np.newaxis] - np.arange(vertical_coord_size))
+        case _ as unreachable:
+            assert_never(unreachable)
+    offset_amounts = xr.DataArray(
+        offset,
+        dims=[vert_target_name, vert_src_name],
+        coords={vert_target_name: vertical_coord, vert_src_name: vertical_coord},
+    )
+
+    expanded: xr.DataArray | xr.Dataset = target_data.astype(int).rename({vertical_coord_name: vert_src_name})
+    return (
+        xr.where(expanded, offset_amounts, np.inf)
+        .min(dim=vert_src_name)
+        .rename({vert_target_name: vertical_coord_name})
+    )
+
+
+def shortest_vertical_distance_from_a_to_b(
+    from_feature: xr.DataArray,
+    to_feature: xr.DataArray,
+    /,
+    *,
+    vertical_coord_name: str = "pressure_level",
+    distance_mode: DistanceMode = DistanceMode.RELATIVE,
+) -> xr.DataArray | xr.Dataset:
+    _check_arrays_same_shape_and_bool(from_feature, to_feature)
+    _check_in_dims_and_coordinates([vertical_coord_name], from_feature)
+    _check_in_dims_and_coordinates([vertical_coord_name], to_feature)
+
+    from_feature = from_feature.astype(bool)
+    return vertical_distance_to_positive(
+        from_feature & to_feature, vertical_coord_name=vertical_coord_name, distance_mode=distance_mode
+    )
