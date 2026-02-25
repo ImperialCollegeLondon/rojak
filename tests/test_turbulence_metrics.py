@@ -33,10 +33,11 @@ from rojak.turbulence.metrics import (
 
 if TYPE_CHECKING:
     import xarray as xr
+    from dask.distributed import Client
 
 
 @pytest.mark.parametrize("as_pandas", [True, False])
-def test_binary_classification_equiv_sklearn_example(as_pandas: bool) -> None:
+def test_binary_classification_equiv_sklearn_example(as_pandas: bool, client: "Client") -> None:
     y = np.asarray([1, 1, 2, 2])
     scores = np.asarray([0.1, 0.4, 0.35, 0.8])
     decrease_idx = np.argsort(scores)[::-1]
@@ -98,7 +99,7 @@ def get_two_dummy_bool_arrays(make_dummy_cat_data: Callable) -> Callable:
     return _inner
 
 
-def test_matthews_corr_coeff_multidim_equiv_single_dim(get_two_dummy_bool_arrays: Callable) -> None:
+def test_matthews_corr_coeff_multidim_equiv_single_dim(get_two_dummy_bool_arrays: Callable, client: "Client") -> None:
     first_dummy, second_dummy = get_two_dummy_bool_arrays(cast_to_bool=False)
 
     matthews = matthews_corr_coeff_multidim(first_dummy.astype("bool"), second_dummy.astype("bool"), "time")

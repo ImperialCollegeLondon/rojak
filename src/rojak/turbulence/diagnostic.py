@@ -15,6 +15,7 @@
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Generator, Mapping
+from functools import singledispatchmethod
 from typing import TYPE_CHECKING, assert_never
 
 import numpy as np
@@ -57,6 +58,8 @@ from rojak.turbulence.calculations import (
 )
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from rojak.core.data import CATData
     from rojak.core.derivatives import SpatialGradientKeys
     from rojak.orchestrator.configuration import TurbulenceSeverity
@@ -89,6 +92,16 @@ class Diagnostic(ABC):
     def computed_value(self) -> xr.DataArray:
         if self._computed_value is None:
             self._computed_value = self._compute().rename(self.name).persist()
+        return self._computed_value
+
+
+class LoadedFromZarr(Diagnostic):
+    def __init__(self, name: str, computed_value: xr.DataArray) -> None:
+        super().__init__(name)
+        self._computed_value = computed_value
+
+    def _compute(self) -> xr.DataArray:
+        assert self._computed_value is not None
         return self._computed_value
 
 
@@ -1368,10 +1381,25 @@ class DiagnosticFactory:
 class DiagnosticSuite:
     _diagnostics: dict["DiagnosticName", Diagnostic]
 
-    def __init__(self, factory: DiagnosticFactory, diagnostics: list[TurbulenceDiagnostics]) -> None:
+    @singledispatchmethod
+    def __init__(self, _factory: DiagnosticFactory | xr.Dataset, _diagnostics: list[TurbulenceDiagnostics]) -> None:
+        raise TypeError("factory must be an instance of DiagnosticFactory or None")
+
+    @__init__.register(DiagnosticFactory)
+    def _(self, factory: DiagnosticFactory, diagnostics: list[TurbulenceDiagnostics]) -> None:
         self._diagnostics: dict[DiagnosticName, Diagnostic] = {
             str(diagnostic): factory.create(diagnostic)
             for diagnostic in diagnostics  # TurbulenceDiagnostic
+        }
+
+    @__init__.register(xr.Dataset)
+    def _(self, factory: xr.Dataset, diagnostics: list[TurbulenceDiagnostics]) -> None:
+        target_diagnostics: set[TurbulenceDiagnostics] = set(diagnostics)
+        assert target_diagnostics.issubset(factory.keys())
+        self._diagnostics: dict[DiagnosticName, Diagnostic] = {
+            str(name): LoadedFromZarr(str(name), computed_diagnostic)
+            for (name, computed_diagnostic) in factory.items()
+            if name in target_diagnostics
         }
 
     def computed_values(
@@ -1400,9 +1428,45 @@ class DiagnosticSuite:
             data_vars=self.computed_values_as_dict(), coords=self.get_prototype_computed_diagnostic().coords
         )
 
+    @classmethod
+    def load_from_zarr(
+        cls, path: "Path", target_diagnostics: list[TurbulenceDiagnostics], *, open_zarr_kwargs: dict | None = None
+    ) -> "DiagnosticSuite":
+        if not path.exists():
+            raise FileNotFoundError(f"{path} does not exist")
+        if not path.is_dir():
+            raise NotADirectoryError(f"{path} is not a directory")
+
+        return DiagnosticSuite(
+            xr.open_zarr(path, **(open_zarr_kwargs if open_zarr_kwargs is not None else {})), target_diagnostics
+        )
+
+    def export_as_zarr(
+        self,
+        output_path: "Path",
+        /,
+        *,
+        zarr_format: int | None = 2,
+        **to_zarr_kwargs,  # noqa: ANN003
+    ) -> xr.backends.ZarrStore:  # pyright: ignore[reportAttributeAccessIssue]
+        # For the dependencies that rojak uses, the default zarr format will be 3. As consolidated metadata is not part
+        # of the spec yet, default to using v2 spec.
+        #
+        # .venv/lib/python3.12/site-packages/zarr/api/asynchronous.py:247: ZarrUserWarning: Consolidated metadata
+        #   is currently not part in the Zarr format 3 specification. It may not be supported by other zarr
+        #   implementations and may change in the future.
+
+        # output_path.mkdir(parents=True, exist_ok=True) # apparently, to_zarr handles directory creation??
+
+        # Two false positive by pyright - 1) xr.Dataset has the method to_zarr(), and 2) StoreLike inlcudes Path
+        # See https://docs.xarray.dev/en/v2026.02.0/generated/xarray.Dataset.to_zarr.html
+        # See https://zarr.readthedocs.io/en/v3.1.5/api/zarr/storage/#zarr.storage.StoreLike
+        return self.as_dataset().to_zarr(store=output_path, mode="w", zarr_format=zarr_format, **to_zarr_kwargs)  # pyright: ignore[reportCallIssue, reportArgumentType]
+
 
 class CalibrationDiagnosticSuite(DiagnosticSuite):
-    def __init__(self, factory: DiagnosticFactory, diagnostics: list[TurbulenceDiagnostics]) -> None:
+    # I think the pyright warning is a false positive?
+    def __init__(self, factory: DiagnosticFactory | xr.Dataset, diagnostics: list[TurbulenceDiagnostics]) -> None:  # pyright: ignore [reportIncompatibleVariableOverride]
         super().__init__(factory, diagnostics)
 
     def compute_thresholds(
@@ -1437,7 +1501,8 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
     _threshold_mode: TurbulenceThresholdMode | None
     _distribution_parameters: Mapping["DiagnosticName", "DistributionParameters"] | None
 
-    def __init__(  # noqa: PLR0913
+    # I think the pyright warning is a false positive?
+    def __init__(  # noqa: PLR0913  # pyright: ignore [reportIncompatibleVariableOverride]
         self,
         factory: DiagnosticFactory,
         diagnostics: list[TurbulenceDiagnostics],
@@ -1553,3 +1618,6 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
     @property
     def pressure_levels(self) -> list[float] | None:
         return self._pressure_levels
+
+    def thresholds(self) -> "Mapping[DiagnosticName, TurbulenceThresholds] | None":
+        return self._probability_thresholds
