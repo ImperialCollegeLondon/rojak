@@ -382,8 +382,12 @@ class EvaluationStage:
                     suite.as_dataset(), self._config.severities, thresholds, self._config.threshold_mode
                 ).execute()
                 chained_names: str = chain_diagnostic_names(suite.diagnostic_names())
+                # False positive by pyright - StoreLike inlcudes Path
+                # See https://zarr.readthedocs.io/en/v3.1.5/api/zarr/storage/#zarr.storage.StoreLike
                 _ = matthews_correlation.to_zarr(
-                    self._output_dir / f"matthews_corr_{chained_names}.zarr", mode="w", zarr_format=2
+                    self._output_dir / f"matthews_corr_{chained_names}.zarr",  # pyright: ignore[reportArgumentType]
+                    mode="w",
+                    zarr_format=2,
                 )
                 for level in self._config.pressure_levels:
                     matthews_correlation_on_level: xr.DataArray = MatthewsCorrelationOnThresholdedDiagnostics(
@@ -394,7 +398,9 @@ class EvaluationStage:
                         pressure_level=level,
                     ).execute()
                     _ = matthews_correlation_on_level.to_zarr(
-                        self._output_dir / f"matthews_corr_{level:.0f}_{chained_names}.zarr", mode="w", zarr_format=2
+                        self._output_dir / f"matthews_corr_{level:.0f}_{chained_names}.zarr",  # pyright: ignore[reportArgumentType]
+                        mode="w",
+                        zarr_format=2,
                     )
 
                 return Result(matthews_correlation)
