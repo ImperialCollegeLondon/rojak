@@ -513,6 +513,7 @@ def _populate_confusion_matrix(
 
 
 def matthews_corr_coeff(
+    *,
     truth: da.Array | None = None,
     prediction: da.Array | None = None,
     confuse_matrix: "NDArray | None" = None,
@@ -541,6 +542,8 @@ def matthews_corr_coeff(
     >>> pred = da.asarray([0,0,1,1,1,1,1,1,0,0,0,1])
     >>> float(matthews_corr_coeff(truth=actual, prediction=pred))
     0.478
+    >>> float(matthews_corr_coeff(truth=pred, prediction=actual))
+    0.478
     >>> float(matthews_corr_coeff(confuse_matrix=confusion_matrix(actual, pred)))
     0.478
 
@@ -550,9 +553,9 @@ def matthews_corr_coeff(
     confuse_matrix = _populate_confusion_matrix(truth, prediction, confuse_matrix)
     tn, fp, fn, tp = confuse_matrix.ravel().tolist()
     numerator = tp * tn - fp * fn
-    denominator = np.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
+    denominator = float((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
 
-    return numerator / denominator
+    return numerator / np.sqrt(denominator)
 
 
 class ContingencyTable(NamedTuple):
