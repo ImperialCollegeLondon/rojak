@@ -17,7 +17,7 @@ import sys
 from abc import ABC
 from collections.abc import Hashable, Mapping
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, assert_never
+from typing import TYPE_CHECKING, Any, assert_never, override
 
 import dask.array as da
 import numpy as np
@@ -397,13 +397,16 @@ class ComputeDistributionParametersForEDR(PostProcessor[DistributionParameters])
         super().__init__()
         self._computed_diagnostic = computed_diagnostic
 
+    @override
     def execute(self) -> DistributionParameters:
-        diagnostic_values = da.asarray(self._computed_diagnostic.data).flatten()
-        diagnostic_values = (diagnostic_values[diagnostic_values > 0]).compute_chunk_sizes()
-        log_of_diagnostic = da.log(diagnostic_values)
+        only_positive: xr.DataArray = self._computed_diagnostic.where(self._computed_diagnostic > 0, other=np.nan)
+        # False positive by pyright as it doesn't recognise np.log as an xr ufunc
+        log_of_diagnostic: xr.DataArray = np.log(only_positive)  # pyright: ignore[reportAssignmentType]
+        # dim=None => reduce over all dimensions
+        # See https://docs.xarray.dev/en/v2026.02.0/generated/xarray.DataArray.mean.html
         return DistributionParameters(
-            mean=float(da.nanmean(log_of_diagnostic).compute()),
-            variance=float(da.nanvar(log_of_diagnostic).compute()),
+            mean=float(log_of_diagnostic.mean(dim=None, skipna=True).compute()),
+            variance=float(log_of_diagnostic.var(dim=None, skipna=True).compute()),
         )
 
 
