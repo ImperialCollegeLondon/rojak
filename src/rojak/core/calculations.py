@@ -385,6 +385,21 @@ def apply_data_var_reduction(
     append: bool = False,
     **kwargs: Any,
 ) -> xr.DataArray | xr.Dataset:
+    """
+    Aggregates over data variables of a data set.
+
+    Args:
+        data: Dataset to perform aggregation on
+        method_name: Name of the aggregation method
+        new_dim: Name of the new dimension to aggregate over
+        var_name: Name of the new variable in dataset or name of the aggregated data array
+        append: When True, appends aggregated data array to dataset. Otherwise, returns aggregated data array
+        **kwargs: Kwargs (excluding dim kwarg) to aggregating method. See `Xarray API docs <https://docs.xarray.dev/en/stable/api/dataarray.html#aggregation>`_.
+
+    Returns:
+        Aggregated data array or data set
+
+    """
     as_array: xr.DataArray = data.to_array(dim=new_dim)
     result = getattr(as_array, method_name)(dim=new_dim, **kwargs)
 
