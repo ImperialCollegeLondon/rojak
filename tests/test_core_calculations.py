@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, assert_never
 
 import numpy as np
 import pytest
@@ -8,8 +8,10 @@ from scipy.interpolate import RegularGridInterpolator
 from xarray import testing as xrt
 
 from rojak.core.calculations import (
+    XrAggregationMethod,
     _icao_constants,
     altitude_to_pressure_troposphere,
+    apply_data_var_reduction,
     bilinear_interpolation,
     interpolation_on_lat_lon,
     pressure_to_altitude_icao,
@@ -319,3 +321,142 @@ def test_interpolation_on_lat_lon_to_grid_points(load_cat_data, client) -> None:
         apply_on.stack(z=["latitude", "longitude"]),
         interpolated_to,
     )
+
+
+class TestApplyDataVarsReduction:
+    default_dim_name: str = "ensemble"
+    default_var_name: str = "ensemble"
+
+    @pytest.mark.parametrize("agg_method", [item.value for item in XrAggregationMethod])
+    def test_retrives_correct_method(  # noqa: PLR0912
+        self, make_dummy_cat_data, agg_method: XrAggregationMethod
+    ) -> None:
+        dummy_data: xr.Dataset = make_dummy_cat_data({})
+        new_dim_name: str = "new_dim_name"
+        reduced = apply_data_var_reduction(dummy_data, agg_method, append=False, new_dim=new_dim_name)
+        match agg_method:
+            case XrAggregationMethod.ALL:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).all(dim=new_dim_name), reduced)
+            case XrAggregationMethod.ANY:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).any(dim=new_dim_name), reduced)
+            case XrAggregationMethod.ARGMAX:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).argmax(dim=new_dim_name), reduced)
+            case XrAggregationMethod.ARGMIN:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).argmin(dim=new_dim_name), reduced)
+            case XrAggregationMethod.COUNT:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).count(dim=new_dim_name), reduced)
+            case XrAggregationMethod.IDX_MAX:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).idxmax(dim=new_dim_name), reduced)
+            case XrAggregationMethod.IDX_MIN:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).idxmin(dim=new_dim_name), reduced)
+            case XrAggregationMethod.MAX:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).max(dim=new_dim_name), reduced)
+            case XrAggregationMethod.MIN:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).min(dim=new_dim_name), reduced)
+            case XrAggregationMethod.MEAN:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).mean(dim=new_dim_name), reduced)
+            case XrAggregationMethod.MEDIAN:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).median(dim=new_dim_name), reduced)
+            case XrAggregationMethod.PROD:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).prod(dim=new_dim_name), reduced)
+            case XrAggregationMethod.SUM:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).sum(dim=new_dim_name), reduced)
+            case XrAggregationMethod.STDDEV:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).std(dim=new_dim_name), reduced)
+            case XrAggregationMethod.VARIANCE:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).var(dim=new_dim_name), reduced)
+            case XrAggregationMethod.CUM_PROD:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).cumprod(dim=new_dim_name), reduced)
+            case XrAggregationMethod.CUM_SUM:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).cumsum(dim=new_dim_name), reduced)
+            case _ as unreachable:
+                assert_never(unreachable)
+
+    def test_append_true_dataset(self, make_dummy_cat_data) -> None:
+        dummy_data: xr.Dataset = make_dummy_cat_data({})
+        reduced = apply_data_var_reduction(dummy_data, XrAggregationMethod.MEAN, append=True)
+
+        assert isinstance(reduced, xr.Dataset)
+        assert self.default_var_name in reduced.data_vars
+
+        np.testing.assert_array_equal(
+            dummy_data.to_array(dim=self.default_var_name).mean(dim=self.default_var_name),
+            reduced[self.default_var_name],
+        )
+
+        # Check existing coords, dims and data vars are still present in data set
+        assert set(dummy_data.coords) == set(reduced.coords)
+        assert set(dummy_data.dims) == set(reduced.dims)
+        assert set(dummy_data.data_vars.keys()).issubset(reduced.data_vars.keys())
+
+    def test_append_false_var_name_change_name(self, make_dummy_cat_data) -> None:
+        dummy_data: xr.Dataset = make_dummy_cat_data({})
+        new_var_name: str = "blah"
+        reduced: xr.DataArray = apply_data_var_reduction(
+            dummy_data, XrAggregationMethod.PROD, append=False, var_name=new_var_name
+        )
+
+        assert reduced.name == new_var_name
+        assert self.default_dim_name not in reduced.dims
+
+        # Check existing coords and dims are still present in data set
+        assert set(dummy_data.coords) == set(reduced.coords)
+        assert set(dummy_data.dims) == set(reduced.dims)
+
+    @pytest.mark.parametrize("is_append", [True, False])
+    def test_append_true_custom_names(self, make_dummy_cat_data, is_append: bool) -> None:
+        dummy_data: xr.Dataset = make_dummy_cat_data({})
+        new_dim_name: str = "custom_dim_name"
+        new_var_name: str = "custom_var_name"
+        reduced = apply_data_var_reduction(
+            dummy_data, XrAggregationMethod.COUNT, append=is_append, new_dim=new_dim_name, var_name=new_var_name
+        )
+
+        if is_append:
+            assert isinstance(reduced, xr.Dataset)
+            assert new_dim_name not in reduced.data_vars
+            assert new_dim_name not in reduced.dims
+
+            assert new_var_name in reduced.data_vars
+
+        else:
+            assert isinstance(reduced, xr.DataArray)
+            assert reduced.name == new_var_name
+
+    def test_skipna_kwarg(self, make_dummy_cat_data):
+        # Add NaN values
+        data_with_nan = make_dummy_cat_data({}).copy()
+        data_with_nan["temperature"].values[0, 0] = np.nan
+
+        result_skipna_true = apply_data_var_reduction(
+            data_with_nan,
+            XrAggregationMethod.MEAN,
+            append=False,
+            skipna=True,
+        )
+        result_skipna_false = apply_data_var_reduction(
+            data_with_nan,
+            XrAggregationMethod.MEAN,
+            skipna=False,
+            append=False,
+        )
+
+        assert not np.allclose(
+            result_skipna_true.values,
+            result_skipna_false.values,
+            equal_nan=True,
+        )
+
+    def test_single_variable_dataset(self, make_dummy_cat_data) -> None:
+        temperature = make_dummy_cat_data({})["temperature"]
+        single_variable_dataset = xr.Dataset({"temp": temperature})
+        result = apply_data_var_reduction(
+            single_variable_dataset,
+            XrAggregationMethod.MEDIAN,
+            append=False,
+        )
+        assert isinstance(result, xr.DataArray)
+
+    def test_empty_dataset(self) -> None:
+        with pytest.raises(IndexError):
+            apply_data_var_reduction(xr.Dataset(), XrAggregationMethod.MEAN)
