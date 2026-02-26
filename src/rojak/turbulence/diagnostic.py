@@ -1457,7 +1457,11 @@ class DiagnosticSuite:
         #   implementations and may change in the future.
 
         # output_path.mkdir(parents=True, exist_ok=True) # apparently, to_zarr handles directory creation??
-        return self.as_dataset().to_zarr(store=output_path, mode="w", zarr_format=zarr_format, **to_zarr_kwargs)
+
+        # Two false positive by pyright - 1) xr.Dataset has the method to_zarr(), and 2) StoreLike inlcudes Path
+        # See https://docs.xarray.dev/en/v2026.02.0/generated/xarray.Dataset.to_zarr.html
+        # See https://zarr.readthedocs.io/en/v3.1.5/api/zarr/storage/#zarr.storage.StoreLike
+        return self.as_dataset().to_zarr(store=output_path, mode="w", zarr_format=zarr_format, **to_zarr_kwargs)  # pyright: ignore[reportCallIssue, reportArgumentType]
 
 
 class CalibrationDiagnosticSuite(DiagnosticSuite):

@@ -377,8 +377,8 @@ class EvaluationStage:
                     suite.as_dataset(), self._config.severities, thresholds, self._config.threshold_mode
                 ).execute()
                 chained_names: str = chain_diagnostic_names(suite.diagnostic_names())
-                # From the zarr docs, Path is part of the StoreLike type alias. However, pyright is not picking this up
-                #   see: https://zarr.readthedocs.io/en/v3.1.5/api/zarr/storage/
+                # False positive by pyright - StoreLike inlcudes Path
+                # See https://zarr.readthedocs.io/en/v3.1.5/api/zarr/storage/#zarr.storage.StoreLike
                 _ = matthews_correlation.to_zarr(
                     self._output_dir / f"matthews_corr_{chained_names}.zarr",  # pyright: ignore[reportArgumentType]
                     mode="w",
