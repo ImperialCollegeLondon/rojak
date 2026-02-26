@@ -12,56 +12,75 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 import itertools
-import sys
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from datetime import datetime
-from typing import TYPE_CHECKING, Final, NamedTuple, assert_never
+from typing import TYPE_CHECKING, NamedTuple, assert_never
 
 import numpy as np
 import xarray as xr
 from pydantic import TypeAdapter
 
 from rojak.core import data
-from rojak.core.distributed_tools import blocking_wait_futures
 from rojak.datalib.ecmwf.era5 import Era5Data
 from rojak.datalib.madis.amdar import AcarsAmdarRepository
 from rojak.datalib.ukmo.amdar import UkmoAmdarRepository
 from rojak.orchestrator.configuration import (
     AmdarDataSource,
+    AmdarDiagnosticCmpSource,
+    SpatialGroupByStrategy,
     TurbulenceCalibrationPhaseOption,
-    TurbulenceEvaluationConfig,
     TurbulenceEvaluationPhaseOption,
-    TurbulenceEvaluationPhases,
     TurbulenceThresholds,
 )
 from rojak.plot.turbulence_plotter import (
+    GREY_HEX_CODE,
+    chain_diagnostic_names,
     create_diagnostic_correlation_plot,
+    create_histogram_n_obs,
+    create_interactive_aggregated_auc_plots,
+    create_interactive_heatmap_plot,
+    create_interactive_roc_curve_plot,
     create_multi_region_correlation_plot,
     create_multi_turbulence_diagnotics_probability_plot,
+    save_hv_plot,
 )
 from rojak.turbulence.analysis import (
     CorrelationBetweenDiagnostics,
     HistogramData,
     LatitudinalCorrelationBetweenDiagnostics,
+    MatthewsCorrelationOnThresholdedDiagnostics,
 )
-from rojak.turbulence.diagnostic import CalibrationDiagnosticSuite, DiagnosticFactory, EvaluationDiagnosticSuite
-from rojak.turbulence.verification import DiagnosticsAmdarDataHarmoniser, DiagnosticsAmdarHarmonisationStrategyOptions
+from rojak.turbulence.diagnostic import (
+    CalibrationDiagnosticSuite,
+    DiagnosticFactory,
+    DiagnosticSuite,
+    EvaluationDiagnosticSuite,
+)
+from rojak.turbulence.verification import (
+    AmdarDataHarmoniser,
+    DiagnosticsAmdarVerification,
+)
 from rojak.utilities.types import DistributionParameters, Limits
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    import dask.dataframe as dd
-
     from rojak.core.data import AmdarDataRepository, CATData
-    from rojak.orchestrator.configuration import Context as ConfigContext
     from rojak.orchestrator.configuration import (
+        AggregationMetricOption,
         DataConfig,
+        DiagnosticValidationCondition,
         SpatialDomain,
         TurbulenceCalibrationConfig,
         TurbulenceCalibrationPhases,
         TurbulenceConfig,
         TurbulenceDiagnostics,
+        TurbulenceEvaluationConfig,
+        TurbulenceEvaluationPhases,
+    )
+    from rojak.orchestrator.configuration import Context as ConfigContext
+    from rojak.turbulence.verification import (
+        RocVerificationResult,
     )
     from rojak.utilities.types import DiagnosticName
 
@@ -115,7 +134,9 @@ class CalibrationStage:
         self._start_time = start_time
 
     def launch(
-        self, diagnostics: list["TurbulenceDiagnostics"], chunks: Mapping
+        self,
+        diagnostics: list["TurbulenceDiagnostics"],
+        chunks: Mapping,
     ) -> Mapping[TurbulenceCalibrationPhaseOption, Result]:
         suite: CalibrationDiagnosticSuite | None = (
             self.create_diagnostic_suite(diagnostics, chunks) if self._config.calibration_data_dir is not None else None
@@ -127,7 +148,9 @@ class CalibrationStage:
         return result
 
     def create_diagnostic_suite(
-        self, diagnostics: list["TurbulenceDiagnostics"], chunks: Mapping
+        self,
+        diagnostics: list["TurbulenceDiagnostics"],
+        chunks: Mapping,
     ) -> "CalibrationDiagnosticSuite":
         assert self._config.calibration_data_dir is not None
         logger.debug("Loading CATData")
@@ -138,7 +161,9 @@ class CalibrationStage:
         return CalibrationDiagnosticSuite(DiagnosticFactory(calibration_data), diagnostics)
 
     def run_phase(
-        self, current_phase: TurbulenceCalibrationPhaseOption, suite: CalibrationDiagnosticSuite | None
+        self,
+        current_phase: TurbulenceCalibrationPhaseOption,
+        suite: CalibrationDiagnosticSuite | None,
     ) -> Result:
         match current_phase:
             case TurbulenceCalibrationPhaseOption.THRESHOLDS:
@@ -159,7 +184,8 @@ class CalibrationStage:
         return Result(thresholds)
 
     def perform_calibration(
-        self, suite: CalibrationDiagnosticSuite | None
+        self,
+        suite: CalibrationDiagnosticSuite | None,
     ) -> Result[Mapping["DiagnosticName", "TurbulenceThresholds"]]:
         assert suite is not None
         assert self._config.percentile_thresholds is not None
@@ -196,32 +222,6 @@ class CalibrationStage:
         return Result(distribution_parameters)
 
 
-def _abbreviate_diagnostic_name(diagnostic_name: str) -> str:
-    if len(diagnostic_name) > 3:  # noqa: PLR2004
-        if diagnostic_name == "ncsu1" or diagnostic_name[:3] == "ngm":
-            return diagnostic_name
-        if "-" in diagnostic_name:
-            return "".join([name[0] for name in diagnostic_name.split("-")])
-        return diagnostic_name[:3]
-    return diagnostic_name
-
-
-def _chain_diagnostic_names(diagnostic_names: Iterable[str]) -> str:
-    joined: str = "_".join(diagnostic_names)
-    # max filename length is 255 chars or bytes depending on file system
-    # Remove 55 chars as a safety factor (might stuff before this)
-    max_file_chars: Final[int] = 200
-    if len(joined) >= max_file_chars or sys.getsizeof(joined) >= max_file_chars:
-        abbreviated_names: list[str] = [_abbreviate_diagnostic_name(name) for name in diagnostic_names]
-        abbrev_joined: str = "_".join(abbreviated_names)
-        # Did a quick test with all available diagnostics and that totals to 110 so this should always pass
-        assert len(abbrev_joined) < max_file_chars and sys.getsizeof(abbrev_joined) < max_file_chars, (  # noqa: PT018
-            "Name of joined abbreviated diagnostics should be shorter than 255 bytes"
-        )
-        return abbrev_joined
-    return joined
-
-
 class EvaluationStageResult(NamedTuple):
     suite: EvaluationDiagnosticSuite
     phase_outcomes: Mapping[TurbulenceEvaluationPhaseOption, Result]
@@ -232,15 +232,17 @@ class EvaluationStage:
     _phases: list[TurbulenceEvaluationPhaseOption]
     _config: "TurbulenceEvaluationConfig"
     _spatial_domain: "SpatialDomain"
+    _output_dir: "Path"
     _plots_dir: "Path"
     _start_time: TimeStr
     _image_format: str
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         calibration_result: Mapping[TurbulenceCalibrationPhaseOption, Result],
         phases_config: "TurbulenceEvaluationPhases",
         domain: "SpatialDomain",
+        output_dir: "Path",
         plots_dir: "Path",
         name: RunName,
         start_time: TimeStr,
@@ -253,6 +255,8 @@ class EvaluationStage:
         self._start_time = start_time
         self._plots_dir = plots_dir / name
         self._plots_dir.mkdir(parents=True, exist_ok=True)
+        self._output_dir = output_dir / name
+        self._output_dir.mkdir(parents=True, exist_ok=True)
         self._image_format = image_format
 
     def launch(self, diagnostics: list["TurbulenceDiagnostics"], chunks: dict) -> EvaluationStageResult:
@@ -260,7 +264,9 @@ class EvaluationStage:
         return EvaluationStageResult(suite, {phase: self.run_phase(phase, suite) for phase in self._phases})
 
     def create_diagnostic_suite(
-        self, diagnostics: list["TurbulenceDiagnostics"], chunks: Mapping
+        self,
+        diagnostics: list["TurbulenceDiagnostics"],
+        chunks: Mapping,
     ) -> EvaluationDiagnosticSuite:
         assert self._config.evaluation_data_dir is not None
         logger.debug("Loading CATData")
@@ -289,25 +295,26 @@ class EvaluationStage:
             distribution_parameters=dist_params,
         )
 
-    def run_phase(self, phase: TurbulenceEvaluationPhaseOption, suite: EvaluationDiagnosticSuite) -> Result:  # noqa: PLR0911
+    def run_phase(self, phase: TurbulenceEvaluationPhaseOption, suite: EvaluationDiagnosticSuite) -> Result:  # noqa: PLR0912
         match phase:
             case TurbulenceEvaluationPhaseOption.PROBABILITIES:
                 result = suite.probabilities
                 for pressure_level, severity in itertools.product(
-                    self._config.pressure_levels, self._config.severities
+                    self._config.pressure_levels,
+                    self._config.severities,
                 ):
-                    chained_names: str = _chain_diagnostic_names(result.keys())
+                    chained_names: str = chain_diagnostic_names(result.keys())
                     create_multi_turbulence_diagnotics_probability_plot(
                         xr.Dataset(
                             data_vars={
                                 name: diagnostic.sel(pressure_level=pressure_level, severity=severity)
                                 for name, diagnostic in result.items()
-                            }
+                            },
                         ),
                         suite.diagnostic_names(),
                         str(
                             self._plots_dir / f"multi_diagnostic_{chained_names}_on_{pressure_level:.0f}_{severity}"
-                            f".{self._image_format}"
+                            f".{self._image_format}",
                         ),
                     )
                 return Result(result)
@@ -330,8 +337,8 @@ class EvaluationStage:
                     corr_on_what = "probability"
                 else:
                     corr_on_what = "edr"
-                correlation = CorrelationBetweenDiagnostics(dict(correlation_on), condition).execute()
-                chained_names: str = _chain_diagnostic_names(correlation_on.keys())
+                correlation = CorrelationBetweenDiagnostics(dict(correlation_on), sel_condition=condition).execute()
+                chained_names: str = chain_diagnostic_names(correlation_on.keys())
                 create_diagnostic_correlation_plot(
                     correlation,
                     str(self._plots_dir / f"corr_{corr_on_what}_btw_{chained_names}.{self._image_format}"),
@@ -359,7 +366,7 @@ class EvaluationStage:
                 )
                 # TODO: Add in config to specify hemisphere and regions
                 correlation = LatitudinalCorrelationBetweenDiagnostics(dict(correlation_on), sel_condition).execute()
-                chained_names: str = _chain_diagnostic_names(correlation_on.keys())
+                chained_names: str = chain_diagnostic_names(correlation_on.keys())
                 create_multi_region_correlation_plot(
                     correlation,
                     str(self._plots_dir / f"regional_{corr_on_what}_corr_btw_{chained_names}.{self._image_format}"),
@@ -367,6 +374,36 @@ class EvaluationStage:
                     "diagnostic2",
                 )
                 return Result(correlation)
+            case TurbulenceEvaluationPhaseOption.MATTHEWS_CORRELATION:
+                thresholds = suite.thresholds()
+                if thresholds is None:
+                    raise ValueError("Thresholds must be present to compute Matthews correlation")
+                matthews_correlation: xr.DataArray = MatthewsCorrelationOnThresholdedDiagnostics(
+                    suite.as_dataset(), self._config.severities, thresholds, self._config.threshold_mode
+                ).execute()
+                chained_names: str = chain_diagnostic_names(suite.diagnostic_names())
+                # False positive by pyright - StoreLike inlcudes Path
+                # See https://zarr.readthedocs.io/en/v3.1.5/api/zarr/storage/#zarr.storage.StoreLike
+                _ = matthews_correlation.to_zarr(
+                    self._output_dir / f"matthews_corr_{chained_names}.zarr",  # pyright: ignore[reportArgumentType]
+                    mode="w",
+                    zarr_format=2,
+                )
+                for level in self._config.pressure_levels:
+                    matthews_correlation_on_level: xr.DataArray = MatthewsCorrelationOnThresholdedDiagnostics(
+                        suite.as_dataset(),
+                        self._config.severities,
+                        thresholds,
+                        self._config.threshold_mode,
+                        pressure_level=level,
+                    ).execute()
+                    _ = matthews_correlation_on_level.to_zarr(
+                        self._output_dir / f"matthews_corr_{level:.0f}_{chained_names}.zarr",  # pyright: ignore[reportArgumentType]
+                        mode="w",
+                        zarr_format=2,
+                    )
+
+                return Result(matthews_correlation)
             case _ as unreachable:
                 assert_never(unreachable)
 
@@ -391,19 +428,43 @@ class TurbulenceLauncher:
             self._start_time,
         ).launch(self._config.diagnostics, self._config.chunks)
         logger.info("Finished Turbulence")
-        if self._config.phases.evaluation_phases is not None:
-            result = EvaluationStage(
+        result: EvaluationStageResult | None = (
+            EvaluationStage(
                 calibration_result,
                 self._config.phases.evaluation_phases,
                 self._context.data_config.spatial_domain,
+                self._context.output_dir,
                 self._context.plots_dir,
                 self._context.name,
                 self._start_time,
                 self._context.image_format,
             ).launch(self._config.diagnostics, self._config.chunks)
+            if self._config.phases.evaluation_phases is not None
+            else None
+        )
+        if result is not None:
             logger.info("Finished Turbulence Evaluation")
-            return result
-        return None
+
+        if self._context.data_config.amdar_config is not None:
+            if self._context.data_config.amdar_config.diagnostics_from == AmdarDiagnosticCmpSource.CALIBRATION:
+                # I will figure out the plumbing for this later
+                raise NotImplementedError("Comparing amdar data with calibration data not yet supported")
+
+            assert self._context.turbulence_config is not None
+            assert self._context.turbulence_config.phases.evaluation_phases is not None, (
+                "Code path should not be possible"
+            )
+
+            assert result is not None, "Pydantic checks on config should prevent this assert from failing"
+            # if evaluation phases are empty, trigger pre-compute
+            DiagnosticsAmdarLauncher(
+                self._context.data_config,
+                self._context.output_dir,
+                self._context.plots_dir,
+                self._context.name,
+            ).launch(result.suite)
+
+        return result
 
 
 # PUT THIS IN THIS FILE FOR NOW
@@ -411,18 +472,37 @@ class DiagnosticsAmdarLauncher:
     _path_to_files: str
     _data_source: AmdarDataSource
     _spatial_domain: "SpatialDomain"
-    _strategies: list["DiagnosticsAmdarHarmonisationStrategyOptions"]
     _time_window: "Limits[datetime]"
     _output_filepath: "Path"
+    _plots_dir: "Path"
     _save_output: bool
+    _validation_conditions: list["DiagnosticValidationCondition"]
+    _min_group_size: int
+    _group_by_strategy: SpatialGroupByStrategy | None
+    _aggregation_metric: "AggregationMetricOption | None"
 
-    def __init__(self, data_config: "DataConfig", output_dir: "Path", run_name: "RunName") -> None:
+    def __init__(
+        self,
+        data_config: "DataConfig",
+        output_dir: "Path",
+        plots_dir: "Path",
+        run_name: "RunName",
+    ) -> None:
         assert data_config.amdar_config is not None
         self._data_source = data_config.amdar_config.data_source
         self._path_to_files = str(data_config.amdar_config.data_dir.resolve() / data_config.amdar_config.glob_pattern)
         self._spatial_domain = data_config.spatial_domain
-        self._strategies = data_config.amdar_config.harmonisation_strategies
         self._time_window = data_config.amdar_config.time_window
+        if data_config.amdar_config.diagnostic_validation is None:
+            self._validation_conditions = []
+            self._min_group_size = -1
+            self._group_by_strategy = None
+            self._aggregation_metric = None
+        else:
+            self._validation_conditions = data_config.amdar_config.diagnostic_validation.validation_conditions
+            self._min_group_size = data_config.amdar_config.diagnostic_validation.min_group_size
+            self._group_by_strategy = data_config.amdar_config.diagnostic_validation.spatial_group_by_strategy
+            self._aggregation_metric = data_config.amdar_config.diagnostic_validation.aggregation_metric
 
         self._save_output = data_config.amdar_config.save_harmonised_data
         base_dir = output_dir / run_name / "data_harmonisation"
@@ -433,6 +513,8 @@ class DiagnosticsAmdarLauncher:
             base_dir / f"{self._data_source}_{self._time_window.lower.strftime(time_format)}"
             f"_{self._time_window.upper.strftime(time_format)}.parquet"
         )
+        self._plots_dir = plots_dir / run_name / str(self._data_source)
+        self._plots_dir.mkdir(parents=True, exist_ok=True)
 
     def create_amdar_data_repository(self) -> "AmdarDataRepository":
         match self._data_source:
@@ -443,23 +525,101 @@ class DiagnosticsAmdarLauncher:
             case _ as unreachable:
                 assert_never(unreachable)
 
-    def launch(self, diagnostic_suite: EvaluationDiagnosticSuite) -> "dd.DataFrame":
+    def launch(self, diagnostic_suite: DiagnosticSuite) -> None:
         if self._spatial_domain.grid_size is None:
             raise ValueError("Grid size for spatial domain must be specified for diagnostics amdar data harmonisation")
-        if diagnostic_suite.pressure_levels is None:
-            raise ValueError("Pressure levels for diagnostic suite must be specified")
 
         logger.info("Started Turbulence Amdar Harmonisation")
         amdar_data = self.create_amdar_data_repository().to_amdar_turbulence_data(
-            self._spatial_domain, self._spatial_domain.grid_size, diagnostic_suite.pressure_levels
+            self._spatial_domain,
+            self._spatial_domain.grid_size,
+            diagnostic_suite.get_prototype_computed_diagnostic()["pressure_level"].to_numpy().tolist(),
         )
-        harmoniser = DiagnosticsAmdarDataHarmoniser(amdar_data, diagnostic_suite)
-        result: dd.DataFrame = harmoniser.execute_harmonisation(
-            self._strategies, Limits(np.datetime64(self._time_window.lower), np.datetime64(self._time_window.upper))
-        ).persist()
-        blocking_wait_futures(result)
-        logger.info("Finished Turbulence Amdar Harmonisation")
-        if self._save_output:
-            logger.info("Saving results to %s", self._output_filepath)
-            result.drop(columns="geometry").set_index(harmoniser.grid_box_column_name).to_parquet(self._output_filepath)
-        return result
+        time_window_as_np_datetime: Limits[np.datetime64] = Limits(
+            np.datetime64(self._time_window.lower),
+            np.datetime64(self._time_window.upper),
+        )
+        harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
+            amdar_data, diagnostic_suite.get_prototype_computed_diagnostic(), time_window_as_np_datetime
+        )
+
+        if self._validation_conditions:
+            logger.info("Starting validation of diagnostics with amdar data")
+            verifier = DiagnosticsAmdarVerification(harmoniser, diagnostic_suite.as_dataset())
+            chained_names: str = chain_diagnostic_names(diagnostic_suite.diagnostic_names())
+
+            if self._group_by_strategy is not None:
+                assert self._aggregation_metric is not None
+                grid_auc = verifier.aggregate_by_auc(
+                    self._validation_conditions,
+                    self._group_by_strategy,
+                    self._min_group_size,
+                    self._aggregation_metric,
+                )
+                logger.debug("Finished aggregating on groups")
+                num_observations = verifier.num_obs_per(self._validation_conditions, self._group_by_strategy)
+                logger.debug("Finished computing number of observations per group")
+                is_agg_by_point: bool = self._group_by_strategy in {
+                    SpatialGroupByStrategy.GRID_POINT,
+                    SpatialGroupByStrategy.HORIZONTAL_POINT,
+                }
+                if not is_agg_by_point:
+                    for diagnostic_name in grid_auc:
+                        grid_auc[diagnostic_name] = amdar_data.grid.join(grid_auc[diagnostic_name], how="right").drop(
+                            columns=[verifier.grid_box_column],
+                        )
+                    num_observations = amdar_data.grid.join(num_observations, how="right")
+                auc_plots = create_interactive_aggregated_auc_plots(
+                    grid_auc,
+                    self._validation_conditions,
+                    is_agg_by_point,
+                )
+                save_hv_plot(
+                    auc_plots,
+                    str(
+                        self._plots_dir
+                        / f"regional_{self._aggregation_metric}_{chained_names}_on_{self._group_by_strategy!s}",
+                    ),
+                    "png",
+                    savefig_kwargs={"dpi": 400},
+                )
+
+                save_hv_plot(
+                    create_interactive_heatmap_plot(
+                        num_observations if is_agg_by_point else num_observations.compute(),
+                        "num_obs",
+                        opts_kwargs={
+                            "fig_size": 400,
+                            "title": f"Total Number of Observations (min = {self._min_group_size})",
+                            "lw": 0,
+                            "clim": (self._min_group_size, None),
+                            "clipping_colors": {"min": GREY_HEX_CODE},
+                        },
+                    ),
+                    str(self._plots_dir / f"num_observations_for_{self._group_by_strategy!s}"),
+                    "png",
+                    savefig_kwargs={"dpi": 400},
+                )
+
+                save_hv_plot(
+                    create_histogram_n_obs(num_observations, hist_kwargs={"normed": True, "ylabel": "Density"}),
+                    str(self._plots_dir / f"num_obs_histogram_for_{self._group_by_strategy!s}"),
+                    "png",
+                    savefig_kwargs={"dpi": 400},
+                )
+
+                bottom_counts: float = num_observations["num_obs"].quantile(q=0.25, method="tdigest").compute()
+                save_hv_plot(
+                    create_histogram_n_obs(num_observations.loc[num_observations["num_obs"] <= bottom_counts]),
+                    str(self._plots_dir / f"num_obs_histogram_for_{self._group_by_strategy!s}"),
+                    "png",
+                    savefig_kwargs={"dpi": 400},
+                )
+
+            roc: RocVerificationResult = verifier.nearest_value_roc(self._validation_conditions)
+            roc_curve_plots: dict = create_interactive_roc_curve_plot(roc)
+            for amdar_col, plot_for_col in roc_curve_plots.items():
+                save_hv_plot(plot_for_col, str(self._plots_dir / f"roc_{amdar_col}_on_{chained_names}"), "png")
+                logger.debug("Saved roc plot for %s AMDAR turbulence measure", amdar_col)
+
+            logger.info("Finished validation of diagnostics with amdar data")

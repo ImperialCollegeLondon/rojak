@@ -16,7 +16,6 @@ import logging
 from typing import TYPE_CHECKING, ClassVar, Literal
 
 import cdsapi
-from dask.base import is_dask_collection
 from rich.progress import track
 
 from rojak.core.calculations import pressure_to_altitude_icao
@@ -44,7 +43,7 @@ class InvalidEra5RequestConfigurationError(Exception):
         super().__init__(message)
 
 
-type Era5DefaultsName = Literal["cat", "surface", "contrail"] | None
+type Era5DefaultsName = Literal["cat", "surface", "contrail", "minimal-cat-contrail"] | None
 type Era5DatasetName = Literal["pressure-level", "single-level"]
 
 
@@ -65,9 +64,13 @@ class Era5Retriever(DataRetriever):
     ) -> None:
         print(default_name)
         if default_name is None:
-            if pressure_levels is None or variables is None:
+            if pressure_levels is None and dataset_name == "pressure-level":
                 raise InvalidEra5RequestConfigurationError(
-                    "Default not specified. As such, which variables and pressure levels must be specified."
+                    "Default not specified. As such, which pressure levels must be specified.",
+                )
+            if variables is None:
+                raise InvalidEra5RequestConfigurationError(
+                    "Default not specified. As such, which must be specified.",
                 )
             self.request_body = blank_default
         else:
@@ -153,10 +156,8 @@ class Era5Data(MetData):
         target_data = target_data.assign_coords(
             altitude=(
                 "pressure_level",
-                pressure_to_altitude_icao(target_data["pressure_level"]).data,
+                pressure_to_altitude_icao(target_data["pressure_level"].to_numpy()),
             ),
         )
         target_data = target_data.transpose("latitude", "longitude", "time", "pressure_level")
-        if is_dask_collection(target_data):
-            target_data = target_data.drop_vars("expver")
         return CATData(target_data)

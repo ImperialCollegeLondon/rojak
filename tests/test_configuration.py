@@ -12,16 +12,19 @@ from pydantic import ValidationError
 from rojak.core.constants import MAX_LATITUDE, MAX_LONGITUDE
 from rojak.orchestrator import configuration
 from rojak.orchestrator.configuration import (
+    AggregationMetricOption,
     AmdarConfig,
     AmdarDataSource,
     DataConfig,
+    DiagnosticValidationCondition,
+    DiagnosticValidationConfig,
     InvalidConfigurationError,
     SpatialDomain,
+    SpatialGroupByStrategy,
     TurbulenceSeverity,
     TurbulenceThresholdMode,
     TurbulenceThresholds,
 )
-from rojak.turbulence.verification import DiagnosticsAmdarHarmonisationStrategyOptions
 from rojak.utilities.types import Limits
 
 if TYPE_CHECKING:
@@ -228,7 +231,7 @@ def test_spatial_domain_valid_config(dict_to_file) -> None:
                 {
                     "minimum_level": 0,
                     "maximum_level": 10,
-                }
+                },
             ),
         ),
         (
@@ -242,7 +245,7 @@ def test_spatial_domain_valid_config(dict_to_file) -> None:
             nullcontext(
                 {
                     "minimum_level": 0,
-                }
+                },
             ),
         ),
         (
@@ -257,7 +260,7 @@ def test_spatial_domain_valid_config(dict_to_file) -> None:
                 {
                     "maximum_longitude": 180,
                     "maximum_level": 10,
-                }
+                },
             ),
         ),
         (
@@ -337,7 +340,7 @@ def make_turbulence_config_with_calibration_dir(make_empty_temp_dir, tmp_path_fa
     content["phases"]["calibration_phases"]["calibration_config"]["calibration_data_dir"] = str(make_empty_temp_dir)
     content["phases"]["calibration_phases"]["calibration_config"]["threshold_config"] = dummy_threshold_config()
     content["phases"]["evaluation_phases"]["evaluation_config"]["evaluation_data_dir"] = str(
-        tmp_path_factory.mktemp("data")
+        tmp_path_factory.mktemp("data"),
     )
     return dump_dict_to_file(tmp_path_factory.getbasetemp(), content)
 
@@ -460,7 +463,7 @@ def test_turbulence_config_with_calibration_dir(make_turbulence_config_with_cali
                 )
             else:
                 assert config.phases.evaluation_phases.evaluation_config.severities == [
-                    configuration.TurbulenceSeverity.LIGHT
+                    configuration.TurbulenceSeverity.LIGHT,
                 ]
 
     if not isinstance(e, dict):
@@ -471,10 +474,10 @@ def test_turbulence_config_with_calibration_dir(make_turbulence_config_with_cali
 def make_turbulence_config_with_threshold_file(make_empty_temp_text_file, tmp_path_factory, request) -> "Path":
     content = copy.deepcopy(request.param)
     content["phases"]["calibration_phases"]["calibration_config"]["thresholds_file_path"] = str(
-        make_empty_temp_text_file
+        make_empty_temp_text_file,
     )
     content["phases"]["evaluation_phases"]["evaluation_config"]["evaluation_data_dir"] = str(
-        tmp_path_factory.mktemp("data")
+        tmp_path_factory.mktemp("data"),
     )
     return dump_dict_to_file(tmp_path_factory.getbasetemp(), content)
 
@@ -579,7 +582,11 @@ def test_meteorology_config(dict_to_file, expectation) -> None:
     ],
 )
 def test_amdar_config(
-    tmp_path: "Path", amdar_type: AmdarDataSource, glob_pattern: str, time_window: Limits[datetime], expectation
+    tmp_path: "Path",
+    amdar_type: AmdarDataSource,
+    glob_pattern: str,
+    time_window: Limits[datetime],
+    expectation,
 ) -> None:
     with expectation as e:
         config = AmdarConfig(
@@ -587,11 +594,100 @@ def test_amdar_config(
             data_source=amdar_type,
             glob_pattern=glob_pattern,
             time_window=time_window,
-            harmonisation_strategies=[DiagnosticsAmdarHarmonisationStrategyOptions.EDR],
         )
         assert config.data_source == amdar_type
         assert config.glob_pattern == glob_pattern
         assert config.data_dir == tmp_path
+
+    if e != 0:
+        assert e.type is InvalidConfigurationError
+
+
+@pytest.mark.parametrize(
+    ("conditions", "data_source", "expectation"),
+    [
+        (
+            [DiagnosticValidationCondition(observed_turbulence_column_name="turbulence_degree", value_greater_than=0)],
+            AmdarDataSource.UKMO,
+            nullcontext(0),
+        ),
+        (
+            [DiagnosticValidationCondition(observed_turbulence_column_name="rando_name", value_greater_than=0)],
+            AmdarDataSource.UKMO,
+            pytest.raises(InvalidConfigurationError),
+        ),
+        (
+            [DiagnosticValidationCondition(observed_turbulence_column_name="maxEDR", value_greater_than=0)],
+            AmdarDataSource.MADIS,
+            nullcontext(0),
+        ),
+        (
+            [DiagnosticValidationCondition(observed_turbulence_column_name="maxEdr", value_greater_than=0)],
+            AmdarDataSource.MADIS,
+            pytest.raises(InvalidConfigurationError),
+        ),
+        (
+            [
+                DiagnosticValidationCondition(observed_turbulence_column_name="maxEDR", value_greater_than=0),
+                DiagnosticValidationCondition(observed_turbulence_column_name="maxTurbulence", value_greater_than=0),
+                DiagnosticValidationCondition(observed_turbulence_column_name="medEDR", value_greater_than=0),
+                DiagnosticValidationCondition(observed_turbulence_column_name="medTurbulence", value_greater_than=0),
+                DiagnosticValidationCondition(observed_turbulence_column_name="turbIndex", value_greater_than=0),
+                DiagnosticValidationCondition(observed_turbulence_column_name="vertGust", value_greater_than=0),
+            ],
+            AmdarDataSource.MADIS,
+            nullcontext(0),
+        ),
+    ],
+)
+def test_check_valid_diagnostic_conditions(
+    tmp_path: "Path",
+    conditions: list[DiagnosticValidationCondition],
+    data_source: AmdarDataSource,
+    expectation,
+) -> None:
+    with expectation as e:
+        print(data_source)
+        config = AmdarConfig(
+            data_dir=tmp_path,
+            data_source=data_source,
+            glob_pattern="*.parquet" if data_source == AmdarDataSource.MADIS else "*.csv",
+            time_window=Limits(datetime(1970, 1, 1), datetime(1980, 1, 1)),
+            diagnostic_validation=DiagnosticValidationConfig(validation_conditions=conditions),
+        )
+
+        assert config.diagnostic_validation is not None
+        assert config.diagnostic_validation.validation_conditions == conditions
+
+    if e != 0:
+        assert e.type is InvalidConfigurationError
+
+
+@pytest.mark.parametrize(
+    ("groupby_strategy", "agg_metric", "expectation"),
+    [
+        (None, None, nullcontext(0)),
+        (SpatialGroupByStrategy.GRID_BOX, AggregationMetricOption.AUC, nullcontext(0)),
+        (SpatialGroupByStrategy.HORIZONTAL_BOX, AggregationMetricOption.TSS, nullcontext(0)),
+        (None, AggregationMetricOption.PREVALENCE, pytest.raises(InvalidConfigurationError)),
+        (SpatialGroupByStrategy.HORIZONTAL_POINT, None, pytest.raises(InvalidConfigurationError)),
+    ],
+)
+def test_diagnostic_validation_config_spatial_aggregation(
+    groupby_strategy: SpatialGroupByStrategy,
+    agg_metric: AggregationMetricOption,
+    expectation,
+) -> None:
+    with expectation as e:
+        config = DiagnosticValidationConfig(
+            validation_conditions=[
+                DiagnosticValidationCondition(observed_turbulence_column_name="maxEDR", value_greater_than=0.22),
+            ],
+            spatial_group_by_strategy=groupby_strategy,
+            aggregation_metric=agg_metric,
+        )
+        assert config.spatial_group_by_strategy == groupby_strategy
+        assert config.aggregation_metric == agg_metric
 
     if e != 0:
         assert e.type is InvalidConfigurationError
@@ -621,7 +717,11 @@ def test_amdar_config(
 def test_turbulence_thresholds_all_none() -> None:
     with pytest.raises(InvalidConfigurationError) as e:
         configuration.TurbulenceThresholds(
-            light=None, light_to_moderate=None, moderate=None, moderate_to_severe=None, severe=None
+            light=None,
+            light_to_moderate=None,
+            moderate=None,
+            moderate_to_severe=None,
+            severe=None,
         )
     assert e.type is InvalidConfigurationError
 
@@ -632,10 +732,14 @@ def test_turbulence_thresholds_all_none() -> None:
         pytest.param([], nullcontext(), id="empty_list_phases"),
         pytest.param(None, pytest.raises(ValidationError), id="fail as phases is none"),
         pytest.param(
-            [configuration.TurbulenceCalibrationPhaseOption.THRESHOLDS], nullcontext(), id="single value thresholds"
+            [configuration.TurbulenceCalibrationPhaseOption.THRESHOLDS],
+            nullcontext(),
+            id="single value thresholds",
         ),
         pytest.param(
-            [configuration.TurbulenceCalibrationPhaseOption.HISTOGRAM], nullcontext(), id="single value histogram"
+            [configuration.TurbulenceCalibrationPhaseOption.HISTOGRAM],
+            nullcontext(),
+            id="single value histogram",
         ),
         pytest.param(
             [
@@ -666,7 +770,7 @@ def test_turbulence_calibration_phases(phases, expectation, tmp_path) -> None:
         )
         assert config.phases == phases
     if phases is None:
-        assert e.type is expectation.expected_exception
+        assert e.type is expectation.expected_exceptions[0]
 
 
 @pytest.fixture
@@ -690,7 +794,11 @@ def all_values_turbulence_thresholds() -> TurbulenceThresholds:
     ],
 )
 def test_get_bounds_all_valid(
-    target_severity, mode, lower_bound, upper_bound, all_values_turbulence_thresholds
+    target_severity,
+    mode,
+    lower_bound,
+    upper_bound,
+    all_values_turbulence_thresholds,
 ) -> None:
     bounds = all_values_turbulence_thresholds.get_bounds(target_severity, mode)
     assert bounds.lower == lower_bound
@@ -740,7 +848,8 @@ def all_none_except_light_turbulence_thresholds() -> TurbulenceThresholds:
 )
 def test_get_bounds_threshold_is_none(target_severity, all_none_except_light_turbulence_thresholds) -> None:
     with pytest.raises(
-        ValueError, match="Attempting to retrieve threshold value for a severity that is None"
+        ValueError,
+        match="Attempting to retrieve threshold value for a severity that is None",
     ) as e_bounded:
         all_none_except_light_turbulence_thresholds.get_bounds(target_severity, TurbulenceThresholdMode.BOUNDED)
     assert e_bounded.type is ValueError

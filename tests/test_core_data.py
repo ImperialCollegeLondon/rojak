@@ -8,11 +8,9 @@ import pandas as pd
 import pytest
 import xarray as xr
 import xarray.testing as xrt
-from shapely.geometry import box
 
-from rojak.core.data import CATData, CATPrognosticData, as_geo_dataframe, expand_grid_bounds
+from rojak.core.data import CATData, CATPrognosticData, as_geo_dataframe
 from rojak.core.derivatives import VelocityDerivative
-from rojak.core.geometric import create_grid_data_frame
 from rojak.datalib.ecmwf.era5 import Era5Data
 from rojak.datalib.madis.amdar import AcarsAmdarRepository
 from rojak.datalib.ukmo.amdar import UkmoAmdarRepository
@@ -43,7 +41,7 @@ def make_select_domain_dummy_data():
                 "a": xr.DataArray(
                     data=generate_array_data((10, 10, 24, 4), use_numpy),
                     dims=["longitude", "latitude", "time", "level"],
-                )
+                ),
             },
             coords=default_coords,
         )
@@ -68,7 +66,7 @@ def test_select_domain_emtpy_slice(make_select_domain_dummy_data) -> None:
         minimum_level=-1,
     )
     dummy_data = make_select_domain_dummy_data(
-        {"longitude": np.linspace(-90, 0, 10), "latitude": np.linspace(-90, 0, 10)}
+        {"longitude": np.linspace(-90, 0, 10), "latitude": np.linspace(-90, 0, 10)},
     )
     down_selected = Era5Data(dummy_data).select_domain(domain, dummy_data)
     xrt.assert_equal(
@@ -114,7 +112,10 @@ def test_select_domain_emtpy_slice(make_select_domain_dummy_data) -> None:
     ],
 )
 def test_select_domain_slice_longitude(
-    make_select_domain_dummy_data, domain, new_longitude_array, longitude_slice
+    make_select_domain_dummy_data,
+    domain,
+    new_longitude_array,
+    longitude_slice,
 ) -> None:
     dummy_data = make_select_domain_dummy_data({"longitude": new_longitude_array})
     down_selected = Era5Data(dummy_data).select_domain(domain, dummy_data)
@@ -173,7 +174,10 @@ def test_select_domain_slice_longitude(
     ],
 )
 def test_select_domain_slice_latitude(
-    make_select_domain_dummy_data, domain, new_latitude_array, latitude_slice
+    make_select_domain_dummy_data,
+    domain,
+    new_latitude_array,
+    latitude_slice,
 ) -> None:
     dummy_data = make_select_domain_dummy_data({"latitude": new_latitude_array})
     down_selected = Era5Data(dummy_data).select_domain(domain, dummy_data)
@@ -312,7 +316,8 @@ def test_as_geo_dataframe(make_select_domain_dummy_data):
 
 def test_instantiate_cat_prognostic_fail_on_variables(make_select_domain_dummy_data):
     with pytest.raises(
-        ValueError, match="Attempting to instantiate CATPrognosticData with missing data variables"
+        ValueError,
+        match="Attempting to instantiate CATPrognosticData with missing data variables",
     ) as excinfo:
         CATPrognosticData(make_select_domain_dummy_data({}))
 
@@ -403,7 +408,10 @@ def test_cat_data_velocity_derivatives(mocker: "MockerFixture", make_dummy_cat_d
     [("shearing_deformation", "shear_deformation"), ("stretching_deformation", "stretching_deformation")],
 )
 def test_shear_and_stretch_deformation(
-    mocker: "MockerFixture", make_dummy_cat_data, deformation_type, method_name
+    mocker: "MockerFixture",
+    make_dummy_cat_data,
+    deformation_type,
+    method_name,
 ) -> None:
     dummy_data = make_dummy_cat_data({})
     data = CATData(dummy_data)
@@ -469,24 +477,11 @@ def get_standard_atmosphere_pressure_and_altitude():
     return pressure, altitude
 
 
-@pytest.mark.parametrize(
-    (
-        "test_altitude",
-        "closest_pressure",
-    ),
-    [(500, 1013.25), (1000, 843.07), (2000, 843.07), (9000, 329.32), (15000, 187.54)],
-)
-def test_amdar_data_repository_closest_pressure_level(
-    test_altitude, closest_pressure, get_standard_atmosphere_pressure_and_altitude
-):
-    pressure, altitude = get_standard_atmosphere_pressure_and_altitude
-    instance = AcarsAmdarRepository("")
-    assert instance._find_closest_pressure_level(test_altitude, altitude, pressure) == closest_pressure
-
-
 @pytest.mark.parametrize("concrete_class", [AcarsAmdarRepository, UkmoAmdarRepository])
 def test_compute_closest_pressure_level(
-    mocker: "MockerFixture", get_standard_atmosphere_pressure_and_altitude, concrete_class
+    mocker: "MockerFixture",
+    get_standard_atmosphere_pressure_and_altitude,
+    concrete_class,
 ):
     pressure, altitude = get_standard_atmosphere_pressure_and_altitude
     # See docs on why it is core.data instead of where it is imported from, i.e. core.calculations
@@ -505,7 +500,10 @@ def test_compute_closest_pressure_level(
 
 @pytest.mark.parametrize("concrete_class", [AcarsAmdarRepository, UkmoAmdarRepository])
 def test_convert_to_amdar_turbulence_data(
-    mocker: "MockerFixture", load_flat_data: pd.DataFrame, concrete_class, valid_region_for_flat_data
+    mocker: "MockerFixture",
+    load_flat_data: pd.DataFrame,
+    concrete_class,
+    valid_region_for_flat_data,
 ):
     instance = concrete_class("")
     load_mock = mocker.patch.object(instance, "load", return_value=dd.from_pandas(load_flat_data))
@@ -523,43 +521,4 @@ def test_convert_to_amdar_turbulence_data(
         "geometry",
         "latitude",
         "longitude",
-        "min_lat",
-        "max_lat",
-        "min_lon",
-        "max_lon",
     }
-
-
-def test_expand_grid_bounds():
-    grid = create_grid_data_frame(box(10, 10, 12, 12), 1)
-    grid_bounds_df = expand_grid_bounds(grid).compute()
-    bottom_left = {"min_lon": [10], "min_lat": [10], "max_lon": [11], "max_lat": [11]}
-    bottom_right = {"min_lon": [11], "min_lat": [10], "max_lon": [12], "max_lat": [11]}
-    top_left = {"min_lon": [10], "min_lat": [11], "max_lon": [11], "max_lat": [12]}
-    top_right = {"min_lon": [11], "min_lat": [11], "max_lon": [12], "max_lat": [12]}
-    quadrants = [bottom_left, bottom_right, top_left, top_right]
-    for quadrant in quadrants:
-        contains_row: bool = False
-        for row in grid_bounds_df.isin(quadrant).iterrows():
-            # iterrows returns a tuple of [row_number, row]
-            if row[1].all():
-                contains_row = True
-                break
-        assert contains_row
-
-
-def test_join_grid_bounds():
-    grid = create_grid_data_frame(box(10, 10, 12, 12), 1)
-    index_right_values = np.random.default_rng().integers(low=0, high=4, size=100)
-    left_df = dd.from_pandas(pd.DataFrame({"some_value": np.arange(100), "index_right": index_right_values}))
-    repository_instance = AcarsAmdarRepository("")
-    joined_df = repository_instance.join_grid_bounds(left_df, grid).compute()
-    expanded_grid = expand_grid_bounds(grid).compute()
-    for row_num, row in joined_df.iterrows():
-        grid_index = int(row["index_right"])
-        assert grid_index == index_right_values[row_num]
-        pd.testing.assert_series_equal(
-            expanded_grid.iloc[grid_index], row[["min_lon", "min_lat", "max_lon", "max_lat"]], check_names=False
-        )
-
-    assert joined_df.shape == (100, 6)

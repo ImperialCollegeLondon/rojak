@@ -1,7 +1,11 @@
+import copy
 import dataclasses
-from typing import TYPE_CHECKING
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 import numpy as np
+import xarray as xr
+from dask.base import is_dask_collection
 from scipy.interpolate import RegularGridInterpolator
 
 from rojak.core.constants import GAS_CONSTANT_DRY_AIR, GRAVITATIONAL_ACCELERATION
@@ -36,7 +40,7 @@ class _PressureToAltitudeConstantsICAO:
     tropopause_temperature: float = 216.66  # T^* in K
     lapse_rate: float = 0.0065  # a in K / m
     n_value: float = 5.2561  # n = G/aR dimensionless
-    inverse_n: float = 1 / 5.2621  # 1/n (dimensionless) where n = G / aR
+    inverse_n: float = 1 / 5.2561  # 1/n (dimensionless) where n = G / aR
     geopotential_dimensional_constant: float = 9.80665  # G
 
     @property
@@ -106,12 +110,12 @@ def _check_if_pressures_are_valid(pressure: "NumpyOrDataArray", is_below_tropopa
         if pressure[condition].size != 0:
             raise ValueError(
                 f"Attempting to convert pressure to altitude for troposphere with pressure {descriptive_comparator} "
-                "tropopause pressure"
+                "tropopause pressure",
             )
     elif pressure.where(condition, drop=True).size != 0:
         raise ValueError(
             f"Attempting to convert pressure to altitude for troposphere with pressure {descriptive_comparator} "
-            f"tropopause pressure"
+            f"tropopause pressure",
         )
 
 
@@ -207,12 +211,13 @@ def pressure_to_altitude_stratosphere(pressure: "NumpyOrDataArray") -> "NumpyOrD
     )
 
 
-def pressure_to_altitude_icao(pressure: "NumpyOrDataArray") -> "NumpyOrDataArray":
+def pressure_to_altitude_icao(pressure: "NumpyOrDataArray", in_place: bool = False) -> "NumpyOrDataArray":
     """
     Convert pressure to altitude for ICAO standard atmosphere up to 80 km [NACA3182]_
 
     Args:
         pressure: One dimensional array of pressure in hPa
+        in_place: Boolean to control if conversion should be in-place
 
     Returns:
         One dimensional array of altitude in m
@@ -220,6 +225,9 @@ def pressure_to_altitude_icao(pressure: "NumpyOrDataArray") -> "NumpyOrDataArray
     """
     if pressure.ndim > 1:
         raise NotImplementedError("Multidimensional pressure not yet supported")
+
+    if not in_place:
+        pressure = copy.deepcopy(pressure)
 
     mask = pressure > _icao_constants.tropopause_pressure
     pressures_within_troposphere = pressure[mask]
@@ -234,14 +242,26 @@ def pressure_to_altitude_icao(pressure: "NumpyOrDataArray") -> "NumpyOrDataArray
         pressure[mask] = pressure_to_altitude_troposphere(pressures_within_troposphere)
         pressure[~mask] = pressure_to_altitude_stratosphere(pressures_within_stratosphere)
     else:
-        pressure.loc[mask] = pressure_to_altitude_troposphere(pressures_within_troposphere)
+        # Handle edge case that test suite could not capture
+        # When data from real ERA5 data that ends up in this case, the setting of values using the `loc` operator
+        # fails due to a TypeError which doesn't allow updating the values directly so a copy is required
+        try:
+            pressure.loc[mask] = pressure_to_altitude_troposphere(pressures_within_troposphere)
+        except TypeError as error:
+            # Check message of error matches the specific edge case
+            if error.args[0] == "IndexVariable values cannot be modified":
+                return pressure.copy(data=pressure_to_altitude_icao(pressure.to_numpy()))
+            raise error
         pressure.loc[~mask] = pressure_to_altitude_stratosphere(pressures_within_stratosphere)
 
     return pressure
 
 
 def bilinear_interpolation(
-    longitude: "NDArray", latitude: "NDArray", function_value: "NDArray", target_coordinate: "Coordinate"
+    longitude: "NDArray",
+    latitude: "NDArray",
+    function_value: "NDArray",
+    target_coordinate: "Coordinate",
 ) -> "NDArray":
     """
     Bilinear interpolation using 4 points
@@ -264,5 +284,125 @@ def bilinear_interpolation(
     )
 
     return RegularGridInterpolator((longitude, latitude), squeezed_values, method="linear")(
-        (target_coordinate.longitude, target_coordinate.latitude)
+        (target_coordinate.longitude, target_coordinate.latitude),
     )
+
+
+def interpolation_on_lat_lon(
+    data: xr.DataArray,
+    interp_points: xr.DataArray,
+    latitude_dim: str = "latitude",
+    longitude_dim: str = "longitude",
+    points_dim: str = "points",
+    interp_method: Literal["linear", "nearest", "pchip"] = "linear",
+) -> xr.DataArray:
+    interp_points_shape = interp_points.shape  # (n_points, 2) => n_points of (lon, lat) pairs
+    if len(interp_points_shape) != 2 or interp_points_shape[1] != 2:  # noqa:PLR2004
+        print(interp_points_shape)
+        raise ValueError("Interpolation must be 2D")
+
+    remaining_interp_points_dim = list(set(interp_points.dims) - {points_dim})
+    assert len(remaining_interp_points_dim) == 1
+
+    def __rgi_interpolation(
+        values: "NDArray",
+        lon_coord: "NDArray",
+        lat_coord: "NDArray",
+        target_points: "NDArray",
+    ) -> "NDArray":
+        return RegularGridInterpolator((lon_coord, lat_coord), values, method=interp_method)(target_points)
+
+    interpolated = xr.apply_ufunc(
+        __rgi_interpolation,
+        data,
+        data[longitude_dim],
+        data[latitude_dim],
+        interp_points,
+        input_core_dims=[
+            [longitude_dim, latitude_dim],
+            [longitude_dim],
+            [latitude_dim],
+            [points_dim, remaining_interp_points_dim[0]],
+        ],
+        output_core_dims=[[points_dim]],
+        vectorize=True,
+        dask="parallelized" if is_dask_collection(data) else "forbidden",
+        output_dtypes=[data.dtype],
+    )
+    return interpolated.assign_coords({points_dim: np.arange(interp_points_shape[0])})
+
+
+class XrAggregationMethod(StrEnum):
+    ALL = "all"
+    ANY = "any"
+    ARGMAX = "argmax"
+    ARGMIN = "argmin"
+    COUNT = "count"
+    IDX_MAX = "idxmax"
+    IDX_MIN = "idxmin"
+    MAX = "max"
+    MIN = "min"
+    MEAN = "mean"
+    MEDIAN = "median"
+    PROD = "prod"
+    SUM = "sum"
+    STDDEV = "std"
+    VARIANCE = "var"
+    CUM_SUM = "cumsum"
+    CUM_PROD = "cumprod"
+
+
+@overload
+def apply_data_var_reduction(
+    data: xr.Dataset,
+    method_name: XrAggregationMethod,
+    *,
+    new_dim: str = "ensemble",
+    var_name: str = "ensemble",
+    append: Literal[False],
+    **kwargs: Any,  # noqa: ANN401
+) -> xr.DataArray: ...
+
+
+@overload
+def apply_data_var_reduction(
+    data: xr.Dataset,
+    method_name: XrAggregationMethod,
+    *,
+    new_dim: str = "ensemble",
+    var_name: str = "ensemble",
+    append: Literal[True] = True,
+    **kwargs: Any,  # noqa: ANN401
+) -> xr.Dataset: ...
+
+
+def apply_data_var_reduction(
+    data: xr.Dataset,
+    method_name: XrAggregationMethod,
+    *,
+    new_dim: str = "ensemble",
+    var_name: str = "ensemble",
+    append: bool = False,
+    **kwargs: Any,
+) -> xr.DataArray | xr.Dataset:
+    """
+    Aggregates over data variables of a data set.
+
+    Args:
+        data: Dataset to perform aggregation on
+        method_name: Name of the aggregation method
+        new_dim: Name of the new dimension to aggregate over
+        var_name: Name of the new variable in dataset or name of the aggregated data array
+        append: When True, appends aggregated data array to dataset. Otherwise, returns aggregated data array
+        **kwargs: Kwargs (excluding dim kwarg) to aggregating method. See `Xarray API docs <https://docs.xarray.dev/en/stable/api/dataarray.html#aggregation>`_.
+
+    Returns:
+        Aggregated data array or data set
+
+    """
+    as_array: xr.DataArray = data.to_array(dim=new_dim)
+    result = getattr(as_array, method_name)(dim=new_dim, **kwargs)
+
+    if append:
+        return data.assign(**{var_name: result})
+    return result.rename(var_name)

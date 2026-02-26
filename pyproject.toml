@@ -13,6 +13,7 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
     "Topic :: Scientific/Engineering",
@@ -30,8 +31,9 @@ dependencies = [
     "pyproj",
     "pyyaml",
     "scipy",
-    "typer",
+    "sparse",
     "xarray",
+    "zarr",
 ]
 
 [project.urls]
@@ -46,8 +48,30 @@ build-backend = "hatchling.build"
 [project.scripts]
 rojak = "rojak.cli.main:app"
 
+[project.optional-dependencies]
+amdar = [
+    "dask-geopandas",
+    "geopandas",
+    "netcdf4",
+    "pyarrow",
+]
+ecmwf = [
+    "cdsapi>=0.7.5",
+]
+plot = [
+    "cartopy",
+    "geoviews",
+    "holoviews",
+    "hvplot", # Adds support to plotting dask-backed objects
+    "matplotlib",
+    "pypalettes",
+]
+cli = [
+    "rojak_cat[ecmwf,amdar,plot]",
+    "typer",
+]
+
 [dependency-groups]
-#complete = ["rojak[ecmwf,amdar]"]
 dev = [
     "doc8",
     "pandas-stubs",
@@ -57,6 +81,7 @@ dev = [
     "bokeh", # For dask dashboard
     "scipy-stubs",
     "hatch-vcs",
+    "basedpyright",
 ]
 test = [
     "pytest",
@@ -71,19 +96,11 @@ docs = [
     "sphinx",
     "sphinx-design",
 ]
-ecmwf = [
-    "cdsapi>=0.7.5",
-]
-amdar = [
-    "dask-geopandas",
-    "geopandas",
-    "netcdf4",
-    "pyarrow",
-]
-plot = [
-    "cartopy",
-    "matplotlib",
-    "pypalettes",
+jupyter = [
+    "dask-labextension",
+    "jupyter-bokeh",
+    "jupyter-server-proxy",
+    "jupyterlab",
 ]
 
 [tool.pyright]
@@ -99,3 +116,20 @@ packages = ["src/rojak"]
 
 [tool.hatch.version]
 source = "vcs"
+fallback-version = "99999"
+
+[tool.coverage.report]
+exclude_also = [
+    'def __repr__',
+    'raise AssertionError',
+    'raise NotImplementedError',
+    'if 0:',
+    'if __name__ == .__main__.:',
+    'if TYPE_CHECKING:',
+    '@(abc\.)?abstractmethod',
+    '^\s*(logger|logging)\.\w+\(.*\)', # ignore logging statements
+]
+
+[tool.esbonio.sphinx]
+buildCommand = ["sphinx-build", "-M", "dirhtml", "docs", "docs/_build"]
+pythonCommand = ["uv", "run", "--group", "docs", "python"]

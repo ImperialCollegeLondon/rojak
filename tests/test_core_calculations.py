@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, assert_never
 
 import numpy as np
 import pytest
@@ -8,9 +8,12 @@ from scipy.interpolate import RegularGridInterpolator
 from xarray import testing as xrt
 
 from rojak.core.calculations import (
+    XrAggregationMethod,
     _icao_constants,
     altitude_to_pressure_troposphere,
+    apply_data_var_reduction,
     bilinear_interpolation,
+    interpolation_on_lat_lon,
     pressure_to_altitude_icao,
     pressure_to_altitude_stratosphere,
     pressure_to_altitude_troposphere,
@@ -19,6 +22,7 @@ from rojak.core.calculations import (
 from rojak.utilities.types import Coordinate
 
 if TYPE_CHECKING:
+    from rojak.core.data import CATData
     from rojak.utilities.types import NumpyOrDataArray
 
 
@@ -60,7 +64,10 @@ def test_pressure_to_altitude_standard_atmosphere() -> None:
             id="final value is tropopause boundary",
         ),
         pytest.param(
-            np.asarray([230]), pressure_to_altitude_stratosphere, "greater than", id="single value stratosphere"
+            np.asarray([230]),
+            pressure_to_altitude_stratosphere,
+            "greater than",
+            id="single value stratosphere",
         ),
         pytest.param(
             np.asarray([220, 230]),
@@ -83,7 +90,11 @@ def test_pressure_to_altitude_standard_atmosphere() -> None:
     ],
 )
 def test_pressure_to_altitude_fails_checks(
-    pressures: "NumpyOrDataArray", converter_method: Callable, descriptor: str, wrap_in_data_array: bool, is_2d: bool
+    pressures: "NumpyOrDataArray",
+    converter_method: Callable,
+    descriptor: str,
+    wrap_in_data_array: bool,
+    is_2d: bool,
 ) -> None:
     matches: str = (
         f"Attempting to convert pressure to altitude for troposphere with pressure {descriptor} tropopause pressure"
@@ -101,7 +112,7 @@ def test_pressure_to_altitude_fails_checks(
 def test_pressure_to_altitude_troposphere_and_vice_versa(wrap_in_data_array: bool, is_2d: bool) -> None:
     # Values from Metric Table I in section 5 of NACA3182
     pressure = np.asarray(
-        [1013.25, 794.95, 701.08, 616.40, 577.28, 478.81, 449.60, 410.61, 330.99, 350.88, 300.62, 250.50]
+        [1013.25, 794.95, 701.08, 616.40, 577.28, 471.81, 452.72, 410.61, 330.99, 350.88, 300.62, 250.50],
     )
     altitude_from_table = np.asarray([0, 2000, 3000, 4000, 4500, 6000, 6300, 7000, 8500, 8100, 9150, 10350])
 
@@ -115,9 +126,10 @@ def test_pressure_to_altitude_troposphere_and_vice_versa(wrap_in_data_array: boo
 
     computed_altitude = pressure_to_altitude_troposphere(pressure)
     computed_pressure = altitude_to_pressure_troposphere(altitude_from_table)
-    np.testing.assert_allclose(computed_pressure, pressure, rtol=0.02)
+    np.testing.assert_allclose(computed_pressure, pressure, rtol=1e-4)
     # rtol based on altitude -> pressure as table is from altitude -> pressure
-    np.testing.assert_allclose(computed_altitude, altitude_from_table, rtol=0.02)
+    np.testing.assert_equal(np.round(computed_altitude, decimals=-1), altitude_from_table.data)
+    np.testing.assert_allclose(computed_altitude, altitude_from_table, rtol=1e-4)
     if not is_2d:
         if wrap_in_data_array:
             np.testing.assert_equal(pressure_to_altitude_icao(pressure).values, computed_altitude)  # pyright: ignore[reportAttributeAccessIssue]
@@ -125,14 +137,16 @@ def test_pressure_to_altitude_troposphere_and_vice_versa(wrap_in_data_array: boo
             np.testing.assert_equal(pressure_to_altitude_icao(pressure), computed_altitude)
 
     # Test that we get back approximately the same thing when passed through inverses
-    np.testing.assert_allclose(altitude_to_pressure_troposphere(computed_altitude), pressure, rtol=0.002)
-    np.testing.assert_allclose(pressure_to_altitude_troposphere(computed_pressure), altitude_from_table, rtol=0.002)
+    np.testing.assert_allclose(altitude_to_pressure_troposphere(computed_altitude), pressure)
+    np.testing.assert_allclose(pressure_to_altitude_troposphere(computed_pressure), altitude_from_table)
 
 
 def test_pressure_to_altitude_troposphere_equiv_to_wallace() -> None:
     pressure = np.asarray([1013.25, 794.95, 701.08, 616.40, 577.28, 478.81, 410.61, 330.99, 350.88, 300.62, 250.50])
     np.testing.assert_allclose(
-        pressure_to_altitude_troposphere(pressure), pressure_to_altitude_us_std_atm(pressure), rtol=1e-3
+        pressure_to_altitude_troposphere(pressure),
+        pressure_to_altitude_us_std_atm(pressure),
+        rtol=1e-3,
     )
 
 
@@ -151,7 +165,8 @@ def test_pressure_to_altitude_stratosphere(is_2d: bool, wrap_in_data_array: bool
         altitude_from_table = xr.DataArray(altitude_from_table)
 
     computed_altitude = pressure_to_altitude_stratosphere(pressure)
-    np.testing.assert_allclose(computed_altitude, altitude_from_table, rtol=0.02)
+    np.testing.assert_equal(np.round(computed_altitude, decimals=-1), altitude_from_table.data)
+    np.testing.assert_allclose(computed_altitude, altitude_from_table, rtol=1e-4)
 
     if not is_2d:
         if wrap_in_data_array:
@@ -169,8 +184,8 @@ def test_pressure_to_altitude_icao(wrap_in_data_array) -> None:
             701.08,
             616.40,
             577.28,
-            478.81,
-            449.60,
+            471.81,
+            452.72,
             410.61,
             330.99,
             350.88,
@@ -182,17 +197,46 @@ def test_pressure_to_altitude_icao(wrap_in_data_array) -> None:
             150.20,
             124.30,
             99.68,
-        ]
+        ],
     )
     altitude_from_table = np.asarray(
-        [0, 2000, 3000, 4000, 4500, 6000, 6300, 7000, 8500, 8100, 9150, 10350, 11000, 11800, 12600, 13600, 14800, 16200]
+        [
+            0,
+            2000,
+            3000,
+            4000,
+            4500,
+            6000,
+            6300,
+            7000,
+            8500,
+            8100,
+            9150,
+            10350,
+            11000,
+            11800,
+            12600,
+            13600,
+            14800,
+            16200,
+        ],
     )
 
     if wrap_in_data_array:
         pressure = xr.DataArray(pressure)
         altitude_from_table = xr.DataArray(altitude_from_table)
 
-    np.testing.assert_allclose(pressure_to_altitude_icao(pressure), altitude_from_table, rtol=0.02)
+    converted_pressure = pressure_to_altitude_icao(pressure)
+    np.testing.assert_equal(np.round(converted_pressure, decimals=-1), altitude_from_table.data)
+    np.testing.assert_allclose(converted_pressure, altitude_from_table, rtol=1e-4)
+
+
+def test_pressure_to_altitude_icao_era5_data(make_dummy_cat_data) -> None:
+    dummy_data = make_dummy_cat_data({"pressure_level": [300.62, 250.50, 226.32, 199.50]})
+    altitude_from_table = np.asarray([9150, 10350, 11000, 11800])
+    computed_altitude = pressure_to_altitude_icao(dummy_data["pressure_level"])
+    np.testing.assert_equal(np.round(computed_altitude, decimals=-1), altitude_from_table)
+    np.testing.assert_allclose(computed_altitude, altitude_from_table, rtol=1e-4)
 
 
 def linear_function(x_vals, y_vals):
@@ -220,8 +264,199 @@ def test_bilinear_interpolation(x_slice, y_slice, interpolation_point, ff, is_ff
 
     rgi = RegularGridInterpolator((x, y), ff(xx, yy))
     interpolated = bilinear_interpolation(
-        x[x_slice], y[y_slice], ff(*np.meshgrid(x[x_slice], y[y_slice])), Coordinate(*interpolation_point)
+        x[x_slice],
+        y[y_slice],
+        ff(*np.meshgrid(x[x_slice], y[y_slice])),
+        Coordinate(*interpolation_point),
     )
     assert rgi(interpolation_point) == interpolated
     if is_ff_linear:
         assert interpolated == ff(interpolation_point[0], interpolation_point[1])
+
+
+def test_interpolation_on_lat_lon_apply_ufunc_equiv_to_slice(load_cat_data, client) -> None:
+    cat_data: CATData = load_cat_data(None, with_chunks=True)
+
+    num_interp_points: int = 400
+    rng = np.random.default_rng()
+    longitude_point: np.ndarray = rng.uniform(-180, 179.75, num_interp_points)
+    latitude_points: np.ndarray = rng.uniform(-90, 90, num_interp_points)
+    interpolation_points: xr.DataArray = xr.DataArray(
+        data=np.stack((longitude_point, latitude_points), axis=1),
+        dims=["points", "xy"],
+    )
+
+    apply_on = cat_data.v_wind()
+    interpolated_to: xr.DataArray = interpolation_on_lat_lon(apply_on, interpolation_points)
+    lat_coord = apply_on["latitude"]
+    lon_coord = apply_on["longitude"]
+
+    for time_index in range(apply_on["time"].size):
+        for pressure_index in range(apply_on["pressure_level"].size):
+            lat_lon_slice = apply_on.isel(time=time_index, pressure_level=pressure_index)
+            interp_on_slice = RegularGridInterpolator(
+                (lon_coord, lat_coord),
+                lat_lon_slice.to_numpy().T,
+                method="linear",
+            )(interpolation_points.values)
+            np.testing.assert_allclose(
+                interpolated_to.isel(time=time_index, pressure_level=pressure_index),
+                interp_on_slice,
+            )
+
+
+def test_interpolation_on_lat_lon_to_grid_points(load_cat_data, client) -> None:
+    cat_data: CATData = load_cat_data(None, with_chunks=True)
+    apply_on = cat_data.v_wind()
+    lat_coord = apply_on["latitude"]
+    lon_coord = apply_on["longitude"]
+    llon, llat = np.meshgrid(lon_coord, lat_coord)
+
+    interpolation_points: xr.DataArray = xr.DataArray(
+        data=np.stack((llon.ravel(), llat.ravel()), axis=1),
+        dims=["points", "xy"],
+    )
+    interpolated_to: xr.DataArray = interpolation_on_lat_lon(apply_on, interpolation_points)
+    np.testing.assert_array_equal(
+        apply_on.stack(z=["latitude", "longitude"]),
+        interpolated_to,
+    )
+
+
+class TestApplyDataVarsReduction:
+    default_dim_name: str = "ensemble"
+    default_var_name: str = "ensemble"
+
+    @pytest.mark.parametrize("agg_method", [item.value for item in XrAggregationMethod])
+    def test_retrives_correct_method(  # noqa: PLR0912
+        self, make_dummy_cat_data, agg_method: XrAggregationMethod
+    ) -> None:
+        dummy_data: xr.Dataset = make_dummy_cat_data({})
+        new_dim_name: str = "new_dim_name"
+        reduced = apply_data_var_reduction(dummy_data, agg_method, append=False, new_dim=new_dim_name)
+        match agg_method:
+            case XrAggregationMethod.ALL:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).all(dim=new_dim_name), reduced)
+            case XrAggregationMethod.ANY:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).any(dim=new_dim_name), reduced)
+            case XrAggregationMethod.ARGMAX:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).argmax(dim=new_dim_name), reduced)
+            case XrAggregationMethod.ARGMIN:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).argmin(dim=new_dim_name), reduced)
+            case XrAggregationMethod.COUNT:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).count(dim=new_dim_name), reduced)
+            case XrAggregationMethod.IDX_MAX:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).idxmax(dim=new_dim_name), reduced)
+            case XrAggregationMethod.IDX_MIN:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).idxmin(dim=new_dim_name), reduced)
+            case XrAggregationMethod.MAX:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).max(dim=new_dim_name), reduced)
+            case XrAggregationMethod.MIN:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).min(dim=new_dim_name), reduced)
+            case XrAggregationMethod.MEAN:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).mean(dim=new_dim_name), reduced)
+            case XrAggregationMethod.MEDIAN:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).median(dim=new_dim_name), reduced)
+            case XrAggregationMethod.PROD:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).prod(dim=new_dim_name), reduced)
+            case XrAggregationMethod.SUM:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).sum(dim=new_dim_name), reduced)
+            case XrAggregationMethod.STDDEV:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).std(dim=new_dim_name), reduced)
+            case XrAggregationMethod.VARIANCE:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).var(dim=new_dim_name), reduced)
+            case XrAggregationMethod.CUM_PROD:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).cumprod(dim=new_dim_name), reduced)
+            case XrAggregationMethod.CUM_SUM:
+                np.testing.assert_array_equal(dummy_data.to_array(dim=new_dim_name).cumsum(dim=new_dim_name), reduced)
+            case _ as unreachable:
+                assert_never(unreachable)
+
+    def test_append_true_dataset(self, make_dummy_cat_data) -> None:
+        dummy_data: xr.Dataset = make_dummy_cat_data({})
+        reduced = apply_data_var_reduction(dummy_data, XrAggregationMethod.MEAN, append=True)
+
+        assert isinstance(reduced, xr.Dataset)
+        assert self.default_var_name in reduced.data_vars
+
+        np.testing.assert_array_equal(
+            dummy_data.to_array(dim=self.default_var_name).mean(dim=self.default_var_name),
+            reduced[self.default_var_name],
+        )
+
+        # Check existing coords, dims and data vars are still present in data set
+        assert set(dummy_data.coords) == set(reduced.coords)
+        assert set(dummy_data.dims) == set(reduced.dims)
+        assert set(dummy_data.data_vars.keys()).issubset(reduced.data_vars.keys())
+
+    def test_append_false_var_name_change_name(self, make_dummy_cat_data) -> None:
+        dummy_data: xr.Dataset = make_dummy_cat_data({})
+        new_var_name: str = "blah"
+        reduced: xr.DataArray = apply_data_var_reduction(
+            dummy_data, XrAggregationMethod.PROD, append=False, var_name=new_var_name
+        )
+
+        assert reduced.name == new_var_name
+        assert self.default_dim_name not in reduced.dims
+
+        # Check existing coords and dims are still present in data set
+        assert set(dummy_data.coords) == set(reduced.coords)
+        assert set(dummy_data.dims) == set(reduced.dims)
+
+    @pytest.mark.parametrize("is_append", [True, False])
+    def test_append_true_custom_names(self, make_dummy_cat_data, is_append: bool) -> None:
+        dummy_data: xr.Dataset = make_dummy_cat_data({})
+        new_dim_name: str = "custom_dim_name"
+        new_var_name: str = "custom_var_name"
+        reduced = apply_data_var_reduction(
+            dummy_data, XrAggregationMethod.COUNT, append=is_append, new_dim=new_dim_name, var_name=new_var_name
+        )
+
+        if is_append:
+            assert isinstance(reduced, xr.Dataset)
+            assert new_dim_name not in reduced.data_vars
+            assert new_dim_name not in reduced.dims
+
+            assert new_var_name in reduced.data_vars
+
+        else:
+            assert isinstance(reduced, xr.DataArray)
+            assert reduced.name == new_var_name
+
+    def test_skipna_kwarg(self, make_dummy_cat_data):
+        # Add NaN values
+        data_with_nan = make_dummy_cat_data({}).copy()
+        data_with_nan["temperature"].values[0, 0] = np.nan
+
+        result_skipna_true = apply_data_var_reduction(
+            data_with_nan,
+            XrAggregationMethod.MEAN,
+            append=False,
+            skipna=True,
+        )
+        result_skipna_false = apply_data_var_reduction(
+            data_with_nan,
+            XrAggregationMethod.MEAN,
+            skipna=False,
+            append=False,
+        )
+
+        assert not np.allclose(
+            result_skipna_true.values,
+            result_skipna_false.values,
+            equal_nan=True,
+        )
+
+    def test_single_variable_dataset(self, make_dummy_cat_data) -> None:
+        temperature = make_dummy_cat_data({})["temperature"]
+        single_variable_dataset = xr.Dataset({"temp": temperature})
+        result = apply_data_var_reduction(
+            single_variable_dataset,
+            XrAggregationMethod.MEDIAN,
+            append=False,
+        )
+        assert isinstance(result, xr.DataArray)
+
+    def test_empty_dataset(self) -> None:
+        with pytest.raises(IndexError):
+            apply_data_var_reduction(xr.Dataset(), XrAggregationMethod.MEAN)

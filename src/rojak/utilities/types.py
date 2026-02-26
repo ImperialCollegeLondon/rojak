@@ -13,12 +13,13 @@
 #  limitations under the License.
 
 import sys
-from typing import NamedTuple
+from typing import NamedTuple, TypeGuard
 
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
 from dask import array as da
+from numpy.typing import DTypeLike
 
 if sys.version_info >= (3, 13):
     from typing import TypeIs
@@ -51,9 +52,18 @@ class Coordinate(NamedTuple):
     latitude: float
     longitude: float
 
+    def mid_point_from(self, other: "Coordinate") -> "Coordinate":
+        if isinstance(other, Coordinate):
+            return Coordinate(0.5 * (self.latitude + other.latitude), 0.5 * (self.longitude + other.longitude))
+        raise TypeError(f"Other must be of type Coordinate, not {type(other)}")
+
 
 def is_xr_data_array(obj: object) -> TypeIs[xr.DataArray]:
     return isinstance(obj, xr.DataArray)
+
+
+def is_xr_dataset(obj: object) -> TypeGuard[xr.Dataset]:
+    return isinstance(obj, xr.Dataset)
 
 
 def is_np_array(obj: object) -> TypeIs[npt.NDArray]:
@@ -62,3 +72,11 @@ def is_np_array(obj: object) -> TypeIs[npt.NDArray]:
 
 def is_dask_array(array: object) -> TypeIs["da.Array"]:
     return isinstance(array, da.Array)
+
+
+def all_dtypes_match(dataset: xr.Dataset, expected_dtype: DTypeLike) -> TypeGuard[xr.Dataset]:
+    return set(dataset.dtypes.values()) == {np.dtype(expected_dtype)}
+
+
+def all_dtypes_same(dataset: xr.Dataset) -> TypeGuard[xr.Dataset]:
+    return len(set(dataset.dtypes.values())) == 1
