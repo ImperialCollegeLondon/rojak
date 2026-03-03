@@ -13,7 +13,7 @@
 #  limitations under the License.
 
 import logging
-from typing import TYPE_CHECKING, ClassVar, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal, override
 
 import cdsapi
 from rich.progress import track
@@ -91,6 +91,7 @@ class Era5Retriever(DataRetriever):
         self.request_dataset_name = reanalysis_dataset_names[dataset_name]
         self.cds_client: cdsapi.Client = cdsapi.Client()
 
+    @override
     def download_files(
         self,
         years: list[int],
@@ -103,6 +104,7 @@ class Era5Retriever(DataRetriever):
         for date in track(dates):
             self._download_file(date, base_output_dir)
 
+    @override
     def _download_file(self, date: "Date", base_output_dir: "Path") -> None:
         this_request = self.request_body
         this_request["year"] = date.year
@@ -134,6 +136,7 @@ class Era5Data(MetData):
         super().__init__()
         self._on_pressure_level = on_pressure_level
 
+    @override
     def to_clear_air_turbulence_data(self, domain: "SpatialDomain") -> CATData:
         logger.debug("Converting data to CATData")
         target_variables: list[DataVarSchema] = [

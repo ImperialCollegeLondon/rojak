@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, ClassVar, assert_never
+from typing import TYPE_CHECKING, ClassVar, assert_never, override
 
 import numpy as np
 import scipy.ndimage as ndi
@@ -60,6 +60,7 @@ class AlphaVelField(JetStreamAlgorithm):
             * self._wind_speed.integrate(self._pressure_coord_name).rename("alpha_vel")
         )  # pyright: ignore[reportReturnType]
 
+    @override
     def identify_jet_stream(self) -> "xr.DataArray":
         identified_jet_stream: xr.DataArray = self._alpha_vel_field() > self._ALPHA_VEL_THRESHOLD
         return (
@@ -170,6 +171,7 @@ class WindSpeedCondSchiemann(JetStreamAlgorithm):
             kwargs={"threshold": self._MINIMUM_WIND_SPEED_THRESHOLD},
         )
 
+    @override
     def identify_jet_stream(self) -> "xr.DataArray":
         return (self._local_maxima() & (self._u_wind >= 0)).rename("jet_stream_schiemann")
 
