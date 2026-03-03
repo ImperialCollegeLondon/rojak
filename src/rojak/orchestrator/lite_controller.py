@@ -96,3 +96,15 @@ def compute_thresholds(context: "DiagnosticThresholdsContext", /) -> None:
     export_json(
         diagnostic_thresholds, (context.output_dir / context.name), start_time, THRESHOLDS_TYPE_ADAPTER, "thresholds"
     )
+
+
+def export_turbulence_diagnostics(context: "TurbulenceContextWithOutput", start_time: str, /) -> None:
+    diagnostic_factory: DiagnosticFactory = _instantiate_diagnostic_factory(context)
+
+    output_to: Path = context.output_dir / context.name / start_time
+
+    for diagnostic in track(context.diagnostics):
+        instantiated_diagnostic = diagnostic_factory.create(diagnostic)
+        instantiated_diagnostic.to_zarr(output_to, file_name=str(diagnostic))
+
+        del instantiated_diagnostic

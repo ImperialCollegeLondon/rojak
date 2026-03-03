@@ -1,3 +1,5 @@
+import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -5,7 +7,11 @@ import typer
 from distributed import Client
 
 from rojak.orchestrator.lite_configuration import DiagnosticThresholdsContext, TurbulenceContextWithOutput
-from rojak.orchestrator.lite_controller import compute_distribution_parameters, compute_thresholds
+from rojak.orchestrator.lite_controller import (
+    compute_distribution_parameters,
+    compute_thresholds,
+    export_turbulence_diagnostics,
+)
 
 # Root application for this interface
 lite_app = typer.Typer(help="Lite run of rojak for lower memory usage")
@@ -54,4 +60,32 @@ def turbulence_thresholds(
     client = Client()
     context: DiagnosticThresholdsContext = DiagnosticThresholdsContext.from_yaml(config_file)
     compute_thresholds(context)
+    _ = client.close()
+
+
+@turbulence_app.command()
+def export_diagnostic(
+    config_file: Annotated[
+        Path,
+        typer.Argument(
+            help="Path to configuration file",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+            resolve_path=True,
+        ),
+    ],
+) -> None:
+    client = Client()
+
+    context: TurbulenceContextWithOutput = TurbulenceContextWithOutput.from_yaml(config_file)
+
+    start_time: str = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
+    output_to: Path = context.output_dir / context.name / start_time
+    output_to.mkdir(parents=True, exist_ok=True)
+    _ = shutil.copy(config_file, output_to / config_file.name)
+
+    export_turbulence_diagnostics(context, start_time)
+
     _ = client.close()
