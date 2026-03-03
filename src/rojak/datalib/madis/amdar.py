@@ -19,7 +19,7 @@ import tempfile
 from collections.abc import Container, Hashable, Iterable
 from ftplib import FTP
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, override
 
 import dask.array as da
 import dask.dataframe as dd
@@ -226,6 +226,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
             dataset = self.__mask_invalid_error_var(dataset, str(var))
         return dataset.dropna(self.dimension_name, subset=error_vars_present)
 
+    @override
     def apply_preprocessor(self, output_directory: Path) -> None:
         # Filters and exports data to parquet
         output_directory.mkdir(parents=True, exist_ok=True)
@@ -279,6 +280,7 @@ class AcarsRetriever(DataRetriever):
         else:
             self.file_pattern = file_pattern
 
+    @override
     def _download_file(self, date: Date, base_output_dir: Path) -> None:
         output_dir: Path = (base_output_dir / f"{date.year:02d}" / f"{date.month:02d}").resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -293,6 +295,7 @@ class AcarsRetriever(DataRetriever):
                 with target_file_path.open(mode="wb") as f_out:
                     ftp.retrbinary(f"RETR {file}", f_out.write)
 
+    @override
     def download_files(
         self,
         years: list[int],
@@ -327,6 +330,7 @@ class AcarsAmdarRepository(AmdarDataRepository):
     def __init__(self, path_to_files: str | list) -> None:
         super().__init__(path_to_files, True)
 
+    @override
     def load(self) -> "dd.DataFrame":
         target_columns: list[str] | None = (
             list(AcarsAmdarRepository._MINIMAL_DATA_VARS) if self._use_min_turbulence_vars else None
@@ -342,6 +346,7 @@ class AcarsAmdarRepository(AmdarDataRepository):
 
         return amdar_data
 
+    @override
     def _call_compute_closest_pressure_level(
         self,
         data_frame: "dd.DataFrame",
@@ -349,6 +354,7 @@ class AcarsAmdarRepository(AmdarDataRepository):
     ) -> "dd.Series":
         return self._compute_closest_pressure_level(data_frame, pressure_levels, "altitude")
 
+    @override
     def _instantiate_amdar_turbulence_data_class(
         self,
         data_frame: "dd.DataFrame",
@@ -356,6 +362,7 @@ class AcarsAmdarRepository(AmdarDataRepository):
     ) -> "AmdarTurbulenceData":
         return AcarsAmdarTurbulenceData(data_frame, grid)
 
+    @override
     def _time_column_rename_mapping(self) -> dict[str, str]:
         return {"timeObs": "datetime"}
 
@@ -364,9 +371,11 @@ class AcarsAmdarTurbulenceData(AmdarTurbulenceData):
     def __init__(self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame") -> None:
         super().__init__(data_frame, grid)
 
+    @override
     def _minimum_altitude_qc(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
         return data_frame[data_frame["altitude"] >= self.MINIMUM_ALTITUDE]
 
+    @override
     def _drop_manoeuvre_data_qc(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
         # Attributes:
         # long_name:  Aircraft roll angle flag
