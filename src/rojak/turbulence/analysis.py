@@ -52,7 +52,7 @@ from rojak.utilities.types import (
 
 if TYPE_CHECKING:
     from rojak.atmosphere.jet_stream import AlphaVelField
-    from rojak.turbulence.diagnostic import DiagnosticName
+    from rojak.utilities.types import DiagnosticName
 
 if sys.version_info >= (3, 13):
     from typing import TypeIs
