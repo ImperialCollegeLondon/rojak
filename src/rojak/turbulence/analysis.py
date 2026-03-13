@@ -52,7 +52,7 @@ from rojak.utilities.types import (
 
 if TYPE_CHECKING:
     from rojak.atmosphere.jet_stream import AlphaVelField
-    from rojak.turbulence.diagnostic import DiagnosticName
+    from rojak.utilities.types import DiagnosticName
 
 if sys.version_info >= (3, 13):
     from typing import TypeIs
@@ -98,6 +98,7 @@ class TurbulenceIntensityThresholds(PostProcessor[TurbulenceThresholds]):
                 new_index += 1
         return new_list
 
+    @override
     def execute(self) -> TurbulenceThresholds:
         not_none_mask = [index for index, item in enumerate(self._percentile_config.all_severities) if item is not None]
         not_none_percentiles = self._compute_percentiles(
@@ -130,7 +131,7 @@ class HistogramData:
         self.mean = float(mean)
         self.variance = float(variance)
 
-    def as_json_dict(self) -> dict:
+    def as_json_dict(self) -> dict[str, float | list[float]]:
         return {
             "density": self.hist_values,
             "bin_edges": self.bins,
@@ -168,15 +169,18 @@ class HistogramData:
             variance=self.variance,
         )
 
+    @override
     def __str__(self) -> str:
         return (
             f"HistogramData(hist_values={self.hist_values}, bins={self.bins}, "
             f"mean={self.mean}, variance={self.variance})"
         )
 
+    @override
     def __repr__(self) -> str:
         return self.__str__()
 
+    @override
     def __eq__(self, other: object) -> bool:
         if isinstance(other, HistogramData):
             return (
@@ -187,6 +191,7 @@ class HistogramData:
             )
         return False
 
+    @override
     def __hash__(self) -> int:
         return hash((self.hist_values, self.bins, self.mean, self.variance))
 
@@ -237,6 +242,7 @@ class DiagnosticHistogramDistribution(PostProcessor[HistogramData]):
             variance=da.var(log_of_diagnostic).compute(),
         )
 
+    @override
     def execute(self) -> HistogramData:
         if is_dask_collection(self._computed_diagnostic):
             return self._parallel_execution()
@@ -291,9 +297,10 @@ class TurbulentRegionFromThreshold(PostProcessor[xr.DataArray | xr.Dataset]):
         return isinstance(threshold, Mapping)
 
     def _execute_on_dataarray(self, this_da: xr.DataArray, this_threshold: "TurbulenceThresholds") -> xr.DataArray:
-        bounds: Limits = this_threshold.get_bounds(self._severity, self._threshold_mode)
+        bounds: Limits[float] = this_threshold.get_bounds(self._severity, self._threshold_mode)
         return (this_da >= bounds.lower) & (this_da < bounds.upper)
 
+    @override
     def execute(self) -> xr.DataArray | xr.Dataset:
         if is_xr_data_array(self._computed_diagnostic) and not self._is_mapping(self._thresholds):
             return self._execute_on_dataarray(self._computed_diagnostic, self._thresholds)
@@ -340,6 +347,7 @@ class TurbulentRegionsBySeverity(PostProcessor[xr.DataArray | list[xr.DataArray]
         self._threshold_mode = threshold_mode
         self._has_parent = has_parent
 
+    @override
     def execute(self) -> xr.DataArray | list[xr.DataArray] | xr.DataTree:
         by_severity = []
         for severity in self._severities:
@@ -379,9 +387,10 @@ class TurbulenceProbabilityBySeverity(_EvaluationPostProcessor):
                 ),
             },
         )
-        self._num_time_steps: int = computed_diagnostic["time"].size
+        self._num_time_steps = computed_diagnostic["time"].size
         self._severities = severities
 
+    @override
     def execute(self) -> xr.DataArray:
         by_severity: list[xr.DataArray] | xr.DataArray = self._components["turbulent_regions"].execute()
         assert isinstance(by_severity, list)
@@ -447,6 +456,7 @@ class TransformToEDR(PostProcessor[xr.DataArray]):
         else:
             raise TypeError("Both c1 and c2 must be both be provided or omitted")
 
+    @override
     def execute(self) -> xr.DataArray:
         if self._mean is None or self._variance is None:
             distribution_parameters = ComputeDistributionParametersForEDR(self._computed_diagnostic).execute()
@@ -487,6 +497,7 @@ class CorrelationBetweenDiagnostics(PostProcessor[xr.DataArray]):
         self._diagnostic_names = list(self._computed_indices.keys())
         self._sel_condition = sel_condition
 
+    @override
     def execute(self) -> xr.DataArray:
         num_diagnostics: int = len(self._diagnostic_names)
         corr_btw_diagnostics: xr.DataArray = xr.DataArray(
@@ -536,6 +547,7 @@ class MatthewsCorrelationOnDataset(PostProcessor[xr.DataArray]):
         self._is_dataset = is_dataset.astype(int)
         self._with_vars = with_vars
 
+    @override
     def execute(self) -> xr.DataArray:
         data_array_names = list(self._is_dataset.keys())
         num_data_arrays: int = len(data_array_names)
@@ -582,6 +594,7 @@ class MatthewsCorrelationOnThresholdedDiagnostics(PostProcessor[xr.DataArray]):
         self._thresholds = thresholds
         self._threshold_mode = threshold_mode
 
+    @override
     def execute(self) -> xr.DataArray:
         correlation_across_severities: list[xr.DataArray] = []
         for severity in track(self._severities, "Computing correlation for each severity"):
@@ -642,9 +655,9 @@ class LatitudinalCorrelationBetweenDiagnostics(PostProcessor[xr.DataArray]):
 
     @staticmethod
     def _apply_region_filter(array: xr.DataArray, hemisphere: Hemisphere, region: LatitudinalRegion) -> xr.DataArray:
-        extratropic_latitudes: Limits = Limits(lower=25, upper=65)
-        entire_tropics: Limits = Limits(lower=-25, upper=25)
-        half_tropics: Limits = Limits(lower=0, upper=25)
+        extratropic_latitudes: Limits[float] = Limits(lower=25, upper=65)
+        entire_tropics: Limits[float] = Limits(lower=-25, upper=25)
+        half_tropics: Limits[float] = Limits(lower=0, upper=25)
         assert "latitude" in array.coords
         assert min(array["latitude"]) <= entire_tropics.lower
         assert max(array["latitude"]) >= extratropic_latitudes.upper
@@ -683,7 +696,7 @@ class LatitudinalCorrelationBetweenDiagnostics(PostProcessor[xr.DataArray]):
                             drop=True,
                         )
                     case LatitudinalRegion.TROPICS | LatitudinalRegion.EXTRATROPICS:
-                        target_latitudes: Limits = (
+                        target_latitudes: Limits[float] = (
                             half_tropics if region == LatitudinalRegion.TROPICS else extratropic_latitudes
                         )
                         condition = (
@@ -737,6 +750,7 @@ class LatitudinalCorrelationBetweenDiagnostics(PostProcessor[xr.DataArray]):
             case _ as unreachable:
                 assert_never(unreachable)
 
+    @override
     def execute(self) -> xr.DataArray:
         possible_coordinates: set[str] = {"latitude", "longitude", "valid_time"}
         remaining_coordinates: list[Hashable] = [
@@ -802,6 +816,7 @@ class RelationshipBetween(PostProcessor[xr.DataArray]):
         self._other_feature = other_feature
         self._sum_over_dim = sum_over_dim
 
+    @override
     def execute(self) -> xr.DataArray: ...
 
 
@@ -809,6 +824,7 @@ class JaccardIndex(RelationshipBetween):
     def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time") -> None:
         super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
 
+    @override
     def execute(self) -> xr.DataArray:
         return jaccard_index_multidim(self._this_feature, self._other_feature, self._sum_over_dim)
 
@@ -817,6 +833,7 @@ class ProbabilityThisGivenOther(RelationshipBetween):
     def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time") -> None:
         super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
 
+    @override
     def execute(self) -> xr.DataArray:
         table = contingency_table(self._this_feature, self._other_feature, self._sum_over_dim)
         return table.n_11 / (table.n_11 + table.n_10)
@@ -826,6 +843,7 @@ class ProbabilityThisGivenNotOther(RelationshipBetween):
     def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time") -> None:
         super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
 
+    @override
     def execute(self) -> xr.DataArray:
         table = contingency_table(self._this_feature, self._other_feature, self._sum_over_dim)
         return table.n_10 / (table.n_00 + table.n_10)
@@ -835,6 +853,7 @@ class MatthewsCorrelation(RelationshipBetween):
     def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time") -> None:
         super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
 
+    @override
     def execute(self) -> xr.DataArray:
         return matthews_corr_coeff_multidim(self._this_feature, self._other_feature, self._sum_over_dim)
 
@@ -909,6 +928,7 @@ class RelationshipBetweenXAndTurbulence(PostProcessor[xr.Dataset]):
         self._diagnostic_thresholds = diagnostic_thresholds
         self._feature_name = feature_name if feature_name is not None else "feature"
 
+    @override
     def execute(self) -> xr.Dataset:
         return xr.Dataset(
             data_vars={

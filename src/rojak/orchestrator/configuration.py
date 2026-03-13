@@ -213,7 +213,7 @@ class TurbulenceThresholds(BaseConfigModel):
             case _ as unreachable:
                 assert_never(unreachable)
 
-    def get_bounds(self, severity: TurbulenceSeverity, mode: TurbulenceThresholdMode) -> Limits:
+    def get_bounds(self, severity: TurbulenceSeverity, mode: TurbulenceThresholdMode) -> Limits[float]:
         lower_bound: float | None = self.get_by_severity(severity)
         if lower_bound is None:
             raise ValueError("Attempting to retrieve threshold value for a severity that is None")
