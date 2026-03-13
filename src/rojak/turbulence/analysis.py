@@ -131,7 +131,7 @@ class HistogramData:
         self.mean = float(mean)
         self.variance = float(variance)
 
-    def as_json_dict(self) -> dict:
+    def as_json_dict(self) -> dict[str, float | list[float]]:
         return {
             "density": self.hist_values,
             "bin_edges": self.bins,
@@ -389,7 +389,7 @@ class TurbulenceProbabilityBySeverity(_EvaluationPostProcessor):
                 ),
             },
         )
-        self._num_time_steps: int = computed_diagnostic["time"].size
+        self._num_time_steps = computed_diagnostic["time"].size
         self._severities = severities
 
     @override
