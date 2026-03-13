@@ -297,7 +297,7 @@ class TurbulentRegionFromThreshold(PostProcessor[xr.DataArray | xr.Dataset]):
         return isinstance(threshold, Mapping)
 
     def _execute_on_dataarray(self, this_da: xr.DataArray, this_threshold: "TurbulenceThresholds") -> xr.DataArray:
-        bounds: Limits = this_threshold.get_bounds(self._severity, self._threshold_mode)
+        bounds: Limits[float] = this_threshold.get_bounds(self._severity, self._threshold_mode)
         return (this_da >= bounds.lower) & (this_da < bounds.upper)
 
     @override
@@ -351,7 +351,7 @@ class TurbulentRegionsBySeverity(PostProcessor[xr.DataArray | list[xr.DataArray]
     def execute(self) -> xr.DataArray | list[xr.DataArray] | xr.DataTree:
         by_severity = []
         for severity in self._severities:
-            bounds: Limits = self._thresholds.get_bounds(severity, self._threshold_mode)
+            bounds: Limits[float] = self._thresholds.get_bounds(severity, self._threshold_mode)
             this_severity = xr.where(
                 (self._computed_diagnostic >= bounds.lower) & (self._computed_diagnostic < bounds.upper),
                 True,
@@ -657,9 +657,9 @@ class LatitudinalCorrelationBetweenDiagnostics(PostProcessor[xr.DataArray]):
 
     @staticmethod
     def _apply_region_filter(array: xr.DataArray, hemisphere: Hemisphere, region: LatitudinalRegion) -> xr.DataArray:
-        extratropic_latitudes: Limits = Limits(lower=25, upper=65)
-        entire_tropics: Limits = Limits(lower=-25, upper=25)
-        half_tropics: Limits = Limits(lower=0, upper=25)
+        extratropic_latitudes: Limits[float] = Limits(lower=25, upper=65)
+        entire_tropics: Limits[float] = Limits(lower=-25, upper=25)
+        half_tropics: Limits[float] = Limits(lower=0, upper=25)
         assert "latitude" in array.coords
         assert min(array["latitude"]) <= entire_tropics.lower
         assert max(array["latitude"]) >= extratropic_latitudes.upper
@@ -698,7 +698,7 @@ class LatitudinalCorrelationBetweenDiagnostics(PostProcessor[xr.DataArray]):
                             drop=True,
                         )
                     case LatitudinalRegion.TROPICS | LatitudinalRegion.EXTRATROPICS:
-                        target_latitudes: Limits = (
+                        target_latitudes: Limits[float] = (
                             half_tropics if region == LatitudinalRegion.TROPICS else extratropic_latitudes
                         )
                         condition = (
