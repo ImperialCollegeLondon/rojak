@@ -13,10 +13,9 @@
 #  limitations under the License.
 
 import logging
-from typing import TYPE_CHECKING, ClassVar, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal, override
 
 import cdsapi
-from dask.base import is_dask_collection
 from rich.progress import track
 
 from rojak.core.calculations import pressure_to_altitude_icao
@@ -44,7 +43,7 @@ class InvalidEra5RequestConfigurationError(Exception):
         super().__init__(message)
 
 
-type Era5DefaultsName = Literal["cat", "surface", "contrail"] | None
+type Era5DefaultsName = Literal["cat", "surface", "contrail", "minimal-cat-contrail"] | None
 type Era5DatasetName = Literal["pressure-level", "single-level"]
 
 
@@ -65,9 +64,13 @@ class Era5Retriever(DataRetriever):
     ) -> None:
         print(default_name)
         if default_name is None:
-            if pressure_levels is None or variables is None:
+            if pressure_levels is None and dataset_name == "pressure-level":
                 raise InvalidEra5RequestConfigurationError(
-                    "Default not specified. As such, which variables and pressure levels must be specified."
+                    "Default not specified. As such, which pressure levels must be specified.",
+                )
+            if variables is None:
+                raise InvalidEra5RequestConfigurationError(
+                    "Default not specified. As such, which must be specified.",
                 )
             self.request_body = blank_default
         else:
@@ -88,6 +91,7 @@ class Era5Retriever(DataRetriever):
         self.request_dataset_name = reanalysis_dataset_names[dataset_name]
         self.cds_client: cdsapi.Client = cdsapi.Client()
 
+    @override
     def download_files(
         self,
         years: list[int],
@@ -100,6 +104,7 @@ class Era5Retriever(DataRetriever):
         for date in track(dates):
             self._download_file(date, base_output_dir)
 
+    @override
     def _download_file(self, date: "Date", base_output_dir: "Path") -> None:
         this_request = self.request_body
         this_request["year"] = date.year
@@ -131,6 +136,7 @@ class Era5Data(MetData):
         super().__init__()
         self._on_pressure_level = on_pressure_level
 
+    @override
     def to_clear_air_turbulence_data(self, domain: "SpatialDomain") -> CATData:
         logger.debug("Converting data to CATData")
         target_variables: list[DataVarSchema] = [
@@ -153,10 +159,8 @@ class Era5Data(MetData):
         target_data = target_data.assign_coords(
             altitude=(
                 "pressure_level",
-                pressure_to_altitude_icao(target_data["pressure_level"]).data,
+                pressure_to_altitude_icao(target_data["pressure_level"].to_numpy()),
             ),
         )
         target_data = target_data.transpose("latitude", "longitude", "time", "pressure_level")
-        if is_dask_collection(target_data):
-            target_data = target_data.drop_vars("expver")
         return CATData(target_data)

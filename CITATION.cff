@@ -1,0 +1,40 @@
+cff-version: "1.2.0"
+authors:
+- family-names: Wong
+  given-names: Hui Ling
+  orcid: "https://orcid.org/0009-0006-2314-2660"
+- family-names: Palacios
+  given-names: Rafael
+  orcid: "https://orcid.org/0000-0002-6706-3220"
+- family-names: Gryspeerdt
+  given-names: Edward
+  orcid: "https://orcid.org/0000-0002-3815-4756"
+doi: 10.5281/zenodo.17882683
+message: If you use this software, please cite our article in the
+  Journal of Open Source Software.
+preferred-citation:
+  authors:
+  - family-names: Wong
+    given-names: Hui Ling
+    orcid: "https://orcid.org/0009-0006-2314-2660"
+  - family-names: Palacios
+    given-names: Rafael
+    orcid: "https://orcid.org/0000-0002-6706-3220"
+  - family-names: Gryspeerdt
+    given-names: Edward
+    orcid: "https://orcid.org/0000-0002-3815-4756"
+  date-published: 2025-12-13
+  doi: 10.21105/joss.09282
+  issn: 2475-9066
+  issue: 116
+  journal: Journal of Open Source Software
+  publisher:
+    name: Open Journals
+  start: 9282
+  title: "rojak: A Python library and tool for aviation turbulence
+    diagnostics"
+  type: article
+  url: "https://joss.theoj.org/papers/10.21105/joss.09282"
+  volume: 10
+title: "rojak: A Python library and tool for aviation turbulence
+  diagnostics"

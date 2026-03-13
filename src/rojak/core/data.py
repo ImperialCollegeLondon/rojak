@@ -20,18 +20,15 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple
 
+import dask.array as da
 import dask_geopandas as dgpd
-import distributed
 import numpy as np
-import pandas as pd
 import xarray as xr
-from dask.base import is_dask_collection
 
 from rojak.core import derivatives
 from rojak.core.calculations import pressure_to_altitude_icao
 from rojak.core.constants import MAX_LONGITUDE
 from rojak.core.derivatives import VelocityDerivative
-from rojak.core.distributed_tools import blocking_wait_futures
 from rojak.core.geometric import create_grid_data_frame
 from rojak.core.indexing import make_value_based_slice
 from rojak.turbulence import calculations as turb_calc
@@ -41,8 +38,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     import dask.dataframe as dd
-    from distributed import Future
-    from numpy.typing import NDArray
     from shapely.geometry import Polygon
 
     from rojak.orchestrator.configuration import SpatialDomain
@@ -107,23 +102,22 @@ class CATPrognosticData:
             "northward_wind",
             "potential_vorticity",
             "vorticity",
-        ]
+        ],
     )
     required_coords: ClassVar[frozenset[str]] = frozenset(
-        ["pressure_level", "latitude", "longitude", "time", "altitude"]
+        ["pressure_level", "latitude", "longitude", "time", "altitude"],
     )
 
     def __init__(self, dataset: xr.Dataset) -> None:
         if not set(dataset.data_vars.keys()).issuperset(self.required_variables):
             missing_variables = self.required_variables - dataset.data_vars.keys()
             raise ValueError(
-                f"Attempting to instantiate CATPrognosticData with missing data variables: {missing_variables}"
+                f"Attempting to instantiate CATPrognosticData with missing data variables: {missing_variables}",
             )
         if not set(dataset.coords.keys()).issuperset(self.required_coords):
             missing_coords = self.required_coords - dataset.coords.keys()
             raise ValueError(f"Attempting to instantiate CATPrognosticData with missing coords: {missing_coords}")
-        self._dataset = dataset.persist()
-        blocking_wait_futures(self._dataset)
+        self._dataset = dataset.sortby("time").persist()
 
     def temperature(self) -> xr.DataArray:
         return self._dataset["temperature"]
@@ -168,19 +162,14 @@ class CATData(CATPrognosticData):
     def potential_temperature(self) -> xr.DataArray:
         if self._potential_temperature is None:
             self._potential_temperature = turb_calc.potential_temperature(
-                self.temperature(), self.temperature()["pressure_level"]
+                self.temperature(),
+                self.temperature()["pressure_level"],
             ).persist()
-            blocking_wait_futures(self._potential_temperature)
         return self._potential_temperature
 
     def velocity_derivatives(self) -> dict[VelocityDerivative, xr.DataArray]:
         if self._velocity_derivatives is None:
             self._velocity_derivatives = derivatives.vector_derivatives(self.u_wind(), self.v_wind(), "deg")
-            if is_dask_collection(self.u_wind()):
-                futures: list[Future] = []
-                for derivative in self._velocity_derivatives.values():
-                    futures.extend(distributed.futures_of(derivative.persist()))
-                distributed.wait(futures)
         return self._velocity_derivatives
 
     def specific_velocity_derivative(self, target_derivative: VelocityDerivative) -> xr.DataArray:
@@ -194,7 +183,6 @@ class CATData(CATPrognosticData):
                 self.specific_velocity_derivative(VelocityDerivative.DV_DX),
                 self.specific_velocity_derivative(VelocityDerivative.DU_DY),
             ).persist()
-            blocking_wait_futures(self._shear_deformation)
         return self._shear_deformation
 
     def stretching_deformation(self) -> xr.DataArray:
@@ -203,7 +191,6 @@ class CATData(CATPrognosticData):
                 self.specific_velocity_derivative(VelocityDerivative.DU_DX),
                 self.specific_velocity_derivative(VelocityDerivative.DV_DY),
             ).persist()
-            blocking_wait_futures(self._stretching_deformation)
         return self._stretching_deformation
 
     def total_deformation(self) -> xr.DataArray:
@@ -221,7 +208,7 @@ def load_from_folder(
     path_to_folder: "Path",
     glob_pattern: str = "*.nc",
     chunks: Mapping | None = None,
-    engine: Literal["netcdf4", "scipy", "pydap", "h5netcdf", "zarr"] = "h5netcdf",
+    engine: Literal["netcdf4", "scipy", "pydap", "h5netcdf", "zarr"] = "netcdf4",
     is_decoded: bool = True,
 ) -> "xr.Dataset":
     if chunks is None:
@@ -247,10 +234,13 @@ class MetData(ABC):
         self._latitude_coord_name = latitude_name
 
     def select_domain(
-        self, domain: "SpatialDomain", data: xr.Dataset, level_coordinate_name: str = "level"
+        self,
+        domain: "SpatialDomain",
+        data: xr.Dataset,
+        level_coordinate_name: str = "level",
     ) -> xr.Dataset:
         assert {self._longitude_coord_name, self._latitude_coord_name, "time", level_coordinate_name}.issubset(
-            data.dims
+            data.dims,
         ), "Dataset must contain longitude, latitude, time and level dimensions"
 
         longitude_coord = data[self._longitude_coord_name]
@@ -271,12 +261,16 @@ class MetData(ABC):
                 level_coordinate_name: level_slice,
                 "time": slice(None),
                 self._longitude_coord_name: make_value_based_slice(
-                    longitude_coord.data, domain.minimum_longitude, domain.maximum_longitude
+                    longitude_coord.data,
+                    domain.minimum_longitude,
+                    domain.maximum_longitude,
                 ),
                 self._latitude_coord_name: make_value_based_slice(
-                    data[self._latitude_coord_name].data, domain.minimum_latitude, domain.maximum_latitude
+                    data[self._latitude_coord_name].data,
+                    domain.minimum_latitude,
+                    domain.maximum_latitude,
                 ),
-            }
+            },
         )
 
     @abstractmethod
@@ -288,7 +282,7 @@ class MetData(ABC):
         # Utility function to shift data to have longitude in the range of [domain_bound, 360 + domain_bound]
         # This also sorts it so that the data is then ascending from domain_bound
         shifted_data: xr.Dataset = data.assign_coords(
-            longitude=((data[self._longitude_coord_name] - domain_bound) % 360) + domain_bound
+            longitude=((data[self._longitude_coord_name] - domain_bound) % 360) + domain_bound,
         )
         return shifted_data.sortby(self._longitude_coord_name, ascending=True) if sort_data else shifted_data
 
@@ -311,25 +305,6 @@ def as_geo_dataframe(data_frame: "dd.DataFrame") -> dgpd.GeoDataFrame:
     return gddf.set_crs("epsg:4326")
 
 
-def expand_grid_bounds(grid: "dgpd.GeoDataFrame") -> "dd.DataFrame":
-    def expand_bounds(row: "Polygon") -> pd.Series:
-        min_lon, min_lat, max_lon, max_lat = row.bounds
-        return pd.Series(
-            {
-                "min_lon": np.float64(min_lon),
-                "min_lat": np.float64(min_lat),
-                "max_lon": np.float64(max_lon),
-                "max_lat": np.float64(max_lat),
-            }
-        )
-
-    column_names: list[str] = ["min_lon", "min_lat", "max_lon", "max_lat"]
-    return grid.to_dask_dataframe()["geometry"].apply(
-        expand_bounds,
-        meta=pd.DataFrame({col_name: pd.Series(dtype=np.float64) for col_name in column_names}, dtype=np.float64),
-    )
-
-
 class AmdarDataRepository(ABC):
     """
     Abstract AMDAR data repository interface.
@@ -338,9 +313,11 @@ class AmdarDataRepository(ABC):
     """
 
     _path_to_files: str | list
+    _use_min_turbulence_vars: bool
 
-    def __init__(self, path_to_files: str | list) -> None:
+    def __init__(self, path_to_files: str | list, is_minimal_turb_vars: bool) -> None:
         self._path_to_files = path_to_files
+        self._use_min_turbulence_vars = is_minimal_turb_vars
 
     @abstractmethod
     def load(self) -> "dd.DataFrame":
@@ -353,25 +330,7 @@ class AmdarDataRepository(ABC):
         ...
 
     @staticmethod
-    def _find_closest_pressure_level(
-        current_altitude: float, altitudes: "NDArray", pressures: "np.ndarray[Any, np.dtype[np.float64]]"
-    ) -> float:
-        """
-        Method to find the closest pressure level for a given altitude.
-
-        Args:
-            current_altitude (float): Altitude for a given data point in meters
-            pressures (np.ndarray[Any, np.dtype[np.float]]): Pressure levels in hPa
-            altitudes: Pressure levels converted to altitude using standard atmosphere in meters
-
-        Returns:
-            float: Closest pressure level
-        """
-        index = np.abs(altitudes - current_altitude).argmin()
-        return pressures[index]
-
     def _compute_closest_pressure_level(
-        self,
         data_frame: "dd.DataFrame",
         pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]",
         altitude_column: str,
@@ -388,13 +347,29 @@ class AmdarDataRepository(ABC):
             dd.Series: New series with the closest pressure level
         """
         altitudes = pressure_to_altitude_icao(pressure_levels)
-        return data_frame[altitude_column].apply(
-            self._find_closest_pressure_level, args=(altitudes, pressure_levels), meta=("level", float)
+        # Optimize is necessary to handle an edge case where nchunks != npartitions when converting to a dask array
+        obs_altitudes = data_frame[altitude_column].optimize()
+        # Computing the chunks through lengths=True will introduce divisions into the resulting dd.dataframe
+        closest_index: da.Array = (
+            np.abs(obs_altitudes.to_dask_array(lengths=True)[:, None] - altitudes).argmin(axis=1).persist()
         )
+        closest_pressure: da.Array = da.from_array(pressure_levels)[closest_index]
+
+        # pyright as it is throwing up a false positive that da.Array.to_dask_dataframe() doesn't exist
+        into_dask_series: dd.Series = closest_pressure.to_dask_dataframe(columns="level")  # pyright: ignore[reportAttributeAccessIssue]
+        if data_frame.divisions[0] is None:
+            # Divisions need to be cleared as the dataframe it is added to doesn't have divisions
+            # So, when this series is added to the dataframe and the dataframe is optimised, it panics as the dataframe
+            # does not have any divisions while this series does.
+            into_dask_series = into_dask_series.clear_divisions()
+
+        return into_dask_series.persist()
 
     @abstractmethod
     def _call_compute_closest_pressure_level(
-        self, data_frame: "dd.DataFrame", pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]"
+        self,
+        data_frame: "dd.DataFrame",
+        pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]",
     ) -> "dd.Series":
         """
         Wrapper method to be implemented by child classes to call _compute_closest_pressure_level with the appropriate
@@ -411,7 +386,9 @@ class AmdarDataRepository(ABC):
 
     @abstractmethod
     def _instantiate_amdar_turbulence_data_class(
-        self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame"
+        self,
+        data_frame: "dd.DataFrame",
+        grid: "dgpd.GeoDataFrame",
     ) -> "AmdarTurbulenceData":
         """
         Method to instantiate a concrete instance of the AmdarTurbulenceData class
@@ -428,19 +405,11 @@ class AmdarDataRepository(ABC):
     @abstractmethod
     def _time_column_rename_mapping(self) -> dict[str, str]: ...
 
-    def join_grid_bounds(self, dataframe: "dd.DataFrame", grid: "dgpd.GeoDataFrame") -> "dgpd.GeoDataFrame":
-        """
-        Combines data with the grid cell by expanding the Polygon's bounds into 4 columns - min_lon, min_lat,
-        max_lon, max_lat.
-
-        Returns:
-            dd.DataFrame: Combined data frame with the
-
-        """
-        return dataframe.join(expand_grid_bounds(grid), on="index_right", how="left")
-
     def to_amdar_turbulence_data(
-        self, target_region: "SpatialDomain | Polygon", grid_size: float, target_pressure_levels: Sequence[float]
+        self,
+        target_region: "SpatialDomain | Polygon",
+        grid_size: float,
+        target_pressure_levels: Sequence[float],
     ) -> "AmdarTurbulenceData":
         """
         Public method which coordinates the loading of data from disk and processing it such that it has been spatially
@@ -459,18 +428,19 @@ class AmdarDataRepository(ABC):
 
         """
         raw_data_frame: dd.DataFrame = self.load()
-
-        raw_data_frame["level"] = self._call_compute_closest_pressure_level(
-            raw_data_frame, np.asarray(target_pressure_levels, dtype=np.float64)
-        )
+        raw_data_frame = raw_data_frame.assign(
+            level=self._call_compute_closest_pressure_level(
+                raw_data_frame,
+                np.asarray(target_pressure_levels, dtype=np.float64),
+            ),
+        ).persist()
 
         grid: dgpd.GeoDataFrame = create_grid_data_frame(target_region, grid_size)
         within_region: dgpd.GeoDataFrame = as_geo_dataframe(raw_data_frame).sjoin(grid).optimize()
-        within_region = self.join_grid_bounds(within_region, grid)
         if self._time_column_rename_mapping():
             within_region = within_region.rename(columns=self._time_column_rename_mapping())
 
-        return self._instantiate_amdar_turbulence_data_class(within_region.optimize(), grid)
+        return self._instantiate_amdar_turbulence_data_class(within_region.persist(), grid)
 
 
 class AmdarTurbulenceData(ABC):
@@ -480,11 +450,11 @@ class AmdarTurbulenceData(ABC):
     MINIMUM_ALTITUDE: ClassVar[float] = 8500  # Approx. 28,000 ft
 
     def __init__(self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame") -> None:
-        required_columns = {"datetime", "index_right", "level", "geometry", "min_lat", "max_lat", "min_lon", "max_lon"}
+        required_columns = {"datetime", "index_right", "level", "geometry"}
         assert required_columns.issubset(data_frame.columns), (
             f"Columns {required_columns - set(data_frame.columns)} from missing the data frame"
         )
-        self._data_frame = self.__apply_quality_control(data_frame)
+        self._data_frame = self.__apply_quality_control(data_frame).persist()
         self._grid = grid
 
     @abstractmethod
@@ -495,8 +465,9 @@ class AmdarTurbulenceData(ABC):
     def _drop_manoeuvre_data_qc(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
         raise NotImplementedError("Method must be implemented by child class")
 
+    @staticmethod
     @abstractmethod
-    def turbulence_column_names(self) -> list[str]:
+    def turbulence_column_names() -> list[str]:
         raise NotImplementedError("Method must be implemented by child class")
 
     def __apply_quality_control(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
@@ -511,6 +482,15 @@ class AmdarTurbulenceData(ABC):
     @property
     def grid(self) -> "dgpd.GeoDataFrame":
         return self._grid
+
+    def turbulence_frequency_statistics(self, column_name: str, greater_than: float) -> dict:
+        num_observations: int = self.data_frame[column_name].count().compute()
+        num_turb_obs: int = (self.data_frame[column_name] > greater_than).sum().compute()
+        return {
+            "num_turb_obs": num_turb_obs,
+            "num_observations": num_observations,
+            "frequency": num_turb_obs / num_observations,
+        }
 
     def clip_to_time_window(self, window: Limits[np.datetime64]) -> "dd.DataFrame":
         return self.data_frame.loc[
