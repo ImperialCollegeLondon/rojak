@@ -848,7 +848,7 @@ class ProbabilityThisGivenNotOther(RelationshipBetween):
     @override
     def execute(self) -> xr.DataArray:
         table = contingency_table(self._this_feature, self._other_feature, self._sum_over_dim)
-        return table.n_10 / (table.n_00 + table.n_10)
+        return table.n_01 / (table.n_00 + table.n_01)
 
 
 class MatthewsCorrelation(RelationshipBetween):
