@@ -166,7 +166,7 @@ class Frontogenesis3D(Diagnostic):
         divergence: xr.DataArray,
         vector_derivatives: dict[VelocityDerivative, xr.DataArray],
     ) -> None:
-        super().__init__("F3D")
+        super().__init__(TurbulenceDiagnostics.F3D)
         assert VelocityDerivative.DU_DX in vector_derivatives
         assert VelocityDerivative.DV_DX in vector_derivatives
         assert VelocityDerivative.DU_DY in vector_derivatives
@@ -253,7 +253,7 @@ class Frontogenesis2D(Diagnostic):
         geopotential: xr.DataArray,
         vector_derivatives: dict[VelocityDerivative, xr.DataArray],
     ) -> None:
-        super().__init__("F2D")
+        super().__init__(TurbulenceDiagnostics.F2D)
         assert VelocityDerivative.DU_DX in vector_derivatives
         assert VelocityDerivative.DV_DX in vector_derivatives
         assert VelocityDerivative.DU_DY in vector_derivatives
@@ -305,7 +305,7 @@ class HorizontalTemperatureGradient(Diagnostic):
     _temperature: xr.DataArray
 
     def __init__(self, temperature: xr.DataArray) -> None:
-        super().__init__("Horizontal Temperature Gradient")
+        super().__init__(TurbulenceDiagnostics.TEMPERATURE_GRADIENT)
         self._temperature = temperature
 
     @override
@@ -337,7 +337,7 @@ class Endlich(Diagnostic):
     _geopotential: xr.DataArray
 
     def __init__(self, u_wind: xr.DataArray, v_wind: xr.DataArray, geopotential: xr.DataArray) -> None:
-        super().__init__("Endlich")
+        super().__init__(TurbulenceDiagnostics.ENDLICH)
         self._u_wind = u_wind
         self._v_wind = v_wind
         self._wind_direction = wind_direction(u_wind, v_wind)
@@ -401,7 +401,7 @@ class TurbulenceIndex1(Diagnostic):
         geopotential: xr.DataArray,
         total_deformation: xr.DataArray,
     ) -> None:
-        super().__init__("TI1")
+        super().__init__(TurbulenceDiagnostics.TI1)
         self._u_wind = u_wind
         self._v_wind = v_wind
         self._geopotential = geopotential
@@ -453,7 +453,7 @@ class TurbulenceIndex2(Diagnostic):
         total_deformation: xr.DataArray,
         divergence: xr.DataArray,
     ) -> None:
-        super().__init__("TI2")
+        super().__init__(TurbulenceDiagnostics.TI2)
         if VelocityDerivative.DU_DX not in vector_derivatives:
             raise ValueError("Vector derivatives must have DU_DX")
         if VelocityDerivative.DV_DY not in vector_derivatives:
@@ -512,7 +512,7 @@ class Ncsu1(Diagnostic):
         vector_derivatives: dict[VelocityDerivative, xr.DataArray],
         vorticity: xr.DataArray,
     ) -> None:
-        super().__init__("NCSU1")
+        super().__init__(TurbulenceDiagnostics.NCSU1)
         self._u_wind = u_wind
         self._v_wind = v_wind
         assert VelocityDerivative.DU_DX in vector_derivatives
@@ -568,7 +568,7 @@ class ColsonPanofsky(Diagnostic):
         richardson_number: xr.DataArray,
         geopotential: xr.DataArray,
     ) -> None:
-        super().__init__("Colson Panofsky")
+        super().__init__(TurbulenceDiagnostics.COLSON_PANOFSKY)
         # !!! IMPT: Reduces dimension by 1
         # Want the minuend (i.e. label=upper) as we're looking at the distance between grid points (delta z)
         self._length_scale = altitude.diff("pressure_level", label="upper")
@@ -626,7 +626,7 @@ class UBF(Diagnostic):
         vorticity: xr.DataArray,
         jacobian: xr.DataArray,
     ) -> None:
-        super().__init__("UBF")
+        super().__init__(TurbulenceDiagnostics.UBF)
         self._u_wind = u_wind
         self._v_wind = v_wind
         self._geopotential = geopotential
@@ -663,7 +663,7 @@ class BruntVaisalaFrequency(Diagnostic):
     _geopotential: xr.DataArray
 
     def __init__(self, potential_temperature: xr.DataArray, geopotential: xr.DataArray) -> None:
-        super().__init__("Brunt Vaisala Frequency")
+        super().__init__(TurbulenceDiagnostics.BRUNT_VAISALA)
         self._potential_temperature = potential_temperature
         self._geopotential = geopotential
 
@@ -699,7 +699,7 @@ class VerticalWindShear(Diagnostic):
     _geopotential: xr.DataArray
 
     def __init__(self, u_wind: xr.DataArray, v_wind: xr.DataArray, geopotential: xr.DataArray) -> None:
-        super().__init__("Vertical Wind Shear")
+        super().__init__(TurbulenceDiagnostics.VWS)
         self._u_wind = u_wind
         self._v_wind = v_wind
         self._geopotential = geopotential
@@ -732,7 +732,7 @@ class GradientRichardson(Diagnostic):
     _brunt_vaisala: xr.DataArray
 
     def __init__(self, vws: xr.DataArray, brunt_vaisala: xr.DataArray) -> None:
-        super().__init__("Richardson")
+        super().__init__(TurbulenceDiagnostics.RICHARDSON)
         self._vws = vws
         self._brunt_vaisala = brunt_vaisala
 
@@ -756,7 +756,7 @@ class WindSpeed(Diagnostic):
     _v_wind: xr.DataArray
 
     def __init__(self, u_wind: xr.DataArray, v_wind: xr.DataArray) -> None:
-        super().__init__("Wind Speed")
+        super().__init__(TurbulenceDiagnostics.WIND_SPEED)
         self._u_wind = u_wind
         self._v_wind = v_wind
 
@@ -778,7 +778,7 @@ class DeformationSquared(Diagnostic):
     _total_deformation: xr.DataArray
 
     def __init__(self, total_deformation: xr.DataArray) -> None:
-        super().__init__("DEF Squared")
+        super().__init__(TurbulenceDiagnostics.DEF)
         self._total_deformation = total_deformation
 
     @override
@@ -801,7 +801,7 @@ class WindDirection(Diagnostic):
     _v_wind: xr.DataArray
 
     def __init__(self, u_wind: xr.DataArray, v_wind: xr.DataArray) -> None:
-        super().__init__("Wind Direction")
+        super().__init__(TurbulenceDiagnostics.WIND_DIRECTION)
         self._u_wind = u_wind
         self._v_wind = v_wind
 
@@ -823,7 +823,7 @@ class HorizontalDivergence(Diagnostic):
     _divergence: xr.DataArray
 
     def __init__(self, divergence: xr.DataArray) -> None:
-        super().__init__("Divergence")
+        super().__init__(TurbulenceDiagnostics.HORIZONTAL_DIVERGENCE)
         self._divergence = divergence
 
     @override
@@ -845,7 +845,7 @@ class MagnitudePotentialVorticity(Diagnostic):
     _potential_vorticity: xr.DataArray
 
     def __init__(self, potential_vorticity: xr.DataArray) -> None:
-        super().__init__("|PV|")
+        super().__init__(TurbulenceDiagnostics.MAGNITUDE_PV)
         self._potential_vorticity = potential_vorticity
 
     @override
@@ -868,7 +868,7 @@ class GradientPotentialVorticity(Diagnostic):
     _potential_vorticity: xr.DataArray
 
     def __init__(self, potential_vorticity: xr.DataArray) -> None:
-        super().__init__("|\\nabla PV|")
+        super().__init__(TurbulenceDiagnostics.PV_GRADIENT)
         self._potential_vorticity = potential_vorticity
 
     @override
@@ -887,7 +887,7 @@ class VerticalVorticitySquared(Diagnostic):
     _vorticity: xr.DataArray
 
     def __init__(self, vorticity: xr.DataArray) -> None:
-        super().__init__("Vorticity Squared")
+        super().__init__(TurbulenceDiagnostics.VORTICITY_SQUARED)
         self._vorticity = vorticity
 
     @override
@@ -912,7 +912,7 @@ class DirectionalShear(Diagnostic):
     _geopotential: xr.DataArray
 
     def __init__(self, u_wind: xr.DataArray, v_wind: xr.DataArray, geopotential: xr.DataArray) -> None:
-        super().__init__("Directional Shear")
+        super().__init__(TurbulenceDiagnostics.DIRECTIONAL_SHEAR)
         self._u_wind = u_wind
         self._v_wind = v_wind
         self._geopotential = geopotential
@@ -956,7 +956,7 @@ class NestedGridModel1(Diagnostic):
     _total_deformation: xr.DataArray
 
     def __init__(self, u_wind: xr.DataArray, v_wind: xr.DataArray, total_deformation: xr.DataArray) -> None:
-        super().__init__("NGM1")
+        super().__init__(TurbulenceDiagnostics.NGM1)
         self._u_wind = u_wind
         self._v_wind = v_wind
         self._total_deformation = total_deformation
@@ -985,7 +985,7 @@ class NestedGridModel2(Diagnostic):
     _total_deformation: xr.DataArray
 
     def __init__(self, temperature: xr.DataArray, geopotential: xr.DataArray, total_deformation: xr.DataArray) -> None:
-        super().__init__("NGM2")
+        super().__init__(TurbulenceDiagnostics.NGM2)
         self._temperature = temperature
         self._geopotential = geopotential
         self._total_deformation = total_deformation
@@ -1026,7 +1026,7 @@ class BrownIndex1(Diagnostic):
         stretch_deformation: xr.DataArray,
         vorticity: xr.DataArray,
     ) -> None:
-        super().__init__("Brown1")
+        super().__init__(TurbulenceDiagnostics.BROWN1)
         self._shear_deformation = shear_deformation
         self._stretch_deformation = stretch_deformation
         self._vorticity = vorticity
@@ -1075,7 +1075,7 @@ class BrownIndex2(Diagnostic):
         geopotential: xr.DataArray,
         brown_index_1: xr.DataArray,
     ) -> None:
-        super().__init__("Brown2")
+        super().__init__(TurbulenceDiagnostics.BROWN2)
         self._u_wind = u_wind
         self._v_wind = v_wind
         self._geopotential = geopotential
@@ -1109,7 +1109,7 @@ class NegativeVorticityAdvection(Diagnostic):
     _vorticity: xr.DataArray
 
     def __init__(self, u_wind: xr.DataArray, v_wind: xr.DataArray, vorticity: xr.DataArray) -> None:
-        super().__init__("NVA")
+        super().__init__(TurbulenceDiagnostics.NVA)
         self._u_wind = u_wind
         self._v_wind = v_wind
         self._vorticity = vorticity
@@ -1183,7 +1183,7 @@ class DuttonIndex(Diagnostic):
         geopotential: xr.DataArray,
         use_dutton: bool = True,
     ) -> None:
-        super().__init__("Dutton Index")
+        super().__init__(TurbulenceDiagnostics.DUTTON)
         self._u_wind = u_wind
         self._v_wind = v_wind
         self._geopotential = geopotential
@@ -1246,7 +1246,7 @@ class EDRLunnon(Diagnostic):
         shear_deformation: xr.DataArray,
         stretching_deformation: xr.DataArray,
     ) -> None:
-        super().__init__("EDR Lunnon")
+        super().__init__(TurbulenceDiagnostics.EDR_LUNNON)
         self._u_wind = u_wind
         self._v_wind = v_wind
         self._shear_deformation = shear_deformation
