@@ -583,8 +583,8 @@ def contingency_table(first_var: xr.DataArray, second_var: xr.DataArray, sum_ove
        \\end{array}
 
     Args:
-        first_var: First binary variable
-        second_var: Second binary variable
+        first_var: First binary variable (x in contingency table)
+        second_var: Second binary variable (y in contingency table)
         sum_over: Dimension to sum over to compute the number of observations
 
     Returns:

@@ -811,7 +811,6 @@ class RelationshipBetween(PostProcessor[xr.DataArray]):
     def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dim: str = "time") -> None:
         assert this_feature.dtype == other_feature.dtype
         assert this_feature.dtype == np.bool_  # For now, require the two to have a boolean dtype
-        assert {"longitude", "latitude", "pressure_level", "time"}.issubset(this_feature.coords)
         assert set(this_feature.coords).issuperset(other_feature.coords)
 
         self._this_feature = this_feature
@@ -848,7 +847,7 @@ class ProbabilityThisGivenNotOther(RelationshipBetween):
     @override
     def execute(self) -> xr.DataArray:
         table = contingency_table(self._this_feature, self._other_feature, self._sum_over_dim)
-        return table.n_10 / (table.n_00 + table.n_10)
+        return table.n_01 / (table.n_00 + table.n_01)
 
 
 class MatthewsCorrelation(RelationshipBetween):
