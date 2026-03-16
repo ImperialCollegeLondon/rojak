@@ -31,7 +31,12 @@ from rojak.orchestrator.configuration import (
     TurbulenceEvaluationPhaseOption,
     TurbulenceThresholds,
 )
-from rojak.orchestrator.lite_controller import HISTOGRAM_DATA_TYPE_ADAPTER, THRESHOLDS_TYPE_ADAPTER, export_json
+from rojak.orchestrator.lite_controller import (
+    HISTOGRAM_DATA_TYPE_ADAPTER,
+    THRESHOLDS_TYPE_ADAPTER,
+    export_json,
+    load_thresholds_from_file,
+)
 from rojak.plot.turbulence_plotter import (
     GREY_HEX_CODE,
     chain_diagnostic_names,
@@ -161,7 +166,7 @@ class CalibrationStage:
         match current_phase:
             case TurbulenceCalibrationPhaseOption.THRESHOLDS:
                 if self._config.thresholds_file_path is not None:
-                    return self.load_thresholds_from_file()
+                    return self.load_thresholds_file()
                 return self.perform_calibration(suite)
             case TurbulenceCalibrationPhaseOption.HISTOGRAM:
                 if self._config.diagnostic_distribution_file_path is not None:
@@ -170,10 +175,9 @@ class CalibrationStage:
             case _ as unreachable:
                 assert_never(unreachable)
 
-    def load_thresholds_from_file(self) -> Result[Mapping["DiagnosticName", "TurbulenceThresholds"]]:
+    def load_thresholds_file(self) -> Result[Mapping["DiagnosticName", "TurbulenceThresholds"]]:
         assert self._config.thresholds_file_path is not None
-        json_str: str = self._config.thresholds_file_path.read_text()
-        thresholds = THRESHOLDS_TYPE_ADAPTER.validate_json(json_str)
+        thresholds = load_thresholds_from_file(self._config.thresholds_file_path)
         return Result(thresholds)
 
     def perform_calibration(

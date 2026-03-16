@@ -26,6 +26,7 @@ if TYPE_CHECKING:
         DiagnosticThresholdsContext,
         TurbulenceContextWithOutput,
     )
+    from rojak.utilities.types import DiagnosticName
 
 
 # See pydantic docs about only instantiating the type adapter once
@@ -63,6 +64,14 @@ def export_json[T](
 
     with output_file.open("wb") as f:
         _ = f.write(type_adpater.dump_json(obj_to_dump, indent=indent))
+
+
+def load_thresholds_from_file(file_path: "Path") -> "Mapping[DiagnosticName, TurbulenceThresholds]":
+    assert file_path.exists()
+    assert file_path.is_file()
+
+    json_str: str = file_path.read_text()
+    return THRESHOLDS_TYPE_ADAPTER.validate_json(json_str)
 
 
 def blocking_wait_futures(dask_collection: object) -> None:

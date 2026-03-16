@@ -202,7 +202,7 @@ def test_calibration_stage_load_thresholds_from_file(tmp_path_factory, dump_to_f
         "test",
         start_time,
     )
-    assert calibration.load_thresholds_from_file().result == output_thresholds
+    assert calibration.load_thresholds_file().result == output_thresholds
 
 
 def test_calibration_stage_compute_distribution_params(
