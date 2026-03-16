@@ -318,7 +318,7 @@ css = [
 
 [[package]]
 name = "bokeh"
-version = "3.8.2"
+version = "3.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "contourpy" },
@@ -326,15 +326,14 @@ dependencies = [
     { name = "narwhals" },
     { name = "numpy" },
     { name = "packaging" },
-    { name = "pandas" },
     { name = "pillow" },
     { name = "pyyaml" },
     { name = "tornado", marker = "sys_platform != 'emscripten'" },
     { name = "xyzservices" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e4/31/7ee0c4dfd0255631b0624ce01be178704f91f763f02a1879368eb109befd/bokeh-3.8.2.tar.gz", hash = "sha256:8e7dcacc21d53905581b54328ad2705954f72f2997f99fc332c1de8da53aa3cc", size = 6529251, upload-time = "2026-01-06T00:20:06.568Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bf/0d/fabb70707646217e4b0e3943e05730eab8c1f7b7e7485145f8594b52e606/bokeh-3.9.0.tar.gz", hash = "sha256:775219714a8496973ddbae16b1861606ba19fe670a421e4d43267b41148e07a3", size = 5740345, upload-time = "2026-03-11T17:58:34.062Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f6/a8/877f306720bc114c612579c5af36bcb359026b83d051226945499b306b1a/bokeh-3.8.2-py3-none-any.whl", hash = "sha256:5e2c0d84f75acb25d60efb9e4d2f434a791c4639b47d685534194c4e07bd0111", size = 7207131, upload-time = "2026-01-06T00:20:04.917Z" },
+    { url = "https://files.pythonhosted.org/packages/47/0b/bdf449df87be3f07b23091ceafee8c3ef569cf6d2fb7edec6e3b12b3faa4/bokeh-3.9.0-py3-none-any.whl", hash = "sha256:b252bfb16a505f0e0c57d532d0df308ae1667235bafc622aa9441fe9e7c5ce4a", size = 6396068, upload-time = "2026-03-11T17:58:31.645Z" },
 ]
 
 [[package]]
@@ -1156,23 +1155,18 @@ wheels = [
 
 [[package]]
 name = "geoviews"
-version = "1.15.1"
+version = "1.8.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bokeh" },
     { name = "cartopy" },
     { name = "holoviews" },
     { name = "numpy" },
-    { name = "packaging" },
-    { name = "panel" },
     { name = "param" },
-    { name = "pyproj" },
-    { name = "shapely" },
-    { name = "xyzservices" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/76/dc/e74f5997e41933aa30aea5786c407a10e1cf169bfdceeb4173111c02d5de/geoviews-1.15.1.tar.gz", hash = "sha256:c72097ef4f24895c46f95834e5c19ac185ea1c34fd610f0f956421ba515d4aad", size = 507037, upload-time = "2026-01-13T17:34:38.197Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c1/e0/9443fc5564ba0bba03608340ff193160b5625efc087b64cbe52197d21b51/geoviews-1.8.1.tar.gz", hash = "sha256:7cf0c43b01b4aa623520a233d5f82e58b69febd58e22af328128f699f1c745fe", size = 782359, upload-time = "2020-03-30T19:17:22.839Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/63/90/d0323acc02966204035bb5bcaf7385d5a1f2b5359410eb6a09f2ce380f94/geoviews-1.15.1-py3-none-any.whl", hash = "sha256:f369eb94907476e9233abe77bdd6b92340872a20845df7da0341f9a4a13309c8", size = 574718, upload-time = "2026-01-13T17:34:36.562Z" },
+    { url = "https://files.pythonhosted.org/packages/fe/75/e12fe3397a22bdbb7bdbc5a1ad2571677653fb34b06948b05835627b690d/geoviews-1.8.1-py2.py3-none-any.whl", hash = "sha256:bc944fde2c8ce8442d3a1c6a57c8f3958cdf5cdc1fbf12547a3a5fa86b079439", size = 500522, upload-time = "2020-03-30T19:17:21.279Z" },
 ]
 
 [[package]]
@@ -1267,23 +1261,20 @@ wheels = [
 
 [[package]]
 name = "holoviews"
-version = "1.22.1"
+version = "1.14.9"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "bokeh" },
     { name = "colorcet" },
-    { name = "narwhals" },
     { name = "numpy" },
     { name = "packaging" },
     { name = "pandas" },
     { name = "panel" },
     { name = "param" },
-    { name = "python-dateutil" },
     { name = "pyviz-comms" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e4/e4/40c001bae370f9e89bbcda71c6fb75bd5baa4ec8d5004369a591cfaa0d5d/holoviews-1.22.1.tar.gz", hash = "sha256:7dde3a10bb77aff0982e21786b4f5249c6a9d70c463f5604a49fcf30c0247756", size = 5509590, upload-time = "2025-12-05T14:54:20.928Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c1/4e/c9bfac05f9d7c1fc164370a9507bb780187c2da1f4550f13a82266536149/holoviews-1.14.9.tar.gz", hash = "sha256:9912390aa279f3fbdbe4df35518b12e87cbeccd7915e721911dee5556db6306a", size = 6946725, upload-time = "2022-05-06T16:58:04.75Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4f/ab/a6aa43d45ceb88adc0e8c1358fa6935c6e6a5895537431dec67524ca2ccd/holoviews-1.22.1-py3-none-any.whl", hash = "sha256:6f4f0656336035cde1d8103ac6461d7c8ac9a60c4a6d883785cc81f2cc5b8702", size = 5946246, upload-time = "2025-12-05T14:54:19.191Z" },
+    { url = "https://files.pythonhosted.org/packages/90/1c/926d507977585708f6441b88c3db8b11a27c074cc85b09f1e8e45e0680ca/holoviews-1.14.9-py2.py3-none-any.whl", hash = "sha256:eb9a8d7b0a01a14ae4ba6b6258479bef4012198f53938cfe9f2d74982e716038", size = 4266408, upload-time = "2022-05-06T16:58:01.579Z" },
 ]
 
 [[package]]
@@ -1316,7 +1307,7 @@ wheels = [
 
 [[package]]
 name = "hvplot"
-version = "0.12.2"
+version = "0.8.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bokeh" },
@@ -1325,12 +1316,10 @@ dependencies = [
     { name = "numpy" },
     { name = "packaging" },
     { name = "pandas" },
-    { name = "panel" },
-    { name = "param" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f5/b4/ce73a568fc263efe84cab8de04673949c8f6596f6aeb1531ca2b75b80903/hvplot-0.12.2.tar.gz", hash = "sha256:9e29bbe65f94937d4eeaeccf33566540df936c8f9aeadfa12ea9f306d5237938", size = 7084556, upload-time = "2025-12-18T11:15:37.736Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4a/bd/093b378178c4defb2488e027d206811a2826f0cc5582ef91b9cee1600687/hvplot-0.8.1.tar.gz", hash = "sha256:53ddfe06743c4d5924fb1e597655bfa14e80feaf57a438bfd28442d36ac7c2b6", size = 6157599, upload-time = "2022-08-26T12:37:12.865Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/11/cd/ec193e471780dfad60e44ded5526c123695c1354910edd537d7aa1d22094/hvplot-0.12.2-py3-none-any.whl", hash = "sha256:0687e2e4d2eeb035c437af0011922abff856054299c121914d903a02b1bb1b22", size = 180626, upload-time = "2025-12-18T11:15:35.091Z" },
+    { url = "https://files.pythonhosted.org/packages/0c/8b/d161afd3ecfaf66955fc1e27b7f5329180bd8a9f91c6e247245d488df728/hvplot-0.8.1-py2.py3-none-any.whl", hash = "sha256:222ce49b3be49741fb23a8c7077720ee2f8f15ea321fce0956bee091aea38bf8", size = 3175540, upload-time = "2022-08-26T12:37:10.442Z" },
 ]
 
 [[package]]
@@ -1823,18 +1812,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/da/34/28fff3ab31ccff1fd4f6c7c7b0ceb2b6968d8ea4950663eadcb5720591a0/lark-1.3.1.tar.gz", hash = "sha256:b426a7a6d6d53189d318f2b6236ab5d6429eaf09259f1ca33eb716eed10d2905", size = 382732, upload-time = "2025-10-27T18:25:56.653Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/82/3d/14ce75ef66813643812f3093ab17e46d3a206942ce7376d31ec2d36229e7/lark-1.3.1-py3-none-any.whl", hash = "sha256:c629b661023a014c37da873b4ff58a817398d12635d3bbb2c5a03be7fe5d1e12", size = 113151, upload-time = "2025-10-27T18:25:54.882Z" },
-]
-
-[[package]]
-name = "linkify-it-py"
-version = "2.0.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "uc-micro-py" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/2a/ae/bb56c6828e4797ba5a4821eec7c43b8bf40f69cda4d4f5f8c8a2810ec96a/linkify-it-py-2.0.3.tar.gz", hash = "sha256:68cda27e162e9215c17d786649d1da0021a451bdc436ef9e0fa0ba5234b9b048", size = 27946, upload-time = "2024-02-04T14:48:04.179Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/04/1e/b832de447dee8b582cac175871d2f6c3d5077cc56d5575cadba1fd1cccfa/linkify_it_py-2.0.3-py3-none-any.whl", hash = "sha256:6bcbc417b0ac14323382aef5c5192c0075bf8a9d6b41820a2b66371eac6b6d79", size = 19820, upload-time = "2024-02-04T14:48:02.496Z" },
 ]
 
 [[package]]
@@ -2575,36 +2552,29 @@ wheels = [
 
 [[package]]
 name = "panel"
-version = "1.8.4"
+version = "0.10.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "bleach" },
     { name = "bokeh" },
-    { name = "linkify-it-py" },
     { name = "markdown" },
-    { name = "markdown-it-py" },
-    { name = "mdit-py-plugins" },
-    { name = "narwhals" },
-    { name = "packaging" },
-    { name = "pandas" },
     { name = "param" },
+    { name = "pyct" },
     { name = "pyviz-comms" },
     { name = "requests" },
     { name = "tqdm" },
-    { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1b/62/9147e3e5b8a4971606c1aa1ecf66d889ea7529914899e4192f4c5125430b/panel-1.8.4.tar.gz", hash = "sha256:c4d6e7e3a895d3a42b6b69ee30d3acc191580619a2d1b8cd18f7f6684246a67f", size = 32098216, upload-time = "2025-12-02T18:08:02.51Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7e/d0/aa0ed415d3f2e355fcdaf03476bbdb27b6e533cbc913f412833b1f0a3baa/panel-0.10.3.tar.gz", hash = "sha256:3619d8d3aec631ba047b294163ddecfa62727ca89576bff4a8c08e84416eb212", size = 8804160, upload-time = "2021-01-18T15:17:14.491Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/27/39/796ffe83cf6a1a6458f42db0a5c2ea7671478651e8945386e89625af5fdc/panel-1.8.4-py3-none-any.whl", hash = "sha256:d0e0f316c78159c87544a403d4600f7f056a6cafdc035df5b13c9c8667c36c96", size = 30184708, upload-time = "2025-12-02T18:07:59.568Z" },
+    { url = "https://files.pythonhosted.org/packages/84/70/dfcda012b531a6acf52c00edba357d564477764890ec2303f47e6efe22af/panel-0.10.3-py2.py3-none-any.whl", hash = "sha256:0a97efd48ad9e88289c7e37b488a70eaa6e9946c8b3f886e184d5fd31aea1301", size = 8122524, upload-time = "2021-01-18T15:17:12.469Z" },
 ]
 
 [[package]]
 name = "param"
-version = "2.3.1"
+version = "1.13.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/c2/bb/ffd1606c28a957fb6444ed3edefe41373cdd7b3e001630b07e3a53a6bea3/param-2.3.1.tar.gz", hash = "sha256:84e59fc3a9bfb0e4c8100eb92d5be529deea3ec9c1f0881a0068c5caf31f21f3", size = 201772, upload-time = "2025-11-25T15:35:54.842Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b5/c2/31611c74263def346a374a5e051e99cf99a8e9a718d7e1de47c27211a59b/param-1.13.0.tar.gz", hash = "sha256:59d55048d42a85e148a69837df42bd11c3391d47fad15ba57d118e145f001ef2", size = 85349, upload-time = "2023-03-14T08:43:07.34Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/11/da/9d476e9aadfa854719f3cb917e3f7a170a657a182d8d1d6e546594a4872b/param-2.3.1-py3-none-any.whl", hash = "sha256:886b19031438719bbecfd15044dcdd9ed3cb9edb199191294f75600c7081d163", size = 139818, upload-time = "2025-11-25T15:35:53.556Z" },
+    { url = "https://files.pythonhosted.org/packages/ce/a9/2eecc0b0b21f9c256e9de036529a9f35d390a83b51f4591fb739436e51cd/param-1.13.0-py2.py3-none-any.whl", hash = "sha256:a2e3b7b07ca7dd1adaa4fb3020a3ef4fe434f27ede453a9d94194c5155677e30", size = 87350, upload-time = "2023-03-14T08:43:05.833Z" },
 ]
 
 [[package]]
@@ -2952,6 +2922,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/fe/cf/d2d3b9f5699fb1e4615c8e32ff220203e43b248e1dfcc6736ad9057731ca/pycparser-2.23.tar.gz", hash = "sha256:78816d4f24add8f10a06d6f05b4d424ad9e96cfebf68a4ddc99c65c0720d00c2", size = 173734, upload-time = "2025-09-09T13:23:47.91Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a0/e3/59cd50310fc9b59512193629e1984c1f95e5c8ae6e5d8c69532ccc65a7fe/pycparser-2.23-py3-none-any.whl", hash = "sha256:e5c6e8d3fbad53479cab09ac03729e0a9faf2bee3db8208a550daf5af81a5934", size = 118140, upload-time = "2025-09-09T13:23:46.651Z" },
+]
+
+[[package]]
+name = "pyct"
+version = "0.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "param" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/78/c3/78eeacf7cbf478db6bd41de0ee2221cc6769d81e0c10f6c1616c82a25e06/pyct-0.6.0.tar.gz", hash = "sha256:d4e513b2cf35b6165605ae5fce5f2a49985bc67473c579de85134b8c71d374a8", size = 14586, upload-time = "2025-09-26T08:26:19.987Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8c/b2/23f4032cd1c9744aa8e9ecda43cd4d755fcb209f7f40fae035248f31a679/pyct-0.6.0-py3-none-any.whl", hash = "sha256:cfaded7289fca72ddf6579b81459e3ec8db323a508e61c49aa318ee3cd6ff160", size = 16630, upload-time = "2025-09-26T08:26:19.092Z" },
 ]
 
 [[package]]
@@ -4242,15 +4224,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/5e/a7/c202b344c5ca7daf398f3b8a477eeb205cf3b6f32e7ec3a6bac0629ca975/tzdata-2025.3.tar.gz", hash = "sha256:de39c2ca5dc7b0344f2eba86f49d614019d29f060fc4ebc8a417896a620b56a7", size = 196772, upload-time = "2025-12-13T17:45:35.667Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c7/b0/003792df09decd6849a5e39c28b513c06e84436a54440380862b5aeff25d/tzdata-2025.3-py2.py3-none-any.whl", hash = "sha256:06a47e5700f3081aab02b2e513160914ff0694bce9947d6b76ebd6bf57cfc5d1", size = 348521, upload-time = "2025-12-13T17:45:33.889Z" },
-]
-
-[[package]]
-name = "uc-micro-py"
-version = "1.0.3"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/91/7a/146a99696aee0609e3712f2b44c6274566bc368dfe8375191278045186b8/uc-micro-py-1.0.3.tar.gz", hash = "sha256:d321b92cff673ec58027c04015fcaa8bb1e005478643ff4a500882eaab88c48a", size = 6043, upload-time = "2024-02-09T16:52:01.654Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/37/87/1f677586e8ac487e29672e4b17455758fce261de06a0d086167bb760361a/uc_micro_py-1.0.3-py3-none-any.whl", hash = "sha256:db1dffff340817673d7b466ec86114a9dc0e9d4d9b5ba229d9d60e5c12600cd5", size = 6229, upload-time = "2024-02-09T16:52:00.371Z" },
 ]
 
 [[package]]
