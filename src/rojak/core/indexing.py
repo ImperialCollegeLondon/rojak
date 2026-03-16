@@ -249,10 +249,18 @@ def shift_and_combine[T: (xr.Dataset, xr.DataArray)](
     offset_end: int = 1,
     shift_fill: Any = np.nan,  # noqa: ANN401
 ) -> T:
+    if offset_start < 0:
+        raise ValueError("Start offset (i.e. start shift amount) must be non-negative")
     if offset_end < 0:
-        raise ValueError("End offset (i.e. left shift amount) must be non-negative")
+        raise ValueError("End offset (i.e. end shift amount) must be non-negative")
 
-    right_shifted = target_array.shift({shift_dim: offset_start}, fill_value=shift_fill)
-    left_shifted = target_array.shift({shift_dim: -offset_end}, fill_value=shift_fill)
+    right_shifted = (
+        target_array.shift({shift_dim: offset_start}, fill_value=shift_fill) if offset_start != 0 else target_array
+    )
+    left_shifted = (
+        target_array.shift({shift_dim: -offset_end}, fill_value=shift_fill) if offset_end != 0 else target_array
+    )
 
-    return combine_func(right_shifted, left_shifted).isel(indexers={shift_dim: slice(offset_start, -offset_end)})
+    return combine_func(right_shifted, left_shifted).isel(
+        indexers={shift_dim: slice(offset_start, -offset_end if offset_end != 0 else None)}
+    )
