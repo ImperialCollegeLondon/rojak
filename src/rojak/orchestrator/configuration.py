@@ -210,7 +210,7 @@ class TurbulenceThresholds(BaseConfigModel):
             case _ as unreachable:
                 assert_never(unreachable)
 
-    def get_bounds(self, severity: TurbulenceSeverity, mode: TurbulenceThresholdMode) -> Limits:
+    def get_bounds(self, severity: TurbulenceSeverity, mode: TurbulenceThresholdMode) -> Limits[float]:
         lower_bound: float | None = self.get_by_severity(severity)
         if lower_bound is None:
             raise ValueError("Attempting to retrieve threshold value for a severity that is None")
@@ -331,6 +331,7 @@ class TurbulenceEvaluationPhaseOption(StrEnum):
     PROBABILITIES = "probabilities"
     EDR = "edr"
     TURBULENT_REGIONS = "turbulent_regions"
+    MATTHEWS_CORRELATION = "matthews_correlation"
     CORRELATION_BTW_PROBABILITIES = "correlation_between_probabilities"
     CORRELATION_BTW_EDR = "correlation_between_edr"
     REGIONAL_CORRELATION_PROBABILITIES = "regional_correlation_between_probabilities"

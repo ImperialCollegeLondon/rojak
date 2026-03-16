@@ -1,6 +1,7 @@
 import copy
 import dataclasses
-from typing import TYPE_CHECKING, Literal
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 import numpy as np
 import xarray as xr
@@ -329,3 +330,79 @@ def interpolation_on_lat_lon(
         output_dtypes=[data.dtype],
     )
     return interpolated.assign_coords({points_dim: np.arange(interp_points_shape[0])})
+
+
+class XrAggregationMethod(StrEnum):
+    ALL = "all"
+    ANY = "any"
+    ARGMAX = "argmax"
+    ARGMIN = "argmin"
+    COUNT = "count"
+    IDX_MAX = "idxmax"
+    IDX_MIN = "idxmin"
+    MAX = "max"
+    MIN = "min"
+    MEAN = "mean"
+    MEDIAN = "median"
+    PROD = "prod"
+    SUM = "sum"
+    STDDEV = "std"
+    VARIANCE = "var"
+    CUM_SUM = "cumsum"
+    CUM_PROD = "cumprod"
+
+
+@overload
+def apply_data_var_reduction(
+    data: xr.Dataset,
+    method_name: XrAggregationMethod,
+    *,
+    new_dim: str = "ensemble",
+    var_name: str = "ensemble",
+    append: Literal[False],
+    **kwargs: Any,  # noqa: ANN401
+) -> xr.DataArray: ...
+
+
+@overload
+def apply_data_var_reduction(
+    data: xr.Dataset,
+    method_name: XrAggregationMethod,
+    *,
+    new_dim: str = "ensemble",
+    var_name: str = "ensemble",
+    append: Literal[True] = True,
+    **kwargs: Any,  # noqa: ANN401
+) -> xr.Dataset: ...
+
+
+def apply_data_var_reduction(
+    data: xr.Dataset,
+    method_name: XrAggregationMethod,
+    *,
+    new_dim: str = "ensemble",
+    var_name: str = "ensemble",
+    append: bool = False,
+    **kwargs: Any,
+) -> xr.DataArray | xr.Dataset:
+    """
+    Aggregates over data variables of a data set.
+
+    Args:
+        data: Dataset to perform aggregation on
+        method_name: Name of the aggregation method
+        new_dim: Name of the new dimension to aggregate over
+        var_name: Name of the new variable in dataset or name of the aggregated data array
+        append: When True, appends aggregated data array to dataset. Otherwise, returns aggregated data array
+        **kwargs: Kwargs (excluding dim kwarg) to aggregating method. See `Xarray API docs <https://docs.xarray.dev/en/stable/api/dataarray.html#aggregation>`_.
+
+    Returns:
+        Aggregated data array or data set
+
+    """
+    as_array: xr.DataArray = data.to_array(dim=new_dim)
+    result = getattr(as_array, method_name)(dim=new_dim, **kwargs)
+
+    if append:
+        return data.assign(**{var_name: result})
+    return result.rename(var_name)

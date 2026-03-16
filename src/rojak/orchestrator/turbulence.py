@@ -48,6 +48,7 @@ from rojak.turbulence.analysis import (
     CorrelationBetweenDiagnostics,
     HistogramData,
     LatitudinalCorrelationBetweenDiagnostics,
+    MatthewsCorrelationOnThresholdedDiagnostics,
 )
 from rojak.turbulence.diagnostic import (
     CalibrationDiagnosticSuite,
@@ -231,15 +232,17 @@ class EvaluationStage:
     _phases: list[TurbulenceEvaluationPhaseOption]
     _config: "TurbulenceEvaluationConfig"
     _spatial_domain: "SpatialDomain"
+    _output_dir: "Path"
     _plots_dir: "Path"
     _start_time: TimeStr
     _image_format: str
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         calibration_result: Mapping[TurbulenceCalibrationPhaseOption, Result],
         phases_config: "TurbulenceEvaluationPhases",
         domain: "SpatialDomain",
+        output_dir: "Path",
         plots_dir: "Path",
         name: RunName,
         start_time: TimeStr,
@@ -252,6 +255,8 @@ class EvaluationStage:
         self._start_time = start_time
         self._plots_dir = plots_dir / name
         self._plots_dir.mkdir(parents=True, exist_ok=True)
+        self._output_dir = output_dir / name
+        self._output_dir.mkdir(parents=True, exist_ok=True)
         self._image_format = image_format
 
     def launch(self, diagnostics: list["TurbulenceDiagnostics"], chunks: dict) -> EvaluationStageResult:
@@ -290,7 +295,7 @@ class EvaluationStage:
             distribution_parameters=dist_params,
         )
 
-    def run_phase(self, phase: TurbulenceEvaluationPhaseOption, suite: EvaluationDiagnosticSuite) -> Result:
+    def run_phase(self, phase: TurbulenceEvaluationPhaseOption, suite: EvaluationDiagnosticSuite) -> Result:  # noqa: PLR0912
         match phase:
             case TurbulenceEvaluationPhaseOption.PROBABILITIES:
                 result = suite.probabilities
@@ -332,7 +337,7 @@ class EvaluationStage:
                     corr_on_what = "probability"
                 else:
                     corr_on_what = "edr"
-                correlation = CorrelationBetweenDiagnostics(dict(correlation_on), condition).execute()
+                correlation = CorrelationBetweenDiagnostics(dict(correlation_on), sel_condition=condition).execute()
                 chained_names: str = chain_diagnostic_names(correlation_on.keys())
                 create_diagnostic_correlation_plot(
                     correlation,
@@ -369,6 +374,36 @@ class EvaluationStage:
                     "diagnostic2",
                 )
                 return Result(correlation)
+            case TurbulenceEvaluationPhaseOption.MATTHEWS_CORRELATION:
+                thresholds = suite.thresholds()
+                if thresholds is None:
+                    raise ValueError("Thresholds must be present to compute Matthews correlation")
+                matthews_correlation: xr.DataArray = MatthewsCorrelationOnThresholdedDiagnostics(
+                    suite.as_dataset(), self._config.severities, thresholds, self._config.threshold_mode
+                ).execute()
+                chained_names: str = chain_diagnostic_names(suite.diagnostic_names())
+                # False positive by pyright - StoreLike inlcudes Path
+                # See https://zarr.readthedocs.io/en/v3.1.5/api/zarr/storage/#zarr.storage.StoreLike
+                _ = matthews_correlation.to_zarr(
+                    self._output_dir / f"matthews_corr_{chained_names}.zarr",  # pyright: ignore[reportArgumentType]
+                    mode="w",
+                    zarr_format=2,
+                )
+                for level in self._config.pressure_levels:
+                    matthews_correlation_on_level: xr.DataArray = MatthewsCorrelationOnThresholdedDiagnostics(
+                        suite.as_dataset(),
+                        self._config.severities,
+                        thresholds,
+                        self._config.threshold_mode,
+                        pressure_level=level,
+                    ).execute()
+                    _ = matthews_correlation_on_level.to_zarr(
+                        self._output_dir / f"matthews_corr_{level:.0f}_{chained_names}.zarr",  # pyright: ignore[reportArgumentType]
+                        mode="w",
+                        zarr_format=2,
+                    )
+
+                return Result(matthews_correlation)
             case _ as unreachable:
                 assert_never(unreachable)
 
@@ -398,6 +433,7 @@ class TurbulenceLauncher:
                 calibration_result,
                 self._config.phases.evaluation_phases,
                 self._context.data_config.spatial_domain,
+                self._context.output_dir,
                 self._context.plots_dir,
                 self._context.name,
                 self._start_time,

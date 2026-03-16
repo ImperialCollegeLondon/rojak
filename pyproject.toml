@@ -26,13 +26,14 @@ dependencies = [
     "crick", # necessary for dask.percentile method
     "dask",
     "distributed",
-    "netcdf4",
+    "h5netcdf[h5py]",
     "pydantic",
     "pyproj",
     "pyyaml",
     "scipy",
     "sparse",
     "xarray",
+    "zarr",
 ]
 
 [project.urls]
@@ -51,7 +52,7 @@ rojak = "rojak.cli.main:app"
 amdar = [
     "dask-geopandas",
     "geopandas",
-    "h5netcdf",
+    "netcdf4",
     "pyarrow",
 ]
 ecmwf = [

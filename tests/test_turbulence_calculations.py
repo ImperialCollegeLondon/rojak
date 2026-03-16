@@ -5,10 +5,9 @@ import pytest
 import xarray as xr
 import xarray.testing as xrt
 
-from rojak.core.constants import GRAVITATIONAL_ACCELERATION
+from rojak.core.constants import EARTH_AVG_RADIUS, GRAVITATIONAL_ACCELERATION
 from rojak.orchestrator.configuration import SpatialDomain
 from rojak.turbulence.calculations import (
-    EARTH_AVG_RADIUS,
     _WrapAroundAngleArray,
     absolute_vorticity,
     altitude_derivative_on_pressure_level,
