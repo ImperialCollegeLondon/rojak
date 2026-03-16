@@ -1,6 +1,9 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+import distributed
+import xarray as xr
+from dask.base import is_dask_collection
 from pydantic import TypeAdapter
 from rich.progress import track
 
@@ -62,6 +65,11 @@ def export_json[T](
         _ = f.write(type_adpater.dump_json(obj_to_dump, indent=indent))
 
 
+def blocking_wait_futures(dask_collection: object) -> None:
+    if is_dask_collection(dask_collection):
+        _ = distributed.wait(distributed.futures_of(dask_collection))
+
+
 def compute_distribution_parameters(context: "TurbulenceContextWithOutput", /) -> None:
     start_time: str = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
     diagnostic_factory: DiagnosticFactory = _instantiate_diagnostic_factory(context)
@@ -98,7 +106,11 @@ def compute_thresholds(context: "DiagnosticThresholdsContext", /) -> None:
     )
 
 
-def export_turbulence_diagnostics(context: "TurbulenceContextWithOutput", start_time: str, /) -> None:
+def export_turbulence_diagnostics(
+    context: "TurbulenceContextWithOutput",
+    *,
+    start_time: str,
+) -> None:
     diagnostic_factory: DiagnosticFactory = _instantiate_diagnostic_factory(context)
 
     output_to: Path = context.output_dir / context.name / start_time
@@ -107,4 +119,6 @@ def export_turbulence_diagnostics(context: "TurbulenceContextWithOutput", start_
         instantiated_diagnostic = diagnostic_factory.create(diagnostic)
         instantiated_diagnostic.to_zarr(output_to, file_name=str(diagnostic))
 
+        # Force all the futures to be completed to ensure diagnostic is deleted
+        blocking_wait_futures(instantiated_diagnostic)
         del instantiated_diagnostic

@@ -86,6 +86,6 @@ def export_diagnostic(
     output_to.mkdir(parents=True, exist_ok=True)
     _ = shutil.copy(config_file, output_to / config_file.name)
 
-    export_turbulence_diagnostics(context, start_time)
+    export_turbulence_diagnostics(context, start_time=start_time)
 
     _ = client.close()
