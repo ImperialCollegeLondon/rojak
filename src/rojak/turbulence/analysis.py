@@ -811,7 +811,6 @@ class RelationshipBetween(PostProcessor[xr.DataArray]):
     def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dim: str = "time") -> None:
         assert this_feature.dtype == other_feature.dtype
         assert this_feature.dtype == np.bool_  # For now, require the two to have a boolean dtype
-        assert {"longitude", "latitude", "pressure_level", "time"}.issubset(this_feature.coords)
         assert set(this_feature.coords).issuperset(other_feature.coords)
 
         self._this_feature = this_feature
