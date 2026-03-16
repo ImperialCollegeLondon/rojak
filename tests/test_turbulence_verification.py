@@ -25,32 +25,31 @@ from tests.conftest import time_window_for_cat_data
 
 if TYPE_CHECKING:
     import dask.array as da
-    from dask.distributed import Client
     from pytest_mock import MockerFixture
 
     from rojak.core.data import CATData
     from rojak.turbulence.verification import RocVerificationResult
 
 
-TestCaseValues = namedtuple("TestCaseValues", ["index_into_dataset", "observational_data", "indices"])
+ThisTestCaseValues = namedtuple("TestCaseValues", ["index_into_dataset", "observational_data", "indices"])
 
 AmdarTurbDataMock = namedtuple("AmdarTurbDataMock", ["amdar_data_mock", "observational_data_mock"])
 
 
-class TestCaseSize(Enum):
+class ThisTestCaseSize(Enum):
     SMALL = auto()
     LARGE = auto()
 
 
-possible_test_case_sizes: list[TestCaseSize] = [TestCaseSize.SMALL, TestCaseSize.LARGE]
+possible_test_case_sizes: list[ThisTestCaseSize] = [ThisTestCaseSize.SMALL, ThisTestCaseSize.LARGE]
 
 
 @pytest.fixture
-def get_test_case(load_cat_data) -> Callable[[TestCaseSize], TestCaseValues]:
-    def _get_test_case(size: TestCaseSize) -> TestCaseValues:
+def get_test_case(load_cat_data) -> Callable[[ThisTestCaseSize], ThisTestCaseValues]:
+    def _get_test_case(size: ThisTestCaseSize) -> ThisTestCaseValues:
         rand_generator = np.random.default_rng()
         match size:
-            case TestCaseSize.SMALL:
+            case ThisTestCaseSize.SMALL:
                 index_into_dataset = [
                     {"latitude": 0, "longitude": 2, "pressure_level": 2, "time": 0},
                     {"latitude": 1, "longitude": 5, "pressure_level": 1, "time": 0},
@@ -67,8 +66,8 @@ def get_test_case(load_cat_data) -> Callable[[TestCaseSize], TestCaseValues]:
                     "index_right": np.arange(3),
                 }
                 observational_data: dd.DataFrame = dd.from_pandas(pd.DataFrame(indices), npartitions=2)
-                return TestCaseValues(index_into_dataset, observational_data, indices)
-            case TestCaseSize.LARGE:
+                return ThisTestCaseValues(index_into_dataset, observational_data, indices)
+            case ThisTestCaseSize.LARGE:
                 cat_data: CATData = load_cat_data(None, with_chunks=True)
                 num_points: int = 30
                 indices: dict[str, np.ndarray] = {
@@ -96,7 +95,7 @@ def get_test_case(load_cat_data) -> Callable[[TestCaseSize], TestCaseValues]:
                 indices["index_right"] = np.arange(num_points)
 
                 observational_data: dd.DataFrame = dd.from_pandas(pd.DataFrame(indices), npartitions=10)
-                return TestCaseValues(index_into_dataset, observational_data, indices)
+                return ThisTestCaseValues(index_into_dataset, observational_data, indices)
             case _ as unreachable:
                 assert_never(unreachable)
 
@@ -104,7 +103,7 @@ def get_test_case(load_cat_data) -> Callable[[TestCaseSize], TestCaseValues]:
 
 
 @pytest.mark.parametrize("case_size", possible_test_case_sizes)
-def test_observation_coordinates_as_arrays(get_test_case, case_size: TestCaseSize, client: "Client") -> None:
+def test_observation_coordinates_as_arrays(get_test_case, case_size: ThisTestCaseSize) -> None:
     case = get_test_case(case_size)
     coords: ObservationCoordinates = ObservationCoordinates(
         case.observational_data["level_index"].to_dask_array(lengths=True),
@@ -147,13 +146,13 @@ class TestAmdarDataHarmoniser:
     def test_observations_index_to_grid_fails(
         self,
         mocker: "MockerFixture",
-        case_size: TestCaseSize,
+        case_size: ThisTestCaseSize,
         indexing_format: IndexingFormat,
         load_cat_data,
         get_test_case,
         client,
     ) -> None:
-        case: TestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
         cat_data: CATData = load_cat_data(None, with_chunks=True)
@@ -183,9 +182,15 @@ class TestAmdarDataHarmoniser:
     @pytest.mark.parametrize("case_size", possible_test_case_sizes)
     @pytest.mark.parametrize("stack_on_axis", [0, 1])
     def test_observations_index_to_grid_coords(
-        self, mocker: "MockerFixture", stack_on_axis: int, case_size: TestCaseSize, load_cat_data, get_test_case, client
+        self,
+        mocker: "MockerFixture",
+        stack_on_axis: int,
+        case_size: ThisTestCaseSize,
+        load_cat_data,
+        get_test_case,
+        client,
     ) -> None:
-        case: TestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
         cat_data: CATData = load_cat_data(None, with_chunks=True)
@@ -218,9 +223,9 @@ class TestAmdarDataHarmoniser:
 
     @pytest.mark.parametrize("case_size", possible_test_case_sizes)
     def test_observations_index_to_grid_ravel_equiv_coords(
-        self, mocker: "MockerFixture", case_size: TestCaseSize, load_cat_data, get_test_case, client
+        self, mocker: "MockerFixture", case_size: ThisTestCaseSize, load_cat_data, get_test_case, client
     ) -> None:
-        case: TestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
         cat_data: CATData = load_cat_data(None, with_chunks=True)
@@ -241,9 +246,9 @@ class TestAmdarDataHarmoniser:
 
     @pytest.mark.parametrize("case_size", possible_test_case_sizes)
     def test_has_observation(
-        self, mocker: "MockerFixture", case_size: TestCaseSize, load_cat_data, get_test_case, client
+        self, mocker: "MockerFixture", case_size: ThisTestCaseSize, load_cat_data, get_test_case, client
     ) -> None:
-        case: TestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
         cat_data: CATData = load_cat_data(None, with_chunks=True)
@@ -271,9 +276,9 @@ class TestAmdarDataHarmoniser:
     @pytest.mark.parametrize("case_size", possible_test_case_sizes)
     @pytest.mark.parametrize("min_edr", [0, 0.1, 0.22, 0.5, 1])
     def test_has_positive_turbulence_observation(
-        self, mocker: "MockerFixture", case_size: TestCaseSize, min_edr: float, load_cat_data, get_test_case, client
+        self, mocker: "MockerFixture", case_size: ThisTestCaseSize, min_edr: float, load_cat_data, get_test_case, client
     ) -> None:
-        case: TestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
         cat_data: CATData = load_cat_data(None, with_chunks=True)
@@ -316,9 +321,9 @@ class TestAmdarDataHarmoniser:
 class TestDiagnosticAmdarVerification:
     @pytest.mark.parametrize("case_size", possible_test_case_sizes)
     def test_data_with_diagnostics(
-        self, mocker: "MockerFixture", case_size: TestCaseSize, load_cat_data, get_test_case, client
+        self, mocker: "MockerFixture", case_size: ThisTestCaseSize, load_cat_data, get_test_case, client
     ) -> None:
-        case: TestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
         cat_data: CATData = load_cat_data(None, with_chunks=True)
@@ -358,14 +363,14 @@ class TestDiagnosticAmdarVerification:
     def test_num_obs_per_has_correct_total(
         self,
         mocker: "MockerFixture",
-        case_size: TestCaseSize,
+        case_size: ThisTestCaseSize,
         min_edr: float,
         groupby_strategy: SpatialGroupByStrategy,
         load_cat_data,
         get_test_case,
         client,
     ) -> None:
-        case: TestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
         cat_data: CATData = load_cat_data(None, with_chunks=True)
@@ -408,14 +413,14 @@ class TestDiagnosticAmdarVerification:
     def test_aggregate_by_auc_runs(
         self,
         mocker: "MockerFixture",
-        case_size: TestCaseSize,
+        case_size: ThisTestCaseSize,
         min_edr: float,
         groupby_strategy: SpatialGroupByStrategy,
         load_cat_data,
         get_test_case,
         client,
     ) -> None:
-        case: TestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
         cat_data: CATData = load_cat_data(None, with_chunks=True)
@@ -452,13 +457,13 @@ class TestDiagnosticAmdarVerification:
     def test_nearst_value_roc_runs(
         self,
         mocker: "MockerFixture",
-        case_size: TestCaseSize,
+        case_size: ThisTestCaseSize,
         min_edr: float,
         load_cat_data,
         get_test_case,
         client,
     ) -> None:
-        case: TestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
         cat_data: CATData = load_cat_data(None, with_chunks=True)
