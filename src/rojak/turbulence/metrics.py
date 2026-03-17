@@ -483,7 +483,7 @@ def _confusion_matrix_coo_reduction(truth: da.Array, prediction: da.Array) -> "N
 
 
 # Modified from: https://github.com/scikit-learn/scikit-learn/blob/c60dae20604f8b9e585fc18a8fa0e0fb50712179/sklearn/metrics/_classification.py#L371
-def confusion_matrix(truth: da.Array, prediction: da.Array) -> "NDArray":
+def confusion_matrix(truth: da.Array, prediction: da.Array) -> "NDArray[np.int_]":
     """
     Compute the confusion matrix
 
@@ -541,8 +541,8 @@ def confusion_matrix(truth: da.Array, prediction: da.Array) -> "NDArray":
 def _populate_confusion_matrix(
     truth: da.Array | None = None,
     prediction: da.Array | None = None,
-    confuse_matrix: "NDArray | None" = None,
-) -> "NDArray":
+    confuse_matrix: "NDArray[np.int_] | None" = None,
+) -> "NDArray[np.int_]":
     if confuse_matrix is None:
         if truth is None or prediction is None:
             raise ValueError("If confusion matrix is None, must provide truth and prediction")
@@ -554,7 +554,7 @@ def matthews_corr_coeff(
     *,
     truth: da.Array | None = None,
     prediction: da.Array | None = None,
-    confuse_matrix: "NDArray | None" = None,
+    confuse_matrix: "NDArray[np.int_] | None" = None,
 ) -> float:
     """
     Compute the Matthew's Correlation Coefficient
