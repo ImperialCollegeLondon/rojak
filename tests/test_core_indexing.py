@@ -296,7 +296,7 @@ class TestShiftAndCombine:
         result = shift_and_combine(simple_dataarray, offset_start=1, offset_end=1)
         assert len(result.pressure_level) == result.size
 
-    @pytest.mark.parametrize("start_offset", [-5, -1])
+    @pytest.mark.parametrize("start_offset", [-5, -1, 0, 1])
     @pytest.mark.parametrize(
         "negative_offset",
         [-1, -5, -10, -100],
