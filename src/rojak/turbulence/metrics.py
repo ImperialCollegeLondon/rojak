@@ -11,6 +11,7 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+import functools
 from functools import singledispatch
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -449,8 +450,40 @@ def _check_array_is_boolean(array: da.Array) -> None:
         raise ValueError("Array must be boolean")
 
 
+def _confusion_matrix_coo_reduction(truth: da.Array, prediction: da.Array) -> "NDArray[np.int_]":
+    # Combine them as reduction only works on a single dask array
+    combined_array: da.Array = da.vstack([truth, prediction])
+    # Force both rows to be in the same chunk so that the chunk is 2D
+    # Array: [[truth_0, ..., truth_n],
+    #          pred_0,  ..., pred_n]]
+    combined_array = combined_array.rechunk(chunks={0: 2})
+
+    # Kwargs are to comply with the expected function signature of reduction Callable
+    def on_chunk(x_chunk: np.ndarray, **kwargs) -> np.ndarray:  # noqa: ANN003,ARG001
+        truth_chunk: np.ndarray = x_chunk[0, :]
+        pred_chunk: np.ndarray = x_chunk[1, :]
+        return COO((truth_chunk, pred_chunk), np.ones_like(truth_chunk), shape=(2, 2)).todense()
+
+    # Kwargs are to comply with the expected function signature of reduction Callable
+    def to_aggregate(x_chunk: list[np.ndarray], **kwargs) -> np.ndarray:  # noqa: ANN003,ARG001
+        # Omitting axis=1 on the da.reduction call will result in a list[list[np.ndarray]] so one must use x_chunk[0]
+        # instead of x_chunk to get the list of numpy arrays
+        return functools.reduce(lambda lhs, rhs: lhs + rhs, x_chunk)
+
+    return da.reduction(
+        combined_array,
+        on_chunk,
+        to_aggregate,
+        axis=1,  # => number of columns is reduced. Result is an (2, 2) array
+        keepdims=True,  # => keep reduced dimension specified in output_size
+        output_size=2,  # Densification of COO results in (2, 2) array of counts
+        dtype=int,  # Counts are of type int
+        concatenate=False,  # => list of raw outputs from previous functions (i.e. from on_chunk to agg func)
+    ).compute()
+
+
 # Modified from: https://github.com/scikit-learn/scikit-learn/blob/c60dae20604f8b9e585fc18a8fa0e0fb50712179/sklearn/metrics/_classification.py#L371
-def confusion_matrix(truth: da.Array, prediction: da.Array) -> "NDArray":
+def confusion_matrix(truth: da.Array, prediction: da.Array) -> "NDArray[np.int_]":
     """
     Compute the confusion matrix
 
@@ -487,6 +520,14 @@ def confusion_matrix(truth: da.Array, prediction: da.Array) -> "NDArray":
 
     .. _documentation on confusion matrix: https://scikit-learn.org/stable/modules/model_evaluation.html#confusion-matrix
 
+    For a chunked dask array,
+
+    >>> x_true = x_true.rechunk(chunks=2)
+    >>> x_pred = x_pred.rechunk(chunks=2)
+    >>> tn, fp, fn, tp = confusion_matrix(x_true, x_pred).ravel().tolist()
+    >>> tn, fp, fn, tp
+    (2, 1, 2, 3)
+
     """
     if truth.ndim != 1 or prediction.ndim != 1:
         raise ValueError("truth and prediction must be 1D")
@@ -494,17 +535,14 @@ def confusion_matrix(truth: da.Array, prediction: da.Array) -> "NDArray":
     _check_array_is_boolean(truth)
     _check_array_is_boolean(prediction)
 
-    sample_weights: da.Array = da.ones(truth.shape[0], dtype=np.int_)
-    matrix: COO = COO((truth, prediction), sample_weights, shape=(2, 2))
-
-    return matrix.todense()
+    return _confusion_matrix_coo_reduction(truth, prediction)
 
 
 def _populate_confusion_matrix(
     truth: da.Array | None = None,
     prediction: da.Array | None = None,
-    confuse_matrix: "NDArray | None" = None,
-) -> "NDArray":
+    confuse_matrix: "NDArray[np.int_] | None" = None,
+) -> "NDArray[np.int_]":
     if confuse_matrix is None:
         if truth is None or prediction is None:
             raise ValueError("If confusion matrix is None, must provide truth and prediction")
@@ -516,7 +554,7 @@ def matthews_corr_coeff(
     *,
     truth: da.Array | None = None,
     prediction: da.Array | None = None,
-    confuse_matrix: "NDArray | None" = None,
+    confuse_matrix: "NDArray[np.int_] | None" = None,
 ) -> float:
     """
     Compute the Matthew's Correlation Coefficient
