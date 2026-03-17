@@ -1,4 +1,4 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Hashable, Sequence
 from typing import TYPE_CHECKING
 
 import dask.array as da
@@ -218,7 +218,7 @@ def max_combine[T: (xr.Dataset, xr.DataArray)](start: T, end: T):
 
 
 class TestShiftAndCombine:
-    """Tests initially generate by copilot using Claude Haiku 4.5
+    """Some tests initially generate by copilot using Claude Haiku 4.5
     All type hinting has been manually added and code has been modified to maintain code quality and to get tests to
     work.
     """
@@ -244,8 +244,8 @@ class TestShiftAndCombine:
         )
 
     @pytest.fixture
-    def pressure_level_dataset(self):
-        data_var = np.arange(10, dtype=float)
+    def simple_dataset(self):
+        data_var = np.ones(10, dtype=bool)
         return xr.Dataset(
             {"temperature": (["pressure_level"], data_var)},
             coords={"pressure_level": np.arange(10)},
@@ -280,6 +280,10 @@ class TestShiftAndCombine:
         result = shift_and_combine(simple_dataarray, shift_fill=0)
         assert isinstance(result, xr.DataArray)
 
+    def test_dataset_returns_dataset(self, simple_dataset: xr.Dataset):
+        result = shift_and_combine(simple_dataset, shift_fill=0)
+        assert isinstance(result, xr.Dataset)
+
     def test_dataarray_preserves_name(self, simple_dataarray: xr.DataArray):
         result = shift_and_combine(simple_dataarray, shift_fill=0)
         assert result.name == simple_dataarray.name
@@ -303,6 +307,10 @@ class TestShiftAndCombine:
     ):
         with pytest.raises(ValueError, match=r".*offset.*must be non-negative"):
             _ = shift_and_combine(simple_dataarray, offset_end=negative_offset, offset_start=start_offset)
+
+    def test_shift_dim_not_in_coords(self, simple_dataarray: xr.DataArray) -> None:
+        with pytest.raises(ValueError, match="Dimension to shift must be a coordinate"):
+            _ = shift_and_combine(simple_dataarray, shift_dim="blah", shift_fill=0)
 
     @pytest.mark.parametrize(
         ("offset_start", "offset_end", "expected_size"),
@@ -360,6 +368,49 @@ class TestShiftAndCombine:
         assert isinstance(result, xr.DataArray)
         assert result.size > 0
         assert result.size == pressure_level_dataarray.size - 2
+
+    @pytest.mark.parametrize(
+        "combine_func",
+        [
+            add_combine,
+            mean_combine,
+            min_combine,
+            max_combine,
+        ],
+        ids=["addition", "mean", "min", "max"],
+    )
+    @pytest.mark.parametrize(
+        ("offset_start", "offset_end"),
+        [
+            (0, 0),  # No offsets, full size
+            (1, 1),  # Symmetric offsets
+            (2, 1),  # Asymmetric offsets
+            (3, 2),  # Larger offsets
+            (1, 0),  # Only start offset
+            (0, 1),  # Only end offset
+        ],
+        ids=[
+            "no_offsets",
+            "symmetric_offsets",
+            "asymmetric_offsets",
+            "large_offsets",
+            "start_only",
+            "end_only",
+        ],
+    )
+    def test_dataset_offset_combinations(
+        self, multi_var_dataset: xr.DataArray, offset_start: int, offset_end: int, combine_func: Callable
+    ):
+        original_sizes: dict[Hashable, int] = dict(multi_var_dataset.sizes)
+        result = shift_and_combine(
+            multi_var_dataset,
+            offset_start=offset_start,
+            offset_end=offset_end,
+            combine_func=combine_func,
+            shift_fill=0,
+        )
+        for name, var_size in result.sizes.items():
+            assert (original_sizes[name] - (offset_start + offset_end)) == var_size
 
     @pytest.mark.parametrize("offset", [1, 2, 3, 4])
     def test_dataarray_symmetric_offsets(self, simple_dataarray: xr.DataArray, offset: int):

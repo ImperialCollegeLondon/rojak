@@ -220,7 +220,7 @@ def map_order[T](on: list[T], by: list[int]) -> list[T]:
     [15, 14, 13, 12, 11, 10]
     """
     length: int = len(by)
-    by_as_set: set = set(by)
+    by_as_set: set[int] = set(by)
 
     if len(on) != length:
         raise ValueError("Order mapping must be on lists of the same length")
@@ -253,6 +253,9 @@ def shift_and_combine[T: (xr.Dataset, xr.DataArray)](
         raise ValueError("Start offset (i.e. start shift amount) must be non-negative")
     if offset_end < 0:
         raise ValueError("End offset (i.e. end shift amount) must be non-negative")
+
+    if shift_dim not in set(target_array.coords):
+        raise ValueError("Dimension to shift must be a coordinate")
 
     right_shifted = (
         target_array.shift({shift_dim: offset_start}, fill_value=shift_fill) if offset_start != 0 else target_array
