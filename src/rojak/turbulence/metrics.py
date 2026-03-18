@@ -603,7 +603,7 @@ class ContingencyTable(NamedTuple):
     n_10: xr.DataArray
 
 
-def contingency_table(first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str) -> ContingencyTable:
+def contingency_table(x_var: xr.DataArray, y_var: xr.DataArray, sum_over: str) -> ContingencyTable:
     """
     Contingency Table for multidimensional arrays
 
@@ -612,33 +612,42 @@ def contingency_table(first_var: xr.DataArray, second_var: xr.DataArray, sum_ove
     .. math::
 
        \\begin{array}{c|c|c|c}
-           & y = 1 & y = 0 & \\text{Total} \\\\
+           & Y = 1 & Y = 0 & \\text{Total} \\\\
            \\hline
-           x = 1 & n_{11} & n_{10} & n_{1\\bullet} \\\\
-           x = 0 & n_{01} & n_{00} & n_{0\\bullet} \\\\
+           X = 1 & n_{11} & n_{10} & n_{1\\bullet} \\\\
+           X = 0 & n_{01} & n_{00} & n_{0\\bullet} \\\\
            \\hline
            \\text{Total} & n_{\\bullet1} & n_{\\bullet0} & n
        \\end{array}
 
+    When :math`X` and :math`Y` are response variables, the probability of each case :math`\\pi_{ij}` is the joint
+    distribution of :math`X` and :math`Y`, where :math`i` and :math`j` denotes the row and column respectively.
+    When :math`Y` is the response variable and :math`X` is the explanation variable, then it conditional distribution
+    of :math`Y` given :math`X`, is defined as,
+
+    .. math::
+
+        \\pi_{j | i} = \\pi_{ij} / \\pi_{i + } \\quad \\forall i \\text{ and } j
+
     Args:
-        first_var: First binary variable (x in contingency table)
-        second_var: Second binary variable (y in contingency table)
+        x_var: First binary variable (:math`x` in contingency table)
+        y_var: Second binary variable (:math`y` in contingency table)
         sum_over: Dimension to sum over to compute the number of observations
 
     Returns:
         Instance of :class:`ContingencyTable`
 
     """
-    assert set(first_var.dims) == set(second_var.dims)
-    assert sum_over in first_var.dims
-    assert first_var.dtype == second_var.dtype
-    assert first_var.dtype == np.bool_
+    assert set(x_var.dims) == set(y_var.dims)
+    assert sum_over in x_var.dims
+    assert x_var.dtype == y_var.dtype
+    assert x_var.dtype == np.bool_
 
     return ContingencyTable(
-        n_11=(first_var & second_var).sum(dim=sum_over),
-        n_10=(first_var & (~second_var)).sum(dim=sum_over),
-        n_01=((~first_var) & second_var).sum(dim=sum_over),
-        n_00=(~(first_var | second_var)).sum(dim=sum_over),
+        n_11=(x_var & y_var).sum(dim=sum_over),
+        n_10=(x_var & (~y_var)).sum(dim=sum_over),
+        n_01=((~x_var) & y_var).sum(dim=sum_over),
+        n_00=(~(x_var | y_var)).sum(dim=sum_over),
     )
 
 
