@@ -535,5 +535,13 @@ def test_ice_super_saturated_regions(load_cat_data) -> None:
             air_pressure=instantiated.temperature()["pressure_level"] * 100,
         ),
     )
+    np.testing.assert_allclose(
+        instantiated.ice_supersaturated_regions(),
+        issr(
+            air_temperature=instantiated.temperature(),
+            specific_humidity=instantiated.specific_humidity(),
+            air_pressure=instantiated.pressure_level(convert_to_pascals=False) * 100,
+        ),
+    )
 
     assert instantiated.ice_supersaturated_regions().name == "issr"
