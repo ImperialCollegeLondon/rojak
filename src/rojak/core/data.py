@@ -149,10 +149,10 @@ class CATPrognosticData:
     def altitude(self) -> xr.DataArray:
         return self._dataset["altitude"]
 
-    def pressure_level(self, in_original_units: bool = True) -> xr.DataArray:
-        if in_original_units:
-            return self._dataset["pressure_level"]
-        return self._pressure_level_prefix * self._dataset["pressure_level"]
+    def pressure_level(self, convert_to_pascals: bool = False) -> xr.DataArray:
+        if convert_to_pascals:
+            return self._pressure_level_prefix * self._dataset["pressure_level"]
+        return self._dataset["pressure_level"]
 
     def time_window(self) -> Limits[np.datetime64]:
         return Limits(self._dataset["time"].min().to_numpy().item(), self._dataset["time"].max().to_numpy().item())
@@ -215,7 +215,7 @@ class CATData(CATPrognosticData):
         return issr(
             air_temperature=self.temperature(),
             specific_humidity=self.specific_humidity(),
-            air_pressure=self.pressure_level(in_original_units=False),
+            air_pressure=self.pressure_level(convert_to_pascals=True),
         )
 
 
