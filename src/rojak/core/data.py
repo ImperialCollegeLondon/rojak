@@ -25,6 +25,7 @@ import dask_geopandas as dgpd
 import numpy as np
 import xarray as xr
 
+from rojak.atmosphere.contrails import issr
 from rojak.core import derivatives
 from rojak.core.calculations import pressure_to_altitude_icao
 from rojak.core.constants import MAX_LONGITUDE
@@ -91,6 +92,7 @@ class DataVarSchema:
 
 class CATPrognosticData:
     _dataset: xr.Dataset
+    _pressure_level_prefix: float
 
     required_variables: ClassVar[frozenset[str]] = frozenset(
         [
@@ -108,7 +110,7 @@ class CATPrognosticData:
         ["pressure_level", "latitude", "longitude", "time", "altitude"],
     )
 
-    def __init__(self, dataset: xr.Dataset) -> None:
+    def __init__(self, dataset: xr.Dataset, pressure_level_prefix: float) -> None:
         if not set(dataset.data_vars.keys()).issuperset(self.required_variables):
             missing_variables = self.required_variables - dataset.data_vars.keys()
             raise ValueError(
@@ -118,6 +120,7 @@ class CATPrognosticData:
             missing_coords = self.required_coords - dataset.coords.keys()
             raise ValueError(f"Attempting to instantiate CATPrognosticData with missing coords: {missing_coords}")
         self._dataset = dataset.sortby("time").persist()
+        self._pressure_level_prefix = pressure_level_prefix
 
     def temperature(self) -> xr.DataArray:
         return self._dataset["temperature"]
@@ -146,6 +149,11 @@ class CATPrognosticData:
     def altitude(self) -> xr.DataArray:
         return self._dataset["altitude"]
 
+    def pressure_level(self, convert_to_pascals: bool = False) -> xr.DataArray:
+        if convert_to_pascals:
+            return self._pressure_level_prefix * self._dataset["pressure_level"]
+        return self._dataset["pressure_level"]
+
     def time_window(self) -> Limits[np.datetime64]:
         return Limits(self._dataset["time"].min().to_numpy().item(), self._dataset["time"].max().to_numpy().item())
 
@@ -156,8 +164,8 @@ class CATData(CATPrognosticData):
     _shear_deformation: xr.DataArray | None = None
     _stretching_deformation: xr.DataArray | None = None
 
-    def __init__(self, dataset: xr.Dataset) -> None:
-        super().__init__(dataset)
+    def __init__(self, dataset: xr.Dataset, pressure_level_prefix: float) -> None:
+        super().__init__(dataset, pressure_level_prefix)
 
     def potential_temperature(self) -> xr.DataArray:
         if self._potential_temperature is None:
@@ -201,6 +209,13 @@ class CATData(CATPrognosticData):
         return (
             vec_derivs[VelocityDerivative.DU_DX] * vec_derivs[VelocityDerivative.DV_DY]
             - vec_derivs[VelocityDerivative.DU_DY] * vec_derivs[VelocityDerivative.DV_DX]
+        )
+
+    def ice_supersaturated_regions(self) -> xr.DataArray:
+        return issr(
+            air_temperature=self.temperature(),
+            specific_humidity=self.specific_humidity(),
+            air_pressure=self.pressure_level(convert_to_pascals=True),
         )
 
 
