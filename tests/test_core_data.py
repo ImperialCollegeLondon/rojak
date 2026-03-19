@@ -9,6 +9,7 @@ import pytest
 import xarray as xr
 import xarray.testing as xrt
 
+from rojak.atmosphere.contrails import issr
 from rojak.core.data import CATData, CATPrognosticData, as_geo_dataframe
 from rojak.core.derivatives import VelocityDerivative
 from rojak.datalib.ecmwf.era5 import Era5Data
@@ -522,3 +523,15 @@ def test_convert_to_amdar_turbulence_data(
         "latitude",
         "longitude",
     }
+
+
+def test_ice_super_saturated_regions(load_cat_data) -> None:
+    instantiated: CATData = load_cat_data(None)
+    np.testing.assert_allclose(
+        instantiated.ice_supersaturated_regions(),
+        issr(
+            air_temperature=instantiated.temperature(),
+            specific_humidity=instantiated.specific_humidity(),
+            air_pressure=instantiated.temperature()["pressure_level"] * 100,
+        ),
+    )

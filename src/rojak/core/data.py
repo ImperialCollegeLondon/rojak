@@ -25,6 +25,7 @@ import dask_geopandas as dgpd
 import numpy as np
 import xarray as xr
 
+from rojak.atmosphere.contrails import issr
 from rojak.core import derivatives
 from rojak.core.calculations import pressure_to_altitude_icao
 from rojak.core.constants import MAX_LONGITUDE
@@ -208,6 +209,13 @@ class CATData(CATPrognosticData):
         return (
             vec_derivs[VelocityDerivative.DU_DX] * vec_derivs[VelocityDerivative.DV_DY]
             - vec_derivs[VelocityDerivative.DU_DY] * vec_derivs[VelocityDerivative.DV_DX]
+        )
+
+    def ice_supersaturated_regions(self) -> xr.DataArray:
+        return issr(
+            air_temperature=self.temperature(),
+            specific_humidity=self.specific_humidity(),
+            air_pressure=self.pressure_level(in_original_units=False),
         )
 
 
