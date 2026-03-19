@@ -163,4 +163,4 @@ class Era5Data(MetData):
             ),
         )
         target_data = target_data.transpose("latitude", "longitude", "time", "pressure_level")
-        return CATData(target_data)
+        return CATData(target_data, pressure_level_prefix=100)  # pressure_level in hPa
