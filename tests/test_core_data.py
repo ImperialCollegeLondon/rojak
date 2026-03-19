@@ -319,7 +319,7 @@ def test_instantiate_cat_prognostic_fail_on_variables(make_select_domain_dummy_d
         ValueError,
         match="Attempting to instantiate CATPrognosticData with missing data variables",
     ) as excinfo:
-        CATPrognosticData(make_select_domain_dummy_data({}))
+        CATPrognosticData(make_select_domain_dummy_data({}), 100)
 
     assert excinfo.type is ValueError
 
@@ -328,13 +328,13 @@ def test_instantiate_cat_prognostic_fail_on_coords(make_dummy_cat_data):
     dummy_data = make_dummy_cat_data({})
     dummy_data = dummy_data.drop_vars("altitude")
     with pytest.raises(ValueError, match="Attempting to instantiate CATPrognosticData with missing coords") as excinfo:
-        CATPrognosticData(dummy_data)
+        CATPrognosticData(dummy_data, 100)
 
     assert excinfo.type is ValueError
 
 
 def test_instantiate_cat_prognostic_successfully(make_dummy_cat_data):
-    dummy_data = CATPrognosticData(make_dummy_cat_data({}))
+    dummy_data = CATPrognosticData(make_dummy_cat_data({}), 100)
     assert isinstance(dummy_data, CATPrognosticData)
 
 
@@ -354,13 +354,13 @@ def test_instantiate_cat_prognostic_successfully(make_dummy_cat_data):
 )
 def test_getters_on_cat_prognostic_dataset(make_dummy_cat_data, attr_name: str, dataset_name: str):
     dummy_data = make_dummy_cat_data({})
-    dataset = CATPrognosticData(dummy_data)
+    dataset = CATPrognosticData(dummy_data, 100)
 
     xrt.assert_equal(getattr(dataset, attr_name)(), dummy_data[dataset_name])
 
 
 def test_time_window_on_cat_prognostic_dataset(make_dummy_cat_data):
-    dataset = CATPrognosticData(make_dummy_cat_data({}))
+    dataset = CATPrognosticData(make_dummy_cat_data({}), 100)
     min_time = time_coordinate().min()
     max_time = time_coordinate().max()
     window: Limits = dataset.time_window()
@@ -373,7 +373,7 @@ def test_cat_data_potential_temperature(mocker: "MockerFixture", make_dummy_cat_
     temp_to_potential_temp = mocker.patch("rojak.turbulence.calculations.potential_temperature")
     temp_to_potential_temp.return_value = dummy_data["temperature"]
 
-    data = CATData(dummy_data)
+    data = CATData(dummy_data, 100)
     theta = data.potential_temperature()
     temp_to_potential_temp.assert_called_once()
     xrt.assert_equal(theta, dummy_data["temperature"])
@@ -389,7 +389,7 @@ def test_cat_data_velocity_derivatives(mocker: "MockerFixture", make_dummy_cat_d
     ret_val = {VelocityDerivative.DV_DX: None}
     velocity_derivatives.return_value = ret_val
 
-    data = CATData(dummy_data)
+    data = CATData(dummy_data, 100)
     computed_derivs = data.velocity_derivatives()
     velocity_derivatives.assert_called_once()
     assert computed_derivs == ret_val
@@ -414,7 +414,7 @@ def test_shear_and_stretch_deformation(
     method_name,
 ) -> None:
     dummy_data = make_dummy_cat_data({})
-    data = CATData(dummy_data)
+    data = CATData(dummy_data, 100)
 
     vel_deriv_mock = mocker.patch.object(data, "specific_velocity_derivative", return_value=dummy_data["eastward_wind"])
     deformation = mocker.patch(f"rojak.turbulence.calculations.{deformation_type}")
@@ -438,7 +438,7 @@ def test_shear_and_stretch_deformation(
 
 def test_total_deformation(make_dummy_cat_data) -> None:
     dummy_data = make_dummy_cat_data({})
-    data = CATData(dummy_data)
+    data = CATData(dummy_data, 100)
 
     deformation_from_class = data.total_deformation()
     total_deformation = (
@@ -455,7 +455,7 @@ def test_jacobian_horizontal_velocity(mocker: "MockerFixture", make_dummy_cat_da
     # determinant = 12 u v^2
 
     dummy_data = make_dummy_cat_data({})
-    data = CATData(dummy_data)
+    data = CATData(dummy_data, 100)
     derivatives = {
         VelocityDerivative.DU_DX: 2 * dummy_data["eastward_wind"],
         VelocityDerivative.DV_DX: -3 * dummy_data["northward_wind"] * dummy_data["northward_wind"],

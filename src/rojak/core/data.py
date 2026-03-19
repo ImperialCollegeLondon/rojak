@@ -91,6 +91,7 @@ class DataVarSchema:
 
 class CATPrognosticData:
     _dataset: xr.Dataset
+    _pressure_level_prefix: float
 
     required_variables: ClassVar[frozenset[str]] = frozenset(
         [
@@ -108,7 +109,7 @@ class CATPrognosticData:
         ["pressure_level", "latitude", "longitude", "time", "altitude"],
     )
 
-    def __init__(self, dataset: xr.Dataset) -> None:
+    def __init__(self, dataset: xr.Dataset, pressure_level_prefix: float) -> None:
         if not set(dataset.data_vars.keys()).issuperset(self.required_variables):
             missing_variables = self.required_variables - dataset.data_vars.keys()
             raise ValueError(
@@ -118,6 +119,7 @@ class CATPrognosticData:
             missing_coords = self.required_coords - dataset.coords.keys()
             raise ValueError(f"Attempting to instantiate CATPrognosticData with missing coords: {missing_coords}")
         self._dataset = dataset.sortby("time").persist()
+        self._pressure_level_prefix = pressure_level_prefix
 
     def temperature(self) -> xr.DataArray:
         return self._dataset["temperature"]
@@ -146,6 +148,11 @@ class CATPrognosticData:
     def altitude(self) -> xr.DataArray:
         return self._dataset["altitude"]
 
+    def pressure_level(self, in_original_units: bool = True) -> xr.DataArray:
+        if in_original_units:
+            return self._dataset["pressure_level"]
+        return self._pressure_level_prefix * self._dataset["pressure_level"]
+
     def time_window(self) -> Limits[np.datetime64]:
         return Limits(self._dataset["time"].min().to_numpy().item(), self._dataset["time"].max().to_numpy().item())
 
@@ -156,8 +163,8 @@ class CATData(CATPrognosticData):
     _shear_deformation: xr.DataArray | None = None
     _stretching_deformation: xr.DataArray | None = None
 
-    def __init__(self, dataset: xr.Dataset) -> None:
-        super().__init__(dataset)
+    def __init__(self, dataset: xr.Dataset, pressure_level_prefix: float) -> None:
+        super().__init__(dataset, pressure_level_prefix)
 
     def potential_temperature(self) -> xr.DataArray:
         if self._potential_temperature is None:
