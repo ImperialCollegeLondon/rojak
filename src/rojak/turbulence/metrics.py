@@ -24,7 +24,7 @@ from dask.base import is_dask_collection
 from scipy import integrate
 from sparse import COO
 
-from rojak.utilities.types import is_dask_array, is_np_array, is_xr_data_array
+from rojak.utilities.types import SupportsArithmetic, is_dask_array, is_np_array, is_xr_data_array
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -649,6 +649,162 @@ def contingency_table(x_var: xr.DataArray, y_var: xr.DataArray, sum_over: str) -
         n_01=((~x_var) & y_var).sum(dim=sum_over),
         n_00=(~(x_var | y_var)).sum(dim=sum_over),
     )
+
+
+def _sample_odd_ratio_formula[T: (SupportsArithmetic, xr.DataArray)](n_00: T, n_01: T, n_10: T, n_11: T) -> T:
+    """
+    Formula for sample odds ratio
+
+    .. math::
+
+        \\hat{\\theta} = \\frac{n_{11} * n_{00}}{n_{10} * n_{01}}
+
+    Args:
+        n_00: Count of cases where both first_var and second_var are absent
+        n_01: Count of cases where first_var is absent but second_var is present
+        n_10: Count of cases where first_var is present but second_var is absent
+        n_11: Count of cases where both first_var and second_var are present
+
+    Returns:
+        Sample odds ratio
+
+    References:
+        [Agresti2022]_
+
+    Examples:
+
+    These examples are from [Agresti2022]_
+
+    >>> n_placebo_heart_attack, n_placebo_no_attack = 18 + 171, 10845
+    >>> n_aspirin_heart_attack, n_aspirin_no_attack = 5 + 99, 10933
+    >>> _sample_odd_ratio_formula(n_placebo_heart_attack, n_placebo_no_attack, \
+        n_aspirin_heart_attack,n_aspirin_no_attack)
+    1.83
+    >>> _sample_odd_ratio_formula(n_aspirin_no_attack, n_aspirin_heart_attack, \
+        n_placebo_no_attack, n_placebo_heart_attack)
+    1.83
+    >>> n_smoker_cancer, n_smoker_no_cancer = 688, 650
+    >>> n_no_smoke_cancer, n_no_smoke_no_cancer = 21, 59
+    >>> _sample_odd_ratio_formula(n_no_smoke_no_cancer, n_no_smoke_cancer, n_smoker_no_cancer, n_smoker_cancer)
+    3.0
+    """
+    return (n_00 * n_11) / (n_01 * n_10)
+
+
+def sample_odds_ratio(
+    first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str, *, use_log: bool = True
+) -> xr.DataArray:
+    """
+    Sample odds ratio between two binary variables
+
+    An odds ratio (OR) is a statistic that quantifies the strength of the association between two events, A and B.
+    The odds ratio is defined as the ratio of the odds of event A taking place in the presence of B, and the odds of A
+    in the absence of B. Definition from `Wikipedia <https://en.wikipedia.org/wiki/Odds_ratio>`__.
+
+    Args:
+        first_var: A binary xarray DataArray representing the exposure variable
+        second_var: A binary xarray DataArray representing the outcome variable
+        sum_over: Name of the dimension to sum over when computing the 2x2 contingency table.
+                  This dimension will be aggregated to obtain cell counts (n_00, n_01, n_10, n_11).
+        use_log: If True (default), returns the natural logarithm of the odds ratio. Set to False to return the raw
+                 odds ratio. Default is True.
+
+    Returns:
+        xr.DataArray: The sample odds ratio (or log odds ratio if use_log=True).
+                      Dimensions are preserved except for the summed dimension.
+
+    Notes:
+        - OR > 1 indicates increased odds of outcome with exposure
+        - OR < 1 indicates decreased odds of outcome with exposure
+        - OR = 1 indicates no association between exposure and outcome
+        - The log odds ratio is often preferred for statistical analysis as it has better
+          distributional properties
+
+    """
+    table: ContingencyTable = contingency_table(first_var, second_var, sum_over)
+    odds_ratio: xr.DataArray = _sample_odd_ratio_formula(*table)
+    if use_log:
+        # pyright has a false positive as it doesn't recognise the xr.ufuncs
+        return np.log(odds_ratio)  # pyright: ignore[reportReturnType]
+
+    return odds_ratio
+
+
+def _relative_risk_formula[T: (SupportsArithmetic, xr.DataArray)](n_00: T, n_01: T, n_10: T, n_11: T) -> T:
+    """
+    Formula for relative risk
+
+    When expressed as probabilities, the relative risk is given as [Agresti2022]_,
+
+    .. math:: \\text{relative risk} = \\pi_{A | B} / \\pi_{A | (\\neg B)}
+
+    The implemented formula converts the conditional probability to be in terms of counts.
+
+    Args:
+        n_00: Count of cases where both first_var and second_var are absent
+        n_01: Count of cases where first_var is absent but second_var is present
+        n_10: Count of cases where first_var is present but second_var is absent
+        n_11: Count of cases where both first_var and second_var are present
+
+    Returns:
+        Relative risk
+
+    Examples:
+
+    Values which correspond to which argument depends on what the relative risk is computed with respect to. In this
+    example from [Agresti2022]_, we are computing the relative risk of experiencing a heart attack when taking a
+    placebo,
+
+    >>> n_placebo_heart_attack, n_placebo_no_attack = 18 + 171, 10845
+    >>> n_aspirin_heart_attack, n_aspirin_no_attack = 5 + 99, 10933
+    >>> rel_risk_placebo_heart_attack = _relative_risk_formula(n_aspirin_no_attack, n_aspirin_heart_attack, \
+        n_placebo_no_attack, n_placebo_heart_attack)
+    >>> rel_risk_placebo_heart_attack
+    1.82
+
+    This shows that those taking a placebo were 1.82 times the proportion suffering heart attacks of those taking
+    aspirin. If we instead wanted to know the relative risk of experiencing a heart attack when taking aspirin,
+    we find that it is equibvalent to the inverse of the previous relative risk,
+
+    >>> rel_risk_aspirin_heart_attack = _relative_risk_formula(n_placebo_no_attack, n_placebo_heart_attack, \
+        n_aspirin_no_attack, n_aspirin_heart_attack)
+    >>> bool(np.isclose(rel_risk_aspirin_heart_attack, 1/rel_risk_placebo_heart_attack))
+    True
+    """
+    return (n_11 / n_01) * ((n_01 + n_00) / (n_11 + n_10))
+
+
+def relative_risk(
+    first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str, *, use_log: bool = False
+) -> xr.DataArray:
+    """
+    Relative risk of an outcome with respect to an exposure variable
+
+    The relative risk is the ratio of the probability of an outcome occurring in the exposed group to the
+    probability of that outcome occurring in the unexposed group.
+
+    Args:
+        first_var: A binary xarray DataArray representing the exposure variable
+        second_var: A binary xarray DataArray representing the outcome variable
+        sum_over: Dimension to sum over to obtain counts
+        use_log: If True, returns the natural logarithm of the relative risk. Default is False.
+
+    Returns:
+        xr.DataArray: The relative risk (or log relative risk if use_log=True).
+             Dimensions are preserved except for the summed dimension.
+
+    Notes:
+        - Relative risk = P(outcome=1 | exposure=1) / P(outcome=1 | exposure=0)
+        - RR > 1 indicates increased risk with exposure
+        - RR < 1 indicates decreased risk with exposure
+        - RR = 1 indicates no association between exposure and outcome
+    """
+    table: ContingencyTable = contingency_table(first_var, second_var, sum_over)
+    rel_risk = _relative_risk_formula(*table)
+    if use_log:
+        # pyright has a false positive as it doesn't recognise the xr.ufuncs
+        return np.log(rel_risk)  # pyright: ignore[reportReturnType]
+    return rel_risk
 
 
 def matthews_corr_coeff_multidim(first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str) -> xr.DataArray:
