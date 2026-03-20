@@ -45,4 +45,3 @@ rojak documentation
         *Want to get into the nitty gritty?*
 
         Dive into rojak's API documentation
-

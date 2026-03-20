@@ -23,7 +23,7 @@ from rich.logging import RichHandler
 
 from rojak.cli import data_interface
 from rojak.orchestrator.configuration import Context as ConfigContext
-from rojak.orchestrator.turbulence import DiagnosticsAmdarLauncher, TurbulenceLauncher
+from rojak.orchestrator.turbulence import TurbulenceLauncher
 
 app = typer.Typer()
 app.add_typer(data_interface.data_app, name="data")
@@ -61,12 +61,7 @@ def run(
     client = Client()
     context = ConfigContext.from_yaml(config_file)
 
-    turbulence_result = None
     if context.turbulence_config is not None:
-        turbulence_result = TurbulenceLauncher(context).launch()
+        TurbulenceLauncher(context).launch()
 
-    if turbulence_result is None and context.data_config.amdar_config is not None:
-        raise ValueError("Failed to launch diagnostic amdar harmonisation as evaluation phase was not run")
-    if turbulence_result is not None and context.data_config.amdar_config is not None:
-        DiagnosticsAmdarLauncher(context.data_config, context.output_dir, context.name).launch(turbulence_result.suite)
     client.close()

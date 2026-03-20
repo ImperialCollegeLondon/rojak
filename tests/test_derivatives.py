@@ -86,7 +86,8 @@ def test_is_lat_lon_in_degrees_error(lat: "NumpyOrDataArray", lon: "NumpyOrDataA
 def test_check_lat_lon_units_warning(mocker: "MockerFixture") -> None:
     is_in_deg_mock = mocker.patch("rojak.core.derivatives._is_lat_lon_in_degrees", return_value=False)
     with pytest.warns(
-        UserWarning, match="Latitude and longitude specified to be in degrees, but are smaller than pi values"
+        UserWarning,
+        match="Latitude and longitude specified to be in degrees, but are smaller than pi values",
     ) as record:
         derivatives._ensure_lat_lon_in_deg(np.asarray([0, 1]), np.asarray([0, 1]), "deg")
 
@@ -101,7 +102,8 @@ def test_check_lat_lon_units_warning(mocker: "MockerFixture") -> None:
 def test_check_lat_lon_units_error(mocker: "MockerFixture") -> None:
     is_in_deg_mock = mocker.patch("rojak.core.derivatives._is_lat_lon_in_degrees", return_value=True)
     with pytest.raises(
-        ValueError, match="Latitude and longitude specified to be in radians, but are too large to be in radians"
+        ValueError,
+        match="Latitude and longitude specified to be in radians, but are too large to be in radians",
     ) as excinfo:
         derivatives._ensure_lat_lon_in_deg(np.asarray([0, 90]), np.asarray([180, 360]), "rad")
 
@@ -217,7 +219,8 @@ def test_get_dimension_number(create_random_lat_lon_dataarray, dim_name, expecta
     ],
 )
 def test_cartesian_dimension_get_geographic_coord_name(
-    dimension: derivatives.CartesianDimension, expected_name: str
+    dimension: derivatives.CartesianDimension,
+    expected_name: str,
 ) -> None:
     name: str | None = dimension.get_geographic_coordinate()
     assert name == expected_name
@@ -239,7 +242,9 @@ def test_cartesian_dimension_get_geographic_coord_name(
     ],
 )
 def test_cartesian_dimension_get_grid_spacing(
-    dim: derivatives.CartesianDimension, grid_deltas: derivatives.GridSpacing, expected
+    dim: derivatives.CartesianDimension,
+    grid_deltas: derivatives.GridSpacing,
+    expected,
 ) -> None:
     delta = dim.get_grid_spacing(grid_deltas)
     npt.assert_array_equal(delta, expected)
@@ -303,7 +308,7 @@ def test_get_projection_correction_factors() -> None:
             [1.19569521, 1.19569521, 1.19569521, 1.19569521],
             [1.24520235, 1.24520235, 1.24520235, 1.24520235],
             [1.30360069, 1.30360069, 1.30360069, 1.30360069],
-        ]
+        ],
     )
     meridional = np.asarray(
         [
@@ -311,7 +316,7 @@ def test_get_projection_correction_factors() -> None:
             [1.00368845, 1.00368845, 1.00368845, 1.00368845],
             [1.00313671, 1.00313671, 1.00313671, 1.00313671],
             [1.00256549, 1.00256549, 1.00256549, 1.00256549],
-        ]
+        ],
     )
     factors = derivatives.get_projection_correction_factors(
         xr.DataArray(np.linspace(30, 40, 4), dims="latitude"),
@@ -326,17 +331,20 @@ def test_get_projection_correction_factors() -> None:
 def test_first_derivative_x_squared_equal_spacing(package) -> None:
     x_squared = package.arange(10) * package.arange(10)
     npt.assert_array_equal(
-        package.gradient(x_squared, axis=0), derivatives.first_derivative(xr.DataArray(x_squared), np.ones(9), 0)
+        package.gradient(x_squared, axis=0),
+        derivatives.first_derivative(xr.DataArray(x_squared), np.ones(9), 0),
     )
     two_x = package.arange(10) * 2
     npt.assert_array_equal(derivatives.first_derivative(xr.DataArray(x_squared), np.ones(9), 0)[1:-1], two_x[1:-1])
 
     y = package.arange(15).reshape(3, 5)
     npt.assert_array_equal(
-        derivatives.first_derivative(xr.DataArray(y), np.ones(2), axis=0), package.gradient(y, axis=0)
+        derivatives.first_derivative(xr.DataArray(y), np.ones(2), axis=0),
+        package.gradient(y, axis=0),
     )
     npt.assert_array_equal(derivatives.first_derivative(xr.DataArray(y), np.ones(2), axis=0), np.ones_like(y) * 5)
     npt.assert_array_equal(
-        derivatives.first_derivative(xr.DataArray(y), np.ones(4), axis=1), package.gradient(y, axis=1)
+        derivatives.first_derivative(xr.DataArray(y), np.ones(4), axis=1),
+        package.gradient(y, axis=1),
     )
     npt.assert_array_equal(derivatives.first_derivative(xr.DataArray(y), np.ones(4), axis=1), np.ones_like(y))

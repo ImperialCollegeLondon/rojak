@@ -5,10 +5,9 @@ import pytest
 import xarray as xr
 import xarray.testing as xrt
 
-from rojak.core.constants import GRAVITATIONAL_ACCELERATION
+from rojak.core.constants import EARTH_AVG_RADIUS, GRAVITATIONAL_ACCELERATION
 from rojak.orchestrator.configuration import SpatialDomain
 from rojak.turbulence.calculations import (
-    EARTH_AVG_RADIUS,
     _WrapAroundAngleArray,
     absolute_vorticity,
     altitude_derivative_on_pressure_level,
@@ -37,7 +36,7 @@ if TYPE_CHECKING:
 @pytest.fixture
 def generate_random_array_pair() -> tuple[xr.DataArray, xr.DataArray]:
     return xr.DataArray(np.random.default_rng().random((50, 50))), xr.DataArray(
-        np.random.default_rng().random((50, 50))
+        np.random.default_rng().random((50, 50)),
     )
 
 
@@ -107,7 +106,7 @@ def test_potential_temperature_ncl_values() -> None:
                              5000, 4000, 3000, 2500, 2000]) / 100  # fmt: skip
     theta = xr.DataArray([301.762, 301.25, 301.034, 303.045, 305.421, 308.098, 310.798, 313.669, 316.543, 319.706,
                           323.491, 327.553, 331.919, 335.753, 339.777, 343.521, 346.597, 349.789, 352.211, 355.528,
-                          360.783, 376.058, 405.988, 431.206, 461.598, 499.026, 544.465, 603.697, 638.883, 690.782
+                          360.783, 376.058, 405.988, 431.206, 461.598, 499.026, 544.465, 603.697, 638.883, 690.782,
                           ])  # fmt: skip
 
     xrt.assert_allclose(theta, potential_temperature(temperature, pressure), atol=0.8)
@@ -194,7 +193,10 @@ def test_direction_cross_zero_array() -> None:
     assert isinstance(initial_direction - other_direction, _WrapAroundAngleArray)
     assert isinstance(initial - other, np.ndarray)
     np.testing.assert_raises(
-        AssertionError, np.testing.assert_array_equal, np.abs(initial - other), initial_direction - other_direction
+        AssertionError,
+        np.testing.assert_array_equal,
+        np.abs(initial - other),
+        initial_direction - other_direction,
     )
 
 
@@ -234,7 +236,7 @@ def test_angle_array_gradient_ufunc_simple(angles_data) -> None:
             angles_data,
             angles_data,
             angles_data,
-        ]
+        ],
     )
     data_array: xr.DataArray = xr.DataArray(data=target_array)
     chunked: xr.DataArray = data_array.chunk({"dim_0": 3, "dim_1": 7})
@@ -261,17 +263,20 @@ def test_direction_behaves_like_normal_abs_sub(generate_random_array_pair) -> No
     subsequent_as_direction: np.ndarray = _WrapAroundAngleArray(subsequent_angles)
 
     np.testing.assert_array_equal(
-        np.abs(initial_angles - subsequent_angles), initial_as_direction - subsequent_as_direction
+        np.abs(initial_angles - subsequent_angles),
+        initial_as_direction - subsequent_as_direction,
     )
     np.testing.assert_array_equal(
-        np.zeros_like(initial_angles) - subsequent_angles, np.zeros_like(initial_angles) - subsequent_as_direction
+        np.zeros_like(initial_angles) - subsequent_angles,
+        np.zeros_like(initial_angles) - subsequent_as_direction,
     )
     np.testing.assert_array_equal(
         np.abs(initial_angles - np.zeros_like(subsequent_angles)),
         initial_as_direction - np.zeros_like(subsequent_as_direction),
     )
     np.testing.assert_array_equal(
-        np.ones_like(initial_angles) - subsequent_angles, np.ones_like(initial_angles) - subsequent_as_direction
+        np.ones_like(initial_angles) - subsequent_angles,
+        np.ones_like(initial_angles) - subsequent_as_direction,
     )
     np.testing.assert_array_equal(
         np.abs(initial_angles - np.ones_like(subsequent_angles)),
@@ -359,7 +364,7 @@ def test_potential_vorticity_against_real_values(load_cat_data, latitude_thresho
             maximum_latitude=latitude_threshold,
             minimum_longitude=-180,
             maximum_longitude=180,
-        )
+        ),
     )
     xr.testing.assert_allclose(
         # pressure_level is in hPa => derivatives are 10^2 larger
@@ -394,10 +399,12 @@ def test_vertical_wind_shear_uniform_increase_in_one(make_dummy_cat_data) -> Non
         np.arange(dummy_array["pressure_level"].size)
     )
     xr.testing.assert_equal(
-        vertical_wind_shear(uniform_increase_in_pressure, xr.zeros_like(dummy_array)), xr.ones_like(dummy_array)
+        vertical_wind_shear(uniform_increase_in_pressure, xr.zeros_like(dummy_array)),
+        xr.ones_like(dummy_array),
     )
     xr.testing.assert_equal(
-        vertical_wind_shear(xr.zeros_like(dummy_array), uniform_increase_in_pressure), xr.ones_like(dummy_array)
+        vertical_wind_shear(xr.zeros_like(dummy_array), uniform_increase_in_pressure),
+        xr.ones_like(dummy_array),
     )
 
 
