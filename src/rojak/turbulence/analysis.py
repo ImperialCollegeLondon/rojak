@@ -40,6 +40,8 @@ from rojak.turbulence.metrics import (
     jaccard_index_multidim,
     matthews_corr_coeff,
     matthews_corr_coeff_multidim,
+    relative_risk,
+    sample_odds_ratio,
 )
 from rojak.utilities.types import (
     DistributionParameters,
@@ -859,6 +861,24 @@ class MatthewsCorrelation(RelationshipBetween):
         return matthews_corr_coeff_multidim(self._this_feature, self._other_feature, self._sum_over_dim)
 
 
+class SampleOddsRatio(RelationshipBetween):
+    def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time") -> None:
+        super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
+
+    @override
+    def execute(self) -> xr.DataArray:
+        return sample_odds_ratio(self._this_feature, self._other_feature, self._sum_over_dim, use_log=True)
+
+
+class RelativeRisk(RelationshipBetween):
+    def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time") -> None:
+        super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
+
+    @override
+    def execute(self) -> xr.DataArray:
+        return relative_risk(self._this_feature, self._other_feature, self._sum_over_dim, use_log=True)
+
+
 class RelationshipBetweenFactory:
     _this_feature: xr.DataArray
     _other_feature: xr.DataArray
@@ -871,7 +891,7 @@ class RelationshipBetweenFactory:
         self._other_feature = other_feature
         self._sum_over_dim = sum_over_dim
 
-    def create(self, type_of_relationship: RelationshipBetweenTypes) -> RelationshipBetween:
+    def create(self, type_of_relationship: RelationshipBetweenTypes) -> RelationshipBetween:  # noqa: PLR0911
         match type_of_relationship:
             case RelationshipBetweenTypes.JACCARD_INDEX:
                 return JaccardIndex(self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim)
@@ -901,6 +921,12 @@ class RelationshipBetweenFactory:
                 )
             case RelationshipBetweenTypes.MATTHEWS_CORRELATION:
                 return MatthewsCorrelation(self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim)
+            case RelationshipBetweenTypes.SAMPLE_ODDS_RATIO:
+                return SampleOddsRatio(self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim)
+            case RelationshipBetweenTypes.RELATIVE_RISK:
+                return RelativeRisk(self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim)
+            case RelationshipBetweenTypes.INVS_RELATIVE_RISK:
+                return RelativeRisk(self._other_feature, self._this_feature, sum_over_dims=self._sum_over_dim)
             case _ as unreachable:
                 assert_never(unreachable)
 
