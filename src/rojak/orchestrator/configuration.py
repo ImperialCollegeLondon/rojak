@@ -129,6 +129,9 @@ class RelationshipBetweenTypes(StrEnum):
     MATTHEWS_CORRELATION = "matthews_correlation"
     PROBABILITY_THIS_GIVEN_NOT_OTHER = "this_given_not_other"
     PROBABILITY_OTHER_GIVEN_NOT_THIS = "other_given_not_this"
+    SAMPLE_ODDS_RATIO = "sample_odds_ratio"
+    RELATIVE_RISK = "relative_risk"
+    INVS_RELATIVE_RISK = "invs_relative_risk"
 
 
 class BaseConfigModel(BaseModel):
