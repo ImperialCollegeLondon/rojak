@@ -722,7 +722,7 @@ def sample_odds_ratio(
 
     """
     table: ContingencyTable = contingency_table(first_var, second_var, sum_over)
-    odds_ratio: xr.DataArray = _sample_odd_ratio_formula(*table)
+    odds_ratio: xr.DataArray = _sample_odd_ratio_formula(table.n_00, table.n_01, table.n_10, table.n_11)
     if use_log:
         # pyright has a false positive as it doesn't recognise the xr.ufuncs
         return np.log(odds_ratio)  # pyright: ignore[reportReturnType]
@@ -800,7 +800,7 @@ def relative_risk(
         - RR = 1 indicates no association between exposure and outcome
     """
     table: ContingencyTable = contingency_table(first_var, second_var, sum_over)
-    rel_risk = _relative_risk_formula(*table)
+    rel_risk = _relative_risk_formula(table.n_00, table.n_01, table.n_10, table.n_11)
     if use_log:
         # pyright has a false positive as it doesn't recognise the xr.ufuncs
         return np.log(rel_risk)  # pyright: ignore[reportReturnType]
