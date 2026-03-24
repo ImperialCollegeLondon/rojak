@@ -267,18 +267,3 @@ def shift_and_combine[T: (xr.Dataset, xr.DataArray)](
     return combine_func(right_shifted, left_shifted).isel(
         indexers={shift_dim: slice(offset_start, -offset_end if offset_end != 0 else None)}
     )
-
-
-# Modified from pycontrails
-# https://github.com/contrailcirrus/pycontrails/blob/8a25266bcf5ead003a6b344395462ab56943e668/pycontrails/core/met.py#L2430
-def shift_longitude[T: (xr.Dataset, xr.DataArray)](
-    data: T, *, domain_bound: float = -180, sort_data: bool = True, longitude_coord_name: str = "longitude"
-) -> T:
-    # Utility function to shift data to have longitude in the range of [domain_bound, 360 + domain_bound]
-    # This also sorts it so that the data is then ascending from domain_bound
-    shifted_data: T = data.assign_coords(
-        coords={
-            longitude_coord_name: ((data[longitude_coord_name] - domain_bound) % 360) + domain_bound,
-        }
-    )
-    return shifted_data.sortby(longitude_coord_name, ascending=True) if sort_data else shifted_data
