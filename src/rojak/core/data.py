@@ -240,6 +240,21 @@ def load_from_folder(
     )
 
 
+# Modified from pycontrails
+# https://github.com/contrailcirrus/pycontrails/blob/8a25266bcf5ead003a6b344395462ab56943e668/pycontrails/core/met.py#L2430
+def shift_longitude[T: (xr.Dataset, xr.DataArray)](
+    data: T, *, domain_bound: float = -180, sort_data: bool = True, longitude_coord_name: str = "longitude"
+) -> T:
+    # Utility function to shift data to have longitude in the range of [domain_bound, 360 + domain_bound]
+    # This also sorts it so that the data is then ascending from domain_bound
+    shifted_data: T = data.assign_coords(
+        coords={
+            longitude_coord_name: ((data[longitude_coord_name] - domain_bound) % 360) + domain_bound,
+        }
+    )
+    return shifted_data.sortby(longitude_coord_name, ascending=True) if sort_data else shifted_data
+
+
 class MetData(ABC):
     _longitude_coord_name: str
     _latitude_coord_name: str
@@ -262,7 +277,7 @@ class MetData(ABC):
         max_lon = longitude_coord.max()
         min_lon = longitude_coord.min()
         if max_lon > MAX_LONGITUDE or min_lon < -MAX_LONGITUDE:
-            data = self.shift_longitude(data)
+            data = shift_longitude(data, longitude_coord_name=self._longitude_coord_name)
 
         level_coordinate = data[level_coordinate_name]
         level_slice: slice = (
@@ -291,15 +306,10 @@ class MetData(ABC):
     @abstractmethod
     def to_clear_air_turbulence_data(self, domain: "SpatialDomain") -> CATData: ...
 
-    # Modified from pycontrails
-    # https://github.com/contrailcirrus/pycontrails/blob/8a25266bcf5ead003a6b344395462ab56943e668/pycontrails/core/met.py#L2430
-    def shift_longitude(self, data: xr.Dataset, domain_bound: float = -180, sort_data: bool = True) -> xr.Dataset:
-        # Utility function to shift data to have longitude in the range of [domain_bound, 360 + domain_bound]
-        # This also sorts it so that the data is then ascending from domain_bound
-        shifted_data: xr.Dataset = data.assign_coords(
-            longitude=((data[self._longitude_coord_name] - domain_bound) % 360) + domain_bound,
+    def shift_ds_longitude(self, data: xr.Dataset, domain_bound: float = -180, sort_data: bool = True) -> xr.Dataset:
+        return shift_longitude(
+            data, domain_bound=domain_bound, sort_data=sort_data, longitude_coord_name=self._longitude_coord_name
         )
-        return shifted_data.sortby(self._longitude_coord_name, ascending=True) if sort_data else shifted_data
 
     # To be added later
     # @abstractmethod
