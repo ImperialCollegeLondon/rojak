@@ -6,10 +6,16 @@ from typing import Annotated
 import typer
 from distributed import Client
 
-from rojak.orchestrator.lite_configuration import DiagnosticThresholdsContext, TurbulenceContextWithOutput
+from rojak.orchestrator.configuration import TurbulenceSeverity, TurbulenceThresholdMode
+from rojak.orchestrator.lite_configuration import (
+    DiagnosticThresholdsContext,
+    TurbulenceContextWithAdditionalPath,
+    TurbulenceContextWithOutput,
+)
 from rojak.orchestrator.lite_controller import (
     compute_distribution_parameters,
     compute_thresholds,
+    correlation_between_diagnostics,
     export_turbulence_diagnostics,
 )
 
@@ -87,5 +93,37 @@ def export_diagnostic(
     _ = shutil.copy(config_file, output_to / config_file.name)
 
     export_turbulence_diagnostics(context, start_time=start_time)
+
+    _ = client.close()
+
+
+@turbulence_app.command()
+def diagnostic_correlation(
+    config_file: Annotated[
+        Path,
+        typer.Argument(
+            help="Path to configuration file",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+            resolve_path=True,
+        ),
+    ],
+    severity: Annotated[
+        list[TurbulenceSeverity],
+        # typer.Option(default=[TurbulenceSeverity.LIGHT, TurbulenceSeverity.MODERATE]),
+        typer.Option(),
+    ] = [TurbulenceSeverity.LIGHT, TurbulenceSeverity.MODERATE],  # noqa: B006
+    threshold_mode: Annotated[
+        TurbulenceThresholdMode,
+        # typer.Option(default=TurbulenceThresholdMode.GEQ)
+        typer.Option(),
+    ] = TurbulenceThresholdMode.GEQ,
+) -> None:
+    client = Client()
+
+    context: TurbulenceContextWithOutput = TurbulenceContextWithAdditionalPath.from_yaml(config_file)
+    correlation_between_diagnostics(context, severities=severity, threshold_mode=threshold_mode)
 
     _ = client.close()

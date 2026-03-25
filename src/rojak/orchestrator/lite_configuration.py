@@ -1,4 +1,4 @@
-from pydantic import Field
+from pydantic import DirectoryPath, Field, FilePath
 
 from rojak.orchestrator.configuration import (
     BaseConfigModel,
@@ -45,6 +45,12 @@ class BaseTurbulenceContext(BaseConfigModel):
 
 class TurbulenceContextWithOutput(BaseTurbulenceContext):
     output_dir: CreateDirectoryPath = Field(description="Output directory", repr=True, frozen=True)
+
+
+class TurbulenceContextWithAdditionalPath(TurbulenceContextWithOutput):
+    load_from: FilePath | DirectoryPath = Field(
+        description="Additional file or directory path to load from", repr=True, frozen=True
+    )
 
 
 class DiagnosticThresholdsContext(TurbulenceContextWithOutput):

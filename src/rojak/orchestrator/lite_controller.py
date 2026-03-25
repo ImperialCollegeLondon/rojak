@@ -10,7 +10,13 @@ from rich.progress import track
 from rojak.core.data import load_from_folder
 from rojak.datalib.ecmwf.era5 import Era5Data
 from rojak.orchestrator.configuration import MetDataSource, TurbulenceThresholds
-from rojak.turbulence.analysis import ComputeDistributionParametersForEDR, HistogramData, TurbulenceIntensityThresholds
+from rojak.plot.turbulence_plotter import chain_diagnostic_names
+from rojak.turbulence.analysis import (
+    ComputeDistributionParametersForEDR,
+    HistogramData,
+    MatthewsCorrelationOnThresholdedDiagnostics,
+    TurbulenceIntensityThresholds,
+)
 from rojak.turbulence.diagnostic import DiagnosticFactory
 from rojak.utilities.types import DistributionParameters
 
@@ -18,12 +24,12 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
 
-    import xarray as xr
-
     from rojak.core.data import CATData
+    from rojak.orchestrator.configuration import TurbulenceSeverity, TurbulenceThresholdMode
     from rojak.orchestrator.lite_configuration import (
         BaseTurbulenceContext,
         DiagnosticThresholdsContext,
+        TurbulenceContextWithAdditionalPath,
         TurbulenceContextWithOutput,
     )
     from rojak.utilities.types import DiagnosticName
@@ -39,12 +45,18 @@ DISTRIBUTION_PARAMS_TYPE_ADAPTER: TypeAdapter[dict[str, DistributionParameters]]
 )
 
 
+def _load_era5_data(context: "BaseTurbulenceContext", /) -> "CATData":
+    if context.data_source != MetDataSource.ERA5:
+        raise NotImplementedError("Only ERA5 data is currently supported")
+    return Era5Data(
+        load_from_folder(context.data_dir, glob_pattern=context.glob_pattern, chunks=context.chunks, engine="h5netcdf"),
+    ).to_clear_air_turbulence_data(context.spatial_domain)
+
+
 def _instantiate_diagnostic_factory(context: "BaseTurbulenceContext", /) -> DiagnosticFactory:
     if context.data_source != MetDataSource.ERA5:
         raise NotImplementedError("Only ERA5 data is currently supported")
-    source_data: CATData = Era5Data(
-        load_from_folder(context.data_dir, glob_pattern=context.glob_pattern, chunks=context.chunks, engine="h5netcdf"),
-    ).to_clear_air_turbulence_data(context.spatial_domain)
+    source_data: CATData = _load_era5_data(context)
     return DiagnosticFactory(source_data)
 
 
@@ -131,3 +143,40 @@ def export_turbulence_diagnostics(
         # Force all the futures to be completed to ensure diagnostic is deleted
         blocking_wait_futures(instantiated_diagnostic)
         del instantiated_diagnostic
+
+
+def correlation_between_diagnostics(
+    context: "TurbulenceContextWithAdditionalPath",
+    *,
+    severities: list["TurbulenceSeverity"],
+    threshold_mode: "TurbulenceThresholdMode",
+) -> None:
+    thresholds: Mapping[DiagnosticName, TurbulenceThresholds] = load_thresholds_from_file(context.load_from)
+    assert set(context.diagnostics).issubset(thresholds.keys()), "Diagnostics must be a subset of diagnostic thresholds"
+
+    # Version 1: Load everything into a dataset and hope that it doesn't load it until compute
+    all_diagnostics = xr.Dataset(
+        data_vars={
+            # pyright takes issue with the chunks kwarg. This is due to it being untyped
+            # See https://github.com/pydata/xarray/issues/11221
+            diagnostic_name: xr.open_zarr(
+                context.data_dir / f"{diagnostic_name}.zarr",
+                chunks="auto",  # pyright: ignore[reportArgumentType]
+                drop_variables=["altitude", "expver", "number"],
+                consolidated=False,
+            )[diagnostic_name]
+            for diagnostic_name in context.diagnostics
+        }
+    )
+    matthews_correlation: xr.DataArray = MatthewsCorrelationOnThresholdedDiagnostics(
+        all_diagnostics, severities, thresholds, threshold_mode
+    ).execute()
+
+    chained_names: str = chain_diagnostic_names(context.diagnostics)
+    # False positive by pyright - StoreLike includes Path
+    # See https://zarr.readthedocs.io/en/v3.1.5/api/zarr/storage/#zarr.storage.StoreLike
+    _ = matthews_correlation.to_zarr(
+        context.output_dir / f"matthews_correlation_{chained_names}.zarr",  # pyright: ignore[reportArgumentType]
+        mode="w",
+        zarr_format=2,
+    )
