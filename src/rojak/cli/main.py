@@ -25,7 +25,7 @@ from rojak.cli import data_interface, lite_interface
 from rojak.orchestrator.configuration import Context as ConfigContext
 from rojak.orchestrator.turbulence import TurbulenceLauncher
 
-app = typer.Typer()
+app = typer.Typer(pretty_exceptions_show_locals=True)
 app.add_typer(data_interface.data_app, name="data")
 app.add_typer(lite_interface.lite_app, name="lite")
 
