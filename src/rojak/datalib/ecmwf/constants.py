@@ -12,19 +12,20 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+from typing import Final
 
-reanalysis_dataset_names: dict[str, str] = {
+reanalysis_dataset_names: Final[dict[str, str]] = {
     "pressure-level": "reanalysis-era5-pressure-levels",
     "single-level": "reanalysis-era5-single-levels",
 }
 
-blank_default: dict = {
+blank_default: Final[dict] = {
     "product_type": ["reanalysis"],
     "data_format": "netcdf",
     "download_format": "unarchived",
 }
 
-cat_data_default: dict = {
+cat_data_default: Final[dict] = {
     "product_type": ["reanalysis"],
     "variable": [
         "divergence",
@@ -38,23 +39,22 @@ cat_data_default: dict = {
         "vorticity",
     ],
     # Needs year, month, day, time to be specified
-    "pressure_level": [
-        "175",
-        "200",  # Williams focuses on 200hPA
-        "225",
-    ],
-    # More pressure levels for contrail turbulence relation
     # "pressure_level": [
-    #    "150", "175", "200",
-    #    "225", "250", "300",
-    #    "350", "400", "450",
-    #    "500"
+    #     "175",
+    #     "200",  # Williams focuses on 200hPA
+    #     "225",
     # ],
+    # More pressure levels for contrail turbulence relation
+    "pressure_level": ["175", "200", "225", "250", "300", "350"],
     "data_format": "netcdf",
     "download_format": "unarchived",
 }
 
-surface_data_contrails_default: dict = {
+minimal_cat_contrails_default: Final[dict] = cat_data_default | {
+    "variable": cat_data_default["variable"] + ["relative_humidity"]
+}
+
+surface_data_contrails_default: Final[dict] = {
     "product_type": ["reanalysis"],
     "variable": [
         "surface_pressure",
@@ -67,7 +67,7 @@ surface_data_contrails_default: dict = {
 }
 
 # Contains all variables for both CAT and contrails that are on the pressure level
-contrail_cat_data_default: dict = {
+contrail_cat_data_default: Final[dict] = {
     "product_type": ["reanalysis"],
     "variable": [
         "divergence",
@@ -115,15 +115,16 @@ contrail_cat_data_default: dict = {
     "download_format": "unarchived",
 }
 
-data_defaults: dict[str, dict] = {
+data_defaults: Final[dict[str, dict]] = {
     "cat": cat_data_default,
     "surface": surface_data_contrails_default,
     "contrail": contrail_cat_data_default,
+    "minimal-cat-contrail": minimal_cat_contrails_default,
     "blank": blank_default,
 }
 
-all_hours: list[str]  = ["00:00", "01:00", "02:00", "03:00", "04:00", "05:00", "06:00", "07:00", "08:00", "09:00",
-                         "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00",
-                         "20:00", "21:00", "22:00", "23:00"]  # fmt: skip
+all_hours: Final[list[str]]  = ["00:00", "01:00", "02:00", "03:00", "04:00", "05:00", "06:00", "07:00", "08:00",
+                                "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00",
+                                "18:00", "19:00", "20:00", "21:00", "22:00", "23:00"]  # fmt: skip
 
-six_hourly: list[str] = ["00:00", "06:00", "12:00", "18:00"]  # fmt: skip
+six_hourly: Final[list[str]] = ["00:00", "06:00", "12:00", "18:00"]  # fmt: skip

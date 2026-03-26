@@ -11,31 +11,46 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
-
+import dataclasses
+import functools
 import logging
-from abc import ABC, abstractmethod
-from collections.abc import Callable, Generator, Mapping
-from enum import StrEnum
-from typing import TYPE_CHECKING, ClassVar, NamedTuple, assert_never
+from collections import defaultdict
+from collections.abc import Callable, Generator
+from enum import Enum, auto
+from typing import TYPE_CHECKING, ClassVar, Literal, NamedTuple, assert_never, cast
 
+import dask.array as da
 import dask.dataframe as dd
 import numpy as np
 import pandas as pd
+import xarray as xr
+from dask.base import is_dask_collection
+from scipy import integrate
 
-from rojak.core.calculations import bilinear_interpolation
-from rojak.core.distributed_tools import blocking_wait_futures
-from rojak.core.indexing import map_values_to_nearest_coordinate_index
-from rojak.turbulence.metrics import BinaryClassificationResult, received_operating_characteristic
-from rojak.utilities.types import Coordinate
+from rojak.core.indexing import (
+    map_index_to_coordinate_value,
+    map_order,
+    map_values_to_nearest_coordinate_index,
+    map_values_to_nearest_index_irregular_grid,
+)
+from rojak.orchestrator.configuration import (
+    AggregationMetricOption,
+    SpatialGroupByStrategy,
+)
+from rojak.turbulence.metrics import (
+    BinaryClassificationResult,
+    area_under_curve,
+    binary_classification_rate_from_cumsum,
+    received_operating_characteristic,
+)
 
 if TYPE_CHECKING:
-    import xarray as xr
     from numpy.typing import NDArray
 
     from rojak.core.data import AmdarTurbulenceData
-    from rojak.orchestrator.configuration import DiagnosticValidationCondition, TurbulenceSeverity
-    from rojak.turbulence.diagnostic import EvaluationDiagnosticSuite
-    from rojak.utilities.types import DiagnosticName, Limits
+    from rojak.orchestrator.configuration import DiagnosticValidationCondition
+    from rojak.turbulence.metrics import BinaryClassificationRateFromLabels
+    from rojak.utilities.types import Limits
 
 
 logger = logging.getLogger(__name__)
@@ -46,497 +61,635 @@ class NotWithinTimeFrameError(Exception):
         super().__init__(message)
 
 
-class DiagnosticsAmdarHarmonisationStrategyOptions(StrEnum):
-    RAW_INDEX_VALUES = "raw"
-    INDEX_TURBULENCE_INTENSITY = "index_severity"
-    EDR = "edr"
-    EDR_TURBULENCE_INTENSITY = "edr_severity"
+def get_dataframe_dtypes(data_frame: "dd.DataFrame") -> dict[str, pd.Series]:
+    return {col_name: pd.Series(dtype=col_dtype) for col_name, col_dtype in data_frame.dtypes.to_dict().items()}
 
-    def column_name_method(self, severity: "TurbulenceSeverity | None" = None) -> Callable:
-        match self:
-            case (
-                DiagnosticsAmdarHarmonisationStrategyOptions.EDR
-                | DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES
-            ):
-                assert severity is None
-                return lambda name: f"{name}_{str(self)}"
-            case (
-                DiagnosticsAmdarHarmonisationStrategyOptions.INDEX_TURBULENCE_INTENSITY
-                | DiagnosticsAmdarHarmonisationStrategyOptions.EDR_TURBULENCE_INTENSITY
-            ):
-                assert severity is not None
-                return lambda name: f"{name}_{str(self)}_{str(severity)}"
+
+class ObservationCoordinates(NamedTuple):
+    vertical_index: da.Array
+    latitude_index: dd.Series
+    longitude_index: dd.Series
+    time_index: dd.Series
+
+    def as_arrays(
+        self,
+        lat_index_key: str = "lat_index",
+        lon_index_key: str = "lon_index",
+        vertical_index_key: str = "level_index",
+        time_index_key: str = "time_index",
+    ) -> dict[str, da.Array]:
+        return {
+            lon_index_key: self.longitude_index.to_dask_array(lengths=True),
+            lat_index_key: self.latitude_index.to_dask_array(lengths=True),
+            time_index_key: self.time_index.to_dask_array(lengths=True),
+            vertical_index_key: self.vertical_index,
+        }
+
+
+class IndexingFormat(Enum):
+    COORDINATES = auto()
+    FLAT = auto()
+
+
+class AmdarDataHarmoniser:
+    _observational_data: dd.DataFrame
+    _grid_prototype: xr.DataArray
+
+    _time_coord: str
+    _level_coord: str
+    _latitude_coord: str
+    _longitude_coord: str
+    _coordinate_axes: list[str]
+    _time_window_delta: np.timedelta64
+
+    latitude_column: ClassVar[str] = "latitude"
+    longitude_column: ClassVar[str] = "longitude"
+    time_column: ClassVar[str] = "datetime"
+    level_column: ClassVar[str] = "level"
+
+    lat_index_column: ClassVar[str] = "lat_index"
+    lon_index_column: ClassVar[str] = "lon_index"
+    time_index_column: ClassVar[str] = "time_index"
+    level_index_column: ClassVar[str] = "level_index"
+
+    def __init__(  # noqa: PLR0913
+        self,
+        amdar_data: "AmdarTurbulenceData",
+        grid_prototype: xr.DataArray,
+        time_window: "Limits[np.datetime64]",
+        time_coord: str = "time",
+        level_coord: str = "pressure_level",
+        latitude_coord: str = "latitude",
+        longitude_coord: str = "longitude",
+        time_window_delta: np.timedelta64 | None = None,
+    ) -> None:
+        if time_window.lower < grid_prototype[time_coord].min() or time_window.upper > grid_prototype[time_coord].max():
+            raise NotWithinTimeFrameError("Time window is not within time coordinate of met data")
+
+        required_coords: set[str] = {longitude_coord, latitude_coord, time_coord, level_coord}
+        assert required_coords.issubset(grid_prototype.coords)
+        assert required_coords.issubset(grid_prototype.dims)
+        assert grid_prototype.ndim == len(required_coords)
+
+        self._observational_data = amdar_data.clip_to_time_window(time_window).persist()
+        self._grid_prototype = grid_prototype
+
+        self._time_coord = time_coord
+        self._level_coord = level_coord
+        self._latitude_coord = latitude_coord
+        self._longitude_coord = longitude_coord
+        self._coordinate_axes = list(required_coords)
+        if time_window_delta is None:
+            self._time_window_delta = np.timedelta64(3, "h")
+        else:
+            self._time_window_delta = time_window_delta
+
+    @property
+    def observational_data(self) -> dd.DataFrame:
+        return self._observational_data
+
+    @property
+    def grid_prototype(self) -> xr.DataArray:
+        return self._grid_prototype
+
+    def harmonised_coordinates(self) -> list[str]:
+        return self._coordinate_axes
+
+    def coordinates_of_observations(self) -> ObservationCoordinates:
+        level_index: da.Array = cast(
+            "da.Array",
+            map_values_to_nearest_index_irregular_grid(
+                self.observational_data[self.level_column], self._grid_prototype[self._level_coord].values
+            ),
+        )
+        latitude_index: dd.Series = self.observational_data.map_partitions(
+            lambda df: map_values_to_nearest_coordinate_index(
+                df[self.latitude_column],
+                self._grid_prototype[self._latitude_coord].values,
+            ),
+            # Specifying meta this way resolves this error,
+            #   AttributeError: 'DataFrame' object has no attribute 'name'
+            meta=(self.lat_index_column, int),
+        )
+        longitude_index: dd.Series = self.observational_data.map_partitions(
+            lambda df: map_values_to_nearest_coordinate_index(
+                df[self.longitude_column],
+                self._grid_prototype[self._longitude_coord].values,
+            ),
+            meta=(self.lon_index_column, int),
+        )
+        time_index: dd.Series = self.observational_data.map_partitions(
+            lambda df: map_values_to_nearest_coordinate_index(
+                df[self.time_column],
+                self._grid_prototype[self._time_coord].values,
+                valid_window=self._time_window_delta,
+            ),
+            meta=(self.time_index_column, int),
+        )
+        return ObservationCoordinates(
+            level_index,
+            latitude_index,
+            longitude_index,
+            time_index,
+        )
+
+    def observations_index_to_grid(self, indexing_format: IndexingFormat, stack_on_axis: int | None = None) -> da.Array:
+        coords_of_observation: dict[str, da.Array] = self.coordinates_of_observations().as_arrays()
+
+        map_coord_axes_to_columns: dict[str, str] = {
+            self._longitude_coord: self.lon_index_column,
+            self._latitude_coord: self.lat_index_column,
+            self._time_coord: self.time_index_column,
+            self._level_coord: self.level_index_column,
+        }
+        # Retrieves the index for each row of data and stores them as dask arrays
+        indexing_columns: list[da.Array] = [
+            coords_of_observation[map_coord_axes_to_columns[coord_name]] for coord_name in self._coordinate_axes
+        ]
+
+        axis_order: list[int] = list(self._grid_prototype.get_axis_num(self._coordinate_axes))
+        # Order of coordinate axes are not known beforehand. Therefore, use the axis order so that the index
+        # values matches the dimension of the array
+        in_order_of_array_coords: list[da.Array] = map_order(indexing_columns, axis_order)
+
+        match indexing_format:
+            case IndexingFormat.COORDINATES:
+                if stack_on_axis is None:
+                    raise TypeError("stack_on_axis cannot be None, if coordinates are to be returned")
+                # Combine the coordinates on the specified axis
+                return da.stack(in_order_of_array_coords, axis=stack_on_axis)
+            case IndexingFormat.FLAT:
+                if stack_on_axis is not None:
+                    raise TypeError("stack_on_axis must be None, if flattened indices are to be returned")
+                # Combine them such that coordinates contains [(x1, y1, z1, t1), ..., (xn, yn, zn, tn)] which are the
+                # values to slices from the computed diagnostic
+                coordinates: da.Array = da.stack(in_order_of_array_coords, axis=1)
+                return da.ravel_multi_index(coordinates.T, self._grid_prototype.shape)
             case _ as unreachable:
                 assert_never(unreachable)
 
+    def has_observation(self) -> xr.DataArray:
+        raveled_index: da.Array = self.observations_index_to_grid(IndexingFormat.FLAT)
+        store_into: da.Array = da.zeros(self._grid_prototype.size, dtype=bool).persist()
 
-class SpatialTemporalIndex(NamedTuple):
-    longitudes: list[float]
-    latitudes: list[float]
-    level: float
-    obs_time_index: int
+        if raveled_index.size > 0:
+            store_into[raveled_index] = True  # pyright:ignore[reportIndexIssue]
 
+        store_into = store_into.reshape(self._grid_prototype.shape).rechunk(self._grid_prototype.chunks)  # pyright: ignore[reportAttributeAccessIssue]
 
-class DiagnosticsAmdarHarmonisationStrategy(ABC):
-    _column_namer: Callable
-    _met_values: dict["DiagnosticName", "xr.DataArray"]
-
-    def __init__(self, column_namer: Callable, met_values: dict["DiagnosticName", "xr.DataArray"]) -> None:
-        self._column_namer = column_namer
-        self._met_values = met_values
-
-    def column_name(self, diagnostic_name: "DiagnosticName") -> str:
-        return self._column_namer(diagnostic_name)
-
-    @staticmethod
-    def get_nearest_values(indexer: SpatialTemporalIndex, values_array: "xr.DataArray") -> "xr.DataArray":
-        return values_array.isel(time=indexer.obs_time_index).sel(
-            longitude=indexer.longitudes, latitude=indexer.latitudes, pressure_level=indexer.level
+        return xr.DataArray(
+            data=store_into,
+            coords=self._grid_prototype.coords,
+            dims=self._grid_prototype.dims,
+            name="number_of_observations",
         )
 
-    def harmonise(self, indexer: SpatialTemporalIndex, observation_coord: Coordinate) -> dict:
-        output = {}
-        for name, diagnostic in self._met_values.items():  # DiagnosticName, xr.DataArray
-            surrounding_values: xr.DataArray = self.get_nearest_values(indexer, diagnostic)
+    def grid_has_positive_turbulence_observation(
+        self, positive_obs_condition: "list[DiagnosticValidationCondition]"
+    ) -> xr.Dataset:
+        assert {condition.observed_turbulence_column_name for condition in positive_obs_condition}.issubset(
+            self.observational_data.columns
+        )
+        raveled_index: da.Array = self.observations_index_to_grid(IndexingFormat.FLAT)
 
-            output[self.column_name(name)] = self.interpolate(
-                observation_coord, indexer, surrounding_values.values, name
+        data_vars: dict[str, xr.DataArray] = {}
+        for condition in positive_obs_condition:
+            was_observed: da.Array = (
+                self.observational_data[condition.observed_turbulence_column_name] > condition.value_greater_than
+            ).to_dask_array(lengths=True)
+
+            store_into_dataarray: da.Array = da.zeros(self._grid_prototype.size, dtype=bool)
+            store_into_dataarray[raveled_index] = was_observed  # pyright: ignore[reportIndexIssue]
+            store_into_dataarray = store_into_dataarray.reshape(self._grid_prototype.shape).rechunk(  # pyright:ignore[reportAttributeAccessIssue]
+                self._grid_prototype.chunks
             )
 
-        return output
-
-    # Re-usable method that's used to interpolated from the selected data points to the target point
-    @abstractmethod
-    def interpolate(
-        self,
-        observation_coord: Coordinate,
-        indexer: SpatialTemporalIndex,
-        diagnostic_values: "NDArray",
-        diagnostic_name: "DiagnosticName",
-    ) -> float: ...
-
-
-class ValuesStrategy(DiagnosticsAmdarHarmonisationStrategy):
-    def __init__(self, column_namer: Callable, met_values: dict["DiagnosticName", "xr.DataArray"]) -> None:
-        super().__init__(column_namer, met_values)
-
-    def interpolate(
-        self,
-        observation_coord: Coordinate,
-        indexer: SpatialTemporalIndex,
-        diagnostic_values: "NDArray",
-        diagnostic_name: "DiagnosticName",
-    ) -> float:
-        return bilinear_interpolation(
-            np.asarray(indexer.longitudes),
-            np.asarray(indexer.latitudes),
-            diagnostic_values,
-            observation_coord,
-        ).item()
-
-
-class DiagnosticsSeveritiesStrategy(DiagnosticsAmdarHarmonisationStrategy):
-    _severity_bounds: Mapping["DiagnosticName", "Limits"]
-
-    def __init__(
-        self,
-        column_namer: Callable,
-        met_values: dict["DiagnosticName", "xr.DataArray"],
-        thresholds: Mapping["DiagnosticName", "Limits"],
-    ) -> None:
-        super().__init__(column_namer, met_values)
-        self._thresholds = thresholds
-
-    def interpolate(
-        self,
-        observation_coord: Coordinate,
-        indexer: SpatialTemporalIndex,
-        diagnostic_values: "NDArray",
-        diagnostic_name: "DiagnosticName | None",
-    ) -> float:
-        assert diagnostic_name is not None
-        interpolated_value: float = bilinear_interpolation(
-            np.asarray(indexer.longitudes),
-            np.asarray(indexer.latitudes),
-            diagnostic_values,
-            observation_coord,
-        ).item()
-        threshold = self._thresholds[diagnostic_name]
-        return threshold.lower <= interpolated_value < threshold.upper
-
-
-class EdrSeveritiesStrategy(DiagnosticsAmdarHarmonisationStrategy):
-    _edr_bounds: "Limits"
-
-    def __init__(
-        self, column_namer: Callable, met_values: dict["DiagnosticName", "xr.DataArray"], edr_bounds: "Limits"
-    ) -> None:
-        super().__init__(column_namer, met_values)
-        self._edr_bounds = edr_bounds
-
-    def interpolate(
-        self,
-        observation_coord: Coordinate,
-        indexer: SpatialTemporalIndex,
-        diagnostic_values: "NDArray",
-        diagnostic_name: "DiagnosticName",
-    ) -> float:
-        interpolated_value: float = bilinear_interpolation(
-            np.asarray(indexer.longitudes),
-            np.asarray(indexer.latitudes),
-            diagnostic_values,
-            observation_coord,
-        ).item()
-        return self._edr_bounds.lower <= interpolated_value < self._edr_bounds.upper
-
-
-class DiagnosticsAmdarHarmonisationStrategyFactory:
-    _diagnostics_suite: "EvaluationDiagnosticSuite"
-
-    def __init__(self, diagnostics_suite: "EvaluationDiagnosticSuite") -> None:
-        self._diagnostics_suite = diagnostics_suite
-
-    def get_met_values(
-        self, option: DiagnosticsAmdarHarmonisationStrategyOptions
-    ) -> dict["DiagnosticName", "xr.DataArray"]:
-        if option in {
-            DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES,
-            DiagnosticsAmdarHarmonisationStrategyOptions.INDEX_TURBULENCE_INTENSITY,
-        }:
-            return self._diagnostics_suite.computed_values_as_dict()
-        return dict(self._diagnostics_suite.edr)
-
-    def create_strategies(
-        self, options: list[DiagnosticsAmdarHarmonisationStrategyOptions]
-    ) -> list[DiagnosticsAmdarHarmonisationStrategy]:
-        strategies = []
-        for option in options:
-            met_values = self.get_met_values(option)
-            match option:
-                case DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES:
-                    strategies.append(ValuesStrategy(option.column_name_method(), met_values))
-                case DiagnosticsAmdarHarmonisationStrategyOptions.EDR:
-                    strategies.append(ValuesStrategy(option.column_name_method(), met_values))
-                case DiagnosticsAmdarHarmonisationStrategyOptions.INDEX_TURBULENCE_INTENSITY:
-                    for severity, threshold_mapping in self._diagnostics_suite.get_limits_for_severities():
-                        strategies.append(
-                            DiagnosticsSeveritiesStrategy(
-                                option.column_name_method(severity=severity),
-                                met_values,
-                                threshold_mapping,
-                            )
-                        )
-                case DiagnosticsAmdarHarmonisationStrategyOptions.EDR_TURBULENCE_INTENSITY:
-                    for severity, edr_limits in self._diagnostics_suite.get_edr_bounds():
-                        strategies.append(
-                            EdrSeveritiesStrategy(option.column_name_method(severity=severity), met_values, edr_limits)
-                        )
-        logger.debug("Finished instantiating the harmonisation strategies")
-        return strategies
-
-
-class DiagnosticsAmdarDataHarmoniser:
-    """
-    Class brings together the turbulence diagnostics computed from meteorological data and AMDAR observational data
-    to form a unified data set
-    """
-
-    _amdar_data: "AmdarTurbulenceData"
-    _diagnostics_suite: "EvaluationDiagnosticSuite"
-
-    TIME_WINDOW_DELTA: ClassVar[np.timedelta64] = np.timedelta64(3, "h")
-
-    def __init__(self, amdar_data: "AmdarTurbulenceData", diagnostics_suite: "EvaluationDiagnosticSuite") -> None:
-        self._amdar_data = amdar_data
-        self._diagnostics_suite = diagnostics_suite
-
-    def _process_amdar_row(
-        self,
-        row: "dd.Series",
-        methods: list[DiagnosticsAmdarHarmonisationStrategy],
-        amdar_turblence_columns: list[str],
-    ) -> pd.Series:
-        longitudes = [row["min_lon"], row["max_lon"]]
-        latitudes = [row["min_lat"], row["max_lat"]]
-
-        level: float = row["level"]
-        this_time: np.datetime64 = np.datetime64(row["datetime"])
-        target_coord: Coordinate = Coordinate(row["latitude"], row["longitude"])
-
-        new_row = {
-            "datetime": this_time,
-            "level": row["level"],
-            "geometry": row["geometry"],
-            self.grid_box_column_name: row[self.grid_box_column_name],
-            "latitude": row["latitude"],
-            "longitude": row["longitude"],
-            self.common_time_column_name: row[self.common_time_column_name],
-        }
-        for column in amdar_turblence_columns:
-            new_row[column] = row[column]
-
-        indexer: SpatialTemporalIndex = SpatialTemporalIndex(
-            longitudes, latitudes, level, row[self.common_time_column_name]
-        )
-        for method in methods:
-            new_row = new_row | method.harmonise(indexer, target_coord)
-
-        return pd.Series(new_row)
-
-    @staticmethod
-    def _check_time_window_within_met_data(
-        time_window: "Limits[np.datetime64]", first_diagnostic: "xr.DataArray"
-    ) -> None:
-        time_coordinate: xr.DataArray = first_diagnostic["time"]
-        if time_window.lower < time_coordinate.min() or time_window.upper > time_coordinate.max():
-            raise NotWithinTimeFrameError("Time window is not within time coordinate of met data")
-
-    def _check_grids_match(self, representative_array: "xr.DataArray") -> None:
-        """
-        Method checks that grid of dataframe matches that of the representative array. As the coordinates of the
-        array are numpy arrays, this is a potentially expensive as a large dask graph is sent
-
-        Args:
-            representative_array: A data array that has the coordinates longitude and latitude.
-
-        Returns:
-            None
-        """
-        assert {"min_lon", "max_lon", "min_lat", "max_lat"}.issubset(self._amdar_data.data_frame.columns)
-        assert {"latitude", "longitude"}.issubset(representative_array.coords)
-        latitudes = representative_array["latitude"].to_series()
-        longitudes = representative_array["longitude"].to_series()
-
-        for column in ["min_lon", "max_lon", "min_lat", "max_lat"]:
-            if column.endswith("lon"):
-                assert self._amdar_data.data_frame[column].unique().isin(longitudes).all().compute()
-            else:  # endswith("lat")
-                assert self._amdar_data.data_frame[column].unique().isin(latitudes).all().compute()
-
-    def strategy_values_columns(
-        self, strategies: list[DiagnosticsAmdarHarmonisationStrategyOptions]
-    ) -> Generator[str, None, None]:
-        for strategy in filter(
-            lambda strat: strat
-            in {
-                DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES,
-                DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES,
-            },
-            strategies,
-        ):
-            for name in self._diagnostics_suite.diagnostic_names():
-                yield strategy.column_name_method()(name)
-
-    def _construct_meta_dataframe(
-        self, strategies: list[DiagnosticsAmdarHarmonisationStrategy], num_partitions: int
-    ) -> dd.DataFrame:
-        meta_for_new_dataframe = {
-            "datetime": "datetime64[s]",
-            "level": float,
-            "geometry": object,
-            "index_right": int,
-            "latitude": float,
-            "longitude": float,
-            "time_index": int,
-        }
-        column_names = self._amdar_data.turbulence_column_names()
-        for name in column_names:
-            meta_for_new_dataframe[name] = float
-        for strategy in strategies:
-            for name in self._diagnostics_suite.diagnostic_names():
-                meta_for_new_dataframe[strategy.column_name(name)] = float
-        return dd.from_pandas(
-            pd.DataFrame(
-                {column_name: pd.Series(dtype=data_type) for column_name, data_type in meta_for_new_dataframe.items()}
-            ),
-            npartitions=num_partitions,
-        )
-
-    def _add_time_index_column(
-        self, dataframe: "dd.DataFrame", datetime_series: "dd.Series", time_coordinate: "NDArray"
-    ) -> "dd.DataFrame":
-        return dataframe.assign(
-            time_index=map_values_to_nearest_coordinate_index(
-                datetime_series,
-                time_coordinate,
-                valid_window=self.TIME_WINDOW_DELTA,
+            data_vars[condition.observed_turbulence_column_name] = xr.DataArray(
+                data=store_into_dataarray.persist(),
+                coords=self._grid_prototype.coords,
+                dims=self._grid_prototype.dims,
+                name=condition.observed_turbulence_column_name,
             )
-        )
 
-    @property
-    def common_time_column_name(self) -> str:
-        return "time_index"
+        return xr.Dataset(data_vars=data_vars, coords=self._grid_prototype.coords)
 
-    @property
-    def grid_box_column_name(self) -> str:
-        return "index_right"
-
-    def execute_harmonisation(
-        self,
-        methods: list[DiagnosticsAmdarHarmonisationStrategyOptions],
-        time_window: "Limits[np.datetime64]",
-    ) -> "dd.DataFrame":
-        a_computed_diagnostic: xr.DataArray = next(iter(self._diagnostics_suite.computed_values_as_dict().values()))
-        self._check_time_window_within_met_data(time_window, a_computed_diagnostic)
-        # self._check_grids_match(a_computed_diagnostic)
-        logger.debug("Verified met data and AMDAR data can be harmonised")
-
-        observational_data: dd.DataFrame = self._amdar_data.clip_to_time_window(time_window)
-        current_dtypes = observational_data.dtypes.to_dict()
-        current_dtypes[self.common_time_column_name] = int
-        observational_data = observational_data.map_partitions(
-            self._add_time_index_column,
-            observational_data["datetime"],
-            a_computed_diagnostic["time"].values,
-            meta=current_dtypes,
-        ).persist()
-        logger.debug("Observational data successfully prepared to be harmonised")
-        # https://docs.dask.org/en/stable/user-interfaces.html#combining-interfaces
-        blocking_wait_futures(observational_data)
-        logger.debug("Futures from persisting observational data have completed successfully")
-
-        strategies: list[DiagnosticsAmdarHarmonisationStrategy] = DiagnosticsAmdarHarmonisationStrategyFactory(
-            self._diagnostics_suite
-        ).create_strategies(methods)
-
-        logger.info("Starting harmonisation with %s strategies", len(strategies))
-        return observational_data.apply(
-            self._process_amdar_row,
-            axis=1,
-            meta=self._construct_meta_dataframe(strategies, observational_data.npartitions),
-            args=(strategies, self._amdar_data.turbulence_column_names()),
+    def observation_data_with_indices(self) -> dd.DataFrame:
+        coords_of_observation: ObservationCoordinates = self.coordinates_of_observations()
+        return self.observational_data.assign(
+            **{
+                self.level_index_column: coords_of_observation.vertical_index,
+                self.lat_index_column: coords_of_observation.latitude_index,
+                self.lon_index_column: coords_of_observation.latitude_index,
+                self.time_index_column: coords_of_observation.time_index,
+            }
         )
 
 
-def _observed_turbulence_aggregation(condition: "DiagnosticValidationCondition") -> dd.Aggregation:
-    # See https://docs.dask.org/en/latest/dataframe-groupby.html#dataframe-groupby-aggregate
-    def on_chunk(within_partition: "pd.Series") -> float:
-        return within_partition.max()
-
-    def aggregate_chunks(chunk_maxes: "pd.Series") -> float:
-        return chunk_maxes.max()
-
-    def apply_condition(maxima: float) -> float:
-        return maxima > condition.value_greater_than
-
+def _any_aggregation() -> dd.Aggregation:
     return dd.Aggregation(
-        name=f"has_turbulence_{condition.observed_turbulence_column_name}_{condition.value_greater_than:0.2f}",
-        chunk=on_chunk,
-        agg=aggregate_chunks,
-        finalize=apply_condition,
+        name="aggregate_by_any",
+        chunk=lambda within_partition: within_partition.any(),
+        agg=lambda across_partitions: across_partitions.any(),
     )
 
 
-# Keep this extendable for verification against other forms of data??
-class DiagnosticAmdarVerification:
-    _data_harmoniser: "DiagnosticsAmdarDataHarmoniser"
-    _harmonised_data: "dd.DataFrame | None"
-    _time_window: "Limits[np.datetime64]"
+def metric_based_aggregation(
+    condition: "DiagnosticValidationCondition",
+    minimum_group_size: int,
+    aggregation_function: AggregationMetricOption,
+    integration_scheme: Literal["trapz", "simpson"] = "simpson",
+) -> dd.Aggregation:
+    assert minimum_group_size > 0, "Minimum group size must be positive"
 
-    def __init__(self, data_harmoniser: "DiagnosticsAmdarDataHarmoniser", time_window: "Limits[np.datetime64]") -> None:
+    def apply_condition(on_chunk: "pd.api.typing.SeriesGroupBy") -> "pd.Series":
+        return on_chunk.apply(lambda row: row > condition.value_greater_than)
+
+    def aggregate_with_cumsum(on_partition: "pd.api.typing.SeriesGroupBy") -> "pd.Series":
+        return on_partition.cumsum()
+
+    def prevalence_from_cumsum(on_group: "pd.Series") -> float:
+        group_size: int = on_group.size
+        if group_size < minimum_group_size:
+            return np.nan
+
+        return float(on_group.to_numpy()[-1] / group_size)
+
+    def tss_from_cumsum(on_group: "pd.Series") -> float:
+        group_size: int = on_group.size
+        if group_size < minimum_group_size:
+            return np.nan
+
+        binary_classification: BinaryClassificationRateFromLabels | None = binary_classification_rate_from_cumsum(
+            on_group,
+        )
+        if binary_classification is None:
+            return -1
+
+        tss: NDArray = binary_classification.true_positives_rate + binary_classification.false_positives_rate - 1
+        return tss.max()
+
+    def auc_from_cumsum(on_group: "pd.Series") -> float:
+        group_size: int = on_group.size
+        if group_size < minimum_group_size:
+            return np.nan
+
+        binary_classification: BinaryClassificationRateFromLabels | None = binary_classification_rate_from_cumsum(
+            on_group,
+        )
+        if binary_classification is None:
+            return -1
+
+        if integration_scheme == "trapz":
+            return float(
+                np.trapezoid(binary_classification.true_positives_rate, x=binary_classification.false_positives_rate),
+            )
+        return float(
+            integrate.simpson(binary_classification.true_positives_rate, x=binary_classification.false_positives_rate),
+        )
+
+    finalisers: dict[AggregationMetricOption, Callable[[pd.Series], float]] = {
+        AggregationMetricOption.AUC: auc_from_cumsum,
+        AggregationMetricOption.TSS: tss_from_cumsum,
+        AggregationMetricOption.PREVALENCE: prevalence_from_cumsum,
+    }
+
+    return dd.Aggregation(
+        name=f"{aggregation_function}_on_{condition.observed_turbulence_column_name}_{condition.value_greater_than:0.2f}",
+        chunk=apply_condition,
+        agg=aggregate_with_cumsum,
+        # See https://docs.dask.org/en/latest/dataframe-groupby.html#aggregate
+        # The example for nunique has this groupby
+        # My understanding is that it forces the partition into the original groups, on which, I am applying
+        # the cumsum => result is still separated based on the groups
+        finalize=lambda on_aggregation_result: on_aggregation_result.groupby(
+            level=list(range(on_aggregation_result.index.nlevels)),
+        ).apply(finalisers[aggregation_function]),
+    )
+
+
+@dataclasses.dataclass
+class RocVerificationResult:
+    # first key: amdar column name
+    # second key: diagnostic column name
+    by_amdar_col_then_diagnostic: dict[str, dict[str, BinaryClassificationResult]]
+    _auc_by_amdar_then_diagnostic: dict[str, dict[str, float]] | None = None
+
+    # define iterators and getters on this class
+    def iterate_by_amdar_column(self) -> Generator[tuple[str, dict[str, BinaryClassificationResult]], None, None]:
+        yield from self.by_amdar_col_then_diagnostic.items()
+
+    def _area_under_curve(self) -> dict[str, dict[str, float]]:
+        if self._auc_by_amdar_then_diagnostic is None:
+            auc = defaultdict(dict)
+            for column, by_diagnostic in self.by_amdar_col_then_diagnostic.items():
+                for diagnostic_name, roc_results in by_diagnostic.items():
+                    auc[column][diagnostic_name] = area_under_curve(
+                        roc_results.false_positives,
+                        roc_results.true_positives,
+                    )
+            self._auc_by_amdar_then_diagnostic = dict(auc)
+        return self._auc_by_amdar_then_diagnostic
+
+    def auc_for_amdar_column(self, amdar_column: str) -> dict[str, float]:
+        return self._area_under_curve()[amdar_column]
+
+
+# Keep this extendable for verification against other forms of data??
+class DiagnosticsAmdarVerification:
+    _data_harmoniser: "AmdarDataHarmoniser"
+    _harmonised_data: "dd.DataFrame | None"
+    _turbulence_diagnostics: xr.Dataset
+
+    _grid_box_column: str
+
+    def __init__(
+        self,
+        data_harmoniser: AmdarDataHarmoniser,
+        turbulence_diagnostics: xr.Dataset,
+        grid_box_column: str = "index_right",
+    ) -> None:
+        assert grid_box_column in data_harmoniser.observational_data.columns
+
+        if not set(data_harmoniser.harmonised_coordinates()).issubset(turbulence_diagnostics.coords):
+            raise ValueError(
+                "Coordinates of grid prototype amdar harmonised with does not match turbulence diagnostics"
+            )
+        for harmonised_coord in data_harmoniser.harmonised_coordinates():
+            if not np.issubdtype(turbulence_diagnostics[harmonised_coord].dtype, np.datetime64) and not np.allclose(
+                turbulence_diagnostics[harmonised_coord], data_harmoniser.grid_prototype[harmonised_coord]
+            ):
+                raise ValueError(
+                    "Values of coordinates of grid prototype amdar harmonised are not equal to diagnostics"
+                )
+
+        if not is_dask_collection(turbulence_diagnostics):
+            raise TypeError("Turbulence diagnostics must have dask-backed arrays")
+
         self._data_harmoniser = data_harmoniser
         self._harmonised_data = None
-        self._time_window = time_window
+
+        self._turbulence_diagnostics = turbulence_diagnostics
+        self._grid_box_column = grid_box_column
+
+    def _add_nearest_diagnostic_value(self) -> dd.DataFrame:
+        raveled_index: da.Array = self._data_harmoniser.observations_index_to_grid(IndexingFormat.FLAT).persist()
+        target_dataframe: dd.DataFrame = self._data_harmoniser.observation_data_with_indices().persist()
+        return target_dataframe.assign(
+            **{
+                str(diagnostic_name): da.ravel(diagnostic_dataarray.data)[raveled_index]
+                .to_dask_dataframe(
+                    meta=pd.DataFrame({diagnostic_name: pd.Series(dtype=float)}),
+                    index=target_dataframe.index,
+                    columns=diagnostic_name,
+                )
+                .persist()
+                for diagnostic_name, diagnostic_dataarray in self._turbulence_diagnostics.data_vars.items()  # type: str, xr.DataArray
+            }
+        )
+
+    @property
+    def harmonised_diagnostics(self) -> list[str]:
+        return list(map(str, self._turbulence_diagnostics.keys()))
+
+    @property
+    def grid_box_column(self) -> str:
+        return self._grid_box_column
 
     @property
     def data(self) -> "dd.DataFrame":
         if self._harmonised_data is None:
-            data: dd.DataFrame = self._data_harmoniser.execute_harmonisation(
-                [DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES], self._time_window
-            ).persist()  # Need to do this assignment to make pyright happy
-            self._harmonised_data = data
-            blocking_wait_futures(self._harmonised_data)
-            return self._harmonised_data
+            self._harmonised_data = self._add_nearest_diagnostic_value().persist()
+        assert isinstance(self._harmonised_data, dd.DataFrame)
         return self._harmonised_data
 
-    def _add_nearest_grid_indices(
+    def _grid_spatial_columns(self, group_by_strategy: SpatialGroupByStrategy) -> list[str]:
+        match group_by_strategy:
+            case SpatialGroupByStrategy.GRID_BOX:
+                return [
+                    self.grid_box_column,
+                    AmdarDataHarmoniser.level_index_column,
+                ]
+            case SpatialGroupByStrategy.GRID_POINT:
+                return [
+                    AmdarDataHarmoniser.lat_index_column,
+                    AmdarDataHarmoniser.lon_index_column,
+                    AmdarDataHarmoniser.level_index_column,
+                ]
+            case SpatialGroupByStrategy.HORIZONTAL_BOX:
+                return [self.grid_box_column]
+            case SpatialGroupByStrategy.HORIZONTAL_POINT:
+                return [AmdarDataHarmoniser.lat_index_column, AmdarDataHarmoniser.lon_index_column]
+            case _ as unreachable:
+                assert_never(unreachable)
+
+    @staticmethod
+    def _concat_columns_as_str(data_frame: dd.DataFrame, column_names: list[str], separator: str = "_") -> dd.Series:
+        multi_index_columns = [data_frame[col_name].astype(str) for col_name in column_names]
+        return functools.reduce(lambda left, right: left + separator + right, multi_index_columns)
+
+    def _retrieve_grouped_columns(
         self,
-        validation_columns: list[str],
-        grid_prototype: "xr.DataArray",
-    ) -> "dd.DataFrame":
-        space_time_columns: list[str] = [
-            self._data_harmoniser.common_time_column_name,
-            "level",
-            "longitude",
-            "latitude",
-        ]
-        target_columns = space_time_columns + validation_columns
-        target_data: dd.DataFrame = self.data[target_columns]
-        target_data = target_data.map_partitions(
-            lambda df: df.assign(
-                level_index=df.apply(
-                    lambda row, pressure_level=grid_prototype["pressure_level"].values: np.abs(  # noqa: PD011
-                        row.level - pressure_level
-                    ).argmin(),
-                    axis=1,
-                )
+        data_frame: dd.DataFrame,
+        grouped_columns: list[str],
+        trigger_reset_index: bool,
+    ) -> dd.DataFrame:
+        # Converted lambda to named function and inlined the static method as running it in pytest threw a
+        # tokenisation error from dask
+        def assign_grouped_column(data_frame_: pd.DataFrame, grouped_columns_: list[str]) -> pd.DataFrame:
+            return data_frame_.assign(
+                **{
+                    grouped_column: data_frame_.index.get_level_values(grouped_column)
+                    for grouped_column in grouped_columns_
+                }
             )
+
+        data_frame = data_frame.map_partitions(assign_grouped_column, grouped_columns)
+
+        if self.grid_box_column in set(grouped_columns) and trigger_reset_index:
+            # set_index is an expensive operation due to the shuffles it triggers
+            #   However, this cost has been undertaken as it means that the data can be joined INTO a GeoPandas
+            #   grid turning the entire thing into a GeoDataFrame without having to invoke dgpd.from_dask_dataframe.
+            #   It also means that the crs will be inherited and not require manual intervention
+            data_frame = data_frame.set_index(data_frame[self.grid_box_column], drop=True)
+        elif trigger_reset_index:
+            data_frame = data_frame.reset_index(drop=True)
+
+        return data_frame.persist()
+
+    def _retrieve_index_column_values(
+        self,
+        data_frame: dd.DataFrame,
+        grouped_columns: list[str],
+        prototype_array: "xr.DataArray",
+        drop_index_cols: bool,
+    ) -> dd.DataFrame:
+        assert {"pressure_level", "longitude", "latitude"}.issubset(prototype_array.coords)
+        index_columns: list[str] = list(
+            {
+                AmdarDataHarmoniser.lon_index_column,
+                AmdarDataHarmoniser.lat_index_column,
+                AmdarDataHarmoniser.level_index_column,
+            }.intersection(grouped_columns),
         )
-        return target_data.map_partitions(
+        if not index_columns:  # set is empty
+            return data_frame
+
+        col_name_mapping: dict[str, str] = {
+            AmdarDataHarmoniser.lon_index_column: "longitude",
+            AmdarDataHarmoniser.lat_index_column: "latitude",
+            AmdarDataHarmoniser.level_index_column: "pressure_level",
+        }
+
+        data_frame_dtypes = get_dataframe_dtypes(data_frame)
+        for index_col_name in index_columns:
+            value_col_name = col_name_mapping[index_col_name]
+            data_frame_dtypes[value_col_name] = pd.Series(dtype=float)
+
+        data_frame = data_frame.map_partitions(
             lambda df: df.assign(
-                lat_index=map_values_to_nearest_coordinate_index(df.latitude, grid_prototype["latitude"].values),
-                lon_index=map_values_to_nearest_coordinate_index(df.longitude, grid_prototype["longitude"].values),
-            )
+                **{
+                    col_name_mapping[col_name]: map_index_to_coordinate_value(
+                        df[col_name],
+                        prototype_array[col_name_mapping[col_name]].to_numpy(),
+                    )
+                    for col_name in index_columns
+                },
+            ),
+            meta=pd.DataFrame(data_frame_dtypes),
         )
 
-    def _spatio_temporal_data_aggregation(
+        if drop_index_cols:
+            return data_frame.drop(columns=index_columns)
+
+        return data_frame
+
+    def num_obs_per(
         self,
-        target_data: "dd.DataFrame",
-        validation_columns: list[str],
-        strategy_columns: list[str],
         validation_conditions: "list[DiagnosticValidationCondition]",
-    ) -> "dd.DataFrame":
-        group_by_columns: list[str] = [
-            "lat_index",
-            "lon_index",
-            "level_index",
-            self._data_harmoniser.common_time_column_name,
-        ]
-        target_columns = group_by_columns + validation_columns + strategy_columns
-        grouped_by_space_time = target_data[target_columns].groupby(group_by_columns)
+        group_by_strategy: SpatialGroupByStrategy,
+    ) -> dd.DataFrame:
+        target_data: dd.DataFrame = self._spatial_data_grouping(validation_conditions, group_by_strategy)
+        turbulence_col: str = validation_conditions[0].observed_turbulence_column_name
+        groupby_columns: list[str] = self._grid_spatial_columns(group_by_strategy)
+        minimum_columns: list[str] = [*groupby_columns, turbulence_col]
+        num_obs = target_data[minimum_columns].groupby(groupby_columns).count()
+        num_obs = self._retrieve_grouped_columns(num_obs, groupby_columns, True)
+        return num_obs.rename(columns={turbulence_col: "num_obs"})
+
+    def _spatial_data_grouping(
+        self,
+        validation_conditions: "list[DiagnosticValidationCondition]",
+        group_by_strategy: SpatialGroupByStrategy,
+    ) -> dd.DataFrame:
+        target_data: dd.DataFrame = self.data
+        space_columns = self._grid_spatial_columns(group_by_strategy)
+        validation_columns = self._get_validation_column_names(validation_conditions)
+        target_cols = space_columns + validation_columns + self.harmonised_diagnostics
+        target_data = target_data[target_cols]
+
+        # 1) Use the columns that will be used to spatially group the data as the index of the dataframe
+        #    Without a column as the index, the aggregation to compute AUC fails with,
+        #       ValueError: If using all scalar values, you must pass an index
+        target_data["multi_index"] = self._concat_columns_as_str(target_data, space_columns)
+
+        # Dask doesn't support multi-index so we've got to use a "poor man's" multi-index
+        return target_data.set_index("multi_index").persist()
+
+    def aggregate_by_auc(
+        self,
+        validation_conditions: "list[DiagnosticValidationCondition]",
+        group_by_strategy: SpatialGroupByStrategy,
+        minimum_group_size: int,
+        aggregation_metric: AggregationMetricOption,
+    ) -> dict[str, dd.DataFrame]:
+        space_columns = self._grid_spatial_columns(group_by_strategy)
+        validation_columns = self._get_validation_column_names(validation_conditions)
+        target_data: dd.DataFrame = self._spatial_data_grouping(validation_conditions, group_by_strategy)
 
         aggregation_spec: dict = {
-            condition.observed_turbulence_column_name: _observed_turbulence_aggregation(condition)
+            condition.observed_turbulence_column_name: metric_based_aggregation(
+                condition,
+                minimum_group_size,
+                aggregation_metric,
+            )
             for condition in validation_conditions
         }
-        for strategy_column in strategy_columns:
-            aggregation_spec[strategy_column] = "mean"
-        return grouped_by_space_time.aggregate(aggregation_spec)
+        auc_by_diagnostic: dict[str, dd.DataFrame] = {}
+        for diagnostic_name in self.harmonised_diagnostics:
+            columns_for_diagnostic: list[str] = [*space_columns, diagnostic_name, *validation_columns]
+            data_for_diagnostic: dd.DataFrame = target_data[columns_for_diagnostic]
+            # 2) Sort values so that diagnostic is in descending order as required by the ROC calculation
+            #    The set_index() operation performs a sort => need to do sort after and for each diagnostic
+            data_for_diagnostic = data_for_diagnostic.sort_values(by=diagnostic_name, ascending=False)
+            data_for_diagnostic = data_for_diagnostic.drop(columns=[diagnostic_name])
 
-    def compute_roc_curve(
+            # Specify sort=False to get better performance
+            # See https://docs.dask.org/en/latest/generated/dask.dataframe.DataFrame.groupby.html#dask-dataframe-dataframe-groupby
+            grid_point_auc: dd.DataFrame = data_for_diagnostic.groupby(space_columns, sort=False).aggregate(
+                aggregation_spec,
+                meta={col: pd.Series(dtype=float) for col in validation_columns},
+            )
+            # 3) Drop values which do not meet the minimum number of observations
+            grid_point_auc = grid_point_auc.dropna()
+            # 4) Make values < 0 (another form of invalid values, e.g. no positive observations) into NaNs
+            grid_point_auc = grid_point_auc.where(grid_point_auc >= 0, other=np.nan).persist()  # pyright: ignore [reportOperatorIssue]
+
+            grid_point_auc = self._retrieve_grouped_columns(grid_point_auc, space_columns, True)
+            grid_point_auc = self._retrieve_index_column_values(
+                grid_point_auc,
+                space_columns,
+                self._data_harmoniser.grid_prototype,
+                True,
+            )
+            auc_by_diagnostic[diagnostic_name] = grid_point_auc.persist()
+
+        return auc_by_diagnostic
+
+    def nearest_value_roc(
         self,
         validation_conditions: "list[DiagnosticValidationCondition]",
-        prototype_diagnostic_array: "xr.DataArray",
-    ) -> dict[str, dict[str, BinaryClassificationResult]]:
-        assert {"pressure_level", "longitude", "latitude", "time"}.issubset(prototype_diagnostic_array.coords)
-        strategy_columns: list[str] = list(
-            self._data_harmoniser.strategy_values_columns(
-                [DiagnosticsAmdarHarmonisationStrategyOptions.RAW_INDEX_VALUES]
-            )
-        )
-        validation_columns: list[str] = [
-            condition.observed_turbulence_column_name for condition in validation_conditions
+    ) -> RocVerificationResult:
+        turbulence_diagnostics = self.harmonised_diagnostics
+        validation_columns = self._get_validation_column_names(validation_conditions)
+        space_time_columns: list[str] = [
+            AmdarDataHarmoniser.lat_index_column,
+            AmdarDataHarmoniser.lon_index_column,
+            AmdarDataHarmoniser.level_index_column,
+            AmdarDataHarmoniser.time_index_column,
         ]
-        target_data = self._add_nearest_grid_indices(
-            validation_columns + strategy_columns,
-            prototype_diagnostic_array,
-        )
-        aggregated_data = self._spatio_temporal_data_aggregation(
-            target_data, validation_columns, strategy_columns, validation_conditions
-        )
-        blocking_wait_futures(aggregated_data)
+        target_columns: list[str] = space_time_columns + turbulence_diagnostics + validation_columns
+        target_data = self.data[target_columns]
 
-        result: dict[str, dict[str, BinaryClassificationResult]] = {}
-        for strategy_column in strategy_columns:
-            # descending values
-            result[strategy_column] = {}
-            subset_df = aggregated_data[[*validation_columns, strategy_column]].sort_values(
-                strategy_column, ascending=False
+        # Apply condition so that any can be used at the groupby stage
+        for condition in validation_conditions:
+            target_data[condition.observed_turbulence_column_name] = (
+                target_data[condition.observed_turbulence_column_name] > condition.value_greater_than
             )
-            for column in validation_columns:
-                result[strategy_column][column] = received_operating_characteristic(
-                    subset_df[column].values.compute_chunk_sizes(),  # noqa: PD011
-                    subset_df[strategy_column].values.compute_chunk_sizes(),  # noqa: PD011
-                )
+        grouped_by_space_time = target_data.groupby(space_time_columns)
+        aggregation_spec: dict = {
+            condition.observed_turbulence_column_name: _any_aggregation() for condition in validation_conditions
+        }
+        for diagnostic_column in turbulence_diagnostics:
+            aggregation_spec[diagnostic_column] = "mean"
+        aggregated_data = grouped_by_space_time.aggregate(aggregation_spec).persist()
 
-        return result
+        result: defaultdict[str, dict[str, BinaryClassificationResult]] = defaultdict(dict)
+        for diagnostic_val_col in turbulence_diagnostics:
+            # descending values
+            subset_df = (
+                aggregated_data[[*validation_columns, diagnostic_val_col]]
+                .sort_values(diagnostic_val_col, ascending=False)
+                .persist()
+            )
+            diagnostic_col_as_array: da.Array = subset_df[diagnostic_val_col].to_dask_array(lengths=True).persist()
+            for amdar_turbulence_col in validation_columns:
+                result[amdar_turbulence_col][diagnostic_val_col] = received_operating_characteristic(
+                    subset_df[amdar_turbulence_col].to_dask_array(lengths=diagnostic_col_as_array.chunks[0]).persist(),
+                    diagnostic_col_as_array,
+                    num_intervals=-1,
+                )
+        return RocVerificationResult(dict(result))
+
+    @staticmethod
+    def _get_validation_column_names(validation_conditions: "list[DiagnosticValidationCondition]") -> list[str]:
+        return [condition.observed_turbulence_column_name for condition in validation_conditions]
