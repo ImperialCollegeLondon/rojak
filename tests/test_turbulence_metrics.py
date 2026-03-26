@@ -136,7 +136,7 @@ def test_equiv_representation_of_matthews_corr_coeff(get_two_dummy_bool_arrays: 
     """
     first_dummy, second_dummy = get_two_dummy_bool_arrays()
 
-    table = contingency_table(first_dummy, second_dummy, "time")
+    table = contingency_table(first_dummy, second_dummy, sum_over="time")
     numerator: xr.DataArray = table.n_11 * table.n_00 - table.n_10 * table.n_01
     denominator: xr.DataArray = np.sqrt(
         (table.n_11 + table.n_10) * (table.n_01 + table.n_00) * (table.n_11 + table.n_01) * (table.n_10 + table.n_00),
@@ -150,7 +150,7 @@ def test_check_equivalence_of_sum_in_either(get_two_dummy_bool_arrays: Callable)
     first_dummy, second_dummy = get_two_dummy_bool_arrays()
 
     n = first_dummy["time"].size
-    table = contingency_table(first_dummy, second_dummy, "time")
+    table = contingency_table(first_dummy, second_dummy, sum_over="time")
     compute_from_or = (first_dummy | second_dummy).sum(dim="time")
     np.testing.assert_array_equal(n - table.n_00, compute_from_or)
 
@@ -189,7 +189,7 @@ def test_jaccard_index_multidim(get_two_dummy_bool_arrays: Callable) -> None:
 
 def test_conditional_probability(get_two_dummy_bool_arrays: Callable) -> None:
     first_dummy, second_dummy = get_two_dummy_bool_arrays()
-    table = contingency_table(first_dummy, second_dummy, "time")
+    table = contingency_table(first_dummy, second_dummy, sum_over="time")
 
     np.testing.assert_array_equal(table.n_11 / (table.n_11 + table.n_10), table.n_11 / first_dummy.sum(dim="time"))
     np.testing.assert_array_equal(table.n_11 / (table.n_11 + table.n_01), table.n_11 / second_dummy.sum(dim="time"))

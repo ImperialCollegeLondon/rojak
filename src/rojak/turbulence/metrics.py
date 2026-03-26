@@ -603,7 +603,7 @@ class ContingencyTable(NamedTuple):
     n_10: xr.DataArray
 
 
-def contingency_table(x_var: xr.DataArray, y_var: xr.DataArray, sum_over: str) -> ContingencyTable:
+def contingency_table(x_var: xr.DataArray, y_var: xr.DataArray, *, sum_over: str) -> ContingencyTable:
     """
     Contingency Table for multidimensional arrays
 
@@ -721,7 +721,7 @@ def sample_odds_ratio(
           distributional properties
 
     """
-    table: ContingencyTable = contingency_table(first_var, second_var, sum_over)
+    table: ContingencyTable = contingency_table(first_var, second_var, sum_over=sum_over)
     odds_ratio: xr.DataArray = _sample_odd_ratio_formula(table.n_00, table.n_01, table.n_10, table.n_11)
     if use_log:
         # pyright has a false positive as it doesn't recognise the xr.ufuncs
@@ -799,7 +799,7 @@ def relative_risk(
         - RR < 1 indicates decreased risk with exposure
         - RR = 1 indicates no association between exposure and outcome
     """
-    table: ContingencyTable = contingency_table(first_var, second_var, sum_over)
+    table: ContingencyTable = contingency_table(first_var, second_var, sum_over=sum_over)
     rel_risk = _relative_risk_formula(table.n_00, table.n_01, table.n_10, table.n_11)
     if use_log:
         # pyright has a false positive as it doesn't recognise the xr.ufuncs
@@ -841,7 +841,7 @@ def matthews_corr_coeff_multidim(first_var: xr.DataArray, second_var: xr.DataArr
 
     .. _Wikipedia on MCC: https://en.wikipedia.org/wiki/Phi_coefficient#Definition
     """
-    table: ContingencyTable = contingency_table(first_var, second_var, sum_over)
+    table: ContingencyTable = contingency_table(first_var, second_var, sum_over=sum_over)
     total_num_observations: int = first_var[sum_over].size
 
     sum_first_var_true: xr.DataArray = table.n_11 + table.n_10
@@ -910,7 +910,7 @@ def jaccard_index_multidim(first_var: xr.DataArray, second_var: xr.DataArray, su
     .. _Wikipedia: https://en.wikipedia.org/wiki/Jaccard_index
 
     """
-    table: ContingencyTable = contingency_table(first_var, second_var, sum_over)
+    table: ContingencyTable = contingency_table(first_var, second_var, sum_over=sum_over)
     total_num_observations: int = first_var[sum_over].size
     return table.n_11 / (total_num_observations - table.n_00)
 
