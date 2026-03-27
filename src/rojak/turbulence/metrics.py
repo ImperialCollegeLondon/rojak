@@ -24,6 +24,7 @@ from dask.base import is_dask_collection
 from scipy import integrate
 from sparse import COO
 
+from rojak.core.indexing import apply_nan_mask
 from rojak.utilities.types import SupportsArithmetic, is_dask_array, is_np_array, is_xr_data_array
 
 if TYPE_CHECKING:
@@ -725,7 +726,9 @@ def sample_odds_ratio(
     odds_ratio: xr.DataArray = _sample_odd_ratio_formula(table.n_00, table.n_01, table.n_10, table.n_11)
     if use_log:
         # pyright has a false positive as it doesn't recognise the xr.ufuncs
-        return np.log(odds_ratio)  # pyright: ignore[reportReturnType]
+        log_odds_ratio: xr.DataArray = np.log(odds_ratio)  # pyright: ignore[reportAssignmentType]
+        # Remove invalid values to make mean() computation work
+        return apply_nan_mask(log_odds_ratio, np.isinf(log_odds_ratio))  # pyright: ignore[reportArgumentType]
 
     return odds_ratio
 
@@ -803,7 +806,9 @@ def relative_risk(
     rel_risk = _relative_risk_formula(table.n_00, table.n_01, table.n_10, table.n_11)
     if use_log:
         # pyright has a false positive as it doesn't recognise the xr.ufuncs
-        return np.log(rel_risk)  # pyright: ignore[reportReturnType]
+        log_rel_risk: xr.DataArray = np.log(rel_risk)  # pyright: ignore[reportAssignmentType]
+        # Remove invalid values to make mean() computation work
+        return apply_nan_mask(log_rel_risk, np.isinf(log_rel_risk))  # pyright: ignore[reportArgumentType]
     return rel_risk
 
 

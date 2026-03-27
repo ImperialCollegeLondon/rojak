@@ -267,3 +267,7 @@ def shift_and_combine[T: (xr.Dataset, xr.DataArray)](
     return combine_func(right_shifted, left_shifted).isel(
         indexers={shift_dim: slice(offset_start, -offset_end if offset_end != 0 else None)}
     )
+
+
+def apply_nan_mask[T: (xr.Dataset, xr.DataArray)](target_array: T, nan_mask: T, drop: bool = False) -> T:
+    return target_array.where(~nan_mask, other=np.nan, drop=drop)
