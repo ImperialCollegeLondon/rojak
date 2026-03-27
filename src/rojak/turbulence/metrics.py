@@ -613,7 +613,7 @@ class ContingencyTable(NamedTuple):
 
 
 def contingency_table(
-    x_var: xr.DataArray, y_var: xr.DataArray, *, sum_over: str, z_var: xr.DataArray | None = None
+    x_var: xr.DataArray, y_var: xr.DataArray, *, sum_over: str | list[str] | None, z_var: xr.DataArray | None = None
 ) -> ContingencyTable:
     """
     Contingency Table for multidimensional arrays
@@ -645,7 +645,8 @@ def contingency_table(
         y_var: Second binary variable (:math`y` in contingency table)
         z_var: Optional third binary variable (:math`z` in contingency table) if x and y have a conditional
                association
-        sum_over: Dimension to sum over to compute the number of observations
+        sum_over: Dimension(s) to sum over to compute the number of observations. If None, it will sum over all
+                  dimension in the array
 
     Returns:
         Instance of :class:`ContingencyTable`
@@ -653,7 +654,7 @@ def contingency_table(
     """
     if z_var is None:
         assert_dims_same(x_var, y_var)
-        assert_dims_in_arrays(x_var, y_var, target_dims=[sum_over])
+        assert_dims_in_arrays(x_var, y_var, target_dims=sum_over)
         assert_array_dtypes_match(x_var, y_var, expected_dtype=np.bool_)
 
         return ContingencyTable(
@@ -664,7 +665,7 @@ def contingency_table(
         )
 
     assert_dims_same(x_var, y_var, z_var)
-    assert_dims_in_arrays(x_var, y_var, z_var, target_dims=[sum_over])
+    assert_dims_in_arrays(x_var, y_var, z_var, target_dims=sum_over)
     assert_array_dtypes_match(x_var, y_var, z_var, expected_dtype=np.bool_)
 
     return ContingencyTable(
@@ -676,7 +677,7 @@ def contingency_table(
 
 
 def stratified_contingency_table(
-    effect_of: xr.DataArray, on_var: xr.DataArray, *control_var: xr.DataArray, sum_over: str
+    effect_of: xr.DataArray, on_var: xr.DataArray, *control_var: xr.DataArray, sum_over: str | list[str] | None
 ) -> list[ContingencyTable]:
     if len(control_var) == 1:
         single_control_var: xr.DataArray = control_var[0]
@@ -731,7 +732,7 @@ def _sample_odd_ratio_formula[T: (SupportsArithmetic, xr.DataArray)](n_00: T, n_
 
 
 def sample_odds_ratio(
-    first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str, *, use_log: bool = True
+    first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str | list[str] | None, *, use_log: bool = True
 ) -> xr.DataArray:
     """
     Sample odds ratio between two binary variables
@@ -817,7 +818,7 @@ def _relative_risk_formula[T: (SupportsArithmetic, xr.DataArray)](n_00: T, n_01:
 
 
 def relative_risk(
-    first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str, *, use_log: bool = False
+    first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str | list[str] | None, *, use_log: bool = False
 ) -> xr.DataArray:
     """
     Relative risk of an outcome with respect to an exposure variable
@@ -851,7 +852,9 @@ def relative_risk(
     return apply_nan_mask(rel_risk, np.isinf(rel_risk))  # pyright: ignore[reportArgumentType]
 
 
-def matthews_corr_coeff_multidim(first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str) -> xr.DataArray:
+def matthews_corr_coeff_multidim(
+    first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str | list[str] | None
+) -> xr.DataArray:
     """
     Matthews Correlation Coefficient for multidimensional arrays
 

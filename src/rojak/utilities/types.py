@@ -98,8 +98,10 @@ def assert_dims_same(first: xr.DataArray, *rest: xr.DataArray) -> None:
     assert set(first.dims) == _get_unique_dims(*rest)
 
 
-def assert_dims_in_arrays(*arrays: xr.DataArray, target_dims: Sequence[Hashable]) -> None:
-    assert set(target_dims).issubset(_get_unique_dims(*arrays))
+def assert_dims_in_arrays(*arrays: xr.DataArray, target_dims: Sequence[Hashable] | Hashable | None) -> None:
+    if target_dims is not None:
+        set_of_dims = set(target_dims) if isinstance(target_dims, Sequence) else {target_dims}
+        assert set_of_dims.issubset(_get_unique_dims(*arrays))
 
 
 class SupportsArithmetic(Protocol):
