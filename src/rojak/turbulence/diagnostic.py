@@ -94,6 +94,15 @@ class Diagnostic(ABC):
             self._computed_value = self._compute().rename(self.name).persist()
         return self._computed_value
 
+    def to_zarr(self, output_base_dir: "Path", *, file_name: str | None = None) -> None:
+        # False positive by pyright - StoreLike inlcudes Path
+        # See https://zarr.readthedocs.io/en/v3.1.5/api/zarr/storage/#zarr.storage.StoreLike
+        _ = self.computed_value.to_zarr(
+            output_base_dir / f"{self.name if file_name is None else file_name}.zarr",  # pyright: ignore[reportArgumentType]
+            mode="w",
+            zarr_format=2,
+        )
+
 
 class LoadedFromZarr(Diagnostic):
     def __init__(self, name: str, computed_value: xr.DataArray) -> None:
