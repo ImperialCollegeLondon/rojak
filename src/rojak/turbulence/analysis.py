@@ -862,21 +862,27 @@ class MatthewsCorrelation(RelationshipBetween):
 
 
 class SampleOddsRatio(RelationshipBetween):
-    def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time") -> None:
+    def __init__(
+        self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time", use_log: bool = True
+    ) -> None:
         super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
+        self._use_log: bool = use_log
 
     @override
     def execute(self) -> xr.DataArray:
-        return sample_odds_ratio(self._this_feature, self._other_feature, self._sum_over_dim, use_log=True)
+        return sample_odds_ratio(self._this_feature, self._other_feature, self._sum_over_dim, use_log=self._use_log)
 
 
 class RelativeRisk(RelationshipBetween):
-    def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time") -> None:
+    def __init__(
+        self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time", use_log: bool = True
+    ) -> None:
         super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
+        self._use_log: bool = use_log
 
     @override
     def execute(self) -> xr.DataArray:
-        return relative_risk(self._this_feature, self._other_feature, self._sum_over_dim, use_log=True)
+        return relative_risk(self._this_feature, self._other_feature, self._sum_over_dim, use_log=self._use_log)
 
 
 class RelationshipBetweenFactory:
@@ -891,7 +897,7 @@ class RelationshipBetweenFactory:
         self._other_feature = other_feature
         self._sum_over_dim = sum_over_dim
 
-    def create(self, type_of_relationship: RelationshipBetweenTypes) -> RelationshipBetween:  # noqa: PLR0911
+    def create(self, type_of_relationship: RelationshipBetweenTypes, *, use_log: bool = True) -> RelationshipBetween:  # noqa: PLR0911
         match type_of_relationship:
             case RelationshipBetweenTypes.JACCARD_INDEX:
                 return JaccardIndex(self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim)
@@ -922,11 +928,17 @@ class RelationshipBetweenFactory:
             case RelationshipBetweenTypes.MATTHEWS_CORRELATION:
                 return MatthewsCorrelation(self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim)
             case RelationshipBetweenTypes.SAMPLE_ODDS_RATIO:
-                return SampleOddsRatio(self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim)
+                return SampleOddsRatio(
+                    self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim, use_log=use_log
+                )
             case RelationshipBetweenTypes.RELATIVE_RISK:
-                return RelativeRisk(self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim)
+                return RelativeRisk(
+                    self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim, use_log=use_log
+                )
             case RelationshipBetweenTypes.INVS_RELATIVE_RISK:
-                return RelativeRisk(self._other_feature, self._this_feature, sum_over_dims=self._sum_over_dim)
+                return RelativeRisk(
+                    self._other_feature, self._this_feature, sum_over_dims=self._sum_over_dim, use_log=use_log
+                )
             case _ as unreachable:
                 assert_never(unreachable)
 
@@ -937,6 +949,7 @@ class RelationshipBetweenXAndTurbulence(PostProcessor[xr.Dataset]):
     _relationship_type: RelationshipBetweenTypes
     _diagnostic_thresholds: Mapping[str, float] | None
     _feature_name: str
+    _use_log: bool
 
     def __init__(
         self,
@@ -945,6 +958,7 @@ class RelationshipBetweenXAndTurbulence(PostProcessor[xr.Dataset]):
         relationship_between: RelationshipBetweenTypes,
         diagnostic_thresholds: Mapping[str, float] | None = None,
         feature_name: str | None = None,
+        use_log: bool = True,
     ) -> None:
         if diagnostic_thresholds is not None:
             assert set(diagnostic_thresholds.keys()).issuperset(turbulence_diagnostics.keys())
@@ -954,6 +968,7 @@ class RelationshipBetweenXAndTurbulence(PostProcessor[xr.Dataset]):
         self._relationship_type = relationship_between
         self._diagnostic_thresholds = diagnostic_thresholds
         self._feature_name = feature_name if feature_name is not None else "feature"
+        self._use_log = use_log
 
     @override
     def execute(self) -> xr.Dataset:
@@ -965,7 +980,7 @@ class RelationshipBetweenXAndTurbulence(PostProcessor[xr.Dataset]):
                     if self._diagnostic_thresholds is None
                     else turbulence_diagnostics >= self._diagnostic_thresholds[str(diagnostic_name)],
                 )
-                .create(self._relationship_type)
+                .create(self._relationship_type, use_log=self._use_log)
                 .execute()
                 for diagnostic_name, turbulence_diagnostics in track(
                     self._turbulence_diagnostics.items(),
