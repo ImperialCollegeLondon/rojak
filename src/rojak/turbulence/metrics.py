@@ -25,7 +25,15 @@ from scipy import integrate
 from sparse import COO
 
 from rojak.core.indexing import apply_nan_mask
-from rojak.utilities.types import SupportsArithmetic, is_dask_array, is_np_array, is_xr_data_array
+from rojak.utilities.types import (
+    SupportsArithmetic,
+    assert_array_dtypes_match,
+    assert_dims_in_arrays,
+    assert_dims_same,
+    is_dask_array,
+    is_np_array,
+    is_xr_data_array,
+)
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -604,7 +612,9 @@ class ContingencyTable(NamedTuple):
     n_10: xr.DataArray
 
 
-def contingency_table(x_var: xr.DataArray, y_var: xr.DataArray, *, sum_over: str) -> ContingencyTable:
+def contingency_table(
+    x_var: xr.DataArray, y_var: xr.DataArray, *, sum_over: str, z_var: xr.DataArray | None = None
+) -> ContingencyTable:
     """
     Contingency Table for multidimensional arrays
 
@@ -633,23 +643,51 @@ def contingency_table(x_var: xr.DataArray, y_var: xr.DataArray, *, sum_over: str
     Args:
         x_var: First binary variable (:math`x` in contingency table)
         y_var: Second binary variable (:math`y` in contingency table)
+        z_var: Optional third binary variable (:math`z` in contingency table) if x and y have a conditional
+               association
         sum_over: Dimension to sum over to compute the number of observations
 
     Returns:
         Instance of :class:`ContingencyTable`
 
     """
-    assert set(x_var.dims) == set(y_var.dims)
-    assert sum_over in x_var.dims
-    assert x_var.dtype == y_var.dtype
-    assert x_var.dtype == np.bool_
+    if z_var is None:
+        assert_dims_same(x_var, y_var)
+        assert_dims_in_arrays(x_var, y_var, target_dims=[sum_over])
+        assert_array_dtypes_match(x_var, y_var, expected_dtype=np.bool_)
+
+        return ContingencyTable(
+            n_11=(x_var & y_var).sum(dim=sum_over),
+            n_10=(x_var & (~y_var)).sum(dim=sum_over),
+            n_01=((~x_var) & y_var).sum(dim=sum_over),
+            n_00=(~(x_var | y_var)).sum(dim=sum_over),
+        )
+
+    assert_dims_same(x_var, y_var, z_var)
+    assert_dims_in_arrays(x_var, y_var, z_var, target_dims=[sum_over])
+    assert_array_dtypes_match(x_var, y_var, z_var, expected_dtype=np.bool_)
 
     return ContingencyTable(
-        n_11=(x_var & y_var).sum(dim=sum_over),
-        n_10=(x_var & (~y_var)).sum(dim=sum_over),
-        n_01=((~x_var) & y_var).sum(dim=sum_over),
-        n_00=(~(x_var | y_var)).sum(dim=sum_over),
+        n_11=(x_var & y_var & z_var).sum(dim=sum_over),
+        n_10=(x_var & (~y_var) & z_var).sum(dim=sum_over),
+        n_01=((~x_var) & y_var & z_var).sum(dim=sum_over),
+        n_00=(~(x_var | y_var) & z_var).sum(dim=sum_over),
     )
+
+
+def stratified_contingency_table(
+    effect_of: xr.DataArray, on_var: xr.DataArray, *control_var: xr.DataArray, sum_over: str
+) -> list[ContingencyTable]:
+    if len(control_var) == 1:
+        single_control_var: xr.DataArray = control_var[0]
+        return [
+            contingency_table(effect_of, on_var, sum_over=sum_over, z_var=single_control_var),
+            contingency_table(effect_of, on_var, sum_over=sum_over, z_var=~single_control_var),
+        ]
+    return [
+        contingency_table(effect_of, on_var, sum_over=sum_over, z_var=this_control_var)
+        for this_control_var in control_var
+    ]
 
 
 def _sample_odd_ratio_formula[T: (SupportsArithmetic, xr.DataArray)](n_00: T, n_01: T, n_10: T, n_11: T) -> T:

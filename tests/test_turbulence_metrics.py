@@ -29,6 +29,7 @@ from rojak.turbulence.metrics import (
     matthews_corr_coeff,
     matthews_corr_coeff_multidim,
     received_operating_characteristic,
+    stratified_contingency_table,
 )
 
 if TYPE_CHECKING:
@@ -193,3 +194,18 @@ def test_conditional_probability(get_two_dummy_bool_arrays: Callable) -> None:
 
     np.testing.assert_array_equal(table.n_11 / (table.n_11 + table.n_10), table.n_11 / first_dummy.sum(dim="time"))
     np.testing.assert_array_equal(table.n_11 / (table.n_11 + table.n_01), table.n_11 / second_dummy.sum(dim="time"))
+
+
+def test_stratified_contingency_equiv_two_cases_variadic(get_two_dummy_bool_arrays: Callable) -> None:
+    first_dummy, second_dummy = get_two_dummy_bool_arrays()
+    third_dummy, _ = get_two_dummy_bool_arrays()
+    single_version = stratified_contingency_table(first_dummy, second_dummy, third_dummy, sum_over="time")
+    variadic_version = stratified_contingency_table(
+        first_dummy, second_dummy, third_dummy, ~third_dummy, sum_over="time"
+    )
+
+    for single_, variadic_ in zip(single_version, variadic_version, strict=True):
+        np.testing.assert_array_equal(single_.n_11, variadic_.n_11)
+        np.testing.assert_array_equal(single_.n_01, variadic_.n_01)
+        np.testing.assert_array_equal(single_.n_10, variadic_.n_10)
+        np.testing.assert_array_equal(single_.n_00, variadic_.n_00)
