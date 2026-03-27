@@ -726,9 +726,10 @@ def sample_odds_ratio(
     odds_ratio: xr.DataArray = _sample_odd_ratio_formula(table.n_00, table.n_01, table.n_10, table.n_11)
     if use_log:
         # pyright has a false positive as it doesn't recognise the xr.ufuncs
-        log_odds_ratio: xr.DataArray = np.log(odds_ratio)  # pyright: ignore[reportAssignmentType]
-        # Remove invalid values to make mean() computation work
-        return apply_nan_mask(log_odds_ratio, np.isinf(log_odds_ratio))  # pyright: ignore[reportArgumentType]
+        odds_ratio = np.log(odds_ratio)  # pyright: ignore[reportAssignmentType]
+
+    # Remove invalid values to make mean() computation work
+    return apply_nan_mask(odds_ratio, np.isinf(odds_ratio))  # pyright: ignore[reportArgumentType]
 
     return odds_ratio
 
@@ -806,10 +807,10 @@ def relative_risk(
     rel_risk = _relative_risk_formula(table.n_00, table.n_01, table.n_10, table.n_11)
     if use_log:
         # pyright has a false positive as it doesn't recognise the xr.ufuncs
-        log_rel_risk: xr.DataArray = np.log(rel_risk)  # pyright: ignore[reportAssignmentType]
-        # Remove invalid values to make mean() computation work
-        return apply_nan_mask(log_rel_risk, np.isinf(log_rel_risk))  # pyright: ignore[reportArgumentType]
-    return rel_risk
+        rel_risk: xr.DataArray = np.log(rel_risk)  # pyright: ignore[reportAssignmentType]
+
+    # Remove invalid values to make mean() computation work
+    return apply_nan_mask(rel_risk, np.isinf(rel_risk))  # pyright: ignore[reportArgumentType]
 
 
 def matthews_corr_coeff_multidim(first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str) -> xr.DataArray:
