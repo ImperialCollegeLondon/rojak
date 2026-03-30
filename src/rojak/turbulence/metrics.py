@@ -731,6 +731,13 @@ def _sample_odd_ratio_formula[T: (SupportsArithmetic, xr.DataArray)](n_00: T, n_
     return (n_00 * n_11) / (n_01 * n_10)
 
 
+def _odds_ratio_from_table(table: ContingencyTable, use_log: bool) -> xr.DataArray:
+    this_odds: xr.DataArray = _sample_odd_ratio_formula(table.n_00, table.n_01, table.n_10, table.n_11)
+    if use_log:
+        this_odds = np.log(this_odds)  # pyright: ignore[reportAssignmentType]
+    return apply_nan_mask(this_odds, np.isinf(this_odds))  # pyright: ignore[reportArgumentType]
+
+
 def sample_odds_ratio(
     first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str | list[str] | None, *, use_log: bool = True
 ) -> xr.DataArray:
@@ -762,15 +769,45 @@ def sample_odds_ratio(
 
     """
     table: ContingencyTable = contingency_table(first_var, second_var, sum_over=sum_over)
-    odds_ratio: xr.DataArray = _sample_odd_ratio_formula(table.n_00, table.n_01, table.n_10, table.n_11)
+    return _odds_ratio_from_table(table, use_log)
+
+
+def conditional_odds_ratio(
+    effect_of: xr.DataArray,
+    on_var: xr.DataArray,
+    *control_var: xr.DataArray,
+    sum_over: str | list[str] | None,
+    use_log: bool = True,
+) -> list[xr.DataArray]:
+    tables: list[ContingencyTable] = stratified_contingency_table(effect_of, on_var, *control_var, sum_over=sum_over)
+    return [_odds_ratio_from_table(this_table, use_log) for this_table in tables]
+
+
+def marginal_odds_ratio(
+    effect_of: xr.DataArray,
+    on_var: xr.DataArray,
+    *control_var: xr.DataArray,
+    sum_over: str | list[str] | None,
+    use_log: bool = True,
+) -> xr.DataArray:
+    tables: list[ContingencyTable] = stratified_contingency_table(effect_of, on_var, *control_var, sum_over=sum_over)
+
+    field_names = ["n_11", "n_01", "n_10", "n_00"]
+    sum_each_case = {
+        field: sum(
+            (getattr(this_table, field) for this_table in tables), start=xr.zeros_like(tables[0].n_00, dtype=int)
+        )
+        for field in field_names
+    }
+    odds_ratio = _sample_odd_ratio_formula(
+        sum_each_case["n_00"], sum_each_case["n_01"], sum_each_case["n_10"], sum_each_case["n_11"]
+    )
     if use_log:
         # pyright has a false positive as it doesn't recognise the xr.ufuncs
         odds_ratio = np.log(odds_ratio)  # pyright: ignore[reportAssignmentType]
 
     # Remove invalid values to make mean() computation work
     return apply_nan_mask(odds_ratio, np.isinf(odds_ratio))  # pyright: ignore[reportArgumentType]
-
-    return odds_ratio
 
 
 def _relative_risk_formula[T: (SupportsArithmetic, xr.DataArray)](n_00: T, n_01: T, n_10: T, n_11: T) -> T:
@@ -817,6 +854,13 @@ def _relative_risk_formula[T: (SupportsArithmetic, xr.DataArray)](n_00: T, n_01:
     return (n_11 / n_01) * ((n_01 + n_00) / (n_11 + n_10))
 
 
+def _rel_risk_from_table(table: ContingencyTable, use_log: bool) -> xr.DataArray:
+    this_odds: xr.DataArray = _relative_risk_formula(table.n_00, table.n_01, table.n_10, table.n_11)
+    if use_log:
+        this_odds = np.log(this_odds)  # pyright: ignore[reportAssignmentType]
+    return apply_nan_mask(this_odds, np.isinf(this_odds))  # pyright: ignore[reportArgumentType]
+
+
 def relative_risk(
     first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str | list[str] | None, *, use_log: bool = False
 ) -> xr.DataArray:
@@ -843,13 +887,18 @@ def relative_risk(
         - RR = 1 indicates no association between exposure and outcome
     """
     table: ContingencyTable = contingency_table(first_var, second_var, sum_over=sum_over)
-    rel_risk = _relative_risk_formula(table.n_00, table.n_01, table.n_10, table.n_11)
-    if use_log:
-        # pyright has a false positive as it doesn't recognise the xr.ufuncs
-        rel_risk: xr.DataArray = np.log(rel_risk)  # pyright: ignore[reportAssignmentType]
+    return _rel_risk_from_table(table, use_log=use_log)
 
-    # Remove invalid values to make mean() computation work
-    return apply_nan_mask(rel_risk, np.isinf(rel_risk))  # pyright: ignore[reportArgumentType]
+
+def stratified_relative_risk(
+    effect_of: xr.DataArray,
+    on_var: xr.DataArray,
+    *control_var: xr.DataArray,
+    sum_over: str | list[str] | None,
+    use_log: bool = False,
+) -> list[xr.DataArray]:
+    tables: list[ContingencyTable] = stratified_contingency_table(effect_of, on_var, *control_var, sum_over=sum_over)
+    return [_rel_risk_from_table(this_table, use_log) for this_table in tables]
 
 
 def matthews_corr_coeff_multidim(
