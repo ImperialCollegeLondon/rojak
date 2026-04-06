@@ -18,11 +18,11 @@ from typing import TYPE_CHECKING, Any
 import dask.array as da
 import numpy as np
 import pandas as pd
+import xarray as xr
 from dask.base import is_dask_collection
 
 if TYPE_CHECKING:
     import dask.dataframe as dd
-    import xarray as xr
     from numpy.typing import NDArray
 
 
@@ -271,3 +271,10 @@ def shift_and_combine[T: (xr.Dataset, xr.DataArray)](
 
 def apply_nan_mask[T: (xr.Dataset, xr.DataArray)](target_array: T, nan_mask: T, drop: bool = False) -> T:
     return target_array.where(~nan_mask, other=np.nan, drop=drop)
+
+
+def concat_new_dim[T: (xr.Dataset, xr.DataArray, xr.DataTree)](
+    targets: Sequence[T], *, dim_name: str, dim_values: Sequence[Any]
+) -> T:
+    # False positives from pyright
+    return xr.concat(objs=targets, dim=xr.Variable(dims=dim_name, data=dim_values))  # pyright: ignore[reportArgumentType, reportCallIssue]
