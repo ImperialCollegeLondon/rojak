@@ -985,7 +985,9 @@ def critical_success_index(
     return tp / (tp + fn + fp)
 
 
-def jaccard_index_multidim(first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str) -> xr.DataArray:
+def jaccard_index_multidim(
+    first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str | list[str] | None
+) -> xr.DataArray:
     """
     Jaccard Index or Critical Success Index for multidimensional data
 
