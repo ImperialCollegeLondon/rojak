@@ -657,6 +657,9 @@ def contingency_table(
         Instance of :class:`ContingencyTable`
 
     """
+    if isinstance(sum_over, str):
+        sum_over = [sum_over]
+
     if z_var is None:
         assert_dims_same(x_var, y_var)
         assert_dims_in_arrays(x_var, y_var, target_dims=sum_over)
