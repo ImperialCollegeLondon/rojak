@@ -3,6 +3,10 @@ name: "Sphinx: Render docs"
 on:
   workflow_call:
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
 
 jobs:
   build:
@@ -21,7 +25,7 @@ jobs:
           cd docs
           make html
       - name: Setup Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4
         with:
@@ -29,4 +33,4 @@ jobs:
           path: 'docs/_build/html'
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
