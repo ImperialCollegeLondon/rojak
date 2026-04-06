@@ -24,7 +24,7 @@ from dask.base import is_dask_collection
 from scipy import integrate
 from sparse import COO
 
-from rojak.core.indexing import apply_nan_mask
+from rojak.core.indexing import apply_nan_mask, concat_new_dim
 from rojak.utilities.types import (
     SupportsArithmetic,
     assert_array_dtypes_match,
@@ -610,6 +610,11 @@ class ContingencyTable(NamedTuple):
     n_11: xr.DataArray
     n_01: xr.DataArray
     n_10: xr.DataArray
+
+    def to_data_array(self) -> xr.DataArray:
+        first_row = concat_new_dim([self.n_00, self.n_01], dim_name="col", dim_values=[0, 1])
+        second_row = concat_new_dim([self.n_10, self.n_11], dim_name="col", dim_values=[0, 1])
+        return concat_new_dim([first_row, second_row], dim_name="row", dim_values=[0, 1])
 
 
 def contingency_table(
