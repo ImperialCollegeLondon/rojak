@@ -354,10 +354,8 @@ class TurbulentRegionsBySeverity(PostProcessor[xr.DataArray | list[xr.DataArray]
         by_severity = []
         for severity in self._severities:
             bounds: Limits[float] = self._thresholds.get_bounds(severity, self._threshold_mode)
-            this_severity = xr.where(
-                (self._computed_diagnostic >= bounds.lower) & (self._computed_diagnostic < bounds.upper),
-                True,
-                False,
+            this_severity: xr.DataArray = (self._computed_diagnostic >= bounds.lower) & (
+                self._computed_diagnostic < bounds.upper
             )
             by_severity.append(this_severity if self._has_parent else this_severity.compute())
         return by_severity if self._has_parent else xr.concat(by_severity, xr.Variable("severity", self._severities))
@@ -398,9 +396,7 @@ class TurbulenceProbabilityBySeverity(_EvaluationPostProcessor):
     def execute(self) -> xr.DataArray:
         by_severity: list[xr.DataArray] | xr.DataArray = self._components["turbulent_regions"].execute()
         assert isinstance(by_severity, list)
-        probabilities = [
-            (this_severity.sum(dim="time").compute() / self._num_time_steps) * 100 for this_severity in by_severity
-        ]
+        probabilities = [this_severity.mean(dim="time") * 100 for this_severity in by_severity]
         # hmmm.... I'm not sure if this will behave the way I expect with the new dimension
         return xr.concat(probabilities, xr.Variable("severity", self._severities))
 
@@ -414,12 +410,14 @@ class ComputeDistributionParametersForEDR(PostProcessor[DistributionParameters])
 
     @override
     def execute(self) -> DistributionParameters:
-        diagnostic_values = da.asarray(self._computed_diagnostic.data).flatten()
-        diagnostic_values = (diagnostic_values[diagnostic_values > 0]).compute_chunk_sizes()
-        log_of_diagnostic = da.log(diagnostic_values)
+        only_positive: xr.DataArray = self._computed_diagnostic.where(self._computed_diagnostic > 0, other=np.nan)
+        # False positive by pyright as it doesn't recognise np.log as an xr ufunc
+        log_of_diagnostic: xr.DataArray = np.log(only_positive)  # pyright: ignore[reportAssignmentType]
+        # dim=None => reduce over all dimensions
+        # See https://docs.xarray.dev/en/v2026.02.0/generated/xarray.DataArray.mean.html
         return DistributionParameters(
-            mean=da.nanmean(log_of_diagnostic).compute(),
-            variance=da.nanvar(log_of_diagnostic).compute(),
+            mean=float(log_of_diagnostic.mean(dim=None, skipna=True).compute()),
+            variance=float(log_of_diagnostic.var(dim=None, skipna=True).compute()),
         )
 
 
