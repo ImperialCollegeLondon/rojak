@@ -394,7 +394,7 @@ class TurbulenceProbabilityBySeverity(_EvaluationPostProcessor):
     def execute(self) -> xr.DataArray:
         by_severity: list[xr.DataArray] | xr.DataArray = self._components["turbulent_regions"].execute()
         assert isinstance(by_severity, list)
-        probabilities = [this_severity.mean() * 100 for this_severity in by_severity]
+        probabilities = [this_severity.mean(dim="time") * 100 for this_severity in by_severity]
         # hmmm.... I'm not sure if this will behave the way I expect with the new dimension
         return xr.concat(probabilities, xr.Variable("severity", self._severities))
 
