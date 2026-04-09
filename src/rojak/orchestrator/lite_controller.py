@@ -1,5 +1,7 @@
+import functools
+from collections.abc import Callable
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, assert_never
 
 import distributed
 import xarray as xr
@@ -10,6 +12,7 @@ from rich.progress import track
 from rojak.core.data import load_from_folder
 from rojak.datalib.ecmwf.era5 import Era5Data
 from rojak.orchestrator.configuration import MetDataSource, TurbulenceThresholds
+from rojak.orchestrator.lite_configuration import DiagnosticsFormat
 from rojak.plot.turbulence_plotter import chain_diagnostic_names
 from rojak.turbulence.analysis import (
     ComputeDistributionParametersForEDR,
@@ -25,7 +28,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from rojak.core.data import CATData
-    from rojak.orchestrator.configuration import TurbulenceSeverity, TurbulenceThresholdMode
+    from rojak.orchestrator.configuration import TurbulenceDiagnostics, TurbulenceSeverity, TurbulenceThresholdMode
     from rojak.orchestrator.lite_configuration import (
         BaseTurbulenceContext,
         DiagnosticThresholdsContext,
@@ -60,6 +63,29 @@ def _instantiate_diagnostic_factory(context: "BaseTurbulenceContext", /) -> Diag
     return DiagnosticFactory(source_data)
 
 
+def _open_diagnostic_zarr(path: "Path", name: "TurbulenceDiagnostics") -> xr.DataArray:
+    assert path.suffix == ".zarr"
+    return xr.open_zarr(
+        # pyright takes issue with the chunks kwarg. This is due to it being untyped
+        # See https://github.com/pydata/xarray/issues/11221
+        path,
+        chunks="auto",  # pyright: ignore[reportArgumentType]
+        drop_variables=["altitude", "expver", "number"],
+        consolidated=False,
+    )[name]
+
+
+def load_diagnostics_from_individual_zarrs(
+    target_diagnostics: list["TurbulenceDiagnostics"], data_root_dir: "Path"
+) -> xr.Dataset:
+    return xr.Dataset(
+        data_vars={
+            diagnostic_name: _open_diagnostic_zarr(data_root_dir / f"{diagnostic_name}.zarr", diagnostic_name)
+            for diagnostic_name in target_diagnostics
+        }
+    )
+
+
 def export_json[T](
     obj_to_dump: T,
     output_dir: "Path",
@@ -91,13 +117,31 @@ def blocking_wait_futures(dask_collection: object) -> None:
         _ = distributed.wait(distributed.futures_of(dask_collection))
 
 
-def compute_distribution_parameters(context: "TurbulenceContextWithOutput", /) -> None:
-    start_time: str = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
-    diagnostic_factory: DiagnosticFactory = _instantiate_diagnostic_factory(context)
+def get_computed_diagnostic_helper(
+    context: "BaseTurbulenceContext", diagnostics_from: DiagnosticsFormat
+) -> Callable[[str], xr.DataArray]:
+    match diagnostics_from:
+        case DiagnosticsFormat.FROM_MET_DATA:
+            diagnostic_factory: DiagnosticFactory = _instantiate_diagnostic_factory(context)
+            return functools.partial(lambda f, diagnostic: f.create(diagnostic).computed_value, diagnostic_factory)
+        case DiagnosticsFormat.PRECOMPUTED_FROM_ZARR:
+            return functools.partial(
+                lambda data_dir, diagnostic: _open_diagnostic_zarr(data_dir / f"{diagnostic!s}.zarr", diagnostic),
+                context.data_dir,
+            )
+        case _ as unreachable:
+            assert_never(unreachable)
 
+
+def compute_distribution_parameters(
+    context: "TurbulenceContextWithOutput", /, diagnostics_from: DiagnosticsFormat
+) -> None:
+    start_time: str = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
     distribution_parameters: dict[str, DistributionParameters] = {}
+
+    get_computed_diagnostic: Callable[[str], xr.DataArray] = get_computed_diagnostic_helper(context, diagnostics_from)
     for diagnostic in track(context.diagnostics):
-        computed_diagnostic: xr.DataArray = diagnostic_factory.create(diagnostic).computed_value
+        computed_diagnostic: xr.DataArray = get_computed_diagnostic(diagnostic)
         distribution_parameters[diagnostic] = ComputeDistributionParametersForEDR(computed_diagnostic).execute()
         del computed_diagnostic
 
@@ -110,13 +154,13 @@ def compute_distribution_parameters(context: "TurbulenceContextWithOutput", /) -
     )
 
 
-def compute_thresholds(context: "DiagnosticThresholdsContext", /) -> None:
+def compute_thresholds(context: "DiagnosticThresholdsContext", /, diagnostics_from: DiagnosticsFormat) -> None:
     start_time: str = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
-    diagnostic_factory: DiagnosticFactory = _instantiate_diagnostic_factory(context)
+    get_computed_diagnostic: Callable[[str], xr.DataArray] = get_computed_diagnostic_helper(context, diagnostics_from)
 
     diagnostic_thresholds: Mapping[str, TurbulenceThresholds] = {}
     for diagnostic in track(context.diagnostics):
-        computed_diagnostic: xr.DataArray = diagnostic_factory.create(diagnostic).computed_value.persist()
+        computed_diagnostic: xr.DataArray = get_computed_diagnostic(diagnostic)
         diagnostic_thresholds[diagnostic] = TurbulenceIntensityThresholds(
             context.percentile_thresholds, computed_diagnostic
         ).execute()
@@ -155,19 +199,7 @@ def correlation_between_diagnostics(
     assert set(context.diagnostics).issubset(thresholds.keys()), "Diagnostics must be a subset of diagnostic thresholds"
 
     # Version 1: Load everything into a dataset and hope that it doesn't load it until compute
-    all_diagnostics = xr.Dataset(
-        data_vars={
-            # pyright takes issue with the chunks kwarg. This is due to it being untyped
-            # See https://github.com/pydata/xarray/issues/11221
-            diagnostic_name: xr.open_zarr(
-                context.data_dir / f"{diagnostic_name}.zarr",
-                chunks="auto",  # pyright: ignore[reportArgumentType]
-                drop_variables=["altitude", "expver", "number"],
-                consolidated=False,
-            )[diagnostic_name]
-            for diagnostic_name in context.diagnostics
-        }
-    )
+    all_diagnostics = load_diagnostics_from_individual_zarrs(context.diagnostics, context.data_dir)
     matthews_correlation: xr.DataArray = MatthewsCorrelationOnThresholdedDiagnostics(
         all_diagnostics, severities, thresholds, threshold_mode
     ).execute()

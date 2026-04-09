@@ -1,3 +1,5 @@
+from enum import StrEnum
+
 from pydantic import DirectoryPath, Field, FilePath
 
 from rojak.orchestrator.configuration import (
@@ -8,6 +10,11 @@ from rojak.orchestrator.configuration import (
     TurbulenceDiagnostics,
     TurbulenceThresholds,
 )
+
+
+class DiagnosticsFormat(StrEnum):
+    FROM_MET_DATA = "from_met_data"
+    PRECOMPUTED_FROM_ZARR = "precomputed_from_zarr"
 
 
 class BaseTurbulenceContext(BaseConfigModel):

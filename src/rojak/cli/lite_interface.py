@@ -8,6 +8,7 @@ from distributed import Client
 
 from rojak.orchestrator.configuration import TurbulenceSeverity, TurbulenceThresholdMode
 from rojak.orchestrator.lite_configuration import (
+    DiagnosticsFormat,
     DiagnosticThresholdsContext,
     TurbulenceContextWithAdditionalPath,
     TurbulenceContextWithOutput,
@@ -42,10 +43,11 @@ def distribution_parameters(
             resolve_path=True,
         ),
     ],
+    diagnostics_from: Annotated[DiagnosticsFormat, typer.Argument(help="Provenance diagnostics format")],
 ) -> None:
     client = Client()
     context: TurbulenceContextWithOutput = TurbulenceContextWithOutput.from_yaml(config_file)
-    compute_distribution_parameters(context)
+    compute_distribution_parameters(context, diagnostics_from)
     _ = client.close()
 
 
@@ -62,10 +64,11 @@ def turbulence_thresholds(
             resolve_path=True,
         ),
     ],
+    diagnostics_from: Annotated[DiagnosticsFormat, typer.Argument(help="Provenance diagnostics format")],
 ) -> None:
     client = Client()
     context: DiagnosticThresholdsContext = DiagnosticThresholdsContext.from_yaml(config_file)
-    compute_thresholds(context)
+    compute_thresholds(context, diagnostics_from)
     _ = client.close()
 
 
