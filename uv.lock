@@ -1660,7 +1660,7 @@ wheels = [
 
 [[package]]
 name = "jupyter-server-proxy"
-version = "4.4.0"
+version = "4.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -1669,9 +1669,9 @@ dependencies = [
     { name = "tornado" },
     { name = "traitlets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2a/c8/ff6ecdbf55ac1a9253d53d87c60004ee508cfc852662b15fb33cd6ebfdbc/jupyter_server_proxy-4.4.0.tar.gz", hash = "sha256:e5732eb9c810c0caa997f90a2f15f7d09af638e7eea9c67eb5c43e9c1f0e1157", size = 136830, upload-time = "2024-08-29T12:49:22.906Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d7/d9/04955fbf1362960d4e9be98995a070c882f2ff1901954239dd80aad45d07/jupyter_server_proxy-4.5.0.tar.gz", hash = "sha256:40835ed475fe30bea6e8f2e493fd8dfc700a7f37d86d6e97bc5298034521ac1c", size = 164414, upload-time = "2026-04-01T17:08:09.943Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fd/c6/e4a1d9fdd22d40962befd82780a98b20b67ef9cafe87246e4955f44b8f09/jupyter_server_proxy-4.4.0-py3-none-any.whl", hash = "sha256:707b5c84810bb8863d50f6c6d50a386fec216149e11802b7d4c451b54a63a9a6", size = 37567, upload-time = "2024-08-29T12:49:20.89Z" },
+    { url = "https://files.pythonhosted.org/packages/ff/36/0a64c735dd19d4bf1b53139b24d4eaab875b39bb0551af6e3d6c1c7c8c17/jupyter_server_proxy-4.5.0-py3-none-any.whl", hash = "sha256:3e3376f8de62aa86623e61d84076feafcaa731b5caf6deb5f0dd5f7a6e74fd24", size = 45061, upload-time = "2026-04-01T17:08:08.529Z" },
 ]
 
 [[package]]
