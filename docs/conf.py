@@ -48,6 +48,9 @@ autoclass_content = "both"
 autodoc_member_order = "groupwise"
 autodoc_typehints = "both"
 
+# Figure numbering
+numfig: bool = True
+
 # Mapping to other project documentation
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
@@ -56,6 +59,7 @@ intersphinx_mapping = {
     "dask": ("https://docs.dask.org/en/latest/", None),
     "scipy": ("https://docs.scipy.org/doc/scipy", None),
     "scikit-learn": ("https://scikit-learn.org/stable/", None),
+    "scikit-image": ("https://scikit-image.org/docs/stable/", None),
 }
 
 # Allow markdown files to be recognised
@@ -86,7 +90,8 @@ def linkcode_resolve(domain: str, info: dict[str, str]) -> str | None:
     for part in fullname.split("."):
         try:
             obj = getattr(obj, part)
-        except Exception:
+        # Ignore the performance hit as this is only done when creating documentation
+        except Exception:  # noqa: BLE001
             return None
 
     # FROM NUMPY: code doesn't have decorators atm
