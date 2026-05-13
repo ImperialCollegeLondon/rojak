@@ -547,7 +547,11 @@ def create_interactive_roc_curve_plot(roc: "RocVerificationResult", is_matplotli
                 **line_style,
             ),
         )
-        plots[amdar_verification_col] = functools.reduce(operator.mul, plots_for_col)
+        # CI pyright fails with
+        #   Argument of type "Curve" cannot be assigned to parameter "value" of type "Overlay" in function "__setitem__"
+        #   "Curve" is not assignable to "Overlay"
+        # Because it is reduced with multiply, the curves become an Overlay
+        plots[amdar_verification_col] = functools.reduce(operator.mul, plots_for_col)  # pyright: ignore[reportArgumentType]
 
     return plots
 
