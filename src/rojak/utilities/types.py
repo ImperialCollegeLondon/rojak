@@ -13,7 +13,7 @@
 #  limitations under the License.
 
 import sys
-from typing import NamedTuple, TypeGuard
+from typing import NamedTuple, Protocol, Self, TypeGuard
 
 import numpy as np
 import numpy.typing as npt
@@ -80,3 +80,10 @@ def all_dtypes_match(dataset: xr.Dataset, expected_dtype: DTypeLike) -> TypeGuar
 
 def all_dtypes_same(dataset: xr.Dataset) -> TypeGuard[xr.Dataset]:
     return len(set(dataset.dtypes.values())) == 1
+
+
+class SupportsArithmetic(Protocol):
+    def __mul__(self, other: object) -> Self: ...
+    def __add__(self, other: object) -> Self: ...
+    def __sub__(self, other: object) -> Self: ...
+    def __truediv__(self, other: object) -> Self: ...

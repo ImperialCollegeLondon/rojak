@@ -156,9 +156,7 @@ def test_diagnostic_names(create_diagnostic_suite: Callable, is_parallel: bool, 
 
 @pytest.mark.parametrize("is_parallel", [True, False])
 @pytest.mark.parametrize("is_calibration", [True, False])
-def test_to_and_from_zarr(
-    client, create_diagnostic_suite, tmp_path_factory, is_calibration: bool, is_parallel: bool
-) -> None:
+def test_to_and_from_zarr(create_diagnostic_suite, tmp_path_factory, is_calibration: bool, is_parallel: bool) -> None:
     target_diagnostics = [
         TurbulenceDiagnostics.DEF,
         TurbulenceDiagnostics.F3D,
@@ -177,5 +175,3 @@ def test_to_and_from_zarr(
     restored_diagnostics: dict[str, xr.DataArray] = suite_from_zarr.computed_values_as_dict()
     for diagnostic_name in target_diagnostics:
         xr.testing.assert_equal(suite_diagnostics[diagnostic_name], restored_diagnostics[diagnostic_name])
-
-    client.close()

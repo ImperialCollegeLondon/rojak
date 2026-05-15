@@ -152,7 +152,7 @@ class Era5Data(MetData):
         target_var_names: list[str] = [var.database_name for var in target_variables]
         target_data: xr.Dataset = self._on_pressure_level[target_var_names]
         # On ERA5 data 0 < longitude < 360 => shift to make it -180 < longitude < 180
-        target_data = self.shift_longitude(target_data)
+        target_data = self.shift_ds_longitude(target_data)
         target_data = target_data.rename({"valid_time": "time"})
         target_data = self.select_domain(domain, target_data, level_coordinate_name="pressure_level")
         target_data = target_data.rename_vars({var.database_name: var.cf_name for var in target_variables})

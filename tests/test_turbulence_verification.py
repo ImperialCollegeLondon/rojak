@@ -25,6 +25,7 @@ from tests.conftest import time_window_for_cat_data
 
 if TYPE_CHECKING:
     import dask.array as da
+    from distributed import Client
     from pytest_mock import MockerFixture
 
     from rojak.core.data import CATData
@@ -103,7 +104,7 @@ def get_test_case(load_cat_data) -> Callable[[ThisTestCaseSize], ThisTestCaseVal
 
 
 @pytest.mark.parametrize("case_size", possible_test_case_sizes)
-def test_observation_coordinates_as_arrays(get_test_case, case_size: ThisTestCaseSize) -> None:
+def test_observation_coordinates_as_arrays(get_test_case, case_size: ThisTestCaseSize, client: "Client") -> None:
     case = get_test_case(case_size)
     coords: ObservationCoordinates = ObservationCoordinates(
         case.observational_data["level_index"].to_dask_array(lengths=True),

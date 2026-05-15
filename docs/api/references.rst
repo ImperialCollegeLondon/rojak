@@ -60,3 +60,5 @@ References
 .. [Koch2006] Koch, P., Wernli, H., & Davies, H. C. (2006). An event-based jet-stream climatology and typology. International Journal of Climatology, 26(3), 283–301. https://doi.org/10.1002/joc.1255
 
 .. [Schiemann2009] Schiemann, R., Lüthi, D., & Schär, C. (2009). Seasonality and Interannual Variability of the Westerly Jet in the Tibetan Plateau Region. Journal of Climate, 22(11), 2940–2957. https://doi.org/10.1175/2008JCLI2625.1
+
+.. [Agresti2022] Agresti, A. (2002). Describing Contingency Tables. In Categorical Data Analysis (pp. 36–69). John Wiley & Sons, Ltd. https://doi.org/10.1002/0471249688.ch2
