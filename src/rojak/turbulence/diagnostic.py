@@ -94,6 +94,15 @@ class Diagnostic(ABC):
             self._computed_value = self._compute().rename(self.name).persist()
         return self._computed_value
 
+    def to_zarr(self, output_base_dir: "Path", *, file_name: str | None = None) -> None:
+        # False positive by pyright - StoreLike inlcudes Path
+        # See https://zarr.readthedocs.io/en/v3.1.5/api/zarr/storage/#zarr.storage.StoreLike
+        _ = self.computed_value.to_zarr(
+            output_base_dir / f"{self.name if file_name is None else file_name}.zarr",  # pyright: ignore[reportArgumentType]
+            mode="w",
+            zarr_format=2,
+        )
+
 
 class LoadedFromZarr(Diagnostic):
     def __init__(self, name: str, computed_value: xr.DataArray) -> None:
@@ -364,7 +373,9 @@ class Endlich(Diagnostic):
             )
             d_direction_d_p: xr.DataArray = self._wind_direction.copy(data=d_direction_d_p_values)
 
-        d_direction_d_z: xr.DataArray = altitude_derivative_on_pressure_level(d_direction_d_p, self._geopotential)
+        d_direction_d_z: xr.DataArray = (
+            GRAVITATIONAL_ACCELERATION * d_direction_d_p / self._geopotential.differentiate("pressure_level")
+        )
         speed: xr.DataArray = wind_speed(self._u_wind, self._v_wind)
         return speed * np.abs(d_direction_d_z)
 
@@ -673,8 +684,7 @@ class BruntVaisalaFrequency(Diagnostic):
             self._potential_temperature,
             self._geopotential,
         )
-        # Negative value is to ensure percentile picks up the unstable values
-        return -((GRAVITATIONAL_ACCELERATION / self._potential_temperature) * d_potential_temperature_dz)
+        return (GRAVITATIONAL_ACCELERATION / self._potential_temperature) * d_potential_temperature_dz
 
 
 class VerticalWindShear(Diagnostic):
@@ -730,15 +740,18 @@ class GradientRichardson(Diagnostic):
 
     _vws: xr.DataArray
     _brunt_vaisala: xr.DataArray
+    _is_negative: bool
 
-    def __init__(self, vws: xr.DataArray, brunt_vaisala: xr.DataArray) -> None:
-        super().__init__(TurbulenceDiagnostics.RICHARDSON)
+    def __init__(self, vws: xr.DataArray, brunt_vaisala: xr.DataArray, is_negative: bool = False) -> None:
+        super().__init__(TurbulenceDiagnostics.NEGATIVE_RICHARDSON if is_negative else TurbulenceDiagnostics.RICHARDSON)
         self._vws = vws
         self._brunt_vaisala = brunt_vaisala
+        self._is_negative = is_negative
 
     @override
     def _compute(self) -> xr.DataArray:
-        return self._brunt_vaisala / self._vws
+        ri = self._brunt_vaisala / self._vws
+        return -ri if self._is_negative else ri
 
 
 class WindSpeed(Diagnostic):
@@ -934,7 +947,10 @@ class DirectionalShear(Diagnostic):
             directional_shear: xr.DataArray = direction.copy(
                 data=angles_gradient(direction.values, z_axis, values_in_z_axis),
             )
-        return np.abs(altitude_derivative_on_pressure_level(directional_shear, self._geopotential))  # pyright: ignore[reportReturnType]
+        d_direction_d_z: xr.DataArray = (
+            GRAVITATIONAL_ACCELERATION * directional_shear / self._geopotential.differentiate("pressure_level")
+        )
+        return np.abs(d_direction_d_z)  # pyright: ignore[reportReturnType]
 
 
 class NestedGridModel1(Diagnostic):
@@ -1271,16 +1287,9 @@ class DiagnosticFactory:
     """
 
     _data: "CATData"
-    _richardson: xr.DataArray | None = None
 
     def __init__(self, data: "CATData") -> None:
         self._data = data
-
-    @property
-    def richardson(self) -> xr.DataArray:
-        if self._richardson is None:
-            self._richardson = self.create(TurbulenceDiagnostics.RICHARDSON).computed_value
-        return self._richardson
 
     def create(self, diagnostic: TurbulenceDiagnostics) -> Diagnostic:  # noqa: PLR0911, PLR0912
         match diagnostic:
@@ -1322,19 +1331,21 @@ class DiagnosticFactory:
                     self._data.divergence(),
                 )
             case TurbulenceDiagnostics.NCSU1:
+                richardson = self.create(TurbulenceDiagnostics.RICHARDSON)
                 return Ncsu1(
                     self._data.u_wind(),
                     self._data.v_wind(),
-                    self.richardson,
+                    richardson.computed_value,
                     self._data.velocity_derivatives(),
                     self._data.vorticity(),
                 )
             case TurbulenceDiagnostics.COLSON_PANOFSKY:
+                richardson = self.create(TurbulenceDiagnostics.RICHARDSON)
                 return ColsonPanofsky(
                     self._data.u_wind(),
                     self._data.v_wind(),
                     self._data.altitude(),
-                    self.richardson,
+                    richardson.computed_value,
                     self._data.geopotential(),
                 )
             case TurbulenceDiagnostics.UBF:
@@ -1349,10 +1360,14 @@ class DiagnosticFactory:
                 return BruntVaisalaFrequency(self._data.potential_temperature(), self._data.geopotential())
             case TurbulenceDiagnostics.VWS:
                 return VerticalWindShear(self._data.u_wind(), self._data.v_wind(), self._data.geopotential())
-            case TurbulenceDiagnostics.RICHARDSON:
+            case TurbulenceDiagnostics.RICHARDSON | TurbulenceDiagnostics.NEGATIVE_RICHARDSON:
                 vws: Diagnostic = self.create(TurbulenceDiagnostics.VWS)
                 brunt_vaisala: Diagnostic = self.create(TurbulenceDiagnostics.BRUNT_VAISALA)
-                return GradientRichardson(vws.computed_value, brunt_vaisala.computed_value)
+                return GradientRichardson(
+                    vws.computed_value,
+                    brunt_vaisala.computed_value,
+                    is_negative=diagnostic == TurbulenceDiagnostics.NEGATIVE_RICHARDSON,
+                )
             case TurbulenceDiagnostics.WIND_SPEED:
                 return WindSpeed(self._data.u_wind(), self._data.v_wind())
             case TurbulenceDiagnostics.DEF:
