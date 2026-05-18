@@ -12,6 +12,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 import functools
+import math
 from functools import singledispatch
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -909,6 +910,13 @@ def stratified_relative_risk(
     return [_rel_risk_from_table(this_table, use_log) for this_table in tables]
 
 
+def _get_total_num_observations(target_array: xr.DataArray, sum_over_dims: str | list[str] | None) -> int:
+    if sum_over_dims is None:
+        return target_array.size
+    dim_names = sum_over_dims if isinstance(sum_over_dims, list) else [sum_over_dims]
+    return math.prod(target_array[this_dim].size for this_dim in dim_names)
+
+
 def matthews_corr_coeff_multidim(
     first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str | list[str] | None
 ) -> xr.DataArray:
@@ -946,7 +954,7 @@ def matthews_corr_coeff_multidim(
     .. _Wikipedia on MCC: https://en.wikipedia.org/wiki/Phi_coefficient#Definition
     """
     table: ContingencyTable = contingency_table(first_var, second_var, sum_over=sum_over)
-    total_num_observations: int = first_var[sum_over].size
+    total_num_observations: int = _get_total_num_observations(first_var, sum_over)
 
     sum_first_var_true: xr.DataArray = table.n_11 + table.n_10
     sum_second_var_true: xr.DataArray = table.n_11 + table.n_01
@@ -1017,7 +1025,7 @@ def jaccard_index_multidim(
 
     """
     table: ContingencyTable = contingency_table(first_var, second_var, sum_over=sum_over)
-    total_num_observations: int = first_var[sum_over].size
+    total_num_observations: int = _get_total_num_observations(first_var, sum_over)
     return table.n_11 / (total_num_observations - table.n_00)
 
 
