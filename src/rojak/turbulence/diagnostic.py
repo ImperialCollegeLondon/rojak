@@ -373,7 +373,9 @@ class Endlich(Diagnostic):
             )
             d_direction_d_p: xr.DataArray = self._wind_direction.copy(data=d_direction_d_p_values)
 
-        d_direction_d_z: xr.DataArray = altitude_derivative_on_pressure_level(d_direction_d_p, self._geopotential)
+        d_direction_d_z: xr.DataArray = (
+            GRAVITATIONAL_ACCELERATION * d_direction_d_p / self._geopotential.differentiate("pressure_level")
+        )
         speed: xr.DataArray = wind_speed(self._u_wind, self._v_wind)
         return speed * np.abs(d_direction_d_z)
 
@@ -943,7 +945,10 @@ class DirectionalShear(Diagnostic):
             directional_shear: xr.DataArray = direction.copy(
                 data=angles_gradient(direction.values, z_axis, values_in_z_axis),
             )
-        return np.abs(altitude_derivative_on_pressure_level(directional_shear, self._geopotential))  # pyright: ignore[reportReturnType]
+        d_direction_d_z: xr.DataArray = (
+            GRAVITATIONAL_ACCELERATION * directional_shear / self._geopotential.differentiate("pressure_level")
+        )
+        return np.abs(d_direction_d_z)  # pyright: ignore[reportReturnType]
 
 
 class NestedGridModel1(Diagnostic):
