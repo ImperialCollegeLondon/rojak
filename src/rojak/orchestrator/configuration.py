@@ -92,6 +92,7 @@ class TurbulenceThresholdMode(StrEnum):
 
 class TurbulenceDiagnostics(StrEnum):
     RICHARDSON = "richardson"
+    NEGATIVE_RICHARDSON = "negative_richardson"
     F2D = "f2d"
     F3D = "f3d"
     UBF = "ubf"
