@@ -9,6 +9,8 @@ from dask.base import is_dask_collection
 from pydantic import TypeAdapter
 from rich.progress import track
 
+from rojak.core.calculations import XrAggregationMethod, apply_data_var_reduction
+from rojak.core.constants import TWENTIES_CLIMATOLOGICAL_PARAMETER
 from rojak.core.data import load_from_folder
 from rojak.datalib.ecmwf.era5 import Era5Data
 from rojak.orchestrator.configuration import MetDataSource, TurbulenceThresholds
@@ -18,6 +20,7 @@ from rojak.turbulence.analysis import (
     ComputeDistributionParametersForEDR,
     HistogramData,
     MatthewsCorrelationOnThresholdedDiagnostics,
+    TransformToEDR,
     TurbulenceIntensityThresholds,
 )
 from rojak.turbulence.diagnostic import DiagnosticFactory
@@ -75,14 +78,10 @@ def _open_diagnostic_zarr(path: "Path", name: "TurbulenceDiagnostics") -> xr.Dat
     )[name]
 
 
-def load_diagnostics_from_individual_zarrs(
-    target_diagnostics: list["TurbulenceDiagnostics"], data_root_dir: "Path"
-) -> xr.Dataset:
+def create_diagnostic_dataset(context: "BaseTurbulenceContext", /, diagnostics_from: DiagnosticsFormat) -> xr.Dataset:
+    get_computed_diagnostic: Callable[[str], xr.DataArray] = get_computed_diagnostic_helper(context, diagnostics_from)
     return xr.Dataset(
-        data_vars={
-            diagnostic_name: _open_diagnostic_zarr(data_root_dir / f"{diagnostic_name}.zarr", diagnostic_name)
-            for diagnostic_name in target_diagnostics
-        }
+        data_vars={diagnostic_name: get_computed_diagnostic(diagnostic_name) for diagnostic_name in context.diagnostics}
     )
 
 
@@ -110,6 +109,16 @@ def load_thresholds_from_file(file_path: "Path") -> "Mapping[DiagnosticName, Tur
 
     json_str: str = file_path.read_text()
     return THRESHOLDS_TYPE_ADAPTER.validate_json(json_str)
+
+
+def load_distribution_parameters_from_file(file_path: "Path") -> "Mapping[DiagnosticName, DistributionParameters]":
+    if not file_path.exists():
+        raise FileNotFoundError(file_path)
+    if not file_path.is_file():
+        raise ValueError(f"File in  {file_path} is not a file")
+
+    json_str: str = file_path.read_text()
+    return DISTRIBUTION_PARAMS_TYPE_ADAPTER.validate_json(json_str)
 
 
 def blocking_wait_futures(dask_collection: object) -> None:
@@ -199,7 +208,8 @@ def correlation_between_diagnostics(
     assert set(context.diagnostics).issubset(thresholds.keys()), "Diagnostics must be a subset of diagnostic thresholds"
 
     # Version 1: Load everything into a dataset and hope that it doesn't load it until compute
-    all_diagnostics = load_diagnostics_from_individual_zarrs(context.diagnostics, context.data_dir)
+    # all_diagnostics = load_diagnostics_from_individual_zarrs(context.diagnostics, context.data_dir)
+    all_diagnostics = create_diagnostic_dataset(context, DiagnosticsFormat.PRECOMPUTED_FROM_ZARR)
     matthews_correlation: xr.DataArray = MatthewsCorrelationOnThresholdedDiagnostics(
         all_diagnostics, severities, thresholds, threshold_mode
     ).execute()
@@ -209,6 +219,34 @@ def correlation_between_diagnostics(
     # See https://zarr.readthedocs.io/en/v3.1.5/api/zarr/storage/#zarr.storage.StoreLike
     _ = matthews_correlation.to_zarr(
         context.output_dir / f"matthews_correlation_{chained_names}.zarr",  # pyright: ignore[reportArgumentType]
+        mode="w",
+        zarr_format=2,
+    )
+
+
+def compute_and_export_ensemble_edr(
+    context: "TurbulenceContextWithAdditionalPath", /, diagnostics_from: DiagnosticsFormat
+) -> None:
+    def __transform_to_edr(diagnostic: xr.DataArray) -> xr.DataArray:
+        return TransformToEDR(
+            diagnostic,
+            c1=TWENTIES_CLIMATOLOGICAL_PARAMETER.c1,
+            c2=TWENTIES_CLIMATOLOGICAL_PARAMETER.c2,
+            mean=distribution_params[str(diagnostic.name)].mean,
+            variance=distribution_params[str(diagnostic.name)].variance,
+        ).execute()
+
+    distribution_params = load_distribution_parameters_from_file(context.load_from)
+    all_diagnostics = create_diagnostic_dataset(context, diagnostics_from)
+    diagnostics_as_edr = all_diagnostics.map(__transform_to_edr, keep_attrs=False)
+    # Explicitly set append=False to return a DataArray
+    ensemble_edr: xr.DataArray = apply_data_var_reduction(diagnostics_as_edr, XrAggregationMethod.MEAN, append=False)
+
+    chained_names: str = chain_diagnostic_names(context.diagnostics)
+    # False positive by pyright - StoreLike includes Path
+    # See https://zarr.readthedocs.io/en/v3.1.5/api/zarr/storage/#zarr.storage.StoreLike
+    _ = ensemble_edr.to_zarr(
+        context.output_dir / f"ensemble_edr_{chained_names}.zarr",  # pyright: ignore[reportArgumentType]
         mode="w",
         zarr_format=2,
     )

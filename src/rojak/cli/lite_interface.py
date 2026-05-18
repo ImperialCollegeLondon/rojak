@@ -14,6 +14,7 @@ from rojak.orchestrator.lite_configuration import (
     TurbulenceContextWithOutput,
 )
 from rojak.orchestrator.lite_controller import (
+    compute_and_export_ensemble_edr,
     compute_distribution_parameters,
     compute_thresholds,
     correlation_between_diagnostics,
@@ -96,6 +97,29 @@ def export_diagnostic(
     _ = shutil.copy(config_file, output_to / config_file.name)
 
     export_turbulence_diagnostics(context, start_time=start_time)
+
+    _ = client.close()
+
+
+@turbulence_app.command()
+def export_ensemble_edr(
+    config_file: Annotated[
+        Path,
+        typer.Argument(
+            help="Path to configuration file",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+            resolve_path=True,
+        ),
+    ],
+    diagnostics_from: Annotated[DiagnosticsFormat, typer.Argument(help="Provenance diagnostics format")],
+) -> None:
+    client = Client()
+
+    context: TurbulenceContextWithAdditionalPath = TurbulenceContextWithAdditionalPath.from_yaml(config_file)
+    compute_and_export_ensemble_edr(context, diagnostics_from)
 
     _ = client.close()
 
