@@ -31,7 +31,7 @@ from rojak.orchestrator.configuration import (
 from rojak.orchestrator.configuration import (
     Context as ConfigContext,
 )
-from rojak.orchestrator.turbulence import DISTRIBUTION_PARAMS_TYPE_ADAPTER, THRESHOLDS_TYPE_ADAPTER, TurbulenceLauncher
+from rojak.orchestrator.turbulence import HISTOGRAM_DATA_TYPE_ADAPTER, THRESHOLDS_TYPE_ADAPTER, TurbulenceLauncher
 from rojak.utilities.types import Limits
 from tests.integration.conftest import randomly_select_diagnostics
 
@@ -144,7 +144,7 @@ def test_turbulence_calibration_only(create_calibration_only_config: Callable, c
     assert output_files.thresholds is not None
     assert output_files.distribution is not None
 
-    distribution_params: dict[str, HistogramData] = DISTRIBUTION_PARAMS_TYPE_ADAPTER.validate_json(
+    distribution_params: dict[str, HistogramData] = HISTOGRAM_DATA_TYPE_ADAPTER.validate_json(
         output_files.distribution.read_text(),
     )
     thresholds: dict[str, TurbulenceThresholds] = THRESHOLDS_TYPE_ADAPTER.validate_json(
