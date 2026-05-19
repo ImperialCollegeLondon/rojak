@@ -12,6 +12,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 import functools
+import math
 from functools import singledispatch
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -24,7 +25,16 @@ from dask.base import is_dask_collection
 from scipy import integrate
 from sparse import COO
 
-from rojak.utilities.types import SupportsArithmetic, is_dask_array, is_np_array, is_xr_data_array
+from rojak.core.indexing import apply_nan_mask, concat_new_dim
+from rojak.utilities.types import (
+    SupportsArithmetic,
+    assert_array_dtypes_match,
+    assert_dims_in_arrays,
+    assert_dims_same,
+    is_dask_array,
+    is_np_array,
+    is_xr_data_array,
+)
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -602,8 +612,15 @@ class ContingencyTable(NamedTuple):
     n_01: xr.DataArray
     n_10: xr.DataArray
 
+    def to_data_array(self) -> xr.DataArray:
+        first_row = concat_new_dim([self.n_00, self.n_01], dim_name="col", dim_values=[0, 1])
+        second_row = concat_new_dim([self.n_10, self.n_11], dim_name="col", dim_values=[0, 1])
+        return concat_new_dim([first_row, second_row], dim_name="row", dim_values=[0, 1])
 
-def contingency_table(x_var: xr.DataArray, y_var: xr.DataArray, sum_over: str) -> ContingencyTable:
+
+def contingency_table(
+    x_var: xr.DataArray, y_var: xr.DataArray, *, sum_over: str | list[str] | None, z_var: xr.DataArray | None = None
+) -> ContingencyTable:
     """
     Contingency Table for multidimensional arrays
 
@@ -632,23 +649,55 @@ def contingency_table(x_var: xr.DataArray, y_var: xr.DataArray, sum_over: str) -
     Args:
         x_var: First binary variable (:math`x` in contingency table)
         y_var: Second binary variable (:math`y` in contingency table)
-        sum_over: Dimension to sum over to compute the number of observations
+        z_var: Optional third binary variable (:math`z` in contingency table) if x and y have a conditional
+               association
+        sum_over: Dimension(s) to sum over to compute the number of observations. If None, it will sum over all
+                  dimension in the array
 
     Returns:
         Instance of :class:`ContingencyTable`
 
     """
-    assert set(x_var.dims) == set(y_var.dims)
-    assert sum_over in x_var.dims
-    assert x_var.dtype == y_var.dtype
-    assert x_var.dtype == np.bool_
+    if isinstance(sum_over, str):
+        sum_over = [sum_over]
+
+    if z_var is None:
+        assert_dims_same(x_var, y_var)
+        assert_dims_in_arrays(x_var, y_var, target_dims=sum_over)
+        assert_array_dtypes_match(x_var, y_var, expected_dtype=np.bool_)
+
+        return ContingencyTable(
+            n_11=(x_var & y_var).sum(dim=sum_over),
+            n_10=(x_var & (~y_var)).sum(dim=sum_over),
+            n_01=((~x_var) & y_var).sum(dim=sum_over),
+            n_00=(~(x_var | y_var)).sum(dim=sum_over),
+        )
+
+    assert_dims_same(x_var, y_var, z_var)
+    assert_dims_in_arrays(x_var, y_var, z_var, target_dims=sum_over)
+    assert_array_dtypes_match(x_var, y_var, z_var, expected_dtype=np.bool_)
 
     return ContingencyTable(
-        n_11=(x_var & y_var).sum(dim=sum_over),
-        n_10=(x_var & (~y_var)).sum(dim=sum_over),
-        n_01=((~x_var) & y_var).sum(dim=sum_over),
-        n_00=(~(x_var | y_var)).sum(dim=sum_over),
+        n_11=(x_var & y_var & z_var).sum(dim=sum_over),
+        n_10=(x_var & (~y_var) & z_var).sum(dim=sum_over),
+        n_01=((~x_var) & y_var & z_var).sum(dim=sum_over),
+        n_00=(~(x_var | y_var) & z_var).sum(dim=sum_over),
     )
+
+
+def stratified_contingency_table(
+    effect_of: xr.DataArray, on_var: xr.DataArray, *control_var: xr.DataArray, sum_over: str | list[str] | None
+) -> list[ContingencyTable]:
+    if len(control_var) == 1:
+        single_control_var: xr.DataArray = control_var[0]
+        return [
+            contingency_table(effect_of, on_var, sum_over=sum_over, z_var=single_control_var),
+            contingency_table(effect_of, on_var, sum_over=sum_over, z_var=~single_control_var),
+        ]
+    return [
+        contingency_table(effect_of, on_var, sum_over=sum_over, z_var=this_control_var)
+        for this_control_var in control_var
+    ]
 
 
 def _sample_odd_ratio_formula[T: (SupportsArithmetic, xr.DataArray)](n_00: T, n_01: T, n_10: T, n_11: T) -> T:
@@ -691,8 +740,15 @@ def _sample_odd_ratio_formula[T: (SupportsArithmetic, xr.DataArray)](n_00: T, n_
     return (n_00 * n_11) / (n_01 * n_10)
 
 
+def _odds_ratio_from_table(table: ContingencyTable, use_log: bool) -> xr.DataArray:
+    this_odds: xr.DataArray = _sample_odd_ratio_formula(table.n_00, table.n_01, table.n_10, table.n_11)
+    if use_log:
+        this_odds = np.log(this_odds)  # pyright: ignore[reportAssignmentType]
+    return apply_nan_mask(this_odds, np.isinf(this_odds))  # pyright: ignore[reportArgumentType]
+
+
 def sample_odds_ratio(
-    first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str, *, use_log: bool = True
+    first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str | list[str] | None, *, use_log: bool = True
 ) -> xr.DataArray:
     """
     Sample odds ratio between two binary variables
@@ -721,13 +777,46 @@ def sample_odds_ratio(
           distributional properties
 
     """
-    table: ContingencyTable = contingency_table(first_var, second_var, sum_over)
-    odds_ratio: xr.DataArray = _sample_odd_ratio_formula(table.n_00, table.n_01, table.n_10, table.n_11)
+    table: ContingencyTable = contingency_table(first_var, second_var, sum_over=sum_over)
+    return _odds_ratio_from_table(table, use_log)
+
+
+def conditional_odds_ratio(
+    effect_of: xr.DataArray,
+    on_var: xr.DataArray,
+    *control_var: xr.DataArray,
+    sum_over: str | list[str] | None,
+    use_log: bool = True,
+) -> list[xr.DataArray]:
+    tables: list[ContingencyTable] = stratified_contingency_table(effect_of, on_var, *control_var, sum_over=sum_over)
+    return [_odds_ratio_from_table(this_table, use_log) for this_table in tables]
+
+
+def marginal_odds_ratio(
+    effect_of: xr.DataArray,
+    on_var: xr.DataArray,
+    *control_var: xr.DataArray,
+    sum_over: str | list[str] | None,
+    use_log: bool = True,
+) -> xr.DataArray:
+    tables: list[ContingencyTable] = stratified_contingency_table(effect_of, on_var, *control_var, sum_over=sum_over)
+
+    field_names = ["n_11", "n_01", "n_10", "n_00"]
+    sum_each_case = {
+        field: sum(
+            (getattr(this_table, field) for this_table in tables), start=xr.zeros_like(tables[0].n_00, dtype=int)
+        )
+        for field in field_names
+    }
+    odds_ratio = _sample_odd_ratio_formula(
+        sum_each_case["n_00"], sum_each_case["n_01"], sum_each_case["n_10"], sum_each_case["n_11"]
+    )
     if use_log:
         # pyright has a false positive as it doesn't recognise the xr.ufuncs
-        return np.log(odds_ratio)  # pyright: ignore[reportReturnType]
+        odds_ratio = np.log(odds_ratio)  # pyright: ignore[reportAssignmentType]
 
-    return odds_ratio
+    # Remove invalid values to make mean() computation work
+    return apply_nan_mask(odds_ratio, np.isinf(odds_ratio))  # pyright: ignore[reportArgumentType]
 
 
 def _relative_risk_formula[T: (SupportsArithmetic, xr.DataArray)](n_00: T, n_01: T, n_10: T, n_11: T) -> T:
@@ -774,8 +863,15 @@ def _relative_risk_formula[T: (SupportsArithmetic, xr.DataArray)](n_00: T, n_01:
     return (n_11 / n_01) * ((n_01 + n_00) / (n_11 + n_10))
 
 
+def _rel_risk_from_table(table: ContingencyTable, use_log: bool) -> xr.DataArray:
+    this_odds: xr.DataArray = _relative_risk_formula(table.n_00, table.n_01, table.n_10, table.n_11)
+    if use_log:
+        this_odds = np.log(this_odds)  # pyright: ignore[reportAssignmentType]
+    return apply_nan_mask(this_odds, np.isinf(this_odds))  # pyright: ignore[reportArgumentType]
+
+
 def relative_risk(
-    first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str, *, use_log: bool = False
+    first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str | list[str] | None, *, use_log: bool = False
 ) -> xr.DataArray:
     """
     Relative risk of an outcome with respect to an exposure variable
@@ -799,15 +895,31 @@ def relative_risk(
         - RR < 1 indicates decreased risk with exposure
         - RR = 1 indicates no association between exposure and outcome
     """
-    table: ContingencyTable = contingency_table(first_var, second_var, sum_over)
-    rel_risk = _relative_risk_formula(table.n_00, table.n_01, table.n_10, table.n_11)
-    if use_log:
-        # pyright has a false positive as it doesn't recognise the xr.ufuncs
-        return np.log(rel_risk)  # pyright: ignore[reportReturnType]
-    return rel_risk
+    table: ContingencyTable = contingency_table(first_var, second_var, sum_over=sum_over)
+    return _rel_risk_from_table(table, use_log=use_log)
 
 
-def matthews_corr_coeff_multidim(first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str) -> xr.DataArray:
+def stratified_relative_risk(
+    effect_of: xr.DataArray,
+    on_var: xr.DataArray,
+    *control_var: xr.DataArray,
+    sum_over: str | list[str] | None,
+    use_log: bool = False,
+) -> list[xr.DataArray]:
+    tables: list[ContingencyTable] = stratified_contingency_table(effect_of, on_var, *control_var, sum_over=sum_over)
+    return [_rel_risk_from_table(this_table, use_log) for this_table in tables]
+
+
+def _get_total_num_observations(target_array: xr.DataArray, sum_over_dims: str | list[str] | None) -> int:
+    if sum_over_dims is None:
+        return target_array.size
+    dim_names = sum_over_dims if isinstance(sum_over_dims, list) else [sum_over_dims]
+    return math.prod(target_array[this_dim].size for this_dim in dim_names)
+
+
+def matthews_corr_coeff_multidim(
+    first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str | list[str] | None
+) -> xr.DataArray:
     """
     Matthews Correlation Coefficient for multidimensional arrays
 
@@ -841,8 +953,8 @@ def matthews_corr_coeff_multidim(first_var: xr.DataArray, second_var: xr.DataArr
 
     .. _Wikipedia on MCC: https://en.wikipedia.org/wiki/Phi_coefficient#Definition
     """
-    table: ContingencyTable = contingency_table(first_var, second_var, sum_over)
-    total_num_observations: int = first_var[sum_over].size
+    table: ContingencyTable = contingency_table(first_var, second_var, sum_over=sum_over)
+    total_num_observations: int = _get_total_num_observations(first_var, sum_over)
 
     sum_first_var_true: xr.DataArray = table.n_11 + table.n_10
     sum_second_var_true: xr.DataArray = table.n_11 + table.n_01
@@ -889,7 +1001,9 @@ def critical_success_index(
     return tp / (tp + fn + fp)
 
 
-def jaccard_index_multidim(first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str) -> xr.DataArray:
+def jaccard_index_multidim(
+    first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str | list[str] | None
+) -> xr.DataArray:
     """
     Jaccard Index or Critical Success Index for multidimensional data
 
@@ -910,8 +1024,8 @@ def jaccard_index_multidim(first_var: xr.DataArray, second_var: xr.DataArray, su
     .. _Wikipedia: https://en.wikipedia.org/wiki/Jaccard_index
 
     """
-    table: ContingencyTable = contingency_table(first_var, second_var, sum_over)
-    total_num_observations: int = first_var[sum_over].size
+    table: ContingencyTable = contingency_table(first_var, second_var, sum_over=sum_over)
+    total_num_observations: int = _get_total_num_observations(first_var, sum_over)
     return table.n_11 / (total_num_observations - table.n_00)
 
 

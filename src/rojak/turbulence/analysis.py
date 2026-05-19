@@ -806,9 +806,11 @@ class LatitudinalCorrelationBetweenDiagnostics(PostProcessor[xr.DataArray]):
 class RelationshipBetween(PostProcessor[xr.DataArray]):
     _this_feature: xr.DataArray
     _other_feature: xr.DataArray
-    _sum_over_dim: str
+    _sum_over_dim: str | list[str] | None
 
-    def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dim: str = "time") -> None:
+    def __init__(
+        self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dim: str | list[str] | None = "time"
+    ) -> None:
         assert this_feature.dtype == other_feature.dtype
         assert this_feature.dtype == np.bool_  # For now, require the two to have a boolean dtype
         assert set(this_feature.coords).issuperset(other_feature.coords)
@@ -822,7 +824,9 @@ class RelationshipBetween(PostProcessor[xr.DataArray]):
 
 
 class JaccardIndex(RelationshipBetween):
-    def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time") -> None:
+    def __init__(
+        self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str | list[str] | None = "time"
+    ) -> None:
         super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
 
     @override
@@ -831,27 +835,33 @@ class JaccardIndex(RelationshipBetween):
 
 
 class ProbabilityThisGivenOther(RelationshipBetween):
-    def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time") -> None:
+    def __init__(
+        self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str | list[str] | None = "time"
+    ) -> None:
         super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
 
     @override
     def execute(self) -> xr.DataArray:
-        table = contingency_table(self._this_feature, self._other_feature, self._sum_over_dim)
+        table = contingency_table(self._this_feature, self._other_feature, sum_over=self._sum_over_dim)
         return table.n_11 / (table.n_11 + table.n_10)
 
 
 class ProbabilityThisGivenNotOther(RelationshipBetween):
-    def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time") -> None:
+    def __init__(
+        self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str | list[str] | None = "time"
+    ) -> None:
         super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
 
     @override
     def execute(self) -> xr.DataArray:
-        table = contingency_table(self._this_feature, self._other_feature, self._sum_over_dim)
+        table = contingency_table(self._this_feature, self._other_feature, sum_over=self._sum_over_dim)
         return table.n_01 / (table.n_00 + table.n_01)
 
 
 class MatthewsCorrelation(RelationshipBetween):
-    def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time") -> None:
+    def __init__(
+        self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str | list[str] | None = "time"
+    ) -> None:
         super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
 
     @override
@@ -860,36 +870,55 @@ class MatthewsCorrelation(RelationshipBetween):
 
 
 class SampleOddsRatio(RelationshipBetween):
-    def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time") -> None:
+    def __init__(
+        self,
+        this_feature: xr.DataArray,
+        other_feature: xr.DataArray,
+        sum_over_dims: str | list[str] | None = "time",
+        use_log: bool = True,
+    ) -> None:
         super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
+        self._use_log: bool = use_log
 
     @override
     def execute(self) -> xr.DataArray:
-        return sample_odds_ratio(self._this_feature, self._other_feature, self._sum_over_dim, use_log=True)
+        return sample_odds_ratio(self._this_feature, self._other_feature, self._sum_over_dim, use_log=self._use_log)
 
 
 class RelativeRisk(RelationshipBetween):
-    def __init__(self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str = "time") -> None:
+    def __init__(
+        self,
+        this_feature: xr.DataArray,
+        other_feature: xr.DataArray,
+        sum_over_dims: str | list[str] | None = "time",
+        use_log: bool = True,
+    ) -> None:
         super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
+        self._use_log: bool = use_log
 
     @override
     def execute(self) -> xr.DataArray:
-        return relative_risk(self._this_feature, self._other_feature, self._sum_over_dim, use_log=True)
+        return relative_risk(self._this_feature, self._other_feature, self._sum_over_dim, use_log=self._use_log)
 
 
 class RelationshipBetweenFactory:
     _this_feature: xr.DataArray
     _other_feature: xr.DataArray
-    _sum_over_dim: str
+    _sum_over_dim: str | list[str] | None
 
     def __init__(
-        self, this_feature: xr.DataArray, other_feature: xr.DataArray, /, *, sum_over_dim: str = "time"
+        self,
+        this_feature: xr.DataArray,
+        other_feature: xr.DataArray,
+        /,
+        *,
+        sum_over_dim: str | list[str] | None = "time",
     ) -> None:
         self._this_feature = this_feature
         self._other_feature = other_feature
         self._sum_over_dim = sum_over_dim
 
-    def create(self, type_of_relationship: RelationshipBetweenTypes) -> RelationshipBetween:  # noqa: PLR0911
+    def create(self, type_of_relationship: RelationshipBetweenTypes, *, use_log: bool = True) -> RelationshipBetween:  # noqa: PLR0911
         match type_of_relationship:
             case RelationshipBetweenTypes.JACCARD_INDEX:
                 return JaccardIndex(self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim)
@@ -920,11 +949,17 @@ class RelationshipBetweenFactory:
             case RelationshipBetweenTypes.MATTHEWS_CORRELATION:
                 return MatthewsCorrelation(self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim)
             case RelationshipBetweenTypes.SAMPLE_ODDS_RATIO:
-                return SampleOddsRatio(self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim)
+                return SampleOddsRatio(
+                    self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim, use_log=use_log
+                )
             case RelationshipBetweenTypes.RELATIVE_RISK:
-                return RelativeRisk(self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim)
+                return RelativeRisk(
+                    self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim, use_log=use_log
+                )
             case RelationshipBetweenTypes.INVS_RELATIVE_RISK:
-                return RelativeRisk(self._other_feature, self._this_feature, sum_over_dims=self._sum_over_dim)
+                return RelativeRisk(
+                    self._other_feature, self._this_feature, sum_over_dims=self._sum_over_dim, use_log=use_log
+                )
             case _ as unreachable:
                 assert_never(unreachable)
 
@@ -935,6 +970,8 @@ class RelationshipBetweenXAndTurbulence(PostProcessor[xr.Dataset]):
     _relationship_type: RelationshipBetweenTypes
     _diagnostic_thresholds: Mapping[str, float] | None
     _feature_name: str
+    _use_log: bool
+    _sum_over_dim: str | list[str] | None
 
     def __init__(
         self,
@@ -943,6 +980,8 @@ class RelationshipBetweenXAndTurbulence(PostProcessor[xr.Dataset]):
         relationship_between: RelationshipBetweenTypes,
         diagnostic_thresholds: Mapping[str, float] | None = None,
         feature_name: str | None = None,
+        use_log: bool = True,
+        sum_over_dim: str | list[str] | None = "time",
     ) -> None:
         if diagnostic_thresholds is not None:
             assert set(diagnostic_thresholds.keys()).issuperset(turbulence_diagnostics.keys())
@@ -952,6 +991,8 @@ class RelationshipBetweenXAndTurbulence(PostProcessor[xr.Dataset]):
         self._relationship_type = relationship_between
         self._diagnostic_thresholds = diagnostic_thresholds
         self._feature_name = feature_name if feature_name is not None else "feature"
+        self._use_log = use_log
+        self._sum_over_dim = sum_over_dim
 
     @override
     def execute(self) -> xr.Dataset:
@@ -962,8 +1003,9 @@ class RelationshipBetweenXAndTurbulence(PostProcessor[xr.Dataset]):
                     turbulence_diagnostics
                     if self._diagnostic_thresholds is None
                     else turbulence_diagnostics >= self._diagnostic_thresholds[str(diagnostic_name)],
+                    sum_over_dim=self._sum_over_dim,
                 )
-                .create(self._relationship_type)
+                .create(self._relationship_type, use_log=self._use_log)
                 .execute()
                 for diagnostic_name, turbulence_diagnostics in track(
                     self._turbulence_diagnostics.items(),
