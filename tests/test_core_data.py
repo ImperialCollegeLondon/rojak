@@ -442,7 +442,7 @@ def test_total_deformation(make_dummy_cat_data) -> None:
     data = CATData(dummy_data, 100)
 
     deformation_from_class = data.total_deformation()
-    total_deformation = (
+    total_deformation = np.sqrt(
         data.shear_deformation() * data.shear_deformation()
         + data.stretching_deformation() * data.stretching_deformation()
     )
