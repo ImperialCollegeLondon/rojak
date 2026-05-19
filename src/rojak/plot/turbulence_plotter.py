@@ -107,6 +107,7 @@ def xarray_plot_wrapper(
 
 diagnostic_label_mapping: dict[TurbulenceDiagnostics, str] = {
     TurbulenceDiagnostics.RICHARDSON: r"$\text{Ri}_g$",
+    TurbulenceDiagnostics.NEGATIVE_RICHARDSON: r"$-\text{Ri}_g$",
     TurbulenceDiagnostics.F2D: "F2D",
     TurbulenceDiagnostics.F3D: "F3D",
     TurbulenceDiagnostics.UBF: "UBF",

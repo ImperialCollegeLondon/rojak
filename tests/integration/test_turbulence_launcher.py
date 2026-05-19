@@ -232,6 +232,7 @@ def test_turbulence_calibration_and_evaluation(create_config_context, client, re
 
 @pytest.mark.cdsapi
 @pytest.mark.xfail(reason="The code path within the launcher to invoke the harmonisation has been removed")
+@pytest.mark.skipif(os.getenv("CI") is not None, reason="Test is so slow, runners time out")
 def test_turbulence_amdar_acars_harmonisation(
     create_config_context,
     client,
