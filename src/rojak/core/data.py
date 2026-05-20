@@ -202,7 +202,7 @@ class CATData(CATPrognosticData):
         return self._stretching_deformation
 
     def total_deformation(self) -> xr.DataArray:
-        return turb_calc.magnitude_of_vector(self.shear_deformation(), self.stretching_deformation(), is_squared=True)
+        return turb_calc.magnitude_of_vector(self.shear_deformation(), self.stretching_deformation(), is_squared=False)
 
     def jacobian_horizontal_velocity(self) -> xr.DataArray:
         vec_derivs = self.velocity_derivatives()
