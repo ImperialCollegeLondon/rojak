@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, NamedTuple, assert_never
 
 import numpy as np
 import xarray as xr
-from pydantic import TypeAdapter
 
 from rojak.core import data
 from rojak.datalib.ecmwf.era5 import Era5Data
@@ -31,6 +30,12 @@ from rojak.orchestrator.configuration import (
     TurbulenceCalibrationPhaseOption,
     TurbulenceEvaluationPhaseOption,
     TurbulenceThresholds,
+)
+from rojak.orchestrator.lite_controller import (
+    HISTOGRAM_DATA_TYPE_ADAPTER,
+    THRESHOLDS_TYPE_ADAPTER,
+    export_json,
+    load_thresholds_from_file,
 )
 from rojak.plot.turbulence_plotter import (
     GREY_HEX_CODE,
@@ -48,6 +53,7 @@ from rojak.turbulence.analysis import (
     CorrelationBetweenDiagnostics,
     HistogramData,
     LatitudinalCorrelationBetweenDiagnostics,
+    MatthewsCorrelationOnThresholdedDiagnostics,
 )
 from rojak.turbulence.diagnostic import (
     CalibrationDiagnosticSuite,
@@ -100,13 +106,6 @@ class Result[T]:
     @property
     def result(self) -> T:
         return self._result
-
-
-# See pydantic docs about only instantiating the type adapter once
-# https://docs.pydantic.dev/latest/concepts/performance/#typeadapter-instantiated-once
-# str is DiagnosticName
-THRESHOLDS_TYPE_ADAPTER: TypeAdapter = TypeAdapter(dict[str, TurbulenceThresholds])
-DISTRIBUTION_PARAMS_TYPE_ADAPTER: TypeAdapter = TypeAdapter(dict[str, HistogramData])
 
 
 class CalibrationStage:
@@ -167,7 +166,7 @@ class CalibrationStage:
         match current_phase:
             case TurbulenceCalibrationPhaseOption.THRESHOLDS:
                 if self._config.thresholds_file_path is not None:
-                    return self.load_thresholds_from_file()
+                    return self.load_thresholds_file()
                 return self.perform_calibration(suite)
             case TurbulenceCalibrationPhaseOption.HISTOGRAM:
                 if self._config.diagnostic_distribution_file_path is not None:
@@ -176,10 +175,9 @@ class CalibrationStage:
             case _ as unreachable:
                 assert_never(unreachable)
 
-    def load_thresholds_from_file(self) -> Result[Mapping["DiagnosticName", "TurbulenceThresholds"]]:
+    def load_thresholds_file(self) -> Result[Mapping["DiagnosticName", "TurbulenceThresholds"]]:
         assert self._config.thresholds_file_path is not None
-        json_str: str = self._config.thresholds_file_path.read_text()
-        thresholds = THRESHOLDS_TYPE_ADAPTER.validate_json(json_str)
+        thresholds = load_thresholds_from_file(self._config.thresholds_file_path)
         return Result(thresholds)
 
     def perform_calibration(
@@ -193,26 +191,28 @@ class CalibrationStage:
         return Result(thresholds)
 
     def export_thresholds(self, diagnostic_thresholds: Mapping["DiagnosticName", "TurbulenceThresholds"]) -> None:
-        target_dir: Path = (self._output_dir / self._name).resolve()
-        target_dir.mkdir(parents=True, exist_ok=True)
-        output_file: Path = target_dir / f"thresholds_{self._start_time}.json"
-
-        with output_file.open("wb") as output_json:
-            output_json.write(THRESHOLDS_TYPE_ADAPTER.dump_json(diagnostic_thresholds, indent=4))
+        export_json(
+            dict(diagnostic_thresholds),
+            (self._output_dir / self._name),
+            self._start_time,
+            THRESHOLDS_TYPE_ADAPTER,
+            "thresholds",
+        )
 
     def load_distribution_parameters_from_file(self) -> Result:
         assert self._config.diagnostic_distribution_file_path is not None
         json_str: str = self._config.diagnostic_distribution_file_path.read_text()
-        distribution_parameters = DISTRIBUTION_PARAMS_TYPE_ADAPTER.validate_json(json_str)
+        distribution_parameters = HISTOGRAM_DATA_TYPE_ADAPTER.validate_json(json_str)
         return Result(distribution_parameters)
 
     def export_distribution_parameters(self, diagnostic_thresholds: Mapping["DiagnosticName", "HistogramData"]) -> None:
-        target_dir: Path = (self._output_dir / self._name).resolve()
-        target_dir.mkdir(parents=True, exist_ok=True)
-        output_file: Path = target_dir / f"distribution_params_{self._start_time}.json"
-
-        with output_file.open("wb") as output_json:
-            output_json.write(DISTRIBUTION_PARAMS_TYPE_ADAPTER.dump_json(diagnostic_thresholds, indent=4))
+        export_json(
+            dict(diagnostic_thresholds),
+            self._output_dir / self._name,
+            self._start_time,
+            HISTOGRAM_DATA_TYPE_ADAPTER,
+            "distribution_params",
+        )
 
     def compute_distribution_parameters(self, suite: CalibrationDiagnosticSuite | None) -> Result:
         assert suite is not None
@@ -231,15 +231,17 @@ class EvaluationStage:
     _phases: list[TurbulenceEvaluationPhaseOption]
     _config: "TurbulenceEvaluationConfig"
     _spatial_domain: "SpatialDomain"
+    _output_dir: "Path"
     _plots_dir: "Path"
     _start_time: TimeStr
     _image_format: str
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         calibration_result: Mapping[TurbulenceCalibrationPhaseOption, Result],
         phases_config: "TurbulenceEvaluationPhases",
         domain: "SpatialDomain",
+        output_dir: "Path",
         plots_dir: "Path",
         name: RunName,
         start_time: TimeStr,
@@ -252,6 +254,8 @@ class EvaluationStage:
         self._start_time = start_time
         self._plots_dir = plots_dir / name
         self._plots_dir.mkdir(parents=True, exist_ok=True)
+        self._output_dir = output_dir / name
+        self._output_dir.mkdir(parents=True, exist_ok=True)
         self._image_format = image_format
 
     def launch(self, diagnostics: list["TurbulenceDiagnostics"], chunks: dict) -> EvaluationStageResult:
@@ -290,7 +294,7 @@ class EvaluationStage:
             distribution_parameters=dist_params,
         )
 
-    def run_phase(self, phase: TurbulenceEvaluationPhaseOption, suite: EvaluationDiagnosticSuite) -> Result:
+    def run_phase(self, phase: TurbulenceEvaluationPhaseOption, suite: EvaluationDiagnosticSuite) -> Result:  # noqa: PLR0912
         match phase:
             case TurbulenceEvaluationPhaseOption.PROBABILITIES:
                 result = suite.probabilities
@@ -332,7 +336,7 @@ class EvaluationStage:
                     corr_on_what = "probability"
                 else:
                     corr_on_what = "edr"
-                correlation = CorrelationBetweenDiagnostics(dict(correlation_on), condition).execute()
+                correlation = CorrelationBetweenDiagnostics(dict(correlation_on), sel_condition=condition).execute()
                 chained_names: str = chain_diagnostic_names(correlation_on.keys())
                 create_diagnostic_correlation_plot(
                     correlation,
@@ -369,6 +373,39 @@ class EvaluationStage:
                     "diagnostic2",
                 )
                 return Result(correlation)
+            case TurbulenceEvaluationPhaseOption.MATTHEWS_CORRELATION:
+                thresholds = suite.thresholds()
+                if thresholds is None:
+                    raise ValueError("Thresholds must be present to compute Matthews correlation")
+                matthews_correlation: xr.DataArray = MatthewsCorrelationOnThresholdedDiagnostics(
+                    suite.as_dataset(), self._config.severities, thresholds, self._config.threshold_mode
+                ).execute()
+                chained_names: str = chain_diagnostic_names(suite.diagnostic_names())
+                # False positive by pyright - StoreLike inlcudes Path
+                # See https://zarr.readthedocs.io/en/v3.1.5/api/zarr/storage/#zarr.storage.StoreLike
+                _ = matthews_correlation.to_zarr(
+                    self._output_dir / f"matthews_corr_{chained_names}.zarr",  # pyright: ignore[reportArgumentType]
+                    mode="w",
+                    zarr_format=2,
+                )
+                for level in self._config.pressure_levels:
+                    matthews_correlation_on_level: xr.DataArray = MatthewsCorrelationOnThresholdedDiagnostics(
+                        suite.as_dataset(),
+                        self._config.severities,
+                        thresholds,
+                        self._config.threshold_mode,
+                        pressure_level=level,
+                    ).execute()
+                    # From the zarr docs, Path is part of the StoreLike type alias. However, pyright is not
+                    # picking this up
+                    #   see: https://zarr.readthedocs.io/en/v3.1.5/api/zarr/storage/
+                    _ = matthews_correlation_on_level.to_zarr(
+                        self._output_dir / f"matthews_corr_{level:.0f}_{chained_names}.zarr",  # pyright: ignore[reportArgumentType]
+                        mode="w",
+                        zarr_format=2,
+                    )
+
+                return Result(matthews_correlation)
             case _ as unreachable:
                 assert_never(unreachable)
 
@@ -398,6 +435,7 @@ class TurbulenceLauncher:
                 calibration_result,
                 self._config.phases.evaluation_phases,
                 self._context.data_config.spatial_domain,
+                self._context.output_dir,
                 self._context.plots_dir,
                 self._context.name,
                 self._start_time,

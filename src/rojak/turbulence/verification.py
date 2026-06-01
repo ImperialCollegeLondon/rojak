@@ -628,7 +628,8 @@ class DiagnosticsAmdarVerification:
             grid_point_auc: dd.DataFrame = data_for_diagnostic.groupby(space_columns, sort=False).aggregate(
                 aggregation_spec,
                 meta={col: pd.Series(dtype=float) for col in validation_columns},
-            )
+                #     false positive on CI pyright which thinks it returns Unknown | None
+            )  # pyright: ignore [reportAssignmentType]
             # 3) Drop values which do not meet the minimum number of observations
             grid_point_auc = grid_point_auc.dropna()
             # 4) Make values < 0 (another form of invalid values, e.g. no positive observations) into NaNs

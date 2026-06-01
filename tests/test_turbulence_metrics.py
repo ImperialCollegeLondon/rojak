@@ -29,14 +29,16 @@ from rojak.turbulence.metrics import (
     matthews_corr_coeff,
     matthews_corr_coeff_multidim,
     received_operating_characteristic,
+    stratified_contingency_table,
 )
 
 if TYPE_CHECKING:
     import xarray as xr
+    from dask.distributed import Client
 
 
 @pytest.mark.parametrize("as_pandas", [True, False])
-def test_binary_classification_equiv_sklearn_example(as_pandas: bool) -> None:
+def test_binary_classification_equiv_sklearn_example(as_pandas: bool, client: "Client") -> None:
     y = np.asarray([1, 1, 2, 2])
     scores = np.asarray([0.1, 0.4, 0.35, 0.8])
     decrease_idx = np.argsort(scores)[::-1]
@@ -98,7 +100,7 @@ def get_two_dummy_bool_arrays(make_dummy_cat_data: Callable) -> Callable:
     return _inner
 
 
-def test_matthews_corr_coeff_multidim_equiv_single_dim(get_two_dummy_bool_arrays: Callable) -> None:
+def test_matthews_corr_coeff_multidim_equiv_single_dim(get_two_dummy_bool_arrays: Callable, client: "Client") -> None:
     first_dummy, second_dummy = get_two_dummy_bool_arrays(cast_to_bool=False)
 
     matthews = matthews_corr_coeff_multidim(first_dummy.astype("bool"), second_dummy.astype("bool"), "time")
@@ -135,7 +137,7 @@ def test_equiv_representation_of_matthews_corr_coeff(get_two_dummy_bool_arrays: 
     """
     first_dummy, second_dummy = get_two_dummy_bool_arrays()
 
-    table = contingency_table(first_dummy, second_dummy, "time")
+    table = contingency_table(first_dummy, second_dummy, sum_over="time")
     numerator: xr.DataArray = table.n_11 * table.n_00 - table.n_10 * table.n_01
     denominator: xr.DataArray = np.sqrt(
         (table.n_11 + table.n_10) * (table.n_01 + table.n_00) * (table.n_11 + table.n_01) * (table.n_10 + table.n_00),
@@ -149,7 +151,7 @@ def test_check_equivalence_of_sum_in_either(get_two_dummy_bool_arrays: Callable)
     first_dummy, second_dummy = get_two_dummy_bool_arrays()
 
     n = first_dummy["time"].size
-    table = contingency_table(first_dummy, second_dummy, "time")
+    table = contingency_table(first_dummy, second_dummy, sum_over="time")
     compute_from_or = (first_dummy | second_dummy).sum(dim="time")
     np.testing.assert_array_equal(n - table.n_00, compute_from_or)
 
@@ -188,7 +190,22 @@ def test_jaccard_index_multidim(get_two_dummy_bool_arrays: Callable) -> None:
 
 def test_conditional_probability(get_two_dummy_bool_arrays: Callable) -> None:
     first_dummy, second_dummy = get_two_dummy_bool_arrays()
-    table = contingency_table(first_dummy, second_dummy, "time")
+    table = contingency_table(first_dummy, second_dummy, sum_over="time")
 
     np.testing.assert_array_equal(table.n_11 / (table.n_11 + table.n_10), table.n_11 / first_dummy.sum(dim="time"))
     np.testing.assert_array_equal(table.n_11 / (table.n_11 + table.n_01), table.n_11 / second_dummy.sum(dim="time"))
+
+
+def test_stratified_contingency_equiv_two_cases_variadic(get_two_dummy_bool_arrays: Callable) -> None:
+    first_dummy, second_dummy = get_two_dummy_bool_arrays()
+    third_dummy, _ = get_two_dummy_bool_arrays()
+    single_version = stratified_contingency_table(first_dummy, second_dummy, third_dummy, sum_over="time")
+    variadic_version = stratified_contingency_table(
+        first_dummy, second_dummy, third_dummy, ~third_dummy, sum_over="time"
+    )
+
+    for single_, variadic_ in zip(single_version, variadic_version, strict=True):
+        np.testing.assert_array_equal(single_.n_11, variadic_.n_11)
+        np.testing.assert_array_equal(single_.n_01, variadic_.n_01)
+        np.testing.assert_array_equal(single_.n_10, variadic_.n_10)
+        np.testing.assert_array_equal(single_.n_00, variadic_.n_00)

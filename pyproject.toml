@@ -26,13 +26,14 @@ dependencies = [
     "crick", # necessary for dask.percentile method
     "dask",
     "distributed",
-    "h5netcdf",
+    "h5netcdf[h5py]",
     "pydantic",
     "pyproj",
     "pyyaml",
     "scipy",
     "sparse",
     "xarray",
+    "zarr",
 ]
 
 [project.urls]

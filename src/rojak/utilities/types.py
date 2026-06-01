@@ -12,13 +12,16 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+import functools
 import sys
-from typing import NamedTuple
+from collections.abc import Hashable, Sequence
+from typing import NamedTuple, Protocol, Self, TypeGuard
 
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
 from dask import array as da
+from numpy.typing import DTypeLike
 
 if sys.version_info >= (3, 13):
     from typing import TypeIs
@@ -61,9 +64,48 @@ def is_xr_data_array(obj: object) -> TypeIs[xr.DataArray]:
     return isinstance(obj, xr.DataArray)
 
 
+def is_xr_dataset(obj: object) -> TypeGuard[xr.Dataset]:
+    return isinstance(obj, xr.Dataset)
+
+
 def is_np_array(obj: object) -> TypeIs[npt.NDArray]:
     return isinstance(obj, np.ndarray)
 
 
 def is_dask_array(array: object) -> TypeIs["da.Array"]:
     return isinstance(array, da.Array)
+
+
+def all_dtypes_match(dataset: xr.Dataset, expected_dtype: DTypeLike) -> TypeGuard[xr.Dataset]:
+    return set(dataset.dtypes.values()) == {np.dtype(expected_dtype)}
+
+
+def all_dtypes_same(dataset: xr.Dataset) -> TypeGuard[xr.Dataset]:
+    return len(set(dataset.dtypes.values())) == 1
+
+
+def assert_array_dtypes_match(first: xr.DataArray, *rest: xr.DataArray, expected_dtype: DTypeLike) -> None:
+    all_dtypes = {this_array.dtype for this_array in rest} | {first.dtype}
+    assert len(all_dtypes) == 1
+    assert all_dtypes == {np.dtype(expected_dtype)}
+
+
+def _get_unique_dims(*arrays: xr.DataArray) -> set[Hashable]:
+    return functools.reduce(lambda left, right: left | right, [set(this_array.dims) for this_array in arrays])
+
+
+def assert_dims_same(first: xr.DataArray, *rest: xr.DataArray) -> None:
+    assert set(first.dims) == _get_unique_dims(*rest)
+
+
+def assert_dims_in_arrays(*arrays: xr.DataArray, target_dims: Sequence[Hashable] | Hashable | None) -> None:
+    if target_dims is not None:
+        set_of_dims = set(target_dims) if isinstance(target_dims, Sequence) else {target_dims}
+        assert set_of_dims.issubset(_get_unique_dims(*arrays))
+
+
+class SupportsArithmetic(Protocol):
+    def __mul__(self, other: object) -> Self: ...
+    def __add__(self, other: object) -> Self: ...
+    def __sub__(self, other: object) -> Self: ...
+    def __truediv__(self, other: object) -> Self: ...

@@ -208,7 +208,8 @@ def angles_data():
 def test_angle_array_gradient(angles_data) -> None:
     # Values in angle_gradient = WrapAroundAngleArray([0.21460184, 0.39269908, 0.89269908, 0.78539816,
     #                                                  0.39269908, 1.17809725, 3.92699082])
-    desired_gradient: _WrapAroundAngleArray = np.gradient(_WrapAroundAngleArray(np.array(angles_data)))
+    # APPEASE THE CI PYRIGHT
+    desired_gradient: _WrapAroundAngleArray = np.gradient(_WrapAroundAngleArray(np.array(angles_data)))  # pyright: ignore[reportAssignmentType]
     # Values in normal_gradient = array([ 0.21460184,  0.39269908,  2.24889357, -0.78539816, -2.74889357,
     #                                     1.96349541,  3.92699082])
     normal_gradient: np.ndarray = np.gradient(np.array(angles_data))
@@ -250,7 +251,8 @@ def test_angle_array_gradient_ufunc_simple(angles_data) -> None:
         kwargs={"target_axis": axis_which_varies},
     ).compute()
 
-    single_thread: xr.DataArray = np.gradient(_WrapAroundAngleArray(target_array), axis=1)
+    # APPEASE THE CI PYRIGHT
+    single_thread: xr.DataArray = np.gradient(_WrapAroundAngleArray(target_array), axis=1)  # pyright: ignore[reportAssignmentType]
     np.testing.assert_array_equal(angles_gradient(target_array, target_axis=axis_which_varies), single_thread)
     np.testing.assert_array_equal(single_thread, parallelised_ufunc.data)
 

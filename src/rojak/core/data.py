@@ -25,6 +25,7 @@ import dask_geopandas as dgpd
 import numpy as np
 import xarray as xr
 
+from rojak.atmosphere.contrails import issr
 from rojak.core import derivatives
 from rojak.core.calculations import pressure_to_altitude_icao
 from rojak.core.constants import MAX_LONGITUDE
@@ -91,6 +92,7 @@ class DataVarSchema:
 
 class CATPrognosticData:
     _dataset: xr.Dataset
+    _pressure_level_prefix: float
 
     required_variables: ClassVar[frozenset[str]] = frozenset(
         [
@@ -108,7 +110,7 @@ class CATPrognosticData:
         ["pressure_level", "latitude", "longitude", "time", "altitude"],
     )
 
-    def __init__(self, dataset: xr.Dataset) -> None:
+    def __init__(self, dataset: xr.Dataset, pressure_level_prefix: float) -> None:
         if not set(dataset.data_vars.keys()).issuperset(self.required_variables):
             missing_variables = self.required_variables - dataset.data_vars.keys()
             raise ValueError(
@@ -118,6 +120,7 @@ class CATPrognosticData:
             missing_coords = self.required_coords - dataset.coords.keys()
             raise ValueError(f"Attempting to instantiate CATPrognosticData with missing coords: {missing_coords}")
         self._dataset = dataset.sortby("time").persist()
+        self._pressure_level_prefix = pressure_level_prefix
 
     def temperature(self) -> xr.DataArray:
         return self._dataset["temperature"]
@@ -146,6 +149,11 @@ class CATPrognosticData:
     def altitude(self) -> xr.DataArray:
         return self._dataset["altitude"]
 
+    def pressure_level(self, convert_to_pascals: bool = False) -> xr.DataArray:
+        if convert_to_pascals:
+            return self._pressure_level_prefix * self._dataset["pressure_level"]
+        return self._dataset["pressure_level"]
+
     def time_window(self) -> Limits[np.datetime64]:
         return Limits(self._dataset["time"].min().to_numpy().item(), self._dataset["time"].max().to_numpy().item())
 
@@ -156,8 +164,8 @@ class CATData(CATPrognosticData):
     _shear_deformation: xr.DataArray | None = None
     _stretching_deformation: xr.DataArray | None = None
 
-    def __init__(self, dataset: xr.Dataset) -> None:
-        super().__init__(dataset)
+    def __init__(self, dataset: xr.Dataset, pressure_level_prefix: float) -> None:
+        super().__init__(dataset, pressure_level_prefix)
 
     def potential_temperature(self) -> xr.DataArray:
         if self._potential_temperature is None:
@@ -194,13 +202,20 @@ class CATData(CATPrognosticData):
         return self._stretching_deformation
 
     def total_deformation(self) -> xr.DataArray:
-        return turb_calc.magnitude_of_vector(self.shear_deformation(), self.stretching_deformation(), is_squared=True)
+        return turb_calc.magnitude_of_vector(self.shear_deformation(), self.stretching_deformation(), is_squared=False)
 
     def jacobian_horizontal_velocity(self) -> xr.DataArray:
         vec_derivs = self.velocity_derivatives()
         return (
             vec_derivs[VelocityDerivative.DU_DX] * vec_derivs[VelocityDerivative.DV_DY]
             - vec_derivs[VelocityDerivative.DU_DY] * vec_derivs[VelocityDerivative.DV_DX]
+        )
+
+    def ice_supersaturated_regions(self) -> xr.DataArray:
+        return issr(
+            air_temperature=self.temperature(),
+            specific_humidity=self.specific_humidity(),
+            air_pressure=self.pressure_level(convert_to_pascals=True),
         )
 
 
@@ -225,6 +240,21 @@ def load_from_folder(
     )
 
 
+# Modified from pycontrails
+# https://github.com/contrailcirrus/pycontrails/blob/8a25266bcf5ead003a6b344395462ab56943e668/pycontrails/core/met.py#L2430
+def shift_longitude[T: (xr.Dataset, xr.DataArray)](
+    data: T, *, domain_bound: float = -180, sort_data: bool = True, longitude_coord_name: str = "longitude"
+) -> T:
+    # Utility function to shift data to have longitude in the range of [domain_bound, 360 + domain_bound]
+    # This also sorts it so that the data is then ascending from domain_bound
+    shifted_data: T = data.assign_coords(
+        coords={
+            longitude_coord_name: ((data[longitude_coord_name] - domain_bound) % 360) + domain_bound,
+        }
+    )
+    return shifted_data.sortby(longitude_coord_name, ascending=True) if sort_data else shifted_data
+
+
 class MetData(ABC):
     _longitude_coord_name: str
     _latitude_coord_name: str
@@ -247,7 +277,7 @@ class MetData(ABC):
         max_lon = longitude_coord.max()
         min_lon = longitude_coord.min()
         if max_lon > MAX_LONGITUDE or min_lon < -MAX_LONGITUDE:
-            data = self.shift_longitude(data)
+            data = shift_longitude(data, longitude_coord_name=self._longitude_coord_name)
 
         level_coordinate = data[level_coordinate_name]
         level_slice: slice = (
@@ -276,15 +306,10 @@ class MetData(ABC):
     @abstractmethod
     def to_clear_air_turbulence_data(self, domain: "SpatialDomain") -> CATData: ...
 
-    # Modified from pycontrails
-    # https://github.com/contrailcirrus/pycontrails/blob/8a25266bcf5ead003a6b344395462ab56943e668/pycontrails/core/met.py#L2430
-    def shift_longitude(self, data: xr.Dataset, domain_bound: float = -180, sort_data: bool = True) -> xr.Dataset:
-        # Utility function to shift data to have longitude in the range of [domain_bound, 360 + domain_bound]
-        # This also sorts it so that the data is then ascending from domain_bound
-        shifted_data: xr.Dataset = data.assign_coords(
-            longitude=((data[self._longitude_coord_name] - domain_bound) % 360) + domain_bound,
+    def shift_ds_longitude(self, data: xr.Dataset, domain_bound: float = -180, sort_data: bool = True) -> xr.Dataset:
+        return shift_longitude(
+            data, domain_bound=domain_bound, sort_data=sort_data, longitude_coord_name=self._longitude_coord_name
         )
-        return shifted_data.sortby(self._longitude_coord_name, ascending=True) if sort_data else shifted_data
 
     # To be added later
     # @abstractmethod

@@ -54,5 +54,6 @@ def issr(
     sufficiently_humid = relative_humidity_ice > rhi_threshold
 
     issr_ = sufficiently_cold & sufficiently_humid
+    issr_ = issr_ if as_mask else issr_.astype(relative_humidity_ice.dtype)
 
-    return issr_ if as_mask else issr_.astype(relative_humidity_ice.dtype)
+    return issr_.rename("issr")

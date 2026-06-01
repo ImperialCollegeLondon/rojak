@@ -107,6 +107,7 @@ def xarray_plot_wrapper(
 
 diagnostic_label_mapping: dict[TurbulenceDiagnostics, str] = {
     TurbulenceDiagnostics.RICHARDSON: r"$\text{Ri}_g$",
+    TurbulenceDiagnostics.NEGATIVE_RICHARDSON: r"$-\text{Ri}_g$",
     TurbulenceDiagnostics.F2D: "F2D",
     TurbulenceDiagnostics.F3D: "F3D",
     TurbulenceDiagnostics.UBF: "UBF",
@@ -547,7 +548,11 @@ def create_interactive_roc_curve_plot(roc: "RocVerificationResult", is_matplotli
                 **line_style,
             ),
         )
-        plots[amdar_verification_col] = functools.reduce(operator.mul, plots_for_col)
+        # CI pyright fails with
+        #   Argument of type "Curve" cannot be assigned to parameter "value" of type "Overlay" in function "__setitem__"
+        #   "Curve" is not assignable to "Overlay"
+        # Because it is reduced with multiply, the curves become an Overlay
+        plots[amdar_verification_col] = functools.reduce(operator.mul, plots_for_col)  # pyright: ignore[reportArgumentType]
 
     return plots
 

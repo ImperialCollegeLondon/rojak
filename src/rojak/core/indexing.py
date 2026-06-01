@@ -12,12 +12,13 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING, Any
 
 import dask.array as da
 import numpy as np
 import pandas as pd
+import xarray as xr
 from dask.base import is_dask_collection
 
 if TYPE_CHECKING:
@@ -219,7 +220,7 @@ def map_order[T](on: list[T], by: list[int]) -> list[T]:
     [15, 14, 13, 12, 11, 10]
     """
     length: int = len(by)
-    by_as_set: set = set(by)
+    by_as_set: set[int] = set(by)
 
     if len(on) != length:
         raise ValueError("Order mapping must be on lists of the same length")
@@ -237,3 +238,43 @@ def map_order[T](on: list[T], by: list[int]) -> list[T]:
         in_order[position] = value
 
     return in_order
+
+
+def shift_and_combine[T: (xr.Dataset, xr.DataArray)](
+    target_array: T,
+    *,
+    combine_func: Callable[[T, T], T] = lambda start_shifted, end_shifted: start_shifted | end_shifted,
+    shift_dim: str = "pressure_level",
+    offset_start: int = 1,
+    offset_end: int = 1,
+    shift_fill: Any = np.nan,  # noqa: ANN401
+) -> T:
+    if offset_start < 0:
+        raise ValueError("Start offset (i.e. start shift amount) must be non-negative")
+    if offset_end < 0:
+        raise ValueError("End offset (i.e. end shift amount) must be non-negative")
+
+    if shift_dim not in set(target_array.coords):
+        raise ValueError("Dimension to shift must be a coordinate")
+
+    right_shifted = (
+        target_array.shift({shift_dim: offset_start}, fill_value=shift_fill) if offset_start != 0 else target_array
+    )
+    left_shifted = (
+        target_array.shift({shift_dim: -offset_end}, fill_value=shift_fill) if offset_end != 0 else target_array
+    )
+
+    return combine_func(right_shifted, left_shifted).isel(
+        indexers={shift_dim: slice(offset_start, -offset_end if offset_end != 0 else None)}
+    )
+
+
+def apply_nan_mask[T: (xr.Dataset, xr.DataArray)](target_array: T, nan_mask: T, drop: bool = False) -> T:
+    return target_array.where(~nan_mask, other=np.nan, drop=drop)
+
+
+def concat_new_dim[T: (xr.Dataset, xr.DataArray, xr.DataTree)](
+    targets: Sequence[T], *, dim_name: str, dim_values: Sequence[Any]
+) -> T:
+    # False positives from pyright
+    return xr.concat(objs=targets, dim=xr.Variable(dims=dim_name, data=dim_values))  # pyright: ignore[reportArgumentType, reportCallIssue]

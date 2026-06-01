@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Self, assert_never
 
 import numpy as np
 import yaml
-from pydantic import AfterValidator, BaseModel, Field, ValidationError, model_validator
+from pydantic import AfterValidator, BaseModel, DirectoryPath, Field, ValidationError, model_validator
 from pydantic.types import PositiveInt
 
 from rojak.datalib.madis.amdar import AcarsAmdarTurbulenceData
@@ -46,6 +46,9 @@ def _dir_must_exist(path: Path) -> Path:
 def _make_dir_if_not_present(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+CreateDirectoryPath = Annotated[DirectoryPath, AfterValidator(_make_dir_if_not_present)]
 
 
 class TurbulenceSeverity(StrEnum):
@@ -89,6 +92,7 @@ class TurbulenceThresholdMode(StrEnum):
 
 class TurbulenceDiagnostics(StrEnum):
     RICHARDSON = "richardson"
+    NEGATIVE_RICHARDSON = "negative_richardson"
     F2D = "f2d"
     F3D = "f3d"
     UBF = "ubf"
@@ -129,6 +133,9 @@ class RelationshipBetweenTypes(StrEnum):
     MATTHEWS_CORRELATION = "matthews_correlation"
     PROBABILITY_THIS_GIVEN_NOT_OTHER = "this_given_not_other"
     PROBABILITY_OTHER_GIVEN_NOT_THIS = "other_given_not_this"
+    SAMPLE_ODDS_RATIO = "sample_odds_ratio"
+    RELATIVE_RISK = "relative_risk"
+    INVS_RELATIVE_RISK = "invs_relative_risk"
 
 
 class BaseConfigModel(BaseModel):
@@ -210,7 +217,7 @@ class TurbulenceThresholds(BaseConfigModel):
             case _ as unreachable:
                 assert_never(unreachable)
 
-    def get_bounds(self, severity: TurbulenceSeverity, mode: TurbulenceThresholdMode) -> Limits:
+    def get_bounds(self, severity: TurbulenceSeverity, mode: TurbulenceThresholdMode) -> Limits[float]:
         lower_bound: float | None = self.get_by_severity(severity)
         if lower_bound is None:
             raise ValueError("Attempting to retrieve threshold value for a severity that is None")
@@ -331,6 +338,7 @@ class TurbulenceEvaluationPhaseOption(StrEnum):
     PROBABILITIES = "probabilities"
     EDR = "edr"
     TURBULENT_REGIONS = "turbulent_regions"
+    MATTHEWS_CORRELATION = "matthews_correlation"
     CORRELATION_BTW_PROBABILITIES = "correlation_between_probabilities"
     CORRELATION_BTW_EDR = "correlation_between_edr"
     REGIONAL_CORRELATION_PROBABILITIES = "regional_correlation_between_probabilities"

@@ -13,7 +13,7 @@
 #  limitations under the License.
 
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, override
 
 import dask.dataframe as dd
 import numpy as np
@@ -111,6 +111,7 @@ class UkmoAmdarRepository(AmdarDataRepository):
 
         return data.optimize()
 
+    @override
     def _call_compute_closest_pressure_level(
         self,
         data_frame: "dd.DataFrame",
@@ -118,6 +119,7 @@ class UkmoAmdarRepository(AmdarDataRepository):
     ) -> "dd.Series":
         return self._compute_closest_pressure_level(data_frame, pressure_levels, "altitude")
 
+    @override
     def _instantiate_amdar_turbulence_data_class(
         self,
         data_frame: "dd.DataFrame",
@@ -125,6 +127,7 @@ class UkmoAmdarRepository(AmdarDataRepository):
     ) -> "AmdarTurbulenceData":
         return UkmoAmdarTurbulenceData(data_frame, grid)
 
+    @override
     def _time_column_rename_mapping(self) -> dict[str, str]:
         return {}
 
@@ -133,9 +136,11 @@ class UkmoAmdarTurbulenceData(AmdarTurbulenceData):
     def __init__(self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame") -> None:
         super().__init__(data_frame, grid)
 
+    @override
     def _minimum_altitude_qc(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
         return data_frame[data_frame["altitude"] >= self.MINIMUM_ALTITUDE]
 
+    @override
     def _drop_manoeuvre_data_qc(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
         # roll_angle is NA in entire month of Jan and May in 2024
         return data_frame

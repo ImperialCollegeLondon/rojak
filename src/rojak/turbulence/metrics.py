@@ -11,6 +11,8 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+import functools
+import math
 from functools import singledispatch
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -23,7 +25,16 @@ from dask.base import is_dask_collection
 from scipy import integrate
 from sparse import COO
 
-from rojak.utilities.types import is_dask_array, is_np_array, is_xr_data_array
+from rojak.core.indexing import apply_nan_mask, concat_new_dim
+from rojak.utilities.types import (
+    SupportsArithmetic,
+    assert_array_dtypes_match,
+    assert_dims_in_arrays,
+    assert_dims_same,
+    is_dask_array,
+    is_np_array,
+    is_xr_data_array,
+)
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -449,8 +460,40 @@ def _check_array_is_boolean(array: da.Array) -> None:
         raise ValueError("Array must be boolean")
 
 
+def _confusion_matrix_coo_reduction(truth: da.Array, prediction: da.Array) -> "NDArray[np.int_]":
+    # Combine them as reduction only works on a single dask array
+    combined_array: da.Array = da.vstack([truth, prediction])
+    # Force both rows to be in the same chunk so that the chunk is 2D
+    # Array: [[truth_0, ..., truth_n],
+    #          pred_0,  ..., pred_n]]
+    combined_array = combined_array.rechunk(chunks={0: 2})
+
+    # Kwargs are to comply with the expected function signature of reduction Callable
+    def on_chunk(x_chunk: np.ndarray, **kwargs) -> np.ndarray:  # noqa: ANN003,ARG001
+        truth_chunk: np.ndarray = x_chunk[0, :]
+        pred_chunk: np.ndarray = x_chunk[1, :]
+        return COO((truth_chunk, pred_chunk), np.ones_like(truth_chunk), shape=(2, 2)).todense()
+
+    # Kwargs are to comply with the expected function signature of reduction Callable
+    def to_aggregate(x_chunk: list[np.ndarray], **kwargs) -> np.ndarray:  # noqa: ANN003,ARG001
+        # Omitting axis=1 on the da.reduction call will result in a list[list[np.ndarray]] so one must use x_chunk[0]
+        # instead of x_chunk to get the list of numpy arrays
+        return functools.reduce(lambda lhs, rhs: lhs + rhs, x_chunk)
+
+    return da.reduction(
+        combined_array,
+        on_chunk,
+        to_aggregate,
+        axis=1,  # => number of columns is reduced. Result is an (2, 2) array
+        keepdims=True,  # => keep reduced dimension specified in output_size
+        output_size=2,  # Densification of COO results in (2, 2) array of counts
+        dtype=int,  # Counts are of type int
+        concatenate=False,  # => list of raw outputs from previous functions (i.e. from on_chunk to agg func)
+    ).compute()
+
+
 # Modified from: https://github.com/scikit-learn/scikit-learn/blob/c60dae20604f8b9e585fc18a8fa0e0fb50712179/sklearn/metrics/_classification.py#L371
-def confusion_matrix(truth: da.Array, prediction: da.Array) -> "NDArray":
+def confusion_matrix(truth: da.Array, prediction: da.Array) -> "NDArray[np.int_]":
     """
     Compute the confusion matrix
 
@@ -487,6 +530,14 @@ def confusion_matrix(truth: da.Array, prediction: da.Array) -> "NDArray":
 
     .. _documentation on confusion matrix: https://scikit-learn.org/stable/modules/model_evaluation.html#confusion-matrix
 
+    For a chunked dask array,
+
+    >>> x_true = x_true.rechunk(chunks=2)
+    >>> x_pred = x_pred.rechunk(chunks=2)
+    >>> tn, fp, fn, tp = confusion_matrix(x_true, x_pred).ravel().tolist()
+    >>> tn, fp, fn, tp
+    (2, 1, 2, 3)
+
     """
     if truth.ndim != 1 or prediction.ndim != 1:
         raise ValueError("truth and prediction must be 1D")
@@ -494,17 +545,14 @@ def confusion_matrix(truth: da.Array, prediction: da.Array) -> "NDArray":
     _check_array_is_boolean(truth)
     _check_array_is_boolean(prediction)
 
-    sample_weights: da.Array = da.ones(truth.shape[0], dtype=np.int_)
-    matrix: COO = COO((truth, prediction), sample_weights, shape=(2, 2))
-
-    return matrix.todense()
+    return _confusion_matrix_coo_reduction(truth, prediction)
 
 
 def _populate_confusion_matrix(
     truth: da.Array | None = None,
     prediction: da.Array | None = None,
-    confuse_matrix: "NDArray | None" = None,
-) -> "NDArray":
+    confuse_matrix: "NDArray[np.int_] | None" = None,
+) -> "NDArray[np.int_]":
     if confuse_matrix is None:
         if truth is None or prediction is None:
             raise ValueError("If confusion matrix is None, must provide truth and prediction")
@@ -513,9 +561,10 @@ def _populate_confusion_matrix(
 
 
 def matthews_corr_coeff(
+    *,
     truth: da.Array | None = None,
     prediction: da.Array | None = None,
-    confuse_matrix: "NDArray | None" = None,
+    confuse_matrix: "NDArray[np.int_] | None" = None,
 ) -> float:
     """
     Compute the Matthew's Correlation Coefficient
@@ -541,6 +590,8 @@ def matthews_corr_coeff(
     >>> pred = da.asarray([0,0,1,1,1,1,1,1,0,0,0,1])
     >>> float(matthews_corr_coeff(truth=actual, prediction=pred))
     0.478
+    >>> float(matthews_corr_coeff(truth=pred, prediction=actual))
+    0.478
     >>> float(matthews_corr_coeff(confuse_matrix=confusion_matrix(actual, pred)))
     0.478
 
@@ -550,9 +601,9 @@ def matthews_corr_coeff(
     confuse_matrix = _populate_confusion_matrix(truth, prediction, confuse_matrix)
     tn, fp, fn, tp = confuse_matrix.ravel().tolist()
     numerator = tp * tn - fp * fn
-    denominator = np.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
+    denominator = float((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
 
-    return numerator / denominator
+    return numerator / np.sqrt(denominator)
 
 
 class ContingencyTable(NamedTuple):
@@ -561,8 +612,15 @@ class ContingencyTable(NamedTuple):
     n_01: xr.DataArray
     n_10: xr.DataArray
 
+    def to_data_array(self) -> xr.DataArray:
+        first_row = concat_new_dim([self.n_00, self.n_01], dim_name="col", dim_values=[0, 1])
+        second_row = concat_new_dim([self.n_10, self.n_11], dim_name="col", dim_values=[0, 1])
+        return concat_new_dim([first_row, second_row], dim_name="row", dim_values=[0, 1])
 
-def contingency_table(first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str) -> ContingencyTable:
+
+def contingency_table(
+    x_var: xr.DataArray, y_var: xr.DataArray, *, sum_over: str | list[str] | None, z_var: xr.DataArray | None = None
+) -> ContingencyTable:
     """
     Contingency Table for multidimensional arrays
 
@@ -571,37 +629,297 @@ def contingency_table(first_var: xr.DataArray, second_var: xr.DataArray, sum_ove
     .. math::
 
        \\begin{array}{c|c|c|c}
-           & y = 1 & y = 0 & \\text{Total} \\\\
+           & Y = 1 & Y = 0 & \\text{Total} \\\\
            \\hline
-           x = 1 & n_{11} & n_{10} & n_{1\\bullet} \\\\
-           x = 0 & n_{01} & n_{00} & n_{0\\bullet} \\\\
+           X = 1 & n_{11} & n_{10} & n_{1\\bullet} \\\\
+           X = 0 & n_{01} & n_{00} & n_{0\\bullet} \\\\
            \\hline
            \\text{Total} & n_{\\bullet1} & n_{\\bullet0} & n
        \\end{array}
 
+    When :math`X` and :math`Y` are response variables, the probability of each case :math`\\pi_{ij}` is the joint
+    distribution of :math`X` and :math`Y`, where :math`i` and :math`j` denotes the row and column respectively.
+    When :math`Y` is the response variable and :math`X` is the explanation variable, then it conditional distribution
+    of :math`Y` given :math`X`, is defined as,
+
+    .. math::
+
+        \\pi_{j | i} = \\pi_{ij} / \\pi_{i + } \\quad \\forall i \\text{ and } j
+
     Args:
-        first_var: First binary variable
-        second_var: Second binary variable
-        sum_over: Dimension to sum over to compute the number of observations
+        x_var: First binary variable (:math`x` in contingency table)
+        y_var: Second binary variable (:math`y` in contingency table)
+        z_var: Optional third binary variable (:math`z` in contingency table) if x and y have a conditional
+               association
+        sum_over: Dimension(s) to sum over to compute the number of observations. If None, it will sum over all
+                  dimension in the array
 
     Returns:
         Instance of :class:`ContingencyTable`
 
     """
-    assert set(first_var.dims) == set(second_var.dims)
-    assert sum_over in first_var.dims
-    assert first_var.dtype == second_var.dtype
-    assert first_var.dtype == np.bool_
+    if isinstance(sum_over, str):
+        sum_over = [sum_over]
+
+    if z_var is None:
+        assert_dims_same(x_var, y_var)
+        assert_dims_in_arrays(x_var, y_var, target_dims=sum_over)
+        assert_array_dtypes_match(x_var, y_var, expected_dtype=np.bool_)
+
+        return ContingencyTable(
+            n_11=(x_var & y_var).sum(dim=sum_over),
+            n_10=(x_var & (~y_var)).sum(dim=sum_over),
+            n_01=((~x_var) & y_var).sum(dim=sum_over),
+            n_00=(~(x_var | y_var)).sum(dim=sum_over),
+        )
+
+    assert_dims_same(x_var, y_var, z_var)
+    assert_dims_in_arrays(x_var, y_var, z_var, target_dims=sum_over)
+    assert_array_dtypes_match(x_var, y_var, z_var, expected_dtype=np.bool_)
 
     return ContingencyTable(
-        n_11=(first_var & second_var).sum(dim=sum_over),
-        n_10=(first_var & (~second_var)).sum(dim=sum_over),
-        n_01=((~first_var) & second_var).sum(dim=sum_over),
-        n_00=(~(first_var | second_var)).sum(dim=sum_over),
+        n_11=(x_var & y_var & z_var).sum(dim=sum_over),
+        n_10=(x_var & (~y_var) & z_var).sum(dim=sum_over),
+        n_01=((~x_var) & y_var & z_var).sum(dim=sum_over),
+        n_00=(~(x_var | y_var) & z_var).sum(dim=sum_over),
     )
 
 
-def matthews_corr_coeff_multidim(first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str) -> xr.DataArray:
+def stratified_contingency_table(
+    effect_of: xr.DataArray, on_var: xr.DataArray, *control_var: xr.DataArray, sum_over: str | list[str] | None
+) -> list[ContingencyTable]:
+    if len(control_var) == 1:
+        single_control_var: xr.DataArray = control_var[0]
+        return [
+            contingency_table(effect_of, on_var, sum_over=sum_over, z_var=single_control_var),
+            contingency_table(effect_of, on_var, sum_over=sum_over, z_var=~single_control_var),
+        ]
+    return [
+        contingency_table(effect_of, on_var, sum_over=sum_over, z_var=this_control_var)
+        for this_control_var in control_var
+    ]
+
+
+def _sample_odd_ratio_formula[T: (SupportsArithmetic, xr.DataArray)](n_00: T, n_01: T, n_10: T, n_11: T) -> T:
+    """
+    Formula for sample odds ratio
+
+    .. math::
+
+        \\hat{\\theta} = \\frac{n_{11} * n_{00}}{n_{10} * n_{01}}
+
+    Args:
+        n_00: Count of cases where both first_var and second_var are absent
+        n_01: Count of cases where first_var is absent but second_var is present
+        n_10: Count of cases where first_var is present but second_var is absent
+        n_11: Count of cases where both first_var and second_var are present
+
+    Returns:
+        Sample odds ratio
+
+    References:
+        [Agresti2022]_
+
+    Examples:
+
+    These examples are from [Agresti2022]_
+
+    >>> n_placebo_heart_attack, n_placebo_no_attack = 18 + 171, 10845
+    >>> n_aspirin_heart_attack, n_aspirin_no_attack = 5 + 99, 10933
+    >>> _sample_odd_ratio_formula(n_placebo_heart_attack, n_placebo_no_attack, \
+        n_aspirin_heart_attack,n_aspirin_no_attack)
+    1.83
+    >>> _sample_odd_ratio_formula(n_aspirin_no_attack, n_aspirin_heart_attack, \
+        n_placebo_no_attack, n_placebo_heart_attack)
+    1.83
+    >>> n_smoker_cancer, n_smoker_no_cancer = 688, 650
+    >>> n_no_smoke_cancer, n_no_smoke_no_cancer = 21, 59
+    >>> _sample_odd_ratio_formula(n_no_smoke_no_cancer, n_no_smoke_cancer, n_smoker_no_cancer, n_smoker_cancer)
+    3.0
+    """
+    return (n_00 * n_11) / (n_01 * n_10)
+
+
+def _odds_ratio_from_table(table: ContingencyTable, use_log: bool) -> xr.DataArray:
+    this_odds: xr.DataArray = _sample_odd_ratio_formula(table.n_00, table.n_01, table.n_10, table.n_11)
+    if use_log:
+        this_odds = np.log(this_odds)  # pyright: ignore[reportAssignmentType]
+    return apply_nan_mask(this_odds, np.isinf(this_odds))  # pyright: ignore[reportArgumentType]
+
+
+def sample_odds_ratio(
+    first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str | list[str] | None, *, use_log: bool = True
+) -> xr.DataArray:
+    """
+    Sample odds ratio between two binary variables
+
+    An odds ratio (OR) is a statistic that quantifies the strength of the association between two events, A and B.
+    The odds ratio is defined as the ratio of the odds of event A taking place in the presence of B, and the odds of A
+    in the absence of B. Definition from `Wikipedia <https://en.wikipedia.org/wiki/Odds_ratio>`__.
+
+    Args:
+        first_var: A binary xarray DataArray representing the exposure variable
+        second_var: A binary xarray DataArray representing the outcome variable
+        sum_over: Name of the dimension to sum over when computing the 2x2 contingency table.
+                  This dimension will be aggregated to obtain cell counts (n_00, n_01, n_10, n_11).
+        use_log: If True (default), returns the natural logarithm of the odds ratio. Set to False to return the raw
+                 odds ratio. Default is True.
+
+    Returns:
+        xr.DataArray: The sample odds ratio (or log odds ratio if use_log=True).
+                      Dimensions are preserved except for the summed dimension.
+
+    Notes:
+        - OR > 1 indicates increased odds of outcome with exposure
+        - OR < 1 indicates decreased odds of outcome with exposure
+        - OR = 1 indicates no association between exposure and outcome
+        - The log odds ratio is often preferred for statistical analysis as it has better
+          distributional properties
+
+    """
+    table: ContingencyTable = contingency_table(first_var, second_var, sum_over=sum_over)
+    return _odds_ratio_from_table(table, use_log)
+
+
+def conditional_odds_ratio(
+    effect_of: xr.DataArray,
+    on_var: xr.DataArray,
+    *control_var: xr.DataArray,
+    sum_over: str | list[str] | None,
+    use_log: bool = True,
+) -> list[xr.DataArray]:
+    tables: list[ContingencyTable] = stratified_contingency_table(effect_of, on_var, *control_var, sum_over=sum_over)
+    return [_odds_ratio_from_table(this_table, use_log) for this_table in tables]
+
+
+def marginal_odds_ratio(
+    effect_of: xr.DataArray,
+    on_var: xr.DataArray,
+    *control_var: xr.DataArray,
+    sum_over: str | list[str] | None,
+    use_log: bool = True,
+) -> xr.DataArray:
+    tables: list[ContingencyTable] = stratified_contingency_table(effect_of, on_var, *control_var, sum_over=sum_over)
+
+    field_names = ["n_11", "n_01", "n_10", "n_00"]
+    sum_each_case = {
+        field: sum(
+            (getattr(this_table, field) for this_table in tables), start=xr.zeros_like(tables[0].n_00, dtype=int)
+        )
+        for field in field_names
+    }
+    odds_ratio = _sample_odd_ratio_formula(
+        sum_each_case["n_00"], sum_each_case["n_01"], sum_each_case["n_10"], sum_each_case["n_11"]
+    )
+    if use_log:
+        # pyright has a false positive as it doesn't recognise the xr.ufuncs
+        odds_ratio = np.log(odds_ratio)  # pyright: ignore[reportAssignmentType]
+
+    # Remove invalid values to make mean() computation work
+    return apply_nan_mask(odds_ratio, np.isinf(odds_ratio))  # pyright: ignore[reportArgumentType]
+
+
+def _relative_risk_formula[T: (SupportsArithmetic, xr.DataArray)](n_00: T, n_01: T, n_10: T, n_11: T) -> T:
+    """
+    Formula for relative risk
+
+    When expressed as probabilities, the relative risk is given as [Agresti2022]_,
+
+    .. math:: \\text{relative risk} = \\pi_{A | B} / \\pi_{A | (\\neg B)}
+
+    The implemented formula converts the conditional probability to be in terms of counts.
+
+    Args:
+        n_00: Count of cases where both first_var and second_var are absent
+        n_01: Count of cases where first_var is absent but second_var is present
+        n_10: Count of cases where first_var is present but second_var is absent
+        n_11: Count of cases where both first_var and second_var are present
+
+    Returns:
+        Relative risk
+
+    Examples:
+
+    Values which correspond to which argument depends on what the relative risk is computed with respect to. In this
+    example from [Agresti2022]_, we are computing the relative risk of experiencing a heart attack when taking a
+    placebo,
+
+    >>> n_placebo_heart_attack, n_placebo_no_attack = 18 + 171, 10845
+    >>> n_aspirin_heart_attack, n_aspirin_no_attack = 5 + 99, 10933
+    >>> rel_risk_placebo_heart_attack = _relative_risk_formula(n_aspirin_no_attack, n_aspirin_heart_attack, \
+        n_placebo_no_attack, n_placebo_heart_attack)
+    >>> rel_risk_placebo_heart_attack
+    1.82
+
+    This shows that those taking a placebo were 1.82 times the proportion suffering heart attacks of those taking
+    aspirin. If we instead wanted to know the relative risk of experiencing a heart attack when taking aspirin,
+    we find that it is equibvalent to the inverse of the previous relative risk,
+
+    >>> rel_risk_aspirin_heart_attack = _relative_risk_formula(n_placebo_no_attack, n_placebo_heart_attack, \
+        n_aspirin_no_attack, n_aspirin_heart_attack)
+    >>> bool(np.isclose(rel_risk_aspirin_heart_attack, 1/rel_risk_placebo_heart_attack))
+    True
+    """
+    return (n_11 / n_01) * ((n_01 + n_00) / (n_11 + n_10))
+
+
+def _rel_risk_from_table(table: ContingencyTable, use_log: bool) -> xr.DataArray:
+    this_odds: xr.DataArray = _relative_risk_formula(table.n_00, table.n_01, table.n_10, table.n_11)
+    if use_log:
+        this_odds = np.log(this_odds)  # pyright: ignore[reportAssignmentType]
+    return apply_nan_mask(this_odds, np.isinf(this_odds))  # pyright: ignore[reportArgumentType]
+
+
+def relative_risk(
+    first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str | list[str] | None, *, use_log: bool = False
+) -> xr.DataArray:
+    """
+    Relative risk of an outcome with respect to an exposure variable
+
+    The relative risk is the ratio of the probability of an outcome occurring in the exposed group to the
+    probability of that outcome occurring in the unexposed group.
+
+    Args:
+        first_var: A binary xarray DataArray representing the exposure variable
+        second_var: A binary xarray DataArray representing the outcome variable
+        sum_over: Dimension to sum over to obtain counts
+        use_log: If True, returns the natural logarithm of the relative risk. Default is False.
+
+    Returns:
+        xr.DataArray: The relative risk (or log relative risk if use_log=True).
+             Dimensions are preserved except for the summed dimension.
+
+    Notes:
+        - Relative risk = P(outcome=1 | exposure=1) / P(outcome=1 | exposure=0)
+        - RR > 1 indicates increased risk with exposure
+        - RR < 1 indicates decreased risk with exposure
+        - RR = 1 indicates no association between exposure and outcome
+    """
+    table: ContingencyTable = contingency_table(first_var, second_var, sum_over=sum_over)
+    return _rel_risk_from_table(table, use_log=use_log)
+
+
+def stratified_relative_risk(
+    effect_of: xr.DataArray,
+    on_var: xr.DataArray,
+    *control_var: xr.DataArray,
+    sum_over: str | list[str] | None,
+    use_log: bool = False,
+) -> list[xr.DataArray]:
+    tables: list[ContingencyTable] = stratified_contingency_table(effect_of, on_var, *control_var, sum_over=sum_over)
+    return [_rel_risk_from_table(this_table, use_log) for this_table in tables]
+
+
+def _get_total_num_observations(target_array: xr.DataArray, sum_over_dims: str | list[str] | None) -> int:
+    if sum_over_dims is None:
+        return target_array.size
+    dim_names = sum_over_dims if isinstance(sum_over_dims, list) else [sum_over_dims]
+    return math.prod(target_array[this_dim].size for this_dim in dim_names)
+
+
+def matthews_corr_coeff_multidim(
+    first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str | list[str] | None
+) -> xr.DataArray:
     """
     Matthews Correlation Coefficient for multidimensional arrays
 
@@ -635,8 +953,8 @@ def matthews_corr_coeff_multidim(first_var: xr.DataArray, second_var: xr.DataArr
 
     .. _Wikipedia on MCC: https://en.wikipedia.org/wiki/Phi_coefficient#Definition
     """
-    table: ContingencyTable = contingency_table(first_var, second_var, sum_over)
-    total_num_observations: int = first_var[sum_over].size
+    table: ContingencyTable = contingency_table(first_var, second_var, sum_over=sum_over)
+    total_num_observations: int = _get_total_num_observations(first_var, sum_over)
 
     sum_first_var_true: xr.DataArray = table.n_11 + table.n_10
     sum_second_var_true: xr.DataArray = table.n_11 + table.n_01
@@ -683,7 +1001,9 @@ def critical_success_index(
     return tp / (tp + fn + fp)
 
 
-def jaccard_index_multidim(first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str) -> xr.DataArray:
+def jaccard_index_multidim(
+    first_var: xr.DataArray, second_var: xr.DataArray, sum_over: str | list[str] | None
+) -> xr.DataArray:
     """
     Jaccard Index or Critical Success Index for multidimensional data
 
@@ -704,8 +1024,8 @@ def jaccard_index_multidim(first_var: xr.DataArray, second_var: xr.DataArray, su
     .. _Wikipedia: https://en.wikipedia.org/wiki/Jaccard_index
 
     """
-    table: ContingencyTable = contingency_table(first_var, second_var, sum_over)
-    total_num_observations: int = first_var[sum_over].size
+    table: ContingencyTable = contingency_table(first_var, second_var, sum_over=sum_over)
+    total_num_observations: int = _get_total_num_observations(first_var, sum_over)
     return table.n_11 / (total_num_observations - table.n_00)
 
 

@@ -14,16 +14,19 @@
 
 import fnmatch
 import gzip
+import re
 import shutil
 import tempfile
 from collections.abc import Container, Hashable, Iterable
+from enum import StrEnum
 from ftplib import FTP
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, override
 
 import dask.array as da
 import dask.dataframe as dd
 import numpy as np
+import requests
 import xarray as xr
 from rich.progress import track
 
@@ -32,6 +35,7 @@ from rojak.utilities.types import DistributionParameters
 
 if TYPE_CHECKING:
     import dask_geopandas as dgpd
+    from requests import Response
 
 ALL_AMDAR_DATA_VARS: frozenset[str] = frozenset(
     {"nStaticIds", "staticIds", "lastRecord", "invTime", "prevRecord", "inventory", "globalInventory", "firstOverflow",
@@ -226,6 +230,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
             dataset = self.__mask_invalid_error_var(dataset, str(var))
         return dataset.dropna(self.dimension_name, subset=error_vars_present)
 
+    @override
     def apply_preprocessor(self, output_directory: Path) -> None:
         # Filters and exports data to parquet
         output_directory.mkdir(parents=True, exist_ok=True)
@@ -268,24 +273,25 @@ class MadisAmdarPreprocessor(DataPreprocessor):
             del data
 
 
+class MadisDataServer(StrEnum):
+    FTP = "ftp"
+    HTTP = "http"
+
+
 class AcarsRetriever(DataRetriever):
-    ftp_host: str = "madis-data.ncep.noaa.gov"
-    product: str = "acars"
-    file_pattern: str
+    HOSTNAME: ClassVar[str] = "madis-data.ncep.noaa.gov"
+    PRODUCT: ClassVar[str] = "acars"
+    HTTP_ARCHIVE_PATH: ClassVar[str] = "madisPublic1/data/archive"
+    FTP_ARCHIVE_PATH: ClassVar[str] = "archive"
 
-    def __init__(self, file_pattern: str | None = None) -> None:
-        if file_pattern is None:
-            self.file_pattern = "*.gz"
-        else:
-            self.file_pattern = file_pattern
+    def __init__(self, file_pattern: str | None = None, retrive_from: MadisDataServer = MadisDataServer.HTTP) -> None:
+        self.retrieve_from: MadisDataServer = retrive_from
+        self.file_pattern: str = "*.gz" if file_pattern is None else file_pattern
 
-    def _download_file(self, date: Date, base_output_dir: Path) -> None:
-        output_dir: Path = (base_output_dir / f"{date.year:02d}" / f"{date.month:02d}").resolve()
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        with FTP(self.ftp_host) as ftp:
+    def _from_ftp_server(self, date: Date, output_dir: Path) -> None:
+        with FTP(self.HOSTNAME) as ftp:
             ftp.login()
-            ftp.cwd(f"archive/{date.year}/{date.month:02d}/{date.day:02d}/point/{self.product}/netcdf/")
+            ftp.cwd(f"{self.FTP_ARCHIVE_PATH}/{date.year}/{date.month:02d}/{date.day:02d}/point/{self.PRODUCT}/netcdf/")
             files: list[str] = ftp.nlst()
             matching_files: list[str] = fnmatch.filter(files, self.file_pattern)
             for file in matching_files:
@@ -293,6 +299,43 @@ class AcarsRetriever(DataRetriever):
                 with target_file_path.open(mode="wb") as f_out:
                     ftp.retrbinary(f"RETR {file}", f_out.write)
 
+    def _from_http_server(self, date: Date, output_dir: Path) -> None:
+        archive_root: str = f"{self.HOSTNAME}/{self.HTTP_ARCHIVE_PATH}"
+        url_for_date: str = (
+            f"https://{archive_root}/{date.year}/{date.month:02d}/{date.day:02d}/point/{self.PRODUCT}/netcdf/"
+        )
+
+        directory_response: Response = requests.get(url_for_date)
+        directory_response.raise_for_status()
+
+        date_str: str = f"{date.year}{date.month:02d}{date.day:02d}"
+        pattern_ext: str = Path(self.file_pattern).suffix
+        files_from_dir_list: list[str] = re.findall(
+            rf'href="({date_str}_[^"]*\{pattern_ext})"', directory_response.text
+        )
+
+        for target_file in files_from_dir_list:
+            target_file_url = f"{url_for_date}/{target_file}"
+            target_file_out_path: Path = output_dir / target_file
+
+            with requests.get(target_file_url, stream=True) as file_response:
+                file_response.raise_for_status()
+                with target_file_out_path.open(mode="wb") as f_out:
+                    for chunk in file_response.iter_content(chunk_size=8192):
+                        _ = f_out.write(chunk)
+
+    @override
+    def _download_file(self, date: Date, base_output_dir: Path) -> None:
+        output_dir: Path = (base_output_dir / f"{date.year:02d}" / f"{date.month:02d}").resolve()
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        match self.retrieve_from:
+            case MadisDataServer.FTP:
+                self._from_ftp_server(date, output_dir)
+            case MadisDataServer.HTTP:
+                self._from_http_server(date, output_dir)
+
+    @override
     def download_files(
         self,
         years: list[int],
@@ -327,6 +370,7 @@ class AcarsAmdarRepository(AmdarDataRepository):
     def __init__(self, path_to_files: str | list) -> None:
         super().__init__(path_to_files, True)
 
+    @override
     def load(self) -> "dd.DataFrame":
         target_columns: list[str] | None = (
             list(AcarsAmdarRepository._MINIMAL_DATA_VARS) if self._use_min_turbulence_vars else None
@@ -342,6 +386,7 @@ class AcarsAmdarRepository(AmdarDataRepository):
 
         return amdar_data
 
+    @override
     def _call_compute_closest_pressure_level(
         self,
         data_frame: "dd.DataFrame",
@@ -349,6 +394,7 @@ class AcarsAmdarRepository(AmdarDataRepository):
     ) -> "dd.Series":
         return self._compute_closest_pressure_level(data_frame, pressure_levels, "altitude")
 
+    @override
     def _instantiate_amdar_turbulence_data_class(
         self,
         data_frame: "dd.DataFrame",
@@ -356,6 +402,7 @@ class AcarsAmdarRepository(AmdarDataRepository):
     ) -> "AmdarTurbulenceData":
         return AcarsAmdarTurbulenceData(data_frame, grid)
 
+    @override
     def _time_column_rename_mapping(self) -> dict[str, str]:
         return {"timeObs": "datetime"}
 
@@ -364,9 +411,11 @@ class AcarsAmdarTurbulenceData(AmdarTurbulenceData):
     def __init__(self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame") -> None:
         super().__init__(data_frame, grid)
 
+    @override
     def _minimum_altitude_qc(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
         return data_frame[data_frame["altitude"] >= self.MINIMUM_ALTITUDE]
 
+    @override
     def _drop_manoeuvre_data_qc(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
         # Attributes:
         # long_name:  Aircraft roll angle flag
