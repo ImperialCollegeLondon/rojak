@@ -218,6 +218,27 @@ class CATData(CATPrognosticData):
             air_pressure=self.pressure_level(convert_to_pascals=True),
         )
 
+    def issr_along_path(
+        self, lon_points: np.ndarray, lat_points: np.ndarray, points_dim_name: str = "waypoints"
+    ) -> xr.DataArray:
+        if lon_points.ndim != 1 or lat_points.ndim != 1:
+            raise ValueError("lon_points and lat_points must have one dimension")
+        if lon_points.shape != lat_points.shape:
+            raise ValueError("lon_points and lat_points must have the same shape")
+
+        temp_ds: xr.Dataset = xr.Dataset(
+            data_vars={"temperature": self.temperature(), "specific_humidity": self.specific_humidity()}
+        )
+        interp_ds = temp_ds.interp(
+            longitude=xr.DataArray(lon_points, dims=points_dim_name),
+            latitude=xr.DataArray(lat_points, dims=points_dim_name),
+        )
+        return issr(
+            air_temperature=interp_ds["temperature"],
+            specific_humidity=interp_ds["specific_humidity"],
+            air_pressure=self.pressure_level(convert_to_pascals=True),
+        )
+
 
 def load_from_folder(
     path_to_folder: "Path",

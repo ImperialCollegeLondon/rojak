@@ -9,6 +9,7 @@ from dask.base import is_dask_collection
 from scipy.interpolate import RegularGridInterpolator
 
 from rojak.core.constants import GAS_CONSTANT_DRY_AIR, GRAVITATIONAL_ACCELERATION
+from rojak.utilities._compat import deprecated
 from rojak.utilities.types import is_np_array
 
 if TYPE_CHECKING:
@@ -288,6 +289,7 @@ def bilinear_interpolation(
     )
 
 
+@deprecated("Use xarray interp() method or rojak.geometric.interpolate_to_geodesic_waypoints() instead")
 def interpolation_on_lat_lon(
     data: xr.DataArray,
     interp_points: xr.DataArray,
