@@ -236,7 +236,7 @@ class EvaluationStage:
     _start_time: TimeStr
     _image_format: str
 
-    def __init__(  # noqa: PLR0913
+    def __init__(
         self,
         calibration_result: Mapping[TurbulenceCalibrationPhaseOption, Result],
         phases_config: "TurbulenceEvaluationPhases",

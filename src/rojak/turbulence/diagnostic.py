@@ -1545,7 +1545,7 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
     _distribution_parameters: Mapping["DiagnosticName", "DistributionParameters"] | None
 
     # I think the pyright warning is a false positive?
-    def __init__(  # noqa: PLR0913  # pyright: ignore [reportIncompatibleVariableOverride]
+    def __init__(  # pyright: ignore [reportIncompatibleVariableOverride]
         self,
         factory: DiagnosticFactory,
         diagnostics: list[TurbulenceDiagnostics],
