@@ -59,9 +59,11 @@ def _is_in_degrees(
         positive_factor, negative_factor = 2, 1
     else:  # Latitude
         positive_factor, negative_factor = 1 / 2, 1 / 2
-    return np.any(
-        (array > (positive_factor * np.pi)) | (array < (-negative_factor * np.pi)),
-        axis=axis,
+    return bool(
+        np.any(
+            (array > (positive_factor * np.pi)) | (array < (-negative_factor * np.pi)),
+            axis=axis,
+        )
     )
 
 

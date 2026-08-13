@@ -275,8 +275,8 @@ def test_turbulence_amdar_acars_harmonisation(
             data_source=AmdarDataSource.MADIS,
             glob_pattern="**/*.parquet",
             time_window=Limits(
-                datetime.datetime(2024, month=1, day=1),
-                datetime.datetime(2024, month=1, day=1, hour=18),
+                datetime.datetime(2024, month=1, day=1, tzinfo=datetime.UTC),
+                datetime.datetime(2024, month=1, day=1, hour=18, tzinfo=datetime.UTC),
             ),
             save_harmonised_data=True,
         ),
@@ -368,8 +368,8 @@ def test_turbulence_amdar_roc(
             data_source=AmdarDataSource.MADIS,
             glob_pattern="**/*.parquet",
             time_window=Limits(
-                datetime.datetime(2024, month=1, day=1),
-                datetime.datetime(2024, month=1, day=1, hour=18),
+                datetime.datetime(2024, month=1, day=1, tzinfo=datetime.UTC),
+                datetime.datetime(2024, month=1, day=1, hour=18, tzinfo=datetime.UTC),
             ),
             diagnostic_validation=DiagnosticValidationConfig(
                 validation_conditions=validation_conditions,

@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
 
-def create_regions_snapshot_plot(  # noqa: PLR0913
+def create_regions_snapshot_plot(
     da_to_plot: xr.DataArray,
     first_feature_name: str,
     second_feature_name: str,
@@ -53,7 +53,7 @@ def create_regions_snapshot_plot(  # noqa: PLR0913
     plt.close(fg.fig)
 
 
-def create_distance_from_a_to_b_instantaneous_lat_lon_plot(  # noqa:PLR0913
+def create_distance_from_a_to_b_instantaneous_lat_lon_plot(
     distances_from: xr.DataArray,
     to_regions: xr.DataArray,
     pressure_levels: "NDArray",
@@ -87,7 +87,7 @@ def create_distance_from_a_to_b_instantaneous_lat_lon_plot(  # noqa:PLR0913
     plt.close(fg_dist.fig)
 
 
-def create_distance_from_a_to_b_instantaneous_waypoints_plot(  # noqa: PLR0913
+def create_distance_from_a_to_b_instantaneous_waypoints_plot(
     distances_from: xr.DataArray,
     to_regions: xr.DataArray,
     plot_name: str,
@@ -115,7 +115,7 @@ def create_distance_from_a_to_b_instantaneous_waypoints_plot(  # noqa: PLR0913
     plt.close(fig)
 
 
-def create_mean_distances_a_to_b_lat_lon_plot(  # noqa: PLR0913
+def create_mean_distances_a_to_b_lat_lon_plot(
     distances_from: xr.DataArray,
     plot_name: str,
     mean_over_dim: str = "time",

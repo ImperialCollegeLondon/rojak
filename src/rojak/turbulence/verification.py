@@ -112,7 +112,7 @@ class AmdarDataHarmoniser:
     time_index_column: ClassVar[str] = "time_index"
     level_index_column: ClassVar[str] = "level_index"
 
-    def __init__(  # noqa: PLR0913
+    def __init__(
         self,
         amdar_data: "AmdarTurbulenceData",
         grid_prototype: xr.DataArray,
