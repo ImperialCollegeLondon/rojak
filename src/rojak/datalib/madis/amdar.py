@@ -190,9 +190,9 @@ class MadisAmdarPreprocessor(DataPreprocessor):
                 with gzip.open(filepath, "rb") as f_in, temp_file_path.open(mode="wb") as f_out:
                     # noinspection PyTypeChecker
                     shutil.copyfileobj(f_in, f_out)
-            except Exception as e:
+            except Exception:
                 temp_file_path.unlink(missing_ok=True)
-                raise e
+                raise
 
         return temp_file_path
 

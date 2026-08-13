@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -107,7 +107,7 @@ def test_calibration_stage_launch_no_calibration_data(
         SpatialDomain(maximum_latitude=90, maximum_longitude=90, minimum_longitude=0, minimum_latitude=0),
         tmp_path / "output",
         "test",
-        datetime.now().strftime("%Y-%m-%d_%H_%M_%S"),
+        datetime.now(tz=UTC).strftime("%Y-%m-%d_%H_%M_%S"),
     )
     spy_on_run_phase = mocker.spy(calibration, "run_phase")
     calibration.launch([TurbulenceDiagnostics.DEF], {})
@@ -124,7 +124,7 @@ def test_calibration_stage_launch_calibration_data(
         SpatialDomain(maximum_latitude=90, maximum_longitude=90, minimum_longitude=0, minimum_latitude=0),
         tmp_path_factory.getbasetemp() / "output",
         "test",
-        datetime.now().strftime("%Y-%m-%d_%H_%M_%S"),
+        datetime.now(tz=UTC).strftime("%Y-%m-%d_%H_%M_%S"),
     )
     mock_suite_creation = mocker.patch.object(calibration, "create_diagnostic_suite", return_value=None)
     calibration.launch([TurbulenceDiagnostics.DEF], {})
@@ -133,7 +133,7 @@ def test_calibration_stage_launch_calibration_data(
 
 @pytest.fixture
 def dump_to_file(tmp_path_factory, calibration_config_data_dir, mocker: "MockerFixture", output_thresholds):
-    start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
+    start_time = datetime.now(tz=UTC).strftime("%Y-%m-%d_%H_%M_%S")
     calibration = CalibrationStage(
         threshold_phases_calibration(calibration_config_data_dir),
         SpatialDomain(maximum_latitude=90, maximum_longitude=90, minimum_longitude=0, minimum_latitude=0),
@@ -160,7 +160,7 @@ def test_calibration_stage_perform_calibration(
     calibration_config_data_dir,
     output_thresholds,
 ) -> None:
-    start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
+    start_time = datetime.now(tz=UTC).strftime("%Y-%m-%d_%H_%M_%S")
     calibration = CalibrationStage(
         threshold_phases_calibration(calibration_config_data_dir),
         SpatialDomain(maximum_latitude=90, maximum_longitude=90, minimum_longitude=0, minimum_latitude=0),
@@ -192,7 +192,7 @@ def test_calibration_stage_perform_calibration(
 
 
 def test_calibration_stage_load_thresholds_from_file(tmp_path_factory, dump_to_file, output_thresholds) -> None:
-    start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
+    start_time = datetime.now(tz=UTC).strftime("%Y-%m-%d_%H_%M_%S")
     calibration = CalibrationStage(
         threshold_phases_calibration(
             TurbulenceCalibrationConfig(thresholds_file_path=dump_to_file),
@@ -211,7 +211,7 @@ def test_calibration_stage_compute_distribution_params(
     calibration_config_data_dir,
     output_dist_params,
 ) -> None:
-    start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
+    start_time = datetime.now(tz=UTC).strftime("%Y-%m-%d_%H_%M_%S")
     calibration = CalibrationStage(
         dist_param_phases_calibration(calibration_config_data_dir),
         SpatialDomain(maximum_latitude=90, maximum_longitude=90, minimum_longitude=0, minimum_latitude=0),

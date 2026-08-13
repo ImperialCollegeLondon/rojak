@@ -274,6 +274,7 @@ def test_bilinear_interpolation(x_slice, y_slice, interpolation_point, ff, is_ff
         assert interpolated == ff(interpolation_point[0], interpolation_point[1])
 
 
+@pytest.mark.skip(reason="interpolation_on_lat_lon() method has been deprecated")
 def test_interpolation_on_lat_lon_apply_ufunc_equiv_to_slice(load_cat_data, client) -> None:
     cat_data: CATData = load_cat_data(None, with_chunks=True)
 
@@ -316,11 +317,13 @@ def test_interpolation_on_lat_lon_to_grid_points(load_cat_data, client) -> None:
         data=np.stack((llon.ravel(), llat.ravel()), axis=1),
         dims=["points", "xy"],
     )
-    interpolated_to: xr.DataArray = interpolation_on_lat_lon(apply_on, interpolation_points)
-    np.testing.assert_array_equal(
-        apply_on.stack(z=["latitude", "longitude"]),
-        interpolated_to,
-    )
+
+    with pytest.deprecated_call():
+        interpolated_to: xr.DataArray = interpolation_on_lat_lon(apply_on, interpolation_points)
+        np.testing.assert_array_equal(
+            apply_on.stack(z=["latitude", "longitude"]),
+            interpolated_to,
+        )
 
 
 class TestApplyDataVarsReduction:

@@ -35,7 +35,7 @@ if __name__ == "__main__":
     context = ConfigContext.from_yaml(config_file)
 
     # Launch the turbulence analysis to get the result from the evaluation stage
-    eval_stage_result: "None | EvaluationStageResult" = TurbulenceLauncher(context).launch()
+    eval_stage_result: "EvaluationStageResult | None" = TurbulenceLauncher(context).launch()
     assert eval_stage_result is not None
 
     # Verify that EDR was computed, if it wasn't check input config

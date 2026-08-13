@@ -1,13 +1,14 @@
 import itertools
 from collections.abc import Callable
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import dask_geopandas as dgpd
 import geopandas as gpd
 import numba
 import numpy as np
 import pyproj
+import xarray as xr
 from shapely import geometry
 from shapely.prepared import prep
 
@@ -205,6 +206,30 @@ def geodesic_waypoints_between(
             initial_idx=0,
             terminus_idx=0,
         ),
+    )
+
+
+def interpolate_to_geodesic_waypoints[T: (xr.Dataset, xr.DataArray)](
+    start: Coordinate,
+    end: Coordinate,
+    grid_size: float,
+    target_data: T,
+    n_points_safety_factor: float = 2,
+    n_points: int | None = None,
+    lat_dim_name: str = "latitude",
+    lon_dim_name: str = "longitude",
+    waypoints_dim_name: str = "waypoints",
+    **interpolation_kwargs: Any,  # noqa: ANN401
+) -> T:
+    waypoints = geodesic_waypoints_between(
+        start, end, grid_size, n_points_safety_factor=n_points_safety_factor, n_points=n_points
+    )
+    return target_data.interp(
+        coords={
+            lon_dim_name: xr.DataArray(data=waypoints[:, 0], dims=waypoints_dim_name),
+            lat_dim_name: xr.DataArray(data=waypoints[:, 1], dims=waypoints_dim_name),
+        },
+        **interpolation_kwargs,
     )
 
 

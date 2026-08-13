@@ -67,7 +67,9 @@ def retrieve_madis_data(tmp_path) -> tuple["Path", "Result"]:
             str(tmp_path),
         ],
     )
-    return tmp_path, result
+    # pyright throws a false positive asking for an import from typer.testing instead of click.testing
+    # BUT, typer.testing.Result is not exported...
+    return tmp_path, result  # pyright: ignore[reportReturnType]
 
 
 @pytest.fixture
@@ -92,7 +94,9 @@ def retrieve_madis_data_single_file(tmp_path) -> tuple["Path", "Result"]:
             "20240101_00*.gz",
         ],
     )
-    return tmp_path, result
+    # pyright throws a false positive asking for an import from typer.testing instead of click.testing
+    # BUT, typer.testing.Result is not exported...
+    return tmp_path, result  # pyright: ignore[reportReturnType]
 
 
 @pytest.mark.slow

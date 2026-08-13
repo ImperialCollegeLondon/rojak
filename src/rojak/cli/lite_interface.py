@@ -1,5 +1,5 @@
 import shutil
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -91,7 +91,7 @@ def export_diagnostic(
 
     context: TurbulenceContextWithOutput = TurbulenceContextWithOutput.from_yaml(config_file)
 
-    start_time: str = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
+    start_time: str = datetime.now(tz=UTC).strftime("%Y-%m-%d_%H_%M_%S")
     output_to: Path = context.output_dir / context.name / start_time
     output_to.mkdir(parents=True, exist_ok=True)
     _ = shutil.copy(config_file, output_to / config_file.name)

@@ -59,7 +59,7 @@ def received_operating_characteristic(
     sorted_truth: "da.Array",
     sorted_values: "da.Array",
     num_intervals: int = 100,
-    positive_classification_label: int | float | bool | str | None = None,
+    positive_classification_label: float | bool | str | None = None,
 ) -> BinaryClassificationResult:
     """
     Received operating characteristic or ROC curve
@@ -147,7 +147,7 @@ def binary_classification_curve(
     sorted_truth: "da.Array",
     sorted_values: "da.Array",
     num_intervals: int = 100,
-    positive_classification_label: int | float | bool | str | None = None,
+    positive_classification_label: float | bool | str | None = None,
 ) -> BinaryClassificationResult:
     """
     Binary classification curve

@@ -9,6 +9,7 @@ from dask.base import is_dask_collection
 from scipy.interpolate import RegularGridInterpolator
 
 from rojak.core.constants import GAS_CONSTANT_DRY_AIR, GRAVITATIONAL_ACCELERATION
+from rojak.utilities._compat import deprecated
 from rojak.utilities.types import is_np_array
 
 if TYPE_CHECKING:
@@ -251,7 +252,7 @@ def pressure_to_altitude_icao(pressure: "NumpyOrDataArray", in_place: bool = Fal
             # Check message of error matches the specific edge case
             if error.args[0] == "IndexVariable values cannot be modified":
                 return pressure.copy(data=pressure_to_altitude_icao(pressure.to_numpy()))
-            raise error
+            raise
         pressure.loc[~mask] = pressure_to_altitude_stratosphere(pressures_within_stratosphere)
 
     return pressure
@@ -288,6 +289,7 @@ def bilinear_interpolation(
     )
 
 
+@deprecated("Use xarray interp() method or rojak.geometric.interpolate_to_geodesic_waypoints() instead")
 def interpolation_on_lat_lon(
     data: xr.DataArray,
     interp_points: xr.DataArray,

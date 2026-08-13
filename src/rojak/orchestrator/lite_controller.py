@@ -1,6 +1,6 @@
 import functools
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, assert_never
 
 import distributed
@@ -145,7 +145,7 @@ def get_computed_diagnostic_helper(
 def compute_distribution_parameters(
     context: "TurbulenceContextWithOutput", /, diagnostics_from: DiagnosticsFormat
 ) -> None:
-    start_time: str = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
+    start_time: str = datetime.now(tz=UTC).strftime("%Y-%m-%d_%H_%M_%S")
     distribution_parameters: dict[str, DistributionParameters] = {}
 
     get_computed_diagnostic: Callable[[str], xr.DataArray] = get_computed_diagnostic_helper(context, diagnostics_from)
@@ -164,7 +164,7 @@ def compute_distribution_parameters(
 
 
 def compute_thresholds(context: "DiagnosticThresholdsContext", /, diagnostics_from: DiagnosticsFormat) -> None:
-    start_time: str = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
+    start_time: str = datetime.now(tz=UTC).strftime("%Y-%m-%d_%H_%M_%S")
     get_computed_diagnostic: Callable[[str], xr.DataArray] = get_computed_diagnostic_helper(context, diagnostics_from)
 
     diagnostic_thresholds: Mapping[str, TurbulenceThresholds] = {}

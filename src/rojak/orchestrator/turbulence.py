@@ -13,7 +13,7 @@
 #  limitations under the License.
 import itertools
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, NamedTuple, assert_never
 
 import numpy as np
@@ -236,7 +236,7 @@ class EvaluationStage:
     _start_time: TimeStr
     _image_format: str
 
-    def __init__(  # noqa: PLR0913
+    def __init__(
         self,
         calibration_result: Mapping[TurbulenceCalibrationPhaseOption, Result],
         phases_config: "TurbulenceEvaluationPhases",
@@ -418,9 +418,9 @@ class TurbulenceLauncher:
         self._context = context
         assert context.turbulence_config is not None
         self._config = context.turbulence_config
-        self._start_time = datetime.now().strftime("%Y-%m-%d_%H_%M_%S")
+        self._start_time = datetime.now(tz=UTC).strftime("%Y-%m-%d_%H_%M_%S")
 
-    def launch(self) -> None | EvaluationStageResult:
+    def launch(self) -> EvaluationStageResult | None:
         logger.info("Launching Turbulence Calibration")
         calibration_result = CalibrationStage(
             self._config.phases.calibration_phases,

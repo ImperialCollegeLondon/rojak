@@ -11,7 +11,7 @@ repos:
       - id: mixed-line-ending
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
-    rev: v0.15.4
+    rev: v0.16.2
     hooks:
       # Run the linter.
       - id: ruff
@@ -20,7 +20,7 @@ repos:
       - id: ruff-format
   - repo: https://github.com/astral-sh/uv-pre-commit
     # uv version.
-    rev: 0.10.7
+    rev: 0.12.3
     hooks:
       - id: uv-lock
   - repo: local
@@ -33,6 +33,6 @@ repos:
         types: [ file ]
         files: \.(rst)$
   - repo: https://github.com/RobertCraigie/pyright-python
-    rev: v1.1.408
+    rev: v1.1.411
     hooks:
       - id: pyright

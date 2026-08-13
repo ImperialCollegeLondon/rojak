@@ -1,6 +1,6 @@
 import copy
 from contextlib import nullcontext
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
@@ -553,30 +553,40 @@ def test_meteorology_config(dict_to_file, expectation) -> None:
 @pytest.mark.parametrize(
     ("amdar_type", "glob_pattern", "time_window", "expectation"),
     [
-        (AmdarDataSource.MADIS, "**/*.parquet", Limits(datetime(1970, 1, 1), datetime(1980, 1, 1)), nullcontext(0)),
         (
             AmdarDataSource.MADIS,
             "**/*.parquet",
-            Limits(datetime(1970, 1, 1), datetime(1960, 1, 1)),
+            Limits(datetime(1970, 1, 1, tzinfo=UTC), datetime(1980, 1, 1, tzinfo=UTC)),
+            nullcontext(0),
+        ),
+        (
+            AmdarDataSource.MADIS,
+            "**/*.parquet",
+            Limits(datetime(1970, 1, 1, tzinfo=UTC), datetime(1960, 1, 1, tzinfo=UTC)),
             pytest.raises(InvalidConfigurationError),
         ),
-        (AmdarDataSource.UKMO, "*.csv", Limits(datetime(1970, 1, 1), datetime(1980, 1, 1)), nullcontext(0)),
+        (
+            AmdarDataSource.UKMO,
+            "*.csv",
+            Limits(datetime(1970, 1, 1, tzinfo=UTC), datetime(1980, 1, 1, tzinfo=UTC)),
+            nullcontext(0),
+        ),
         (
             AmdarDataSource.MADIS,
             "blah",
-            Limits(datetime(1970, 1, 1), datetime(1980, 1, 1)),
+            Limits(datetime(1970, 1, 1, tzinfo=UTC), datetime(1980, 1, 1, tzinfo=UTC)),
             pytest.raises(InvalidConfigurationError),
         ),
         (
             AmdarDataSource.MADIS,
             "*.csv",
-            Limits(datetime(1970, 1, 1), datetime(1980, 1, 1)),
+            Limits(datetime(1970, 1, 1, tzinfo=UTC), datetime(1980, 1, 1, tzinfo=UTC)),
             pytest.raises(InvalidConfigurationError),
         ),
         (
             AmdarDataSource.UKMO,
             "*.parquet",
-            Limits(datetime(1970, 1, 1), datetime(1980, 1, 1)),
+            Limits(datetime(1970, 1, 1, tzinfo=UTC), datetime(1980, 1, 1, tzinfo=UTC)),
             pytest.raises(InvalidConfigurationError),
         ),
     ],
@@ -652,7 +662,7 @@ def test_check_valid_diagnostic_conditions(
             data_dir=tmp_path,
             data_source=data_source,
             glob_pattern="*.parquet" if data_source == AmdarDataSource.MADIS else "*.csv",
-            time_window=Limits(datetime(1970, 1, 1), datetime(1980, 1, 1)),
+            time_window=Limits(datetime(1970, 1, 1, tzinfo=UTC), datetime(1980, 1, 1, tzinfo=UTC)),
             diagnostic_validation=DiagnosticValidationConfig(validation_conditions=conditions),
         )
 

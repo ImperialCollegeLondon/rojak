@@ -17,8 +17,6 @@ from rojak.orchestrator.configuration import (
 from tests.test_cli import runner
 
 if TYPE_CHECKING:
-    from click.testing import Result
-
     from rojak.orchestrator.configuration import ContrailsConfig, TurbulenceConfig
 
 
@@ -35,7 +33,7 @@ def retrieve_era5_cat_data(pytestconfig) -> Path:
             return cached_data_dir
 
     data_dir = pytestconfig.cache.mkdir("met_data")
-    get_through_cli: Result = runner.invoke(
+    get_through_cli = runner.invoke(
         app,
         [
             "data",

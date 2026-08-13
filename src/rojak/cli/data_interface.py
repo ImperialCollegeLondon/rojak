@@ -182,7 +182,7 @@ def validate_era5_dataset_name(dataset_name_input: str) -> Era5DatasetName:
 
 
 @meteorology_app.command("retrieve")
-def retrieve_meteorology(  # noqa: PLR0913
+def retrieve_meteorology(
     source: Annotated[
         MeteorologyDataSource,
         typer.Option(
