@@ -102,7 +102,7 @@ def map_values_to_nearest_index_irregular_grid(
 def map_values_to_nearest_coordinate_index[T: np.datetime64 | np.number | np.inexact](
     series: "dd.Series | pd.Series",
     coordinate: "NDArray[T]",
-    valid_window: np.timedelta64 | np.number | np.inexact | None = None,
+    valid_window: T | None = None,
 ) -> "dd.Series | pd.Series[int]":
     """
     Assuming the coordinate is a regular grid, compute the closest index that the values in the series correspond to.
@@ -166,7 +166,8 @@ def map_values_to_nearest_coordinate_index[T: np.datetime64 | np.number | np.ine
         raise NotImplementedError(
             "Optimisation to map values to index into coordinate is only supported for regular grids",
         )
-    if valid_window is not None and 2 * valid_window != spacing:
+    if valid_window is not None and 2 * valid_window != spacing:  # pyright: ignore[reportOperatorIssue]
+        # pyright throws a false positive here as it doesn't recognise that valid_window can't be None at the *
         raise NotImplementedError(
             "Function currently only supports regular grids with a symmetric window specified."
             " And the window must correspond to half of the grid spacing",
