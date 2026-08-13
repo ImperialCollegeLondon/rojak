@@ -157,7 +157,13 @@ def map_values_to_nearest_coordinate_index[T: (np.datetime64, np.number, np.inex
     if valid_window is None:
         if series.min() < coordinate.min() or series.max() > coordinate.max():
             raise ValueError("Values in series must be within the range of the coordinate")
-    elif series.min() < coordinate.min() - valid_window or series.max() > coordinate.max() + valid_window:
+    elif series.min() < coordinate.min() - valid_window or series.max() > coordinate.max() + valid_window:  # pyright: ignore[reportOperatorIssue]
+        # pyright CI flags this as an issue due to the possible combinations, e.g. datetime64[Any]* and number[Any, Any]
+        # or datetime64[Any]* and inexact[Any, Any]
+        # I don't know how to specify in the python typing that np.datetime64 must correspond to the timedelta64 and
+        # the np.number to the np.number (in valid_window), etc
+        # This is an edge case that would be hit by the user if they don't give the correct "units" of input. I defer
+        # this bug to when we get there.
         raise ValueError("Values in series must be within the window of the coordinate")
 
     # Regular grid => monotonic function (in fact, it should be stricter)
