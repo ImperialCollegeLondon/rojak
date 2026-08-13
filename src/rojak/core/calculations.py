@@ -252,7 +252,7 @@ def pressure_to_altitude_icao(pressure: "NumpyOrDataArray", in_place: bool = Fal
             # Check message of error matches the specific edge case
             if error.args[0] == "IndexVariable values cannot be modified":
                 return pressure.copy(data=pressure_to_altitude_icao(pressure.to_numpy()))
-            raise error
+            raise
         pressure.loc[~mask] = pressure_to_altitude_stratosphere(pressures_within_stratosphere)
 
     return pressure

@@ -75,7 +75,7 @@ class Diagnostic(ABC):
     """
 
     _name: "DiagnosticName"
-    _computed_value: None | xr.DataArray = None
+    _computed_value: xr.DataArray | None = None
 
     def __init__(self, name: "DiagnosticName") -> None:
         self._name = name

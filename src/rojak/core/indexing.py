@@ -50,7 +50,7 @@ def make_value_based_slice(coordinate: Sequence, min_value: float | None, max_va
 
 def get_regular_grid_spacing[T: np.number | np.inexact | np.datetime64 | np.timedelta64](
     array: "NDArray[T]",
-) -> None | T:
+) -> T | None:
     """
     Determines if array has a regular grid spacing
 
