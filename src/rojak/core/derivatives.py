@@ -348,20 +348,29 @@ def spatial_gradient(
     return gradients
 
 
-def divergence(du_dx: NumpyOrDataArray, dv_dy: NumpyOrDataArray) -> NumpyOrDataArray:
-    return du_dx + dv_dy
+def divergence(
+    u: xr.DataArray,
+    v: xr.DataArray,
+    *,
+    units: LatLonUnits,
+    geod: Geod | None = None,
+    crs: CRS | None = None,
+) -> xr.DataArray:
+    gradients = vector_derivatives(
+        u, v, units, [VelocityDerivative.DU_DX, VelocityDerivative.DV_DY], geod=geod, crs=crs
+    )
+    return gradients[VelocityDerivative.DU_DX] + gradients[VelocityDerivative.DV_DY]
 
 
-# TODO: TEST
 def spatial_laplacian(
     array: "xr.DataArray",
     units: LatLonUnits,
     gradient_mode: GradientMode,
     geod: Geod | None = None,
     crs: CRS | None = None,
-) -> NumpyOrDataArray:
+) -> xr.DataArray:
     gradients = spatial_gradient(array, units, gradient_mode, geod=geod, crs=crs)
-    return divergence(gradients["dfdx"], gradients["dfdy"])
+    return divergence(gradients["dfdx"], gradients["dfdy"], units=units, geod=geod, crs=crs)
 
 
 class VelocityDerivative(StrEnum):

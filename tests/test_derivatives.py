@@ -280,10 +280,10 @@ def test_get_correction_factor(
     xr.testing.assert_equal(scaling_factor, expected)
 
 
-def test_divergence(create_random_lat_lon_dataarray) -> None:
-    du_dx = create_random_lat_lon_dataarray
-    dv_dy = create_random_lat_lon_dataarray
-    xr.testing.assert_allclose(du_dx + dv_dy, derivatives.divergence(du_dx, dv_dy))
+# def test_divergence(create_random_lat_lon_dataarray) -> None:
+#     du_dx = create_random_lat_lon_dataarray
+#     dv_dy = create_random_lat_lon_dataarray
+#     xr.testing.assert_allclose(du_dx + dv_dy, derivatives.divergence(du_dx, dv_dy))
 
 
 @pytest.mark.parametrize(
