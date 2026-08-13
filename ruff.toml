@@ -38,7 +38,7 @@ extend-select = [
     "FURB",
     "RUF",
 ]
-ignore = ["ISC001", "COM812", "PLR0913"]
+ignore = ["ISC001", "COM812", "PLR0913", "PLR0917"]
 typing-modules = ["rojak.utilities._compat"]
 
 [lint.extend-per-file-ignores]
