@@ -89,7 +89,7 @@ def test_check_lat_lon_units_warning(mocker: "MockerFixture") -> None:
         UserWarning,
         match="Latitude and longitude specified to be in degrees, but are smaller than pi values",
     ) as record:
-        derivatives._ensure_lat_lon_in_deg(np.asarray([0, 1]), np.asarray([0, 1]), "deg")
+        derivatives._ensure_lat_lon_in_deg(np.asarray([0, 1]), np.asarray([0, 1]), derivatives.LatLonUnits.DEG)
 
     assert len(record) == 1
     assert (
@@ -105,7 +105,7 @@ def test_check_lat_lon_units_error(mocker: "MockerFixture") -> None:
         ValueError,
         match="Latitude and longitude specified to be in radians, but are too large to be in radians",
     ) as excinfo:
-        derivatives._ensure_lat_lon_in_deg(np.asarray([0, 90]), np.asarray([180, 360]), "rad")
+        derivatives._ensure_lat_lon_in_deg(np.asarray([0, 90]), np.asarray([180, 360]), derivatives.LatLonUnits.RAD)
 
     assert excinfo.type is ValueError
     assert is_in_deg_mock.call_count == 1
@@ -136,7 +136,9 @@ longitude_in_rad: np.ndarray = np.deg2rad(longitude_in_deg)
 )
 def test_check_lat_lon_in_degree(mocker: "MockerFixture", lat, lon, is_deg: bool) -> None:
     is_in_deg_mock = mocker.patch("rojak.core.derivatives._is_lat_lon_in_degrees", return_value=is_deg)
-    new_lat, new_lon = derivatives._ensure_lat_lon_in_deg(lat, lon, "deg" if is_deg else "rad")
+    new_lat, new_lon = derivatives._ensure_lat_lon_in_deg(
+        lat, lon, derivatives.LatLonUnits(derivatives.LatLonUnits.DEG if is_deg else "rad")
+    )
     if is_deg:
         npt.assert_array_almost_equal(np.asarray(new_lat), np.asarray(latitude_in_deg))
         npt.assert_array_almost_equal(np.asarray(new_lon), np.asarray(longitude_in_deg))
@@ -154,13 +156,17 @@ def test_nominal_grid_spacing(mocker: "MockerFixture") -> None:
     ensure_is_deg_mock = mocker.patch("rojak.core.derivatives._ensure_lat_lon_in_deg", return_value=(lat, lon))
 
     # Subcase 1: Specify geod
-    grid_deltas: derivatives.GridSpacing = derivatives.nominal_grid_spacing(lat, lon, "deg", geod=Geod(a=4370997))
+    grid_deltas: derivatives.GridSpacing = derivatives.nominal_grid_spacing(
+        lat, lon, derivatives.LatLonUnits.DEG, geod=Geod(a=4370997)
+    )
     npt.assert_array_almost_equal(grid_deltas.dx, np.asarray([381441.44622397, 381441.44622397, 381441.44622397]))
     npt.assert_array_almost_equal(grid_deltas.dy, np.asarray([762882.8924479455, 762882.8924479454]))
     assert ensure_is_deg_mock.call_count == 1
 
     # Subcase 2: default geod
-    default_geod_deltas: derivatives.GridSpacing = derivatives.nominal_grid_spacing(lat, lon, "deg")
+    default_geod_deltas: derivatives.GridSpacing = derivatives.nominal_grid_spacing(
+        lat, lon, derivatives.LatLonUnits.DEG
+    )
     npt.assert_array_almost_equal(
         default_geod_deltas.dx,
         np.asarray([556597.45396637, 556597.45396637, 556597.45396637]),
@@ -174,13 +180,13 @@ def test_nominal_grid_spacing_error() -> None:
     lon = np.arange(-30, 30, 2)
 
     with pytest.raises(ValueError, match="Latitude and longitude must have 1 dimension") as excinfo:
-        derivatives.nominal_grid_spacing(lat.reshape((2, -1)), lon, "deg")
+        derivatives.nominal_grid_spacing(lat.reshape((2, -1)), lon, derivatives.LatLonUnits.DEG)
 
     assert excinfo.type is ValueError
     assert excinfo.match("Latitude and longitude must have 1 dimension")
 
     with pytest.raises(ValueError, match="Latitude and longitude must have 1 dimension") as excinfo:
-        derivatives.nominal_grid_spacing(lat, lon.reshape((2, -1)), "deg")
+        derivatives.nominal_grid_spacing(lat, lon.reshape((2, -1)), derivatives.LatLonUnits.DEG)
 
     assert excinfo.type is ValueError
     assert excinfo.match("Latitude and longitude must have 1 dimension")

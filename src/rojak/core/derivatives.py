@@ -79,7 +79,12 @@ def _is_lat_lon_in_degrees(latitude: NumpyOrDataArray, longitude: NumpyOrDataArr
     return is_lat_in_degrees
 
 
-type LatLonUnits = Literal["deg", "rad"]
+# type LatLonUnits = Literal["deg", "rad"]
+
+
+class LatLonUnits(StrEnum):
+    DEG = "deg"
+    RAD = "rad"
 
 
 def _ensure_lat_lon_in_deg(

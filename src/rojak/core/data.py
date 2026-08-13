@@ -29,7 +29,7 @@ from rojak.atmosphere.contrails import issr
 from rojak.core import derivatives
 from rojak.core.calculations import pressure_to_altitude_icao
 from rojak.core.constants import MAX_LONGITUDE
-from rojak.core.derivatives import VelocityDerivative
+from rojak.core.derivatives import LatLonUnits, VelocityDerivative
 from rojak.core.geometric import create_grid_data_frame
 from rojak.core.indexing import make_value_based_slice
 from rojak.turbulence import calculations as turb_calc
@@ -177,7 +177,7 @@ class CATData(CATPrognosticData):
 
     def velocity_derivatives(self) -> dict[VelocityDerivative, xr.DataArray]:
         if self._velocity_derivatives is None:
-            self._velocity_derivatives = derivatives.vector_derivatives(self.u_wind(), self.v_wind(), "deg")
+            self._velocity_derivatives = derivatives.vector_derivatives(self.u_wind(), self.v_wind(), LatLonUnits.DEG)
         return self._velocity_derivatives
 
     def specific_velocity_derivative(self, target_derivative: VelocityDerivative) -> xr.DataArray:

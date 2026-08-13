@@ -26,6 +26,7 @@ from rich.progress import track
 from rojak.core.derivatives import (
     CartesianDimension,
     GradientMode,
+    LatLonUnits,
     VelocityDerivative,
     spatial_gradient,
     spatial_laplacian,
@@ -204,7 +205,7 @@ class Frontogenesis3D(Diagnostic):
     # TODO: TEEST
     @override
     def _compute(self) -> xr.DataArray:
-        theta_horz_gradient = spatial_gradient(self._potential_temperature, "deg", GradientMode.GEOSPATIAL)
+        theta_horz_gradient = spatial_gradient(self._potential_temperature, LatLonUnits.DEG, GradientMode.GEOSPATIAL)
         dtheta_dx = theta_horz_gradient["dfdx"]
         dtheta_dy = theta_horz_gradient["dfdy"]
         dtheta_dz = altitude_derivative_on_pressure_level(self._potential_temperature, self._geopotential)
@@ -280,7 +281,7 @@ class Frontogenesis2D(Diagnostic):
     def _compute(self) -> xr.DataArray:
         dtheta: dict[SpatialGradientKeys, xr.DataArray] = spatial_gradient(
             self._potential_temperature,
-            "deg",
+            LatLonUnits.DEG,
             GradientMode.GEOSPATIAL,
         )
         mag_grad_theta: xr.DataArray = magnitude_of_vector(dtheta["dfdx"], dtheta["dfdy"])
@@ -651,7 +652,7 @@ class UBF(Diagnostic):
         coriolis_vorticity_term: xr.DataArray = self._coriolis_parameter * self._vorticity
         coriolis_deriv: xr.DataArray = latitudinal_derivative(self._coriolis_parameter)
         inertial_terms: xr.DataArray = coriolis_vorticity_term + 2 * self._jacobian
-        mass_term: xr.DataArray = spatial_laplacian(self._geopotential, "deg", GradientMode.GEOSPATIAL)  # pyright: ignore[reportAssignmentType]
+        mass_term: xr.DataArray = spatial_laplacian(self._geopotential, LatLonUnits.DEG, GradientMode.GEOSPATIAL)  # pyright: ignore[reportAssignmentType]
 
         return np.abs(mass_term + inertial_terms - coriolis_deriv * self._u_wind)  # pyright: ignore[reportReturnType]
 
@@ -1135,11 +1136,15 @@ class NegativeVorticityAdvection(Diagnostic):
         abs_vorticity: xr.DataArray = absolute_vorticity(self._vorticity)
         x_component: xr.DataArray = (
             self._u_wind
-            * spatial_gradient(abs_vorticity, "deg", GradientMode.GEOSPATIAL, dimension=CartesianDimension.X)["dfdx"]
+            * spatial_gradient(abs_vorticity, LatLonUnits.DEG, GradientMode.GEOSPATIAL, dimension=CartesianDimension.X)[
+                "dfdx"
+            ]
         )
         y_component: xr.DataArray = (
             self._v_wind
-            * spatial_gradient(abs_vorticity, "deg", GradientMode.GEOSPATIAL, dimension=CartesianDimension.Y)["dfdy"]
+            * spatial_gradient(abs_vorticity, LatLonUnits.DEG, GradientMode.GEOSPATIAL, dimension=CartesianDimension.Y)[
+                "dfdy"
+            ]
         )
         nva: xr.DataArray = -x_component - y_component
         return nva.clip(min=0)
@@ -1208,13 +1213,13 @@ class DuttonIndex(Diagnostic):
     def horizontal_wind_shear(self, speed: xr.DataArray) -> xr.DataArray:
         x_component: xr.DataArray = (self._u_wind / speed) * spatial_gradient(
             speed,
-            "deg",
+            LatLonUnits.DEG,
             GradientMode.GEOSPATIAL,
             dimension=CartesianDimension.Y,
         )["dfdy"]
         y_component: xr.DataArray = (self._v_wind / speed) * spatial_gradient(
             speed,
-            "deg",
+            LatLonUnits.DEG,
             GradientMode.GEOSPATIAL,
             dimension=CartesianDimension.X,
         )["dfdx"]
