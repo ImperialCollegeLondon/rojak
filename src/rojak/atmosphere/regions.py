@@ -1,6 +1,6 @@
 from collections.abc import Callable, Sequence
 from enum import StrEnum
-from typing import assert_never, cast
+from typing import Any, assert_never, cast
 
 import numpy as np
 import scipy.ndimage as ndi
@@ -517,4 +517,250 @@ def shortest_vertical_distance_from_a_to_b(
     from_feature = from_feature.astype(bool)
     return vertical_distance_to_positive(
         from_feature & to_feature, vertical_coord_name=vertical_coord_name, distance_mode=distance_mode
+    )
+
+
+class ExtremaKind(StrEnum):
+    """Enumeration of extrema types for filtering operations.
+
+    Attributes:
+        MINIMA: Represents local minima.
+        MAXIMA: Represents local maxima.
+    """
+
+    MINIMA = "minima"
+    MAXIMA = "maxima"
+
+    def use_less_than_on_threshold(self) -> bool:
+        match self:
+            case ExtremaKind.MINIMA:
+                return True
+            case ExtremaKind.MAXIMA:
+                return False
+            case _ as unreachable:
+                assert_never(unreachable)
+
+
+def apply_extrema_filter(
+    target_data: xr.DataArray,
+    extrema_kind: ExtremaKind,
+    latitude_dim_name: str = "latitude",
+    longitude_dim_name: str = "longitude",
+    **filter_kwargs: Any,  # noqa: ANN401
+) -> xr.DataArray:
+    """Apply a spatial extrema filter to a 3D DataArray.
+
+    Applies either a maximum or minimum filter from :mod:`scipy.ndimage` over the latitude and longitude dimensions of
+    a 3D DataArray, with support for Dask-backed arrays.
+
+    Args:
+        target_data (:class:`xarray.DataArray`): A 3D DataArray to apply the filter to.
+            Must contain the specified latitude and longitude dimensions.
+        extrema_kind (:class:`ExtremaKind`): The type of extrema filter to apply, either
+            :attr:`ExtremaKind.MAXIMA` or :attr:`ExtremaKind.MINIMA`.
+        latitude_dim_name (str): Name of the latitude dimension in ``target_data``.
+            Defaults to ``"latitude"``.
+        longitude_dim_name (str): Name of the longitude dimension in ``target_data``.
+            Defaults to ``"longitude"``.
+        **filter_kwargs: Additional keyword arguments passed to
+            :func:`scipy.ndimage.maximum_filter` or :func:`scipy.ndimage.minimum_filter`.
+
+    Returns:
+        :class:`xarray.DataArray`: A DataArray of the same shape and dtype as
+        ``target_data`` with the extrema filter applied over the latitude and
+        longitude dimensions.
+
+    Raises:
+        ValueError: If ``target_data`` is not 3D.
+        ValueError: If ``target_data`` does not contain the specified latitude and longitude dimensions.
+    """
+    if target_data.ndim != 3:  # noqa: PLR2004
+        raise ValueError("Target data must be 3D")
+
+    if not set(target_data.dims).issuperset({longitude_dim_name, latitude_dim_name}):
+        raise ValueError("Target data must contain the specified longitude and latitude dimensions")
+
+    extrema_func = ndi.maximum_filter if extrema_kind == ExtremaKind.MAXIMA else ndi.minimum_filter
+    return xr.apply_ufunc(
+        extrema_func,
+        target_data,
+        kwargs=filter_kwargs,
+        input_core_dims=[[latitude_dim_name, longitude_dim_name]],
+        output_core_dims=[[latitude_dim_name, longitude_dim_name]],
+        vectorize=True,
+        dask="parallelized",
+        output_dtypes=[target_data.dtype],
+    )
+
+
+def circular_footprint(radius: int) -> np.ndarray:
+    """Create a circular boolean footprint for use with :mod:`scipy` morphological filters.
+
+    Args:
+        radius (int): Radius of the circle in grid points.
+
+    Returns:
+        :class:`numpy.ndarray`: A boolean NumPy ndarray of shape ``(2*radius+1, 2*radius+1)``
+        where ``True`` values represent points within the circle.
+
+    Raises:
+        ValueError: If ``radius`` is :math:`\\leq 0`.
+
+    Example:
+    >>> footprint = circular_footprint(radius=2)
+    >>> footprint.astype(int)
+    array([[0, 0, 1, 0, 0],
+           [0, 1, 1, 1, 0],
+           [1, 1, 1, 1, 1],
+           [0, 1, 1, 1, 0],
+           [0, 0, 1, 0, 0]])
+    """
+    if radius <= 0:
+        raise ValueError("Radius must be positive")
+
+    y, x = np.ogrid[-radius : radius + 1, -radius : radius + 1]
+    return x**2 + y**2 <= radius**2
+
+
+def __extrema_mask_region(
+    extrema_locations: np.ndarray,
+    extrema_filtered: np.ndarray,
+    *,
+    use_less_than: bool,
+    threshold: float | None = None,
+) -> np.ndarray:
+    """Computes mask of extrema regions from an extrema filtered array with a threshold applied to the data
+
+    Identifies grid points belonging to extrema regions whose filtered values satisfy the given threshold condition.
+
+    Note:
+        This is a private function intended to be used via
+        :func:`xarray.apply_ufunc` within :func:`identify_circular_extrema`.
+
+    Args:
+        extrema_locations (:class:`numpy.ndarray`): A boolean array indicating the locations of local extrema,
+            where ``True`` marks an extremum.
+        extrema_filtered (:class:`numpy.ndarray`): An array of the same shape as ``extrema_locations`` containing
+            the extrema-filtered values.
+        threshold (float): The threshold value to apply to the extrema filter values.
+        use_less_than (bool): If ``True``, retains extrema whose filtered values are less than ``threshold``.
+            If ``False``, retains extrema whose filtered values are greater than ``threshold``.
+
+    Returns:
+        :class:`numpy.ndarray`: A boolean array of the same shape as ``extrema_filtered``, where ``True`` indicates
+        grid points belonging to a qualifying extrema region.
+    """
+    mask_values = extrema_filtered[extrema_locations]
+    if threshold is not None:
+        mask_values = mask_values[mask_values < threshold] if use_less_than else mask_values[mask_values > threshold]
+
+    return (
+        np.isin(extrema_filtered, mask_values) if mask_values.size != 0 else np.zeros_like(extrema_filtered, dtype=bool)
+    )
+
+
+def identify_circular_extrema(
+    target_data: xr.DataArray,
+    extrema_kind: ExtremaKind,
+    extrema_threshold_value: float | None = None,
+    footprint_radius: int = 24,
+    sel_region_indexer: dict | None = None,
+    lat_dim_name: str = "latitude",
+    lon_dim_name: str = "longitude",
+    **filter_kwargs: Any,  # noqa: ANN401
+) -> xr.Dataset:
+    """Identify circular extrema regions in a 3D spatial DataArray.
+
+    Detects local minima or maxima using a circular footprint filter and returns both the point locations of the
+    extrema and the broader regions associated with them, filtered by a threshold condition.
+
+    See Also:
+        - :class:`ExtremaKind`: Enumeration of extrema types.
+        - :func:`apply_extrema_filter`: The underlying extrema filter function.
+        - :func:`circular_footprint`: Generates the circular footprint used for filtering.
+
+    Args:
+        target_data (:class:`xarray.DataArray`): A 3D DataArray to identify extrema in. Must contain the specified
+            latitude and longitude dimensions.
+        extrema_kind (:class:`ExtremaKind`): The type of extrema to identify, either :attr:`ExtremaKind.MAXIMA` or
+            :attr:`ExtremaKind.MINIMA`.
+        extrema_threshold_value (float, optional): The threshold value used to filter extrema regions. Combined with
+            ``is_threshold_less_than`` to determine which extrema are retained.
+            Defaults to ``None``.
+        footprint_radius (int): Radius in grid points of the circular footprint used for the extrema filter.
+            Defaults to ``24``.
+        sel_region_indexer (dict, optional): Optional dictionary of indexers passed to :meth:`xarray.DataArray.sel`
+            to subset ``target_data`` to a specific region before processing. Defaults to ``None``.
+        lat_dim_name (str): Name of the latitude dimension in ``target_data``.
+            Defaults to ``"latitude"``.
+        lon_dim_name (str): Name of the longitude dimension in ``target_data``.
+            Defaults to ``"longitude"``.
+        **filter_kwargs: Additional keyword arguments passed to the underlying
+            scipy filter via :func:`apply_extrema_filter`.
+
+    Returns:
+        :class:`xarray.Dataset`: A Dataset with the same coordinates as ``target_data``
+        containing:
+
+        - **local_extrema** (:class:`xarray.DataArray`): A boolean DataArray indicating the locations of local extrema,
+          where ``True`` marks an extremum.
+        - **extrema_regions** (:class:`xarray.DataArray`): A boolean DataArray indicating grid points belonging to
+          qualifying extrema regions after threshold filtering.
+
+    Raises:
+        ValueError: If ``target_data`` is not 3D.
+        ValueError: If ``target_data`` does not contain the specified latitude and longitude dimensions.
+
+    Example:
+        .. code-block:: python
+
+            result = identify_circular_extrema(
+                target_data=my_data_array,
+                extrema_kind=ExtremaKind.MINIMA,
+                extrema_threshold_value=500.0,
+                footprint_radius=24,
+                is_threshold_less_than=True,
+            )
+            local_extrema = result["local_extrema"]
+            extrema_regions = result["extrema_regions"]
+    """
+    if target_data.ndim != 3:  # noqa: PLR2004
+        raise ValueError("Target data must be 3D")
+
+    if not set(target_data.dims).issuperset({lat_dim_name, lon_dim_name}):
+        raise ValueError("Target data must contain the specified latitude and longitude dimensions")
+
+    if sel_region_indexer is not None:
+        target_data = target_data.sel(indexers=sel_region_indexer)
+
+    filter_applied: xr.DataArray = apply_extrema_filter(
+        target_data,
+        extrema_kind,
+        footprint=circular_footprint(radius=footprint_radius),
+        axes=(0, 1),
+        mode="wrap",
+        latitude_dim_name=lat_dim_name,
+        longitude_dim_name=lon_dim_name,
+        **filter_kwargs,
+    ).persist()
+    extrema_locations: xr.DataArray = target_data == filter_applied
+
+    extrema_regions = xr.apply_ufunc(
+        __extrema_mask_region,
+        extrema_locations,
+        filter_applied,
+        kwargs={"threshold": extrema_threshold_value, "use_less_than": extrema_kind.use_less_than_on_threshold()},
+        input_core_dims=[[lat_dim_name, lon_dim_name], [lat_dim_name, lon_dim_name]],
+        output_core_dims=[[lat_dim_name, lon_dim_name]],
+        vectorize=True,
+        dask="parallelized",
+        output_dtypes=[bool],
+    )
+
+    return xr.Dataset(
+        data_vars={
+            "local_extrema": extrema_locations,
+            "extrema_regions": extrema_regions,
+        },
+        coords=target_data.coords,
     )

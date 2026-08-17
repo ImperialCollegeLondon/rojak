@@ -8,12 +8,16 @@ from rojak.atmosphere.jet_stream import JetStreamAlgorithmFactory
 from rojak.atmosphere.regions import (
     DistanceMeasure,
     DistanceMode,
+    ExtremaKind,
     _parent_region_mask,
     _region_labeller,
+    apply_extrema_filter,
     chebyshev_distance_from_a_to_b,
+    circular_footprint,
     distance_from_a_to_b,
     euclidean_distance_from_a_to_b,
     find_parent_region_of_intersection,
+    identify_circular_extrema,
     label_regions,
     nearest_haversine_distance,
     shortest_haversine_distance_from_a_to_b,
@@ -452,3 +456,327 @@ class TestVerticalDistanceToPositive:
 
         result = vertical_distance_to_positive(data)
         assert result.shape == expected_shape
+
+
+class TestExtremaKind:
+    def test_minima_value(self) -> None:
+        assert ExtremaKind.MINIMA == "minima"
+
+    def test_maxima_value(self) -> None:
+        assert ExtremaKind.MAXIMA == "maxima"
+
+    def test_is_str(self) -> None:
+        assert isinstance(ExtremaKind.MINIMA, str)
+        assert isinstance(ExtremaKind.MAXIMA, str)
+
+    def test_members(self) -> None:
+        assert set(ExtremaKind) == {ExtremaKind.MINIMA, ExtremaKind.MAXIMA}
+
+
+class TestCircularFootprint:
+    def test_shape_dtype_and_centre(self) -> None:
+        radius: int = 3
+        footprint = circular_footprint(radius)
+        assert footprint.shape == (2 * radius + 1, 2 * radius + 1)
+        assert footprint.dtype == bool
+
+        centre = footprint.shape[0] // 2
+        assert footprint[centre, centre]
+
+    @pytest.mark.parametrize("radius", [1, 2, 5, 10, 24])
+    def test_corners_are_false(self, radius: int) -> None:
+        """Corners of the footprint should always be False for radius > 1."""
+        footprint = circular_footprint(radius)
+        assert not footprint[0, 0]
+        assert not footprint[0, -1]
+        assert not footprint[-1, 0]
+        assert not footprint[-1, -1]
+
+    def test_radius_zero(self) -> None:
+        with pytest.raises(ValueError, match="Radius must be positive"):
+            _ = circular_footprint(0)
+
+    def test_radius_one(self) -> None:
+        footprint = circular_footprint(1)
+        assert footprint.shape == (3, 3)
+
+    @pytest.mark.parametrize("radius", [1, 2, 5, 10, 24])
+    def test_symmetry(self, radius) -> None:
+        """Footprint should be symmetric along both axes."""
+        footprint = circular_footprint(radius)
+        np.testing.assert_array_equal(footprint, footprint[::-1])
+        np.testing.assert_array_equal(footprint, footprint[:, ::-1])
+
+
+class TestApplyExtremaFilter:
+    @pytest.fixture
+    def get_dummy_array(self, make_dummy_cat_data) -> xr.DataArray:
+        dummy_data: xr.DataArray = make_dummy_cat_data(None, use_numpy=False, rng_seed=42)["temperature"]
+        return dummy_data.isel(pressure_level=0)
+
+    def test_fails_without_specifying_size_or_footprint(self, get_dummy_array) -> None:
+        dummy_data = get_dummy_array
+        with pytest.raises(RuntimeError, match="no footprint provided"):
+            _ = apply_extrema_filter(dummy_data, ExtremaKind.MAXIMA).compute()
+
+    def test_output_shape_dtype_dims_coords_preserved(self, get_dummy_array) -> None:
+        dummy_data = get_dummy_array
+        result = apply_extrema_filter(dummy_data, ExtremaKind.MAXIMA, size=10)
+
+        for coord_name, coord_value in dummy_data.coords.items():
+            assert coord_name in result.coords
+            assert result.coords[coord_name].dtype == coord_value.dtype
+            np.testing.assert_array_equal(result.coords[coord_name], coord_value)
+
+        assert result.dtype == dummy_data.dtype
+        assert set(result.dims) == set(dummy_data.dims)
+
+    @pytest.mark.parametrize(
+        "filter_kwargs", [{"size": 3}, {"footprint": np.ones((2, 2)), "axes": (0, 1)}, {"size": 3, "mode": "wrap"}]
+    )
+    @pytest.mark.parametrize("extrema_kind", [ExtremaKind.MINIMA, ExtremaKind.MAXIMA])
+    def test_returns_dataarray(
+        self, get_dummy_array: xr.DataArray, extrema_kind: ExtremaKind, filter_kwargs: dict
+    ) -> None:
+        result = apply_extrema_filter(get_dummy_array, extrema_kind, **filter_kwargs).compute()
+        assert isinstance(result, xr.DataArray)
+
+    @pytest.mark.parametrize(
+        "filter_kwargs", [{"size": 2}, {"footprint": np.ones((1, 1)), "axes": (0, 1)}, {"size": 2, "mode": "wrap"}]
+    )
+    def test_maxima_filter_values_gte_input(self, get_dummy_array: xr.DataArray, filter_kwargs: dict) -> None:
+        """Maximum filter output should always be >= input values."""
+        result = apply_extrema_filter(get_dummy_array, ExtremaKind.MAXIMA, **filter_kwargs)
+        assert (result >= get_dummy_array).all()
+
+    @pytest.mark.parametrize(
+        "filter_kwargs", [{"size": 2}, {"footprint": np.ones((1, 1)), "axes": (0, 1)}, {"size": 2, "mode": "wrap"}]
+    )
+    def test_minima_filter_values_lte_input(self, get_dummy_array, filter_kwargs: dict) -> None:
+        """Minimum filter output should always be <= input values."""
+        result = apply_extrema_filter(get_dummy_array, ExtremaKind.MINIMA, **filter_kwargs)
+        assert (result <= get_dummy_array).all()
+
+    @pytest.mark.parametrize(
+        "filter_kwargs", [{"size": 2}, {"footprint": np.ones((1, 1)), "axes": (0, 1)}, {"size": 2, "mode": "wrap"}]
+    )
+    @pytest.mark.parametrize("extrema_kind", [ExtremaKind.MINIMA, ExtremaKind.MAXIMA])
+    def test_dask_and_numpy_results_are_equal(
+        self, get_dummy_array: xr.DataArray, filter_kwargs: dict, extrema_kind: ExtremaKind
+    ) -> None:
+        """apply_ufunc should produce identical results as doing it on a 2D plane."""
+
+        dask_result = apply_extrema_filter(get_dummy_array, extrema_kind, **filter_kwargs)
+        ndi_function = ndi.maximum_filter if extrema_kind == ExtremaKind.MAXIMA else ndi.minimum_filter
+
+        for time_index in range(get_dummy_array["time"].size):
+            numpy_result = ndi_function(get_dummy_array.isel(time=time_index), **filter_kwargs)
+            np.testing.assert_array_almost_equal(
+                numpy_result, dask_result.isel(time=time_index).transpose("longitude", "latitude").compute()
+            )
+
+    def test_raises_on_non_3d_input(self) -> None:
+        data_2d = xr.DataArray(
+            np.ones((10, 10)),
+            dims=["latitude", "longitude"],
+        )
+        with pytest.raises(ValueError, match="3D"):
+            apply_extrema_filter(data_2d, ExtremaKind.MAXIMA, size=3).compute()
+
+    def test_raises_on_missing_lat_dim(self) -> None:
+        data = xr.DataArray(
+            np.ones((5, 10, 10)),
+            dims=["time", "y", "longitude"],
+        )
+        with pytest.raises(ValueError, match="latitude"):
+            apply_extrema_filter(data, ExtremaKind.MAXIMA, size=3).compute()
+
+    def test_raises_on_missing_lon_dim(self) -> None:
+        data = xr.DataArray(
+            np.ones((5, 10, 10)),
+            dims=["time", "latitude", "x"],
+        )
+        with pytest.raises(ValueError, match="longitude"):
+            apply_extrema_filter(data, ExtremaKind.MAXIMA, size=3).compute()
+
+    def test_custom_dim_names(self, get_dummy_array) -> None:
+        renamed_array = get_dummy_array.rename({"latitude": "lat", "longitude": "lon"})
+        result = apply_extrema_filter(
+            renamed_array,
+            ExtremaKind.MAXIMA,
+            latitude_dim_name="lat",
+            longitude_dim_name="lon",
+            size=3,
+        ).compute()
+        assert result.dtype == renamed_array.dtype
+        assert set(result.dims) == set(renamed_array.dims)
+        assert set(result.coords.keys()) == set(renamed_array.coords.keys())
+
+    @pytest.mark.parametrize("extrema_kind", [ExtremaKind.MINIMA, ExtremaKind.MAXIMA])
+    def test_uniform_array_unchanged(self, extrema_kind: ExtremaKind, get_dummy_array: xr.DataArray) -> None:
+        uniform_array = xr.ones_like(get_dummy_array)
+        result = apply_extrema_filter(uniform_array, extrema_kind, size=3).compute()
+        xr.testing.assert_equal(result, uniform_array, check_dim_order=False)
+
+
+class TestIdentifyCircularExtrema:
+    SMALL_FOOTPRINT_RADIUS: int = 1
+
+    def get_array_with_extrema(self, extrema_type: ExtremaKind) -> xr.DataArray:
+        data = da.zeros((3, 10, 10)) if extrema_type == ExtremaKind.MAXIMA else da.ones((3, 10, 10))
+        data[:, 5, 5] = 1.0 if extrema_type == ExtremaKind.MAXIMA else 0.0
+        return xr.DataArray(
+            data,
+            dims=["time", "latitude", "longitude"],
+            coords={
+                "time": np.arange(data.shape[0]),
+                "latitude": np.arange(data.shape[1]),
+                "longitude": np.arange(data.shape[2]),
+            },
+        )
+
+    @pytest.mark.parametrize("extrema_kind", [ExtremaKind.MINIMA, ExtremaKind.MAXIMA])
+    def test_returns_dataset_and_basic_properties(self, extrema_kind: ExtremaKind) -> None:
+        dummy_data = self.get_array_with_extrema(extrema_kind)
+        result = identify_circular_extrema(
+            dummy_data,
+            extrema_kind,
+            extrema_threshold_value=0.5,
+            footprint_radius=self.SMALL_FOOTPRINT_RADIUS,
+        ).compute()
+        assert isinstance(result, xr.Dataset)
+
+        assert "local_extrema" in result
+        assert "extrema_regions" in result
+
+        assert result["local_extrema"].dtype == bool
+        assert result["extrema_regions"].dtype == bool
+
+        for data_var_value in result.data_vars.values():
+            assert data_var_value.dtype == bool
+            assert set(data_var_value.dims) == set(dummy_data.dims)
+            assert set(data_var_value.coords.keys()) == set(dummy_data.coords.keys())
+
+    @pytest.mark.parametrize("extrema_kind", [ExtremaKind.MINIMA, ExtremaKind.MAXIMA])
+    def test_known_extrema_detected(self, extrema_kind: ExtremaKind) -> None:
+        """The known extrema at (lat=5, lon=5) should be detected."""
+        result = identify_circular_extrema(
+            self.get_array_with_extrema(extrema_kind),
+            extrema_kind,
+            footprint_radius=self.SMALL_FOOTPRINT_RADIUS,
+        )
+        assert result["local_extrema"].isel(latitude=5, longitude=5).all().compute()
+        assert result["extrema_regions"].isel(latitude=slice(4, 7), longitude=slice(4, 7)).all().compute()
+        assert not result["local_extrema"].all().compute()
+
+    @pytest.mark.parametrize(("extrema_kind", "threshold"), [(ExtremaKind.MAXIMA, 5), (ExtremaKind.MINIMA, -0.1)])
+    def test_no_extrema_when_threshold_not_met(self, extrema_kind: ExtremaKind, threshold: float) -> None:
+        result = identify_circular_extrema(
+            self.get_array_with_extrema(extrema_kind),
+            extrema_kind,
+            extrema_threshold_value=threshold,
+            footprint_radius=self.SMALL_FOOTPRINT_RADIUS,
+        ).compute()
+
+        assert not result["local_extrema"].all()
+        assert not result["extrema_regions"].all()
+        # Local extrema will still be identified. Only the regions will vanish from the thresholding
+        assert result["local_extrema"].any()
+        assert not result["extrema_regions"].any()
+
+    @pytest.mark.parametrize("threshold_value", [0, 0.5, 0.9])
+    def test_known_maxima_above_threshold(self, threshold_value: float) -> None:
+        result = identify_circular_extrema(
+            self.get_array_with_extrema(ExtremaKind.MAXIMA),
+            ExtremaKind.MAXIMA,
+            extrema_threshold_value=threshold_value,
+            footprint_radius=self.SMALL_FOOTPRINT_RADIUS,
+        ).compute()
+        assert result["local_extrema"].any()
+        assert result["extrema_regions"].any()
+        assert result["local_extrema"].isel(latitude=5, longitude=5).all()
+
+        # All the corner values are False
+        assert not result["extrema_regions"].isel(latitude=4, longitude=4).all()
+        assert not result["extrema_regions"].isel(latitude=7, longitude=7).all()
+        assert not result["extrema_regions"].isel(latitude=4, longitude=7).all()
+        assert not result["extrema_regions"].isel(latitude=7, longitude=4).all()
+
+        # Cross diagonal values
+        assert result["extrema_regions"].isel(latitude=5, longitude=slice(4, 7)).all()
+        assert result["extrema_regions"].isel(longitude=5, latitude=slice(4, 7)).all()
+
+    @pytest.mark.parametrize("threshold_value", [0.1, 0.5, 0.9])
+    def test_known_minima_above_threshold(self, threshold_value: float) -> None:
+        result = identify_circular_extrema(
+            self.get_array_with_extrema(ExtremaKind.MINIMA),
+            ExtremaKind.MINIMA,
+            extrema_threshold_value=threshold_value,
+            footprint_radius=self.SMALL_FOOTPRINT_RADIUS,
+        ).compute()
+        assert result["local_extrema"].any()
+        assert result["extrema_regions"].any()
+        assert result["local_extrema"].isel(latitude=5, longitude=5).all()
+
+        # All the corner values are False
+        assert not result["extrema_regions"].isel(latitude=4, longitude=4).all()
+        assert not result["extrema_regions"].isel(latitude=7, longitude=7).all()
+        assert not result["extrema_regions"].isel(latitude=4, longitude=7).all()
+        assert not result["extrema_regions"].isel(latitude=7, longitude=4).all()
+
+        # Cross diagonal values
+        assert result["extrema_regions"].isel(latitude=5, longitude=slice(4, 7)).all()
+        assert result["extrema_regions"].isel(longitude=5, latitude=slice(4, 7)).all()
+
+    def test_raises_on_non_3d_input(self) -> None:
+        data_2d = xr.DataArray(
+            np.ones((10, 10)),
+            dims=["latitude", "longitude"],
+        )
+        with pytest.raises(ValueError, match="3D"):
+            identify_circular_extrema(data_2d, ExtremaKind.MINIMA, extrema_threshold_value=0.5)
+
+    def test_raises_on_missing_lat_dim(self) -> None:
+        data = xr.DataArray(
+            np.ones((5, 10, 10)),
+            dims=["time", "y", "longitude"],
+        )
+        with pytest.raises(ValueError, match="latitude"):
+            identify_circular_extrema(data, ExtremaKind.MINIMA, extrema_threshold_value=0.5)
+
+    def test_raises_on_missing_lon_dim(self) -> None:
+        data = xr.DataArray(
+            np.ones((5, 10, 10)),
+            dims=["time", "latitude", "x"],
+        )
+        with pytest.raises(ValueError, match="longitude"):
+            identify_circular_extrema(data, ExtremaKind.MINIMA, extrema_threshold_value=0.5)
+
+    @pytest.mark.parametrize("extrema_kind", [ExtremaKind.MINIMA, ExtremaKind.MAXIMA])
+    def test_sel_region_indexer(self, extrema_kind: ExtremaKind) -> None:
+        """sel_region_indexer should subset the data before processing."""
+        indexer = {"latitude": slice(0, 5), "longitude": slice(0, 5)}
+        len_after_slice: int = 6
+        result = identify_circular_extrema(
+            self.get_array_with_extrema(extrema_kind),
+            extrema_kind,
+            extrema_threshold_value=0.5,
+            footprint_radius=self.SMALL_FOOTPRINT_RADIUS,
+            sel_region_indexer=indexer,
+        )
+
+        assert result["local_extrema"].sizes["latitude"] == len_after_slice
+        assert result["local_extrema"].sizes["longitude"] == len_after_slice
+
+    @pytest.mark.parametrize("extrema_kind", [ExtremaKind.MINIMA, ExtremaKind.MAXIMA])
+    def test_custom_dim_names(self, extrema_kind: ExtremaKind) -> None:
+        result = identify_circular_extrema(
+            self.get_array_with_extrema(extrema_kind).rename({"latitude": "lat", "longitude": "lon"}),
+            extrema_kind,
+            extrema_threshold_value=0.5,
+            footprint_radius=self.SMALL_FOOTPRINT_RADIUS,
+            lat_dim_name="lat",
+            lon_dim_name="lon",
+        )
+        assert isinstance(result, xr.Dataset)
+        assert set(result.coords.keys()).issuperset({"lat", "lon"})
