@@ -680,8 +680,7 @@ class TestIdentifyCircularExtrema:
 
         assert not result["local_extrema"].all()
         assert not result["extrema_regions"].all()
-        # Local extrema will still be identified. Only the regions will vanish from the thresholding
-        assert result["local_extrema"].any()
+        assert not result["local_extrema"].any()
         assert not result["extrema_regions"].any()
 
     @pytest.mark.parametrize("threshold_value", [0, 0.5, 0.9])

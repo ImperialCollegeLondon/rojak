@@ -625,13 +625,10 @@ def circular_footprint(radius: int) -> np.ndarray:
 def __extrema_mask_region(
     extrema_locations: np.ndarray,
     extrema_filtered: np.ndarray,
-    *,
-    use_less_than: bool,
-    threshold: float | None = None,
 ) -> np.ndarray:
-    """Computes mask of extrema regions from an extrema filtered array with a threshold applied to the data
+    """Computes mask of extrema regions from an extrema filtered array
 
-    Identifies grid points belonging to extrema regions whose filtered values satisfy the given threshold condition.
+    Identifies grid points belonging to extrema regions whose values have been filtered by :func:`apply_extrema_filter`
 
     Note:
         This is a private function intended to be used via
@@ -642,17 +639,12 @@ def __extrema_mask_region(
             where ``True`` marks an extremum.
         extrema_filtered (:class:`numpy.ndarray`): An array of the same shape as ``extrema_locations`` containing
             the extrema-filtered values.
-        threshold (float): The threshold value to apply to the extrema filter values.
-        use_less_than (bool): If ``True``, retains extrema whose filtered values are less than ``threshold``.
-            If ``False``, retains extrema whose filtered values are greater than ``threshold``.
 
     Returns:
         :class:`numpy.ndarray`: A boolean array of the same shape as ``extrema_filtered``, where ``True`` indicates
         grid points belonging to a qualifying extrema region.
     """
     mask_values = extrema_filtered[extrema_locations]
-    if threshold is not None:
-        mask_values = mask_values[mask_values < threshold] if use_less_than else mask_values[mask_values > threshold]
 
     return (
         np.isin(extrema_filtered, mask_values) if mask_values.size != 0 else np.zeros_like(extrema_filtered, dtype=bool)
@@ -744,12 +736,17 @@ def identify_circular_extrema(
         **filter_kwargs,
     ).persist()
     extrema_locations: xr.DataArray = target_data == filter_applied
+    if extrema_threshold_value is not None:
+        extrema_locations = extrema_locations & (
+            filter_applied < extrema_threshold_value
+            if extrema_kind.use_less_than_on_threshold()
+            else filter_applied > extrema_threshold_value
+        )
 
     extrema_regions = xr.apply_ufunc(
         __extrema_mask_region,
         extrema_locations,
         filter_applied,
-        kwargs={"threshold": extrema_threshold_value, "use_less_than": extrema_kind.use_less_than_on_threshold()},
         input_core_dims=[[lat_dim_name, lon_dim_name], [lat_dim_name, lon_dim_name]],
         output_core_dims=[[lat_dim_name, lon_dim_name]],
         vectorize=True,
