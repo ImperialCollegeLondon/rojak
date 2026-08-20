@@ -651,6 +651,31 @@ def __extrema_mask_region(
     )
 
 
+def __identify_extrema_locations(
+    target_data: xr.DataArray,
+    extrema_kind: ExtremaKind,
+    extrema_threshold_value: float | None,
+    lat_dim_name: str,
+    lon_dim_name: str,
+    **filter_kwargs: Any,  # noqa: ANN401
+) -> tuple[xr.DataArray, xr.DataArray]:
+    filter_applied: xr.DataArray = apply_extrema_filter(
+        target_data,
+        extrema_kind,
+        latitude_dim_name=lat_dim_name,
+        longitude_dim_name=lon_dim_name,
+        **filter_kwargs,
+    ).persist()
+    extrema_locations: xr.DataArray = target_data == filter_applied
+    if extrema_threshold_value is not None:
+        extrema_locations = extrema_locations & (
+            filter_applied < extrema_threshold_value
+            if extrema_kind.use_less_than_on_threshold()
+            else filter_applied > extrema_threshold_value
+        )
+    return filter_applied, extrema_locations
+
+
 def identify_circular_extrema(
     target_data: xr.DataArray,
     extrema_kind: ExtremaKind,
@@ -725,23 +750,16 @@ def identify_circular_extrema(
     if sel_region_indexer is not None:
         target_data = target_data.sel(indexers=sel_region_indexer)
 
-    filter_applied: xr.DataArray = apply_extrema_filter(
+    filter_applied, extrema_locations = __identify_extrema_locations(
         target_data,
         extrema_kind,
+        extrema_threshold_value,
+        lat_dim_name,
+        lon_dim_name,
         footprint=circular_footprint(radius=footprint_radius),
         axes=(0, 1),
-        mode="wrap",
-        latitude_dim_name=lat_dim_name,
-        longitude_dim_name=lon_dim_name,
         **filter_kwargs,
-    ).persist()
-    extrema_locations: xr.DataArray = target_data == filter_applied
-    if extrema_threshold_value is not None:
-        extrema_locations = extrema_locations & (
-            filter_applied < extrema_threshold_value
-            if extrema_kind.use_less_than_on_threshold()
-            else filter_applied > extrema_threshold_value
-        )
+    )
 
     extrema_regions = xr.apply_ufunc(
         __extrema_mask_region,
