@@ -806,10 +806,13 @@ def __stack_extrema_vectorised(
 
 
 def _apply_and_combine_on_n_extrema_groups(
-    target_ds: xr.Dataset, *, lat_dim_name: str, lon_dim_name: str
+    target_ds: xr.Dataset,
+    *,
+    lat_dim_name: str,
+    lon_dim_name: str,
+    new_dim_name: str,
 ) -> xr.DataArray:
-    # New dim occurs from expanding out the extrema from a single time step
-    new_dim_name: str = "extrema_count"
+    num_extrema_in_group = target_ds["n_extrema"].values[0]
     extrema_regions: xr.DataArray = xr.apply_ufunc(
         __stack_extrema_vectorised,
         target_ds["extrema_locations"],
@@ -821,7 +824,7 @@ def _apply_and_combine_on_n_extrema_groups(
         vectorize=True,
         dask="parallelized",
         output_dtypes=[np.int8],
-        dask_gufunc_kwargs={"output_sizes": {new_dim_name: target_ds["n_extrema"].values[0]}},
+        dask_gufunc_kwargs={"output_sizes": {new_dim_name: num_extrema_in_group}},
     )
     # Stacking to multi-index allows for the Groupby.map() to combine the datasets. See xarray docs for stacking rules
     return extrema_regions.stack(n_extrema=(new_dim_name, "time"))
@@ -865,16 +868,19 @@ def identify_and_stack_circular_extrema(
         data_vars={"filtered": filter_applied, "extrema_locations": extrema_locations},
         coords=target_data.coords,
     )
+
+    # New dim occurs from expanding out the extrema from a single time step
+    extrema_group_idx_dim: str = "extrema_count"
+    extrema_global_idx_dim: str = "n_extrema"
+
     # Add new `n_extrema` coord that is attached to the existing time dimension - ensure that when the data is split
     #   in the GroupBy, the information about the tiem is still there.
-    extrema_ds = extrema_ds.assign_coords(n_extrema=("time", n_composite_dim))
+    extrema_ds = extrema_ds.assign_coords({extrema_global_idx_dim: ("time", n_composite_dim)})
 
     # groupby("n_extrema"): This ensures that each item in a group only has a fixed number of extrema. This allows for
     #                       xr.apply_ufunc() to be used as each iteration over the non-lat-lon dim results in the array
     #                       growing by the same amount.
     #                       This is the "split" in the split-apply-combine strategy
-    # shuffle_to_chunks():  Shuffling reorders the data such that all members of a group occurs sequentially. This
-    #                       provides performance benefits. See https://docs.xarray.dev/en/stable/user-guide/groupby.html#shuffling
     # map():                Operation on the GroupBy object which applies a function to each group and concats them
     #                       together.
     #                       This method invoked in the "apply" part of the strategy and setting things up so that the
@@ -883,9 +889,17 @@ def identify_and_stack_circular_extrema(
     #                       consistent with the rest of the data to have time increase linearly
     # pyright flags that this is xr.Dataset and from the types in the docs it should be. However, the `map()` returns
     # a xr.DataArray so the output of the `map()` is an xr.DataArray
-    return (
-        extrema_ds.groupby("n_extrema")
-        .shuffle_to_chunks()
-        .map(_apply_and_combine_on_n_extrema_groups, lat_dim_name=lat_dim_name, lon_dim_name=lon_dim_name)
+    n_extrema_indexed = (
+        extrema_ds.groupby(extrema_global_idx_dim)
+        .map(
+            _apply_and_combine_on_n_extrema_groups,  # pyright: ignore[reportArgumentType]
+            lat_dim_name=lat_dim_name,
+            lon_dim_name=lon_dim_name,
+            new_dim_name=extrema_group_idx_dim,
+        )
         .sortby(time_dim_name)
+    ).persist()
+    time_values = n_extrema_indexed[time_dim_name].values
+    return n_extrema_indexed.drop_vars([extrema_global_idx_dim, extrema_group_idx_dim, time_dim_name]).assign_coords(
+        n_extrema=np.arange(time_values.size), time=(extrema_global_idx_dim, time_values)
     )  # pyright: ignore[reportReturnType]
