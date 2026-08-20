@@ -3,6 +3,8 @@ from enum import StrEnum
 from typing import Any, assert_never, cast
 
 import numpy as np
+import pyproj
+import scipy.interpolate as si
 import scipy.ndimage as ndi
 import xarray as xr
 from numba import guvectorize, int8, njit, vectorize
@@ -736,7 +738,6 @@ def identify_circular_extrema(
                 extrema_kind=ExtremaKind.MINIMA,
                 extrema_threshold_value=500.0,
                 footprint_radius=24,
-                is_threshold_less_than=True,
             )
             local_extrema = result["local_extrema"]
             extrema_regions = result["extrema_regions"]
@@ -903,3 +904,154 @@ def identify_and_stack_circular_extrema(
     return n_extrema_indexed.drop_vars([extrema_global_idx_dim, extrema_group_idx_dim, time_dim_name]).assign_coords(
         n_extrema=np.arange(time_values.size), time=(extrema_global_idx_dim, time_values)
     )  # pyright: ignore[reportReturnType]
+
+
+def __project_data_about_extrema(
+    extrema_mask: np.ndarray,
+    data_values: np.ndarray,
+    *,
+    lats: np.ndarray,
+    lons: np.ndarray,
+    max_km_extent: float,
+    grid_km_spacing: float,
+    int_for_center: int = 2,
+    lat_lon_buffer: float = 0.5,
+) -> np.ndarray:
+    km_coords = np.arange(-max_km_extent, max_km_extent + 1, grid_km_spacing)
+    n_km = len(km_coords)
+
+    # Identify the centres of extrema
+    lat_indices, lon_indices = np.nonzero(extrema_mask == int_for_center)
+    if len(lat_indices) == 0:
+        return np.full((n_km, n_km), np.nan)
+
+    if len(lat_indices) != 1:
+        raise ValueError("There should only be on extrema per 2D slice")
+
+    # lat is axis 0, lon is axis 1 -> due to order of input_core_dims
+    centre_lat = float(lats[lat_indices[0]])
+    centre_lon = float(lons[lon_indices[0]])
+
+    # km grid that we want to map the data onto
+    x_km_mesh, y_km_mesh = np.meshgrid(km_coords, km_coords)
+
+    # Inverse projection to find what lat/lon indices are within range
+    ortho = pyproj.Proj(proj="ortho", lat_0=centre_lat, lon_0=centre_lon, units="km", ellps="WGS84")
+    new_lons, new_lats = ortho(x_km_mesh, y_km_mesh, inverse=True)
+
+    lat_mask = (lats >= new_lats.min() - lat_lon_buffer) & (lats <= new_lats.max() + lat_lon_buffer)
+    lon_mask = (lons >= new_lons.min() - lat_lon_buffer) & (lons <= new_lons.max() + lat_lon_buffer)
+    lats_within = lats[lat_mask]
+    lons_within = lons[lon_mask]
+
+    data_masked = np.where(extrema_mask > 0, data_values, np.nan)
+    data_within = data_masked[np.ix_(lat_mask, lon_mask)]
+
+    # Forward projection identify what these data points are in km so that scipy.griddata() can use to to interpolate
+    # to our desired grid system
+    lon_grid, lat_grid = np.meshgrid(lons_within, lats_within)
+    x_km_within, y_km_within = ortho(lon_grid, lat_grid)
+
+    return si.griddata(
+        points=(x_km_within.ravel(), y_km_within.ravel()),
+        values=data_within.ravel(),
+        xi=(x_km_mesh.ravel(), y_km_mesh.ravel()),
+        method="linear",
+    ).reshape(n_km, n_km)
+
+
+def composite_about_extrema(
+    target_data: xr.DataArray,
+    extrema_data: xr.DataArray,
+    *,
+    time_dim_name: str = "time",
+    num_extrema_dim: str = "n_extrema",
+    lat_dim_name: str = "latitude",
+    lon_dim_name: str = "longitude",
+    vert_dim_name: str | None = None,
+    max_km_extent: float = 2000,
+    grid_km_spacing: float = 25,
+    int_for_center: int = 2,
+) -> xr.DataArray:
+    if not set(target_data.dims).issuperset({lat_dim_name, lon_dim_name}) or not set(extrema_data.dims).issuperset(
+        {lat_dim_name, lon_dim_name}
+    ):
+        raise ValueError("Dimensions of target_data and extrema_data do not contain latitude and longitude dims")
+
+    if vert_dim_name is not None and vert_dim_name not in target_data.dims:
+        raise ValueError(f"Expected '{vert_dim_name}' to be present in target_data")
+
+    if num_extrema_dim not in extrema_data.dims:
+        raise ValueError(f"Expected '{num_extrema_dim}' to be in {extrema_data.dims}")
+
+    if time_dim_name not in target_data.dims:
+        raise ValueError(f"Expected '{time_dim_name}' to be present in target_data")
+
+    if time_dim_name not in extrema_data.coords:
+        raise ValueError(f"Expected '{time_dim_name}' to be present in extrema_data coords")
+
+    if num_extrema_dim not in extrema_data[time_dim_name].dims:
+        raise ValueError(f"Expected '{num_extrema_dim}' to be in extrema_data[time_dim_name].dims")
+
+    target_with_extrema_dim: xr.DataArray = (
+        target_data.sel(indexers={time_dim_name: extrema_data[time_dim_name].values})
+        .assign_coords(coords={time_dim_name: extrema_data[num_extrema_dim].values})
+        .rename({time_dim_name: num_extrema_dim})
+        .where(extrema_data > 0)
+    )
+    extrema_times = extrema_data[time_dim_name].values
+
+    # Ensure that dimensions are in the same order for the apply_ufunc() method
+    if vert_dim_name is not None:
+        target_with_extrema_dim = target_with_extrema_dim.transpose(
+            num_extrema_dim, vert_dim_name, lat_dim_name, lon_dim_name
+        )
+        if vert_dim_name not in extrema_data.dims:
+            extrema_data = extrema_data.expand_dims({vert_dim_name: target_data[vert_dim_name]})
+        extrema_data = extrema_data.transpose(num_extrema_dim, vert_dim_name, lat_dim_name, lon_dim_name)
+    else:
+        target_with_extrema_dim = target_with_extrema_dim.transpose(num_extrema_dim, lat_dim_name, lon_dim_name)
+        extrema_data = extrema_data.transpose(num_extrema_dim, lat_dim_name, lon_dim_name)
+
+    km_coords = np.arange(-max_km_extent, max_km_extent + 1, grid_km_spacing)
+    n_km = len(km_coords)
+
+    composited_data: xr.DataArray = xr.apply_ufunc(
+        __project_data_about_extrema,
+        extrema_data,
+        target_with_extrema_dim,
+        kwargs={
+            "lats": target_data[lat_dim_name].values,
+            "lons": target_data[lon_dim_name].values,
+            "max_km_extent": max_km_extent,
+            "grid_km_spacing": grid_km_spacing,
+            "int_for_center": int_for_center,
+        },
+        input_core_dims=[
+            [lat_dim_name, lon_dim_name],  # mask
+            [lat_dim_name, lon_dim_name],  # field
+        ],
+        output_core_dims=[
+            ["y_km", "x_km"],
+        ],
+        dask="parallelized",
+        vectorize=True,
+        output_dtypes=[target_data.dtype],
+        dask_gufunc_kwargs={
+            "output_sizes": {
+                "y_km": n_km,
+                "x_km": n_km,
+            }
+        },
+    )
+
+    coords = {
+        "n_extrema": extrema_data["n_extrema"],
+        "time": ("n_extrema", extrema_times),
+        "y_km": km_coords,
+        "x_km": km_coords,
+    }
+    if vert_dim_name is not None:
+        coords["pressure_level"] = target_data.pressure_level
+
+    return composited_data.assign_coords(coords)
