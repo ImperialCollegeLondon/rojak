@@ -944,8 +944,8 @@ def __project_data_about_extrema(
     lats_within = lats[lat_mask]
     lons_within = lons[lon_mask]
 
-    data_masked = np.where(extrema_mask > 0, data_values, np.nan)
-    data_within = data_masked[np.ix_(lat_mask, lon_mask)]
+    # data_masked = np.where(extrema_mask > 0, data_values, np.nan)
+    data_within = data_values[np.ix_(lat_mask, lon_mask)]
 
     # Forward projection identify what these data points are in km so that scipy.griddata() can use to to interpolate
     # to our desired grid system
