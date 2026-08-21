@@ -211,11 +211,12 @@ class CATData(CATPrognosticData):
             - vec_derivs[VelocityDerivative.DU_DY] * vec_derivs[VelocityDerivative.DV_DX]
         )
 
-    def ice_supersaturated_regions(self) -> xr.DataArray:
+    def ice_supersaturated_regions(self, rhi_threshold: float = 0.9) -> xr.DataArray:
         return issr(
             air_temperature=self.temperature(),
             specific_humidity=self.specific_humidity(),
             air_pressure=self.pressure_level(convert_to_pascals=True),
+            rhi_threshold=rhi_threshold,
         )
 
     def issr_along_path(

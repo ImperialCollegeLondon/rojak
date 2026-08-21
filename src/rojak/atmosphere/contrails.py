@@ -49,6 +49,12 @@ def issr(
             )
         relative_humidity_ice = rhi(specific_humidity, air_temperature, air_pressure)
 
+    if rhi_threshold <= 0:
+        raise ValueError("rhi_threshold must be greater than 0")
+
+    if rhi_threshold > 1:  # This may need tweaking to be higher if there is a model that overpredicts
+        raise ValueError("rhi_threshold must be less than 1")
+
     # -constant.ABSOLUTE_ZERO = 273K = 0C
     sufficiently_cold = air_temperature < -constants.ABSOLUTE_ZERO
     sufficiently_humid = relative_humidity_ice > rhi_threshold
