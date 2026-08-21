@@ -972,6 +972,7 @@ def composite_about_extrema(
     max_km_extent: float = 2000,
     grid_km_spacing: float = 25,
     int_for_center: int = 2,
+    is_only_extrema_region: bool = False,
 ) -> xr.DataArray:
     if not set(target_data.dims).issuperset({lat_dim_name, lon_dim_name}) or not set(extrema_data.dims).issuperset(
         {lat_dim_name, lon_dim_name}
@@ -997,8 +998,9 @@ def composite_about_extrema(
         target_data.sel(indexers={time_dim_name: extrema_data[time_dim_name].values})
         .assign_coords(coords={time_dim_name: extrema_data[num_extrema_dim].values})
         .rename({time_dim_name: num_extrema_dim})
-        .where(extrema_data > 0)
     )
+    if is_only_extrema_region:
+        target_with_extrema_dim = target_with_extrema_dim.where(extrema_data > 0)
     extrema_times = extrema_data[time_dim_name].values
 
     # Ensure that dimensions are in the same order for the apply_ufunc() method
