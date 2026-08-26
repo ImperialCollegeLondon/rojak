@@ -784,8 +784,33 @@ def identify_circular_extrema(
 
 def __stack_extrema_vectorised(
     extrema_locations: np.ndarray,  # (lat, lon) bool
-    extrema_filtered: np.ndarray,  # (lat, lon) int/float — labelled regions
+    extrema_filtered: np.ndarray,  # (lat, lon) int/float - labelled regions
 ) -> np.ndarray:  # (n_extrema, lat, lon) int8
+    """Expand a 2D labelled extrema field into a 3D binary mask stack.
+
+    For each detected extremum, produces a 2D spatial slice in which pixels
+    belonging to that extremum's labelled region are marked ``1`` and the
+    extremum's centre pixel is marked ``2``. All other pixels are ``0``.
+
+    Intended to be called via :func:`xarray.apply_ufunc` with ``vectorize=True``
+    so that it operates on a single ``(lat, lon)`` snapshot at a time.
+
+    Args:
+        extrema_locations (numpy.ndarray): Boolean mask of shape ``(lat, lon)``
+            whose ``True`` entries are the centre points of detected extrema.
+        extrema_filtered (numpy.ndarray): Labelled region array of shape
+            ``(lat, lon)`` - e.g. the output of :func:`scipy.ndimage.label` -
+            where each connected region belonging to an extremum carries a
+            unique non-zero integer label. Pixels outside any region are ``0``.
+
+    Returns:
+        numpy.ndarray: Stacked mask array of shape ``(n_extrema, lat, lon)``
+        and dtype ``int8``. For the ``i``-th extremum:
+
+        - ``0`` - pixel does not belong to this extremum's region.
+        - ``1`` - pixel belongs to this extremum's labelled region.
+        - ``2`` - pixel is the centre of this extremum.
+    """
     extrema_values = extrema_filtered[extrema_locations]  # (n_extrema,)
     indices = np.argwhere(extrema_locations)  # (n_extrema, 2)
     num_extrema: int = len(extrema_values)
@@ -813,6 +838,43 @@ def _apply_and_combine_on_n_extrema_groups(
     lon_dim_name: str,
     new_dim_name: str,
 ) -> xr.DataArray:
+    """Apply :func:`__stack_extrema_vectorised` to a group and return a stacked result.
+
+    This is the *apply* step of a split-apply-combine strategy executed via
+    :meth:`xarray.Dataset.groupby` and :meth:`xarray.core.groupby.DatasetGroupBy.map`.
+    Each ``target_ds`` group contains only timesteps that share the same number
+    of extrema, which keeps the output shape of :func:`xarray.apply_ufunc`
+    uniform within the group, a hard requirement for ``dask="parallelized"``.
+
+    After per-timestep expansion, the new extrema index dimension and the
+    ``"time"`` dimension are stacked into a :class:`pandas.MultiIndex` so that
+    xarray's built-in combine logic can concatenate results across groups
+    correctly.
+
+    Args:
+        target_ds (xr.Dataset): A group-slice of the full dataset. Must contain:
+
+            - ``"extrema_locations"`` (:class:`xarray.DataArray`, shape
+              ``(..., lat, lon)``, dtype ``bool``) - centre points of detected
+              extrema.
+            - ``"filtered"`` (:class:`xarray.DataArray`, shape
+              ``(..., lat, lon)``, dtype ``int`` or ``float``) - labelled
+              extrema regions.
+            - ``"n_extrema"`` (scalar coordinate) - the number of extrema
+              present in every timestep of this group.
+
+        lat_dim_name (str): Name of the latitude dimension in ``target_ds``.
+        lon_dim_name (str): Name of the longitude dimension in ``target_ds``.
+        new_dim_name (str): Name assigned to the newly created per-extremum
+            index dimension (e.g. ``"extrema_count"``). Its size equals the
+            number of extrema in this group.
+
+    Returns:
+        xr.DataArray: Expanded mask array stacked along a
+        :class:`pandas.MultiIndex` of ``(new_dim_name, "time")``, exposed
+        under the dimension name ``"n_extrema"``. Pixel values follow the
+        ``0 / 1 / 2`` encoding of :func:`__stack_extrema_vectorised`.
+    """
     num_extrema_in_group = target_ds["n_extrema"].values[0]
     extrema_regions: xr.DataArray = xr.apply_ufunc(
         __stack_extrema_vectorised,
@@ -842,6 +904,68 @@ def identify_and_stack_circular_extrema(
     time_dim_name: str = "time",
     **filter_kwargs: Any,  # noqa: ANN401
 ) -> xr.DataArray:
+    """Identify circular extrema in a 3D field and return a per-extremum mask stack.
+
+    Detects spatial extrema (minima or maxima) in ``target_data`` using a
+    circular structuring element, labels the connected regions surrounding each
+    extremum, and expands the result so that every detected extremum occupies
+    its own index along a new ``"n_extrema"`` dimension. The output therefore
+    encodes both which grid cells belong to each extremum and when each
+    extremum occurred.
+
+    Processing follows a split-apply-combine pattern to accommodate the
+    variable number of extrema per timestep:
+
+    1. Split - group timesteps by their extrema count so that
+       :func:`xarray.apply_ufunc` always receives arrays of a known, fixed
+       output size.
+    2. Apply - call :func:`__stack_extrema_vectorised` on each group via
+       :func:`_apply_and_combine_on_n_extrema_groups`.
+    3. Combine - xarray concatenates the groups; results are sorted by
+       time and re-indexed with a flat ``n_extrema`` integer coordinate.
+
+    Args:
+        target_data (xr.DataArray): Three-dimensional input field. Must have
+            exactly the dimensions ``{lat_dim_name, lon_dim_name, time_dim_name}``.
+        extrema_kind (ExtremaKind): Whether to detect minima or maxima.
+            Passed directly to the internal ``__identify_extrema_locations``
+            helper.
+        extrema_threshold_value (float, optional): Minimum absolute value a
+            grid point must exceed to qualify as an extremum. ``None`` disables
+            thresholding. Defaults to ``None``.
+        footprint_radius (int): Radius in grid cells of the circular
+            structuring element used for the morphological extrema filter.
+            Defaults to ``24``.
+        sel_region_indexer (dict, optional): If provided, passed to
+            :meth:`xarray.DataArray.sel` to spatially subset ``target_data``
+            before processing. Defaults to ``None``.
+        lat_dim_name (str): Name of the latitude dimension.
+            Defaults to ``"latitude"``.
+        lon_dim_name (str): Name of the longitude dimension.
+            Defaults to ``"longitude"``.
+        time_dim_name (str): Name of the time dimension.
+            Defaults to ``"time"``.
+        **filter_kwargs (Any): Additional keyword arguments forwarded to
+            ``__identify_extrema_locations`` (e.g. smoothing parameters).
+
+    Returns:
+        xr.DataArray: Array with dimensions
+        ``(n_extrema, lat_dim_name, lon_dim_name)`` and coordinates:
+
+        - ``n_extrema`` - flat integer index ``[0, N)`` where ``N`` is the
+          total number of extrema across all timesteps.
+        - ``time`` - source timestamp of each extremum, attached to the
+          ``n_extrema`` dimension.
+
+        Pixel values follow the ``0 / 1 / 2`` encoding described in
+        :func:`__stack_extrema_vectorised`.
+
+    Raises:
+        ValueError: If ``target_data`` is not 3D.
+        ValueError: If the dimensions of ``target_data`` do not match the
+            specified ``lat_dim_name``, ``lon_dim_name``, and
+            ``time_dim_name``.
+    """
     if target_data.ndim != 3:  # noqa: PLR2004
         raise ValueError("Target data must be 3D")
 
@@ -917,6 +1041,52 @@ def __project_data_about_extrema(
     int_for_center: int = 2,
     lat_lon_buffer: float = 0.5,
 ) -> np.ndarray:
+    """Re-project a 2D data field onto a km-scale Cartesian grid centred on an extremum.
+
+    Locates the extremum centre in ``extrema_mask``, constructs a WGS-84 orthographic projection
+    (:class:`pyproj.Proj`) anchored at that centre, and interpolates ``data_values`` from its native lat/lon grid
+    onto a regular ``(y_km, x_km)`` Cartesian grid using bilinear interpolation via
+    :func:`scipy.interpolate.griddata`.
+
+    The re-projection pipeline is:
+
+    1. Identify the centre pixel (value == ``int_for_center``) in ``extrema_mask``.
+    2. Build a symmetric km output grid spanning ``[-max_km_extent, +max_km_extent]``.
+    3. Use the inverse orthographic projection to find which lat/lon points fall within the output grid extent
+       (plus ``lat_lon_buffer``).
+    4. Use the forward projection to convert those native lat/lon points to km coordinates.
+    5. Interpolate the native data onto the regular km grid with :func:`scipy.interpolate.griddata`.
+
+    Intended to be called via :func:`xarray.apply_ufunc` with ``vectorize=True`` so that it operates on a single
+    ``(lat, lon)`` slice at a time.
+
+    Args:
+        extrema_mask (numpy.ndarray): Mask array of shape ``(lat, lon)`` and dtype ``int8``, using the
+            ``0 / 1 / 2`` encoding produced by :func:`__stack_extrema_vectorised`. The pixel with value
+            ``int_for_center`` is taken as the extremum centre.
+        data_values (numpy.ndarray): Geophysical field to re-project, of shape ``(lat, lon)``
+            (e.g. geopotential height, wind speed).
+        lats (numpy.ndarray): 1D array of latitude values in degrees, corresponding to axis 0 of
+            ``extrema_mask`` and ``data_values``.
+        lons (numpy.ndarray): 1D array of longitude values in degrees, corresponding to axis 1 of ``extrema_mask``
+            and ``data_values``.
+        max_km_extent (float): Half-width of the output Cartesian grid in kilometres. The grid spans
+            ``[-max_km_extent, +max_km_extent]`` in both x and y.
+        grid_km_spacing (float): Spacing between output grid points in kilometres.
+        int_for_center (int): Pixel value in ``extrema_mask`` that identifies the extremum centre.
+            Defaults to ``2``.
+        lat_lon_buffer (float): Extra margin in degrees added when subsetting the input lat/lon arrays before
+            interpolation, to avoid edge artefacts near the projection boundary. Defaults to ``0.5``.
+
+    Returns:
+        numpy.ndarray: Data field interpolated onto the symmetric km grid, of shape ``(n_km, n_km)`` where
+        ``n_km = len(np.arange(-max_km_extent, max_km_extent + 1, grid_km_spacing))``.
+        Returns an array filled with ``NaN`` if no extremum centre is found in ``extrema_mask``.
+
+    Raises:
+        ValueError: If more than one extremum centre pixel (i.e. pixels equal to ``int_for_center``) is found in
+        ``extrema_mask``.
+    """
     km_coords = np.arange(-max_km_extent, max_km_extent + 1, grid_km_spacing)
     n_km = len(km_coords)
 
@@ -974,6 +1144,64 @@ def composite_about_extrema(
     int_for_center: int = 2,
     is_only_extrema_region: bool = False,
 ) -> xr.DataArray:
+    """Composite a geophysical field onto a common km-scale grid centred on each extremum.
+
+    For every extremum recorded in ``extrema_data``, the corresponding timestep of ``target_data`` is extracted and
+    re-projected onto a regular Cartesian grid (in km) centred on that extremum using a WGS-84 orthographic
+    projection. The result is a stack of re-projected fields - one per extremum - that can subsequently be averaged
+    to produce a mean composite structure.
+
+    Optionally supports a vertical dimension, in which case the re-projection is applied independently at each
+    level via :func:`xarray.apply_ufunc` with ``vectorize=True``.
+
+    Args:
+        target_data (xr.DataArray): Geophysical field to composite. Must contain at minimum the dimensions
+            ``lat_dim_name``, ``lon_dim_name``, and ``time_dim_name``. If ``vert_dim_name`` is provided, that
+            dimension must also be present.
+        extrema_data (xr.DataArray): Per-extremum mask array, as returned by
+            :func:`identify_and_stack_circular_extrema`. Must contain: 1) Dimensions ``num_extrema_dim``,
+            ``lat_dim_name``, ``lon_dim_name``, and 2) a ``time`` coordinate indexed by ``num_extrema_dim`` that
+            maps each extremum to its source timestamp in ``target_data``.
+        time_dim_name (str): Name of the time dimension in ``target_data`` and the time coordinate in
+            ``extrema_data``.
+            Defaults to ``"time"``.
+        num_extrema_dim (str): Name of the dimension in ``extrema_data`` that indexes individual extrema.
+            Defaults to ``"n_extrema"``.
+        lat_dim_name (str): Name of the latitude dimension.
+            Defaults to ``"latitude"``.
+        lon_dim_name (str): Name of the longitude dimension.
+            Defaults to ``"longitude"``.
+        vert_dim_name (str, optional): Name of the vertical dimension in ``target_data`` (e.g. ``"level"``).
+            If ``None``, the input is treated as purely 2D in space. Defaults to ``None``.
+        max_km_extent (float): Half-width of the output Cartesian grid in kilometres. The grid spans
+            ``[-max_km_extent, +max_km_extent]`` in both x and y. Defaults to ``2000``.
+        grid_km_spacing (float): Spacing between output grid points in kilometres. Defaults to ``25``.
+        int_for_center (int): Pixel value in ``extrema_data`` that marks an extremum centre.
+            Forwarded to :func:`__project_data_about_extrema`. Defaults to ``2``.
+        is_only_extrema_region (bool): If ``True``, pixels in ``target_data`` that fall outside the labelled
+            extremum region (i.e. where ``extrema_data == 0``) are masked to ``NaN`` before compositing.
+            Defaults to ``False``.
+
+    Returns:
+        xr.DataArray: Composited field with dimensions
+        ``(n_extrema, [vert_dim_name,] y_km, x_km)`` and coordinates:
+
+        - ``n_extrema`` - integer index for each extremum.
+        - ``time`` - source timestamp of each extremum, attached to
+          ``n_extrema``.
+        - ``y_km``, ``x_km`` - symmetric kilometre-coordinate arrays spanning
+          ``[-max_km_extent, +max_km_extent]`` with spacing
+          ``grid_km_spacing``.
+        - ``vert_dim_name`` - vertical coordinate values, if applicable.
+
+    Raises:
+        ValueError: If ``target_data`` or ``extrema_data`` do not contain the required latitude and longitude
+            dimensions.
+        ValueError: If ``vert_dim_name`` is specified but absent from ``target_data``.
+        ValueError: If ``num_extrema_dim`` is absent from ``extrema_data``.
+        ValueError: If ``time_dim_name`` is absent from ``target_data`` or from the coordinates of ``extrema_data``.
+        ValueError: If ``num_extrema_dim`` is not a dimension of ``extrema_data[time_dim_name]``.
+    """
     if not set(target_data.dims).issuperset({lat_dim_name, lon_dim_name}) or not set(extrema_data.dims).issuperset(
         {lat_dim_name, lon_dim_name}
     ):
