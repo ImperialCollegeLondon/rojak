@@ -782,7 +782,7 @@ def identify_circular_extrema(
     )
 
 
-def __stack_extrema_vectorised(
+def _stack_extrema(
     extrema_locations: np.ndarray,  # (lat, lon) bool
     extrema_filtered: np.ndarray,  # (lat, lon) int/float - labelled regions
 ) -> np.ndarray:  # (n_extrema, lat, lon) int8
@@ -838,7 +838,7 @@ def _apply_and_combine_on_n_extrema_groups(
     lon_dim_name: str,
     new_dim_name: str,
 ) -> xr.DataArray:
-    """Apply :func:`__stack_extrema_vectorised` to a group and return a stacked result.
+    """Apply :func:`_stack_extrema` to a group and return a stacked result.
 
     This is the *apply* step of a split-apply-combine strategy executed via
     :meth:`xarray.Dataset.groupby` and :meth:`xarray.core.groupby.DatasetGroupBy.map`.
@@ -873,11 +873,11 @@ def _apply_and_combine_on_n_extrema_groups(
         xr.DataArray: Expanded mask array stacked along a
         :class:`pandas.MultiIndex` of ``(new_dim_name, "time")``, exposed
         under the dimension name ``"n_extrema"``. Pixel values follow the
-        ``0 / 1 / 2`` encoding of :func:`__stack_extrema_vectorised`.
+        ``0 / 1 / 2`` encoding of :func:`_stack_extrema`.
     """
     num_extrema_in_group = target_ds["n_extrema"].values[0]
     extrema_regions: xr.DataArray = xr.apply_ufunc(
-        __stack_extrema_vectorised,
+        _stack_extrema,
         target_ds["extrema_locations"],
         target_ds["filtered"],
         input_core_dims=[[lat_dim_name, lon_dim_name], [lat_dim_name, lon_dim_name]],
@@ -919,7 +919,7 @@ def identify_and_stack_circular_extrema(
     1. Split - group timesteps by their extrema count so that
        :func:`xarray.apply_ufunc` always receives arrays of a known, fixed
        output size.
-    2. Apply - call :func:`__stack_extrema_vectorised` on each group via
+    2. Apply - call :func:`_stack_extrema` on each group via
        :func:`_apply_and_combine_on_n_extrema_groups`.
     3. Combine - xarray concatenates the groups; results are sorted by
        time and re-indexed with a flat ``n_extrema`` integer coordinate.
@@ -958,7 +958,7 @@ def identify_and_stack_circular_extrema(
           ``n_extrema`` dimension.
 
         Pixel values follow the ``0 / 1 / 2`` encoding described in
-        :func:`__stack_extrema_vectorised`.
+        :func:`_stack_extrema`.
 
     Raises:
         ValueError: If ``target_data`` is not 3D.
@@ -1062,7 +1062,7 @@ def __project_data_about_extrema(
 
     Args:
         extrema_mask (numpy.ndarray): Mask array of shape ``(lat, lon)`` and dtype ``int8``, using the
-            ``0 / 1 / 2`` encoding produced by :func:`__stack_extrema_vectorised`. The pixel with value
+            ``0 / 1 / 2`` encoding produced by :func:`_stack_extrema`. The pixel with value
             ``int_for_center`` is taken as the extremum centre.
         data_values (numpy.ndarray): Geophysical field to re-project, of shape ``(lat, lon)``
             (e.g. geopotential height, wind speed).
