@@ -1282,6 +1282,6 @@ def composite_about_extrema(
         "x_km": km_coords,
     }
     if vert_dim_name is not None:
-        coords["pressure_level"] = target_data.pressure_level
+        coords[vert_dim_name] = target_data[vert_dim_name]
 
     return composited_data.assign_coords(coords)
