@@ -259,6 +259,7 @@ def load_from_folder(
         decode_coords=is_decoded,
         decode_cf=is_decoded,
         decode_timedelta=True,
+        compat="override",
     )
 
 
