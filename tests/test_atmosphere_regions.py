@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 import dask.array as da
 import numpy as np
 import pytest
@@ -9,14 +11,19 @@ from rojak.atmosphere.regions import (
     DistanceMeasure,
     DistanceMode,
     ExtremaKind,
+    _apply_and_combine_on_n_extrema_groups,
     _parent_region_mask,
+    _project_data_about_extrema,
     _region_labeller,
+    _stack_extrema,
     apply_extrema_filter,
     chebyshev_distance_from_a_to_b,
     circular_footprint,
+    composite_about_extrema,
     distance_from_a_to_b,
     euclidean_distance_from_a_to_b,
     find_parent_region_of_intersection,
+    identify_and_stack_circular_extrema,
     identify_circular_extrema,
     label_regions,
     nearest_haversine_distance,
@@ -26,6 +33,9 @@ from rojak.atmosphere.regions import (
 )
 from rojak.orchestrator.configuration import JetStreamAlgorithms, TurbulenceDiagnostics
 from rojak.turbulence.diagnostic import DiagnosticFactory
+
+if TYPE_CHECKING:
+    from pytest_mock import MockerFixture
 
 
 def test_region_labeller_equiv_scipy_default_3d() -> None:
@@ -779,3 +789,397 @@ class TestIdentifyCircularExtrema:
         )
         assert isinstance(result, xr.Dataset)
         assert set(result.coords.keys()).issuperset({"lat", "lon"})
+
+
+class TestStackExtrema:
+    target_shape: tuple[int, int] = (161, 441)
+    peak_location_value: int = 2
+
+    @pytest.fixture
+    def simple_extrema_mask(self) -> np.ndarray:
+        """
+        Simple (lat, lon) boolean mask with a single True value at (10, 20).
+        Represents a single extremum location.
+        """
+        mask = np.zeros(self.target_shape, dtype=bool)
+        mask[10, 20] = True
+        return mask
+
+    @pytest.fixture
+    def simple_filtered(self) -> np.ndarray:
+        """
+        Simple (lat, lon) float array with labelled regions.
+        Region label 5.0 is at position (10, 20) matching simple_extrema_mask.
+        """
+        filtered = np.zeros(self.target_shape, dtype=np.float32)
+        filtered[8:13, 18:23] = 5.0  # region around the extremum
+        return filtered
+
+    def test_output_shape_single_extremum_and_dtype_int8(self, simple_extrema_mask, simple_filtered):
+        """
+        Output shape should be (n_extrema, lat, lon) where n_extrema equals the number of True values in
+        extrema_locations.
+        """
+        result = _stack_extrema(simple_extrema_mask, simple_filtered)
+        n_extrema = simple_extrema_mask.sum()
+        assert result.shape == (
+            n_extrema,
+            simple_extrema_mask.shape[0],
+            simple_extrema_mask.shape[1],
+        )
+        assert result.dtype == np.int8
+
+    def test_centre_value_is_2(self, simple_extrema_mask, simple_filtered):
+        """
+        The exact location of each extremum (where extrema_locations is True) must have a value of 2 in the output.
+        """
+        result = _stack_extrema(simple_extrema_mask, simple_filtered)
+        indices = np.argwhere(simple_extrema_mask)
+        for i, (lat_idx, lon_idx) in enumerate(indices):
+            assert result[i, lat_idx, lon_idx] == self.peak_location_value
+
+    def test_region_values_are_1(self, simple_extrema_mask, simple_filtered):
+        """
+        Points that share the same label value as the extremum but are not the centre should have a value of 1.
+        """
+        result = _stack_extrema(simple_extrema_mask, simple_filtered)
+        # Region is 8:13, 18:23 — centre is at 10, 20
+        # All region points except centre should be 1
+        region_mask = simple_filtered == simple_filtered[10, 20]
+        centre_mask = np.zeros_like(region_mask)
+        centre_mask[10, 20] = True
+        region_not_centre = region_mask & ~centre_mask
+        assert np.all(result[0][region_not_centre])
+
+    def test_non_region_values_are_0(self, simple_extrema_mask, simple_filtered):
+        """Points outside the extremum region should have a value of 0."""
+        result = _stack_extrema(simple_extrema_mask, simple_filtered)
+        outside_region: np.ndarray = simple_filtered != simple_filtered[10, 20]
+        assert not np.any(result[0][outside_region])
+
+    def test_multiple_extrema_produces_correct_slices(self):
+        """
+        With multiple extrema, each slice should correspond to exactly
+        one extremum with its own region and centre.
+        """
+        mask = np.zeros(self.target_shape, dtype=bool)
+        filtered = np.zeros(self.target_shape, dtype=np.float32)
+
+        # Two distinct extrema with different label values
+        mask[10, 20] = True
+        filtered[8:13, 18:23] = 5.0
+
+        mask[50, 100] = True
+        filtered[48:53, 98:103] = 10.0
+
+        result = _stack_extrema(mask, filtered)
+
+        num_extrema: int = 2
+        assert result.shape[0] == num_extrema
+        assert result[0, 10, 20] == num_extrema
+        assert result[1, 50, 100] == num_extrema
+        # Each slice should only contain its own region
+        assert result[0, 50, 100] == 0
+        assert result[1, 10, 20] == 0
+
+    def test_no_extrema_returns_empty(self):
+        """
+        When extrema_locations has no True values, output should have zero slices along the first dimension.
+        """
+        mask = np.zeros(self.target_shape, dtype=bool)
+        filtered = np.zeros(self.target_shape, dtype=np.float32)
+        result = _stack_extrema(mask, filtered)
+        assert result.size == 0
+
+
+class TestApplyAndCombineOnNExtremaGroups:
+    @staticmethod
+    def _make_simple_group_dataset() -> xr.Dataset:
+        lat = np.linspace(65.0, 25.0, 161)
+        lon = np.linspace(-100.0, 10.0, 441)
+        time = np.array(
+            ["2025-12-29T00:00", "2025-12-29T06:00", "2025-12-29T12:00", "2025-12-29T18:00"], dtype="datetime64[ns]"
+        )
+
+        n_lat, n_lon, n_time = len(lat), len(lon), len(time)
+        extrema_locations = np.zeros((n_time, n_lat, n_lon), dtype=bool)
+        extrema_locations[:, 10, 20] = True
+        filtered = np.zeros_like(extrema_locations, dtype=np.float32)
+        filtered[:, 8:13, 18:23] = 5.0
+        return xr.Dataset(
+            {
+                "extrema_locations": (["time", "latitude", "longitude"], extrema_locations),
+                "filtered": (["time", "latitude", "longitude"], filtered),
+            },
+            coords={
+                "time": time,
+                "latitude": lat,
+                "longitude": lon,
+                "n_extrema": ("time", np.arange(n_time, dtype=int)),
+            },
+        )
+
+    def test_stack_method_invoked_and_return_is_as_expected(self, mocker: "MockerFixture") -> None:
+        mock_fn = mocker.patch(
+            "rojak.atmosphere.regions._stack_extrema",
+        )
+        ds = self._make_simple_group_dataset()
+        mock_fn.return_value = xr.ones_like(ds["extrema_locations"])
+        result = _apply_and_combine_on_n_extrema_groups(
+            ds,
+            lat_dim_name="latitude",
+            lon_dim_name="longitude",
+            new_dim_name="extrema_count",
+        )
+        mock_fn.assert_called()
+
+        assert isinstance(result, xr.DataArray)
+        assert "n_extrema" in result.dims
+        assert "time" not in result.dims
+        assert "time" in result.coords
+
+
+@pytest.fixture
+def load_mslp_data() -> xr.DataArray:
+    return xr.open_dataset("tests/_static/test_mslp.nc", engine="h5netcdf")["msl"]
+
+
+class TestIdentifyAndStackCircularExtrema:
+    def test_raises_if_data_not_3d(self, load_mslp_data: xr.DataArray) -> None:
+        """Should raise ValueError if input data is not 3D."""
+        with pytest.raises(ValueError, match="Target data must be 3D"):
+            identify_and_stack_circular_extrema(
+                load_mslp_data.isel(time=0),
+                ExtremaKind.MINIMA,
+            )
+
+    def test_raises_if_wrong_dims(self, load_mslp_data: xr.DataArray) -> None:
+        """Should raise ValueError if required dimension names are missing."""
+        renamed = load_mslp_data.rename({"latitude": "lat"})
+        with pytest.raises(
+            ValueError, match="Target data must contain the specified time, latitude and longitude dimensions"
+        ):
+            identify_and_stack_circular_extrema(renamed, ExtremaKind.MINIMA)
+
+    def test_identify_and_stack_on_mslp_data(self, load_mslp_data: xr.DataArray) -> None:
+        result = identify_and_stack_circular_extrema(load_mslp_data, ExtremaKind.MINIMA, extrema_threshold_value=100000)
+
+        # Obtained from manually inspecting the data
+        num_minima_in_mslp: int = 22
+
+        # Check that the dimensions and coords are correct
+        assert isinstance(result, xr.DataArray)
+        assert "n_extrema" in result.dims
+        assert "time" in result.coords
+
+        # Check that it produces the correct result
+        assert result["n_extrema"].size == num_minima_in_mslp
+
+        # Check time axis is sorted, i.e. increasing
+        assert (result["time"].diff(dim=...).astype(int) > 0).all()
+
+
+class TestProjectDataAboutExtrema:
+    target_shape: tuple[int, int] = (161, 441)
+    lats: np.ndarray = np.linspace(65.0, 25.0, 161)
+    lons: np.ndarray = np.linspace(-100.0, 10.0, 441)
+
+    def test_output_shape_is_n_km_by_n_km(self) -> None:
+        mask = np.zeros(self.target_shape, dtype=np.int8)
+        mask[10, 20] = 2
+        mask[8:13, 18:23] = 1
+        field = np.random.default_rng(42).random(self.target_shape)
+
+        result = _project_data_about_extrema(
+            mask,
+            field,
+            lats=self.lats,
+            lons=self.lons,
+            max_km_extent=500,
+            grid_km_spacing=50,
+        )
+        n_km = len(np.arange(-500, 501, 50))
+        assert result.shape == (n_km, n_km)
+
+    def test_returns_nan_when_no_centre(self) -> None:
+        result = _project_data_about_extrema(
+            np.zeros(self.target_shape, dtype=np.int8),
+            np.ones(self.target_shape),
+            lats=self.lats,
+            lons=self.lons,
+            max_km_extent=500,
+            grid_km_spacing=50,
+        )
+        assert np.all(np.isnan(result))
+
+    def test_raises_if_multiple_centres(self) -> None:
+        mask = np.zeros(self.target_shape, dtype=np.int8)
+        mask[10, 20] = 2
+        mask[50, 100] = 2  # second centre — invalid
+        field = np.ones(self.target_shape)
+
+        with pytest.raises(ValueError, match="There should only be one extrema"):
+            _project_data_about_extrema(
+                mask,
+                field,
+                lats=self.lats,
+                lons=self.lons,
+                max_km_extent=500,
+                grid_km_spacing=50,
+            )
+
+    def test_centre_of_output_is_not_nan(self, load_mslp_data) -> None:
+        msl_shape = load_mslp_data.isel(time=0).shape
+        mask = np.zeros(msl_shape, dtype=np.int8)
+        mask[80, 200] = 2  # centre of the domain
+        mask[78:83, 218:223] = 1
+
+        result = _project_data_about_extrema(
+            mask,
+            load_mslp_data.isel(time=0).values,
+            lats=load_mslp_data["latitude"].values,
+            lons=load_mslp_data["longitude"].values,
+            max_km_extent=1000,
+            grid_km_spacing=25,
+        )
+        centre_idx = result.shape[0] // 2
+        assert not np.isnan(result[centre_idx, centre_idx])
+
+    def test_custom_int_for_center(self, load_mslp_data) -> None:
+        msl_shape = load_mslp_data.isel(time=0).shape
+        mask = np.zeros(msl_shape, dtype=np.int8)
+        mask[80, 200] = 9  # centre of the domain
+        mask[78:83, 218:223] = 1
+
+        result = _project_data_about_extrema(
+            mask,
+            load_mslp_data.isel(time=0).values,
+            lats=load_mslp_data["latitude"].values,
+            lons=load_mslp_data["longitude"].values,
+            max_km_extent=1000,
+            grid_km_spacing=25,
+            int_for_center=9,
+        )
+        assert result.shape[0] > 0
+        assert not np.all(np.isnan(result))
+
+
+class TestCompositeAboutExtrema:
+    target_shape: tuple[int, int] = (161, 441)
+    lats: np.ndarray = np.linspace(65.0, 25.0, 161)
+    lons: np.ndarray = np.linspace(-100.0, 10.0, 441)
+    time: np.ndarray = np.array(
+        ["2025-12-29T00:00", "2025-12-29T06:00", "2025-12-29T12:00", "2025-12-29T18:00"], dtype="datetime64[h]"
+    )
+
+    @pytest.fixture
+    def dummy_target_data(self) -> xr.DataArray:
+        lat_grid, lon_grid = np.meshgrid(self.lats, self.lons, indexing="ij")
+        data = np.stack([lat_grid + lon_grid] * len(self.time), axis=0)
+        return xr.DataArray(
+            data,
+            dims=["time", "latitude", "longitude"],
+            coords={
+                "time": self.time,
+                "latitude": self.lats,
+                "longitude": self.lons,
+            },
+        )
+
+    @pytest.fixture
+    def dummy_extrema_data(self) -> xr.DataArray:
+        n_extrema = len(self.time)
+        data = np.zeros((n_extrema, self.target_shape[0], self.target_shape[1]), dtype=np.int8)
+
+        for i in range(n_extrema):
+            data[i, 8:13, 18:23] = 1  # region
+            data[i, 10, 20] = 2  # centre
+
+        return xr.DataArray(
+            data,
+            dims=["n_extrema", "latitude", "longitude"],
+            coords={
+                "n_extrema": np.arange(n_extrema),
+                "time": ("n_extrema", self.time),
+                "latitude": self.lats,
+                "longitude": self.lons,
+            },
+        )
+
+    def test_raises_if_lat_lon_missing_from_target(self, dummy_extrema_data) -> None:
+        bad_target = xr.DataArray(
+            np.ones((4, 10)),
+            dims=["time", "x"],
+            coords={"time": self.time},
+        )
+        with pytest.raises(ValueError, match="do not contain latitude and longitude"):
+            composite_about_extrema(bad_target, dummy_extrema_data)
+
+    def test_raises_if_vert_dim_not_in_target(self, dummy_target_data, dummy_extrema_data):
+        with pytest.raises(ValueError, match="Expected 'pressure_level' to be present in target_data"):
+            composite_about_extrema(dummy_target_data, dummy_extrema_data, vert_dim_name="pressure_level")
+
+    def test_raises_if_n_extrema_not_in_extrema_data(self, dummy_target_data, dummy_extrema_data):
+        bad_extrema = dummy_extrema_data.rename({"n_extrema": "wrong_dim"})
+        with pytest.raises(ValueError, match="Expected 'n_extrema' to be in"):
+            composite_about_extrema(dummy_target_data, bad_extrema)
+
+    def test_raises_if_time_not_in_target(self, dummy_target_data, dummy_extrema_data):
+        bad_target = dummy_target_data.rename({"time": "wrong_time"})
+        with pytest.raises(ValueError, match="Expected 'time' to be present in target_data"):
+            composite_about_extrema(bad_target, dummy_extrema_data)
+
+    def test_raises_if_time_not_in_extrema_coords(self, dummy_target_data, dummy_extrema_data):
+        bad_extrema = dummy_extrema_data.drop_vars("time")
+        with pytest.raises(ValueError, match="Expected 'time' to be present in extrema_data coords"):
+            composite_about_extrema(dummy_target_data, bad_extrema)
+
+    def test_on_mslp_data(self, load_mslp_data) -> None:
+        extrema_data = identify_and_stack_circular_extrema(
+            load_mslp_data, ExtremaKind.MINIMA, extrema_threshold_value=100000
+        )
+        result = composite_about_extrema(load_mslp_data, extrema_data)
+
+        # Check basic properties of the result
+        assert isinstance(result, xr.DataArray)
+        assert "y_km" in result.dims
+        assert "x_km" in result.dims
+        assert "time" in result.coords
+        assert "n_extrema" in result["time"].dims
+
+        # Check km_coords match the defaults for the composite function
+        expected = np.arange(-2000, 2001, 25)
+        np.testing.assert_array_equal(result["y_km"].values, expected)
+        np.testing.assert_array_equal(result["x_km"].values, expected)
+
+        # Obtained from manually inspecting the data
+        num_minima_in_mslp: int = 22
+        assert result["n_extrema"].size == num_minima_in_mslp
+
+        # Taking the mean over `n_extrema` should not result in any NaNs
+        msl_composite_mean = result.mean(dim="n_extrema", skipna=True) / 100
+        assert not np.isnan(msl_composite_mean).any()
+
+    def test_is_only_extrema_region_applies_where(self, dummy_target_data, dummy_extrema_data, mocker: "MockerFixture"):
+        mock_where = mocker.patch.object(xr.DataArray, "where")
+        composite_about_extrema(dummy_target_data, dummy_extrema_data, is_only_extrema_region=True)
+
+        mock_where.assert_called_once()
+
+    def test_is_only_extrema_region_false_does_not_apply_where(
+        self, dummy_target_data, dummy_extrema_data, mocker: "MockerFixture"
+    ):
+        mock_where = mocker.patch.object(xr.DataArray, "where", wraps=xr.DataArray.where)
+        composite_about_extrema(dummy_target_data, dummy_extrema_data, is_only_extrema_region=False)
+        mock_where.assert_not_called()
+
+    def test_with_vertical_dimension(self, dummy_target_data, dummy_extrema_data, mocker: "MockerFixture"):
+        pressure = np.array([500.0, 850.0])
+        target_4d = dummy_target_data.expand_dims({"pressure_level": pressure})
+        result = composite_about_extrema(
+            target_4d,
+            dummy_extrema_data,
+            vert_dim_name="pressure_level",
+        )
+        assert "pressure_level" in result.coords
+        np.testing.assert_array_equal(result["pressure_level"], pressure)
