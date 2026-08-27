@@ -70,6 +70,9 @@ cli = [
     "rojak_cat[ecmwf,amdar,plot]",
     "typer",
 ]
+performance = [
+    "flox",
+]
 
 [dependency-groups]
 dev = [
