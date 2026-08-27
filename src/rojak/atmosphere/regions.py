@@ -1030,7 +1030,7 @@ def identify_and_stack_circular_extrema(
     )  # pyright: ignore[reportReturnType]
 
 
-def __project_data_about_extrema(
+def _project_data_about_extrema(
     extrema_mask: np.ndarray,
     data_values: np.ndarray,
     *,
@@ -1096,7 +1096,7 @@ def __project_data_about_extrema(
         return np.full((n_km, n_km), np.nan)
 
     if len(lat_indices) != 1:
-        raise ValueError("There should only be on extrema per 2D slice")
+        raise ValueError("There should only be one extrema per 2D slice")
 
     # lat is axis 0, lon is axis 1 -> due to order of input_core_dims
     centre_lat = float(lats[lat_indices[0]])
@@ -1177,7 +1177,7 @@ def composite_about_extrema(
             ``[-max_km_extent, +max_km_extent]`` in both x and y. Defaults to ``2000``.
         grid_km_spacing (float): Spacing between output grid points in kilometres. Defaults to ``25``.
         int_for_center (int): Pixel value in ``extrema_data`` that marks an extremum centre.
-            Forwarded to :func:`__project_data_about_extrema`. Defaults to ``2``.
+            Forwarded to :func:`_project_data_about_extrema`. Defaults to ``2``.
         is_only_extrema_region (bool): If ``True``, pixels in ``target_data`` that fall outside the labelled
             extremum region (i.e. where ``extrema_data == 0``) are masked to ``NaN`` before compositing.
             Defaults to ``False``.
@@ -1247,7 +1247,7 @@ def composite_about_extrema(
     n_km = len(km_coords)
 
     composited_data: xr.DataArray = xr.apply_ufunc(
-        __project_data_about_extrema,
+        _project_data_about_extrema,
         extrema_data,
         target_with_extrema_dim,
         kwargs={
