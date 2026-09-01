@@ -3,10 +3,10 @@ revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and platform_machine == 'ARM64' and sys_platform == 'win32'",
-    "python_full_version < '3.14' and platform_machine == 'ARM64' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and platform_machine != 'ARM64' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
     "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version < '3.14' and platform_machine == 'ARM64' and sys_platform == 'win32'",
     "python_full_version < '3.14' and platform_machine != 'ARM64' and sys_platform == 'win32'",
     "python_full_version < '3.14' and sys_platform == 'emscripten'",
     "python_full_version < '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
@@ -331,10 +331,9 @@ css = [
 
 [[package]]
 name = "bokeh"
-version = "3.9.2"
+version = "3.10.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "contourpy" },
     { name = "jinja2" },
     { name = "narwhals" },
     { name = "numpy" },
@@ -344,9 +343,9 @@ dependencies = [
     { name = "tornado", marker = "sys_platform != 'emscripten'" },
     { name = "xyzservices" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/dd/6f/262b649ad2fdd5ed23341452eebfa669a73b0e0c739a369204d02ee2e201/bokeh-3.9.2.tar.gz", hash = "sha256:5be30d105b329d7d2ab1cb92f51e6bd44e23f0fe21ab8d49594b220b2ab11632", size = 5751825, upload-time = "2026-07-25T16:57:56.207Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4c/e8/93d270023eb987348f9b5a2aef0103f903511b934519cd2bbefde451868d/bokeh-3.10.0.tar.gz", hash = "sha256:73f0b0c06d7925ca2b6d52b2dc51c2533a11f667cc6944f1f06c039ccc57c5ce", size = 5982193, upload-time = "2026-08-18T17:47:09.943Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ca/0c/06a99ee998b1babf95074376cbf6ede5a86af726b12cbf47c4b84fa2803a/bokeh-3.9.2-py3-none-any.whl", hash = "sha256:448e07d5ee78231f5bdece3be020024bb98696c0d6b127e0e2df0b8ba8fa9765", size = 6409477, upload-time = "2026-07-25T16:57:54.62Z" },
+    { url = "https://files.pythonhosted.org/packages/c5/0a/1423bb61b5f06376fe6ccf79c8781e2bb5e36c78c1814c78913b7425950f/bokeh-3.10.0-py3-none-any.whl", hash = "sha256:6bb8dbd4a555f71a921be5bd45c3bfaa15b390257fbadae76901927bd58629b7", size = 6649702, upload-time = "2026-08-18T17:47:07.287Z" },
 ]
 
 [[package]]
@@ -2850,7 +2849,7 @@ wheels = [
 
 [[package]]
 name = "panel"
-version = "1.9.3"
+version = "1.10.0a4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bokeh" },
@@ -2869,9 +2868,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/58/89/65a7eb921a29a203dd0469ada43573108fbb95ad1c83ec947ba32bd3a0f9/panel-1.9.3.tar.gz", hash = "sha256:4d7de30561e31674451ade5f029cddbec6156fd30f3e4cfd7da82f6ecfcbb98f", size = 32215008, upload-time = "2026-06-01T16:02:03.823Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ab/cf/5cea0f0812ce88f33d1fb85e53af89abc8a522614ef8c9ffa4c7bec2bb7c/panel-1.10.0a4.tar.gz", hash = "sha256:6966d86f919bf8212f16d1cf29aa65b032d1b1ef0f54864028ea1fcb9f3064c8", size = 32241546, upload-time = "2026-08-26T16:52:22.921Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/19/0c/121f4a7d7be7ddbbc9923f3d5c687cb77e3958b2a2e812be69fd76461e4f/panel-1.9.3-py3-none-any.whl", hash = "sha256:46e8d82541b7ae47d2c2393dd746800b95fa7ad8eb545cc39ab5f366ba00a664", size = 30305471, upload-time = "2026-06-01T16:01:59.277Z" },
+    { url = "https://files.pythonhosted.org/packages/bd/6d/c38e214d994e5cf0bf69afca890db6d557585ad1072e3b53ebc5edaa00a6/panel-1.10.0a4-py3-none-any.whl", hash = "sha256:6d800d58448a99acae408b69848ab92a6c21adc85bba9ae39a7eaaaeba89ff20", size = 30327150, upload-time = "2026-08-26T16:52:19.796Z" },
 ]
 
 [[package]]
