@@ -1110,6 +1110,23 @@ wheels = [
 ]
 
 [[package]]
+name = "flox"
+version = "0.11.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "numpy-groupies" },
+    { name = "packaging" },
+    { name = "pandas" },
+    { name = "scipy" },
+    { name = "toolz" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/61/fd/94b6e6dba647c062434f21b40efe800ca3fed2292856f82c816a8a626b97/flox-0.11.2.tar.gz", hash = "sha256:ca48d391e4a06cdf1c24368bf73114191851149611a5b318d82436fa713efdf0", size = 956626, upload-time = "2026-02-26T05:41:53.575Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/de/7b/4ce04d96cb4538ab3eab6bbcc06e624bbbc3661011bfab0b536f4fb026ab/flox-0.11.2-py3-none-any.whl", hash = "sha256:d3932bfe9e26729dd7e471c4d448abeaee7a62272621f584de0e704b3c0665cb", size = 89143, upload-time = "2026-02-26T05:41:54.725Z" },
+]
+
+[[package]]
 name = "fonttools"
 version = "4.63.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2714,6 +2731,18 @@ wheels = [
 ]
 
 [[package]]
+name = "numpy-groupies"
+version = "0.11.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7d/ff/0559b586423d9a59feac52c2261501106dcd61e45214862de5fbb03b78cb/numpy_groupies-0.11.3.tar.gz", hash = "sha256:aed4afdad55e856b9e737fe4b4673c77e47c2f887c3663a18baaa200407c23e0", size = 159159, upload-time = "2025-05-22T11:47:58.364Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b0/e0/760e73c111193db5ca37712a148e4807d1b0c60302ab31e4ada6528ca34d/numpy_groupies-0.11.3-py3-none-any.whl", hash = "sha256:d4065dd5d56fda941ad5a7c80a7f80b49f671ed148aaa3e243a0e4caa71adcb3", size = 40784, upload-time = "2025-05-22T11:47:56.997Z" },
+]
+
+[[package]]
 name = "numpy-typing-compat"
 version = "20260602.2.5"
 source = { registry = "https://pypi.org/simple" }
@@ -3805,6 +3834,9 @@ cli = [
 ecmwf = [
     { name = "cdsapi" },
 ]
+performance = [
+    { name = "flox" },
+]
 plot = [
     { name = "cartopy" },
     { name = "geoviews" },
@@ -3857,6 +3889,7 @@ requires-dist = [
     { name = "dask-geopandas", marker = "extra == 'amdar'" },
     { name = "dask-geopandas", marker = "extra == 'cli'" },
     { name = "distributed" },
+    { name = "flox", marker = "extra == 'performance'" },
     { name = "geopandas", marker = "extra == 'amdar'" },
     { name = "geopandas", marker = "extra == 'cli'" },
     { name = "geoviews", marker = "extra == 'cli'" },
@@ -3883,7 +3916,7 @@ requires-dist = [
     { name = "xarray" },
     { name = "zarr" },
 ]
-provides-extras = ["amdar", "cli", "ecmwf", "plot"]
+provides-extras = ["amdar", "cli", "ecmwf", "performance", "plot"]
 
 [package.metadata.requires-dev]
 dev = [

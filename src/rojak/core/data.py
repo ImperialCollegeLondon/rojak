@@ -29,7 +29,7 @@ from rojak.atmosphere.contrails import issr
 from rojak.core import derivatives
 from rojak.core.calculations import pressure_to_altitude_icao
 from rojak.core.constants import MAX_LONGITUDE
-from rojak.core.derivatives import VelocityDerivative
+from rojak.core.derivatives import LatLonUnits, VelocityDerivative
 from rojak.core.geometric import create_grid_data_frame
 from rojak.core.indexing import make_value_based_slice
 from rojak.turbulence import calculations as turb_calc
@@ -177,7 +177,7 @@ class CATData(CATPrognosticData):
 
     def velocity_derivatives(self) -> dict[VelocityDerivative, xr.DataArray]:
         if self._velocity_derivatives is None:
-            self._velocity_derivatives = derivatives.vector_derivatives(self.u_wind(), self.v_wind(), "deg")
+            self._velocity_derivatives = derivatives.vector_derivatives(self.u_wind(), self.v_wind(), LatLonUnits.DEG)
         return self._velocity_derivatives
 
     def specific_velocity_derivative(self, target_derivative: VelocityDerivative) -> xr.DataArray:
@@ -211,11 +211,12 @@ class CATData(CATPrognosticData):
             - vec_derivs[VelocityDerivative.DU_DY] * vec_derivs[VelocityDerivative.DV_DX]
         )
 
-    def ice_supersaturated_regions(self) -> xr.DataArray:
+    def ice_supersaturated_regions(self, rhi_threshold: float = 0.9) -> xr.DataArray:
         return issr(
             air_temperature=self.temperature(),
             specific_humidity=self.specific_humidity(),
             air_pressure=self.pressure_level(convert_to_pascals=True),
+            rhi_threshold=rhi_threshold,
         )
 
     def issr_along_path(
@@ -258,6 +259,7 @@ def load_from_folder(
         decode_coords=is_decoded,
         decode_cf=is_decoded,
         decode_timedelta=True,
+        compat="override",
     )
 
 

@@ -533,6 +533,7 @@ def test_ice_super_saturated_regions(load_cat_data) -> None:
             air_temperature=instantiated.temperature(),
             specific_humidity=instantiated.specific_humidity(),
             air_pressure=instantiated.temperature()["pressure_level"] * 100,
+            rhi_threshold=0.9,
         ),
     )
     np.testing.assert_allclose(
@@ -541,6 +542,7 @@ def test_ice_super_saturated_regions(load_cat_data) -> None:
             air_temperature=instantiated.temperature(),
             specific_humidity=instantiated.specific_humidity(),
             air_pressure=instantiated.pressure_level(convert_to_pascals=False) * 100,
+            rhi_threshold=0.9,
         ),
     )
 

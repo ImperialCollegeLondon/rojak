@@ -309,7 +309,7 @@ def magnitude_of_geospatial_gradient(
         array: Array to compute geospatial gradient on
         is_squared (optional): If `True`, returns square of the magnitude. Default is `False`.
     """
-    grad = derivatives.spatial_gradient(array, "deg", derivatives.GradientMode.GEOSPATIAL)
+    grad = derivatives.spatial_gradient(array, derivatives.LatLonUnits.DEG, derivatives.GradientMode.GEOSPATIAL)
     return magnitude_of_vector(grad["dfdx"], grad["dfdy"], is_squared=is_squared)
 
 
