@@ -11,6 +11,26 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+"""
+Binary classification and association metrics for verifying turbulence diagnostics
+
+This module provides dask- and xarray-aware implementations of metrics used to verify binary/categorical
+turbulence forecasts against observed truth. Most functions accept :class:`dask.array.Array` or dask-backed
+:class:`xarray.DataArray` inputs so that metrics can be computed lazily over large, chunked datasets.
+
+The functionality is broadly grouped into:
+
+- Curve-based metrics summarising performance across all classification thresholds:
+  :func:`binary_classification_curve`, :func:`received_operating_characteristic`, and :func:`area_under_curve`.
+- Point metrics computed from a 2x2 confusion matrix of true/false positives/negatives (see
+  :func:`confusion_matrix`), such as :func:`accuracy`, :func:`f1_score`, :func:`matthews_corr_coeff`,
+  :func:`critical_success_index`, :func:`gilbert_skill_score`, and :func:`true_skill_score`.
+- Association measures for (optionally multidimensional and/or stratified) binary variables, built on top of
+  :func:`contingency_table` and :class:`ContingencyTable`, such as :func:`sample_odds_ratio`, :func:`relative_risk`,
+  and their conditional/marginal/stratified counterparts, along with the multidimensional skill scores
+  :func:`matthews_corr_coeff_multidim` and :func:`jaccard_index_multidim`.
+"""
+
 import functools
 import math
 from functools import singledispatch
