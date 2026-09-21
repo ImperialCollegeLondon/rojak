@@ -11,6 +11,18 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+"""
+Physical quantities and turbulence-relevant derived fields computed from meteorological data
+
+This module provides standalone functions for computing quantities used to construct clear-air turbulence (CAT)
+diagnostics from raw meteorological fields (wind components, geopotential, temperature, pressure), such as
+deformation (:func:`shearing_deformation`, :func:`stretching_deformation`, :func:`total_deformation`), vorticity
+and potential vorticity (:func:`vertical_component_vorticity`, :func:`absolute_vorticity`,
+:func:`potential_vorticity`), wind-derived quantities (:func:`wind_speed`, :func:`wind_direction`,
+:func:`vertical_wind_shear`), and other atmospheric parameters (:func:`potential_temperature`,
+:func:`coriolis_parameter`, :func:`latitudinal_derivative`). Functions generally operate on
+:class:`xarray.DataArray` inputs and are agnostic to whether the underlying data is a dask or numpy array.
+"""
 
 from __future__ import annotations
 
@@ -156,10 +168,32 @@ class _WrapAroundAngleArray(np.ndarray):
     """
 
     def __new__(cls, input_array: np.ndarray) -> np.ndarray:
+        """
+        Create a :class:`_WrapAroundAngleArray` view onto an existing numpy array, without copying data
+
+        Args:
+            input_array: Array of angles to view as a :class:`_WrapAroundAngleArray`
+
+        Returns:
+            View of ``input_array`` as a :class:`_WrapAroundAngleArray`
+        """
         # https://numpy.org/doc/stable/user/basics.subclassing.html#slightly-more-realistic-example-attribute-added-to-existing-array
         return np.asarray(input_array).view(cls)
 
     def __sub__(self, other):  # noqa: ANN001, ANN204 # pyright:ignore [reportIncompatibleMethodOverride]
+        """
+        Difference between two arrays of angles, wrapping around so the result is always the smaller angle
+
+        Args:
+            other: Another :class:`_WrapAroundAngleArray` to subtract from ``self``
+
+        Returns:
+            Array of the absolute angular difference, taking the wrap-around (i.e. :math:`2\\pi - |\\Delta|`) when
+            it is smaller than the direct difference
+
+        Raises:
+            TypeError: If ``other`` is not an instance of :class:`_WrapAroundAngleArray`
+        """
         if isinstance(other, self.__class__):
             abs_diff: np.ndarray = np.abs(np.asarray(self) - np.asarray(other))
             remaining_angle: np.ndarray = (2 * np.pi) - abs_diff

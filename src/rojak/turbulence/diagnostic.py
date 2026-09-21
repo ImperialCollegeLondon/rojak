@@ -11,6 +11,22 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+"""
+Clear-air turbulence (CAT) diagnostics
+
+This module implements the individual CAT diagnostics as :class:`Diagnostic` subclasses (e.g.
+:class:`Frontogenesis3D`, :class:`TurbulenceIndex1`, :class:`GradientRichardson`, :class:`DuttonIndex`), each
+computing a diagnostic value from the underlying meteorological fields and physical quantities in
+:mod:`rojak.turbulence.calculations`. :class:`DiagnosticFactory` constructs the appropriate :class:`Diagnostic` for
+a given :class:`~rojak.orchestrator.configuration.TurbulenceDiagnostics` from a
+:class:`~rojak.core.data.CATData` source.
+
+:class:`DiagnosticSuite` and its subclasses (:class:`CalibrationDiagnosticSuite`,
+:class:`EvaluationDiagnosticSuite`) group together the diagnostics computed for a dataset, either freshly computed
+via a :class:`DiagnosticFactory` or reloaded from zarr, and drive the higher-level post-processing in
+:mod:`rojak.turbulence.analysis` (percentile thresholds, EDR mapping, turbulent regions, and probabilities) across
+all diagnostics in the suite.
+"""
 
 import logging
 from abc import ABC, abstractmethod
@@ -79,23 +95,41 @@ class Diagnostic(ABC):
     _computed_value: xr.DataArray | None = None
 
     def __init__(self, name: "DiagnosticName") -> None:
+        """
+        Args:
+            name: Name of the diagnostic
+        """
         self._name = name
 
     @abstractmethod
     def _compute(self) -> xr.DataArray:
-        pass
+        """Compute the diagnostic's value. Implemented by subclasses; see :attr:`computed_value`."""
 
     @property
     def name(self) -> "DiagnosticName":
+        """Name of the diagnostic"""
         return self._name
 
     @property
     def computed_value(self) -> xr.DataArray:
+        """
+        The diagnostic's computed value
+
+        Computed lazily via :meth:`_compute` on first access, then cached (renamed to :attr:`name` and persisted)
+        so that subsequent accesses do not recompute it.
+        """
         if self._computed_value is None:
             self._computed_value = self._compute().rename(self.name).persist()
         return self._computed_value
 
     def to_zarr(self, output_base_dir: "Path", *, file_name: str | None = None) -> None:
+        """
+        Export :attr:`computed_value` to a zarr store
+
+        Args:
+            output_base_dir: Directory to write the zarr store to
+            file_name: Name of the zarr store (without extension). Defaults to :attr:`name` if not provided.
+        """
         # False positive by pyright - StoreLike inlcudes Path
         # See https://zarr.readthedocs.io/en/v3.1.5/api/zarr/storage/#zarr.storage.StoreLike
         _ = self.computed_value.to_zarr(
@@ -106,6 +140,11 @@ class Diagnostic(ABC):
 
 
 class LoadedFromZarr(Diagnostic):
+    """
+    A :class:`Diagnostic` wrapping a value that has already been computed (e.g. reloaded from a zarr store),
+    rather than one computed from raw meteorological fields
+    """
+
     def __init__(self, name: str, computed_value: xr.DataArray) -> None:
         super().__init__(name)
         self._computed_value = computed_value
@@ -192,12 +231,15 @@ class Frontogenesis3D(Diagnostic):
         self._dv_dy = vector_derivatives[VelocityDerivative.DV_DY]
 
     def x_component(self, dtheta_dx: xr.DataArray, dtheta_dy: xr.DataArray) -> xr.DataArray:
+        """x-component of the (un-normalised) 3D frontogenesis vector, i.e. the 1st term in the ``&\\left[...`` line"""
         return dtheta_dx * (self._du_dx * dtheta_dx + self._dv_dx * dtheta_dy)
 
     def y_component(self, dtheta_dx: xr.DataArray, dtheta_dy: xr.DataArray) -> xr.DataArray:
+        """y-component of the (un-normalised) 3D frontogenesis vector, i.e. the 2nd term in the ``&\\left[...`` line"""
         return dtheta_dy * (self._du_dy * dtheta_dx + self._dv_dy * dtheta_dy)
 
     def z_component(self, dtheta_dx: xr.DataArray, dtheta_dy: xr.DataArray, dtheta_dz: xr.DataArray) -> xr.DataArray:
+        """z-component of the (un-normalised) 3D frontogenesis vector, i.e. the ``+ \\left[...`` line"""
         du_dz: xr.DataArray = altitude_derivative_on_pressure_level(self._u_wind, self._geopotential)
         dv_dz: xr.DataArray = altitude_derivative_on_pressure_level(self._v_wind, self._geopotential)
         return dtheta_dz * (du_dz * dtheta_dx + dv_dz * dtheta_dy - self._divergence * dtheta_dz)
@@ -1211,6 +1253,18 @@ class DuttonIndex(Diagnostic):
         self._use_dutton = use_dutton
 
     def horizontal_wind_shear(self, speed: xr.DataArray) -> xr.DataArray:
+        """
+        Horizontal wind shear, :math:`S_{h}`
+
+        Computed using either the Dutton (Eq. :eq:`horizontal-shear-dutton`) or Sharman (Eq.
+        :eq:`horizontal-shear-sharman`) definition, depending on ``self._use_dutton``.
+
+        Args:
+            speed: Wind speed, :math:`s`
+
+        Returns:
+            Horizontal wind shear
+        """
         x_component: xr.DataArray = (self._u_wind / speed) * spatial_gradient(
             speed,
             LatLonUnits.DEG,
@@ -1297,6 +1351,18 @@ class DiagnosticFactory:
         self._data = data
 
     def create(self, diagnostic: TurbulenceDiagnostics) -> Diagnostic:  # noqa: PLR0911, PLR0912
+        """
+        Construct the :class:`Diagnostic` instance for the requested turbulence diagnostic
+
+        Any diagnostics that ``diagnostic`` itself depends on (e.g. :class:`GradientRichardson` for
+        :class:`Ncsu1`) are constructed (and computed) recursively as needed.
+
+        Args:
+            diagnostic: Turbulence diagnostic to construct
+
+        Returns:
+            Instance of the :class:`Diagnostic` subclass corresponding to ``diagnostic``, built from ``self._data``
+        """
         match diagnostic:
             case TurbulenceDiagnostics.F2D:
                 return Frontogenesis2D(
@@ -1427,14 +1493,32 @@ class DiagnosticFactory:
 
 
 class DiagnosticSuite:
+    """
+    A collection of computed turbulence diagnostics
+
+    The diagnostics can either be freshly computed via a :class:`DiagnosticFactory`, or reloaded from an
+    :class:`xarray.Dataset` (e.g. as read back from zarr by :meth:`load_from_zarr`) containing already-computed
+    values.
+    """
+
     _diagnostics: dict["DiagnosticName", Diagnostic]
 
     @singledispatchmethod
     def __init__(self, _factory: DiagnosticFactory | xr.Dataset, _diagnostics: list[TurbulenceDiagnostics]) -> None:
+        """
+        Args:
+            _factory: Either a :class:`DiagnosticFactory` to compute ``_diagnostics`` from, or a Dataset of
+                already-computed diagnostic values
+            _diagnostics: Turbulence diagnostics to include in the suite
+
+        Raises:
+            TypeError: If ``_factory`` is not a :class:`DiagnosticFactory` or :class:`xarray.Dataset`
+        """
         raise TypeError("factory must be an instance of DiagnosticFactory or None")
 
     @__init__.register(DiagnosticFactory)
     def _(self, factory: DiagnosticFactory, diagnostics: list[TurbulenceDiagnostics]) -> None:
+        """Construct each diagnostic in ``diagnostics`` via ``factory``"""
         self._diagnostics: dict[DiagnosticName, Diagnostic] = {
             str(diagnostic): factory.create(diagnostic)
             for diagnostic in diagnostics  # TurbulenceDiagnostic
@@ -1442,6 +1526,7 @@ class DiagnosticSuite:
 
     @__init__.register(xr.Dataset)
     def _(self, factory: xr.Dataset, diagnostics: list[TurbulenceDiagnostics]) -> None:
+        """Wrap each of ``diagnostics``'s already-computed values in ``factory`` as a :class:`LoadedFromZarr`"""
         target_diagnostics: set[TurbulenceDiagnostics] = set(diagnostics)
         assert target_diagnostics.issubset(factory.keys())
         self._diagnostics: dict[DiagnosticName, Diagnostic] = {
@@ -1454,6 +1539,16 @@ class DiagnosticSuite:
         self,
         progress_description: str,
     ) -> Generator[tuple["DiagnosticName", "xr.DataArray"], None, None]:
+        """
+        Iterate over the name and computed value of each diagnostic in the suite
+
+        Args:
+            progress_description: Description to show on a progress bar while iterating. If falsy, no progress bar
+                is shown.
+
+        Yields:
+            Tuple of diagnostic name and its computed value
+        """
         for name, diagnostic in (
             track(self._diagnostics.items(), description=progress_description)
             if progress_description
@@ -1462,16 +1557,26 @@ class DiagnosticSuite:
             yield name, diagnostic.computed_value
 
     def computed_values_as_dict(self) -> dict[str, "xr.DataArray"]:
+        """Same as :meth:`computed_values`, collected eagerly into a dict (without a progress bar)"""
         return dict(self.computed_values(""))
 
     def diagnostic_names(self) -> list["DiagnosticName"]:
+        """Names of the diagnostics in the suite"""
         return list(self._diagnostics.keys())
 
     def get_prototype_computed_diagnostic(self) -> xr.DataArray:
+        """An arbitrary diagnostic's computed value, used where any one diagnostic's shape/coords will do"""
         _, prototype = next(self.computed_values(""))
         return prototype
 
     def as_dataset(self) -> xr.Dataset:
+        """
+        Combine every diagnostic's computed value into a single Dataset
+
+        Returns:
+            Dataset with one data variable per diagnostic, using the coordinates of an arbitrary diagnostic (see
+            :meth:`get_prototype_computed_diagnostic`)
+        """
         return xr.Dataset(
             data_vars=self.computed_values_as_dict(), coords=self.get_prototype_computed_diagnostic().coords
         )
@@ -1480,6 +1585,21 @@ class DiagnosticSuite:
     def load_from_zarr(
         cls, path: "Path", target_diagnostics: list[TurbulenceDiagnostics], *, open_zarr_kwargs: dict | None = None
     ) -> "DiagnosticSuite":
+        """
+        Construct a :class:`DiagnosticSuite` from a zarr store of previously-exported diagnostic values
+
+        Args:
+            path: Directory containing the zarr store, as written by :meth:`export_as_zarr`
+            target_diagnostics: Diagnostics to load from the store. Must be a subset of what is stored at ``path``.
+            open_zarr_kwargs: Additional keyword arguments passed to :func:`xarray.open_zarr`
+
+        Returns:
+            :class:`DiagnosticSuite` wrapping the loaded diagnostic values
+
+        Raises:
+            FileNotFoundError: If ``path`` does not exist
+            NotADirectoryError: If ``path`` is not a directory
+        """
         if not path.exists():
             raise FileNotFoundError(f"{path} does not exist")
         if not path.is_dir():
@@ -1497,6 +1617,18 @@ class DiagnosticSuite:
         zarr_format: int | None = 2,
         **to_zarr_kwargs,  # noqa: ANN003
     ) -> xr.backends.ZarrStore:  # pyright: ignore[reportAttributeAccessIssue]
+        """
+        Export every diagnostic's computed value (see :meth:`as_dataset`) to a zarr store
+
+        Args:
+            output_path: Directory to write the zarr store to
+            zarr_format: Zarr spec version to write. Defaults to ``2``, since consolidated metadata is not yet part
+                of the v3 spec.
+            **to_zarr_kwargs: Additional keyword arguments passed to :meth:`xarray.Dataset.to_zarr`
+
+        Returns:
+            The opened :class:`zarr.storage.ZarrStore`
+        """
         # For the dependencies that rojak uses, the default zarr format will be 3. As consolidated metadata is not part
         # of the spec yet, default to using v2 spec.
         #
@@ -1513,20 +1645,45 @@ class DiagnosticSuite:
 
 
 class CalibrationDiagnosticSuite(DiagnosticSuite):
+    """
+    A :class:`DiagnosticSuite` computed on a calibration dataset, used to derive severity thresholds and EDR
+    distribution parameters for an :class:`EvaluationDiagnosticSuite`
+    """
+
     # I think the pyright warning is a false positive?
     def __init__(self, factory: DiagnosticFactory | xr.Dataset, diagnostics: list[TurbulenceDiagnostics]) -> None:  # pyright: ignore [reportIncompatibleVariableOverride]
+        """See :meth:`DiagnosticSuite.__init__`"""
         super().__init__(factory, diagnostics)
 
     def compute_thresholds(
         self,
         percentile_config: "TurbulenceThresholds",
     ) -> Mapping["DiagnosticName", "TurbulenceThresholds"]:
+        """
+        Compute the percentile-based severity thresholds for every diagnostic in the suite
+
+        See :class:`~rojak.turbulence.analysis.TurbulenceIntensityThresholds`.
+
+        Args:
+            percentile_config: Percentile to use for each turbulence severity
+
+        Returns:
+            Mapping from diagnostic name to its computed :class:`TurbulenceThresholds`
+        """
         return {
             name: TurbulenceIntensityThresholds(percentile_config, diagnostic).execute()
             for name, diagnostic in self.computed_values("Computing thresholds")  # DiagnosticName, xr.DataArray
         }
 
     def compute_distribution_parameters(self) -> Mapping["DiagnosticName", "HistogramData"]:
+        """
+        Compute the log-normal distribution histogram for every diagnostic in the suite
+
+        See :class:`~rojak.turbulence.analysis.DiagnosticHistogramDistribution`.
+
+        Returns:
+            Mapping from diagnostic name to its computed :class:`~rojak.turbulence.analysis.HistogramData`
+        """
         return {
             name: DiagnosticHistogramDistribution(diagnostic).execute()
             for name, diagnostic in self.computed_values(
@@ -1539,6 +1696,15 @@ medium_transport_edr_thresholds: TurbulenceThresholds = TurbulenceThresholds(lig
 
 
 class EvaluationDiagnosticSuite(DiagnosticSuite):
+    """
+    A :class:`DiagnosticSuite` computed on an evaluation dataset, with severity- and threshold-based post-processing
+
+    Building on the thresholds and distribution parameters derived from a :class:`CalibrationDiagnosticSuite`, this
+    class computes the probability of encountering turbulence of each severity (:attr:`probabilities`), maps
+    diagnostic values onto the EDR scale (:attr:`edr`), and identifies boolean turbulent regions
+    (:meth:`compute_turbulent_regions`), for every diagnostic in the suite.
+    """
+
     _probabilities: Mapping["DiagnosticName", xr.DataArray] | None = None
     _edr: Mapping["DiagnosticName", xr.DataArray] | None = None
 
@@ -1561,6 +1727,29 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
         threshold_mode: TurbulenceThresholdMode | None = None,
         distribution_parameters: Mapping["DiagnosticName", "DistributionParameters"] | None = None,
     ) -> None:
+        """
+        Args:
+            factory: Factory used to compute ``diagnostics``
+            diagnostics: Turbulence diagnostics to include in the suite
+            severities: Turbulence severities used by :attr:`probabilities`, :meth:`get_limits_for_severities`,
+                :meth:`get_edr_bounds`, and :meth:`compute_turbulent_regions`. Required by those methods.
+            pressure_levels: Pressure levels used by :attr:`probabilities` and :meth:`compute_turbulent_regions`.
+                Required by those methods.
+            probability_thresholds: Mapping from diagnostic name to its :class:`TurbulenceThresholds`, used by
+                :attr:`probabilities`, :meth:`get_limits_for_severities`, and :meth:`compute_turbulent_regions`.
+                Must have an entry for every diagnostic in the suite if provided.
+            edr_thresholds: Thresholds (in EDR) used by :meth:`get_edr_bounds`. Defaults to
+                ``medium_transport_edr_thresholds``.
+            threshold_mode: Whether the thresholds are bounded intervals or lower bounds. Required by
+                :attr:`probabilities`, :meth:`get_limits_for_severities`, :meth:`get_edr_bounds`, and
+                :meth:`compute_turbulent_regions`.
+            distribution_parameters: Mapping from diagnostic name to its :class:`DistributionParameters`, used by
+                :attr:`edr`. Must have an entry for every diagnostic in the suite if provided.
+
+        Raises:
+            KeyError: If ``distribution_parameters`` or ``probability_thresholds`` is provided but is missing an
+                entry for one of the diagnostics in the suite
+        """
         super().__init__(factory, diagnostics)
         self._severities = severities
         self._pressure_levels = pressure_levels
@@ -1576,6 +1765,16 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
 
     @property
     def probabilities(self) -> Mapping["DiagnosticName", xr.DataArray]:
+        """
+        Probability (in percent) of encountering turbulence of each severity, for every diagnostic in the suite
+
+        Computed lazily on first access, using :class:`~rojak.turbulence.analysis.TurbulenceProbabilityBySeverity`,
+        and cached thereafter.
+
+        Raises:
+            ValueError: If ``self._severities``, ``self._pressure_levels``, ``self._probability_thresholds``, or
+                ``self._threshold_mode`` was not provided in :meth:`__init__`
+        """
         if self._probabilities is None:
             if (
                 self._severities is None
@@ -1602,6 +1801,16 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
 
     @property
     def edr(self) -> Mapping["DiagnosticName", xr.DataArray]:
+        """
+        Diagnostic values mapped onto the EDR scale, for every diagnostic in the suite
+
+        Computed lazily on first access, using :class:`~rojak.turbulence.analysis.TransformToEDR`, and cached
+        thereafter.
+
+        Raises:
+            ValueError: If ``self._distribution_parameters`` was not provided in :meth:`__init__`, or is missing an
+                entry for one of the diagnostics in the suite
+        """
         if self._edr is None:
             if self._distribution_parameters is None:
                 raise ValueError("Computing EDR requires distribution parameters to be defined")
@@ -1621,6 +1830,16 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
     def get_limits_for_severities(
         self,
     ) -> Generator[tuple["TurbulenceSeverity", Mapping["DiagnosticName", "Limits"]], None, None]:
+        """
+        Iterate over the probability threshold bounds for each severity, for every diagnostic in the suite
+
+        Yields:
+            Tuple of severity and a mapping from diagnostic name to its threshold bounds for that severity
+
+        Raises:
+            ValueError: If ``self._probability_thresholds``, ``self._threshold_mode``, or ``self._severities`` was
+                not provided in :meth:`__init__`
+        """
         if self._probability_thresholds is None or self._threshold_mode is None or self._severities is None:
             raise ValueError("Identifying turbulent regions of a given severity needs more inputs")
 
@@ -1634,6 +1853,16 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
             )
 
     def get_edr_bounds(self) -> Generator[tuple["TurbulenceSeverity", "Limits"], None, None]:
+        """
+        Iterate over the EDR threshold bounds for each severity
+
+        Yields:
+            Tuple of severity and its EDR bounds
+
+        Raises:
+            ValueError: If ``self._edr_thresholds``, ``self._severities``, or ``self._threshold_mode`` was not
+                provided in :meth:`__init__`
+        """
         if self._edr_thresholds is None or self._severities is None or self._threshold_mode is None:
             raise ValueError("Identifying turbulent regions of a given severity needs more inputs")
 
@@ -1641,6 +1870,18 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
             yield severity, self._edr_thresholds.get_bounds(severity, self._threshold_mode)
 
     def compute_turbulent_regions(self) -> Mapping["DiagnosticName", xr.DataArray]:
+        """
+        Compute the boolean turbulent region mask for each severity, for every diagnostic in the suite
+
+        See :class:`~rojak.turbulence.analysis.TurbulentRegionsBySeverity`.
+
+        Returns:
+            Mapping from diagnostic name to a DataArray of boolean masks with a ``severity`` dimension
+
+        Raises:
+            ValueError: If ``self._severities``, ``self._pressure_levels``, ``self._probability_thresholds``, or
+                ``self._threshold_mode`` was not provided in :meth:`__init__`
+        """
         if (
             self._severities is None
             or self._pressure_levels is None
@@ -1665,7 +1906,9 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
 
     @property
     def pressure_levels(self) -> list[float] | None:
+        """Pressure levels provided in :meth:`__init__`, if any"""
         return self._pressure_levels
 
     def thresholds(self) -> "Mapping[DiagnosticName, TurbulenceThresholds] | None":
+        """Probability thresholds provided in :meth:`__init__`, if any"""
         return self._probability_thresholds
