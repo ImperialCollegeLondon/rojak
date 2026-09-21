@@ -11,6 +11,17 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+"""
+Utilities for indexing into and reshaping xarray/dask/pandas coordinate arrays
+
+This module provides standalone helper functions for working with coordinates and indices, namely: building
+direction-aware value slices (:func:`make_value_based_slice`), detecting regular grid spacing
+(:func:`get_regular_grid_spacing`), mapping data values to their nearest coordinate index on regular and irregular
+grids (:func:`map_values_to_nearest_coordinate_index`, :func:`map_values_to_nearest_index_irregular_grid`) and back
+(:func:`map_index_to_coordinate_value`), reordering a list according to a target order (:func:`map_order`),
+combining an array with shifted copies of itself along a dimension (:func:`shift_and_combine`), masking values with
+NaN (:func:`apply_nan_mask`), and concatenating arrays along a new dimension (:func:`concat_new_dim`).
+"""
 
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any
@@ -94,6 +105,22 @@ def get_regular_grid_spacing[T: np.number | np.inexact | np.datetime64 | np.time
 def map_values_to_nearest_index_irregular_grid(
     series: "dd.Series | pd.Series", coordinate: "NDArray"
 ) -> "da.Array | NDArray":
+    """
+    Compute the closest index in ``coordinate`` that each value in ``series`` corresponds to
+
+    Unlike :func:`map_values_to_nearest_coordinate_index`, this does not require ``coordinate`` to be a regular
+    grid, as it brute-forces the nearest index by computing the absolute difference between every value in
+    ``series`` and every value in ``coordinate``. As such, it is less efficient and should only be used when
+    :func:`map_values_to_nearest_coordinate_index` is not applicable.
+
+    Args:
+        series: Data which corresponds to a given value in the coordinate array and needs to be mapped to the
+            closest index in the coordinate array
+        coordinate: 1D array which is to be indexed into
+
+    Returns:
+        Array of the closest index in ``coordinate`` that each value in ``series`` maps to
+    """
     parent_package = da if is_dask_collection(series) else np
     array: da.Array | NDArray = series.to_dask_array(lengths=True) if is_dask_collection(series) else series.to_numpy()
     return parent_package.abs(array[:, np.newaxis] - coordinate).argmin(axis=1)
@@ -255,6 +282,39 @@ def shift_and_combine[T: (xr.Dataset, xr.DataArray)](
     offset_end: int = 1,
     shift_fill: Any = np.nan,  # noqa: ANN401
 ) -> T:
+    """
+    Combine each element along ``shift_dim`` with the elements ``offset_start`` before and ``offset_end`` after it
+
+    ``target_array`` is shifted forward by ``offset_start`` and backward by ``offset_end`` along ``shift_dim``, and
+    the two shifted copies are combined element-wise using ``combine_func``. The result is that, at each position,
+    the value at ``offset_start`` before it is combined with the value at ``offset_end`` after it. The boundary
+    positions which would have required data outside of ``target_array`` (and were therefore filled with
+    ``shift_fill``) are trimmed from the result.
+
+    With the default ``combine_func`` (logical OR), this is useful for e.g. dilating a boolean mask along
+    ``shift_dim`` so that a value is also marked True if either of its neighbours (at the given offsets) is True.
+
+    Args:
+        target_array: Array to shift and combine
+        combine_func: Function used to combine the two shifted copies of ``target_array``. Defaults to logical OR.
+        shift_dim: Coordinate/dimension to shift along. Defaults to ``"pressure_level"``.
+        offset_start: Number of positions to look before each element. Must be non-negative. Defaults to ``1``.
+        offset_end: Number of positions to look after each element. Must be non-negative. Defaults to ``1``.
+        shift_fill: Fill value used at the boundary introduced by shifting, before it is trimmed away. Defaults to
+            ``np.nan``.
+
+    Returns:
+        ``target_array`` combined with its shifted copies, with the invalid boundary positions removed
+
+    Raises:
+        ValueError: If ``offset_start`` or ``offset_end`` is negative, or if ``shift_dim`` is not a coordinate of
+            ``target_array``
+
+    >>> import xarray as xr
+    >>> array = xr.DataArray([False, False, True, False, False], dims="x", coords={"x": [0, 1, 2, 3, 4]})
+    >>> shift_and_combine(array, shift_dim="x").values
+    array([ True, False,  True])
+    """
     if offset_start < 0:
         raise ValueError("Start offset (i.e. start shift amount) must be non-negative")
     if offset_end < 0:
@@ -276,11 +336,34 @@ def shift_and_combine[T: (xr.Dataset, xr.DataArray)](
 
 
 def apply_nan_mask[T: (xr.Dataset, xr.DataArray)](target_array: T, nan_mask: T, drop: bool = False) -> T:
+    """
+    Replace values in ``target_array`` with NaN wherever ``nan_mask`` is True
+
+    Args:
+        target_array: Array to mask
+        nan_mask: Boolean array of where to set values to NaN. Must be broadcastable against ``target_array``.
+        drop: If ``True``, drop the masked-out values (via :meth:`xarray.DataArray.where`'s ``drop`` argument)
+            instead of just replacing them with NaN. Defaults to ``False``.
+
+    Returns:
+        ``target_array`` with values masked by NaN wherever ``nan_mask`` is True
+    """
     return target_array.where(~nan_mask, other=np.nan, drop=drop)
 
 
 def concat_new_dim[T: (xr.Dataset, xr.DataArray, xr.DataTree)](
     targets: Sequence[T], *, dim_name: str, dim_values: Sequence[Any]
 ) -> T:
+    """
+    Concatenate a sequence of arrays along a new dimension
+
+    Args:
+        targets: Arrays to concatenate. Must all share the same dimensions/shape.
+        dim_name: Name of the new dimension to concatenate along
+        dim_values: Coordinate values for the new dimension, one per element of ``targets``
+
+    Returns:
+        ``targets`` concatenated along a new ``dim_name`` dimension, with coordinate values ``dim_values``
+    """
     # False positives from pyright
     return xr.concat(objs=targets, dim=xr.Variable(dims=dim_name, data=dim_values))  # pyright: ignore[reportArgumentType, reportCallIssue]
