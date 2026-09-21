@@ -752,7 +752,7 @@ def contingency_table(
     """
     Contingency Table for multidimensional arrays
 
-    Computed contingency table as defined as,
+    Computed contingency table as defined as by [Agresti2022]_,
 
     .. math::
 
@@ -826,7 +826,7 @@ def stratified_contingency_table(
     each of the control variables assuming that each represents a specific strata.
 
     Given :math`k` strata :math`Z_{1}, \\dots, Z_{k}` (defined by ``control_var`` as described above), a contingency
-    table is computed for each stratum, as defined as,
+    table is computed for each stratum, as defined as [Agresti2022]_,
 
     .. math::
 
