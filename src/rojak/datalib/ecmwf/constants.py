@@ -11,6 +11,13 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+"""
+Default request configurations for the ECMWF ERA5 reanalysis Copernicus Climate Data Store (CDS) API
+
+This module collects the CDS API request bodies used by :class:`~rojak.datalib.ecmwf.era5.Era5Retriever` for
+different use cases (:data:`data_defaults`), along with a lookup from dataset short name to its CDS dataset name
+(:data:`reanalysis_dataset_names`) and lists of valid request times (:data:`all_hours`, :data:`six_hourly`).
+"""
 
 from typing import Final
 

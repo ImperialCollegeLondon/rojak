@@ -11,6 +11,14 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+"""
+MADIS ACARS AMDAR turbulence observation downloading, preprocessing, and loading
+
+This module implements the :mod:`rojak.core.data` interfaces for NOAA's MADIS ACARS aircraft-reported turbulence
+observations: downloading the raw netCDF archive files (:class:`AcarsRetriever`), preprocessing them into filtered
+parquet files (:class:`MadisAmdarPreprocessor`), and loading those parquet files with quality control applied
+(:class:`AcarsAmdarRepository`, :class:`AcarsAmdarTurbulenceData`).
+"""
 
 import fnmatch
 import gzip
@@ -62,6 +70,14 @@ ALL_AMDAR_DATA_VARS: frozenset[str] = frozenset(
 
 
 class MadisAmdarPreprocessor(DataPreprocessor):
+    """
+    Preprocesses raw MADIS ACARS netCDF files into filtered parquet files of turbulence-relevant observations
+
+    Each raw (gzip-compressed) netCDF file is decompressed, restricted to :attr:`data_vars_for_turbulence`,
+    filtered to drop observations with invalid quality-control (:attr:`quality_control_vars`) or error
+    (:attr:`error_vars`) flags, and written out as a parquet file (see :meth:`apply_preprocessor`).
+    """
+
     filepaths: list[Path]
     data_vars_for_turbulence: frozenset[str] = frozenset(
         {
@@ -147,6 +163,19 @@ class MadisAmdarPreprocessor(DataPreprocessor):
     relative_to_root_path: list[Path] | None = None
 
     def __init__(self, filepaths: Iterable[Path] | Path, glob_pattern: str | None = None) -> None:
+        """
+        Args:
+            filepaths: Files to preprocess. If ``glob_pattern`` is given, this is instead the root directory (or
+                directories) to search for files matching ``glob_pattern`` within. If ``glob_pattern`` is ``None``
+                and this is a single path (not an iterable), it must point to an existing file.
+            glob_pattern: If provided, glob pattern used to find files within ``filepaths``, and
+                :attr:`relative_to_root_path` is populated with each file's directory relative to its root in
+                ``filepaths``. If ``None``, ``filepaths`` is used as-is.
+
+        Raises:
+            ValueError: If ``glob_pattern`` is ``None`` and ``filepaths`` is a single path that is not an existing
+                file
+        """
         if glob_pattern is not None:
             target_files: list[Path] = []
             self.relative_to_root_path = []
@@ -176,6 +205,20 @@ class MadisAmdarPreprocessor(DataPreprocessor):
 
     @staticmethod
     def decompress_gz(filepath: Path) -> Path:
+        """
+        Decompress a gzip-compressed file into a temporary file
+
+        Args:
+            filepath: Path to the ``.gz`` file to decompress
+
+        Returns:
+            Path to a temporary file containing the decompressed contents. The caller is responsible for deleting
+            it once done.
+
+        Raises:
+            FileNotFoundError: If ``filepath`` does not exist
+            ValueError: If ``filepath`` does not have a ``.gz`` extension
+        """
         if not filepath.is_file():
             raise FileNotFoundError(filepath)
         if filepath.suffix != ".gz":
@@ -198,6 +241,7 @@ class MadisAmdarPreprocessor(DataPreprocessor):
 
     @staticmethod
     def __mask_invalid_qc_for_var(dataset: xr.Dataset, data_var: str) -> xr.Dataset:
+        """Mask ``data_var`` to NaN wherever its per-observation QC flag is not one of the acceptable values"""
         # Z - Preliminary, no QC
         # C - Coarse pass
         # S - Screened
@@ -212,6 +256,15 @@ class MadisAmdarPreprocessor(DataPreprocessor):
         )
 
     def drop_invalid_qc_data(self, dataset: xr.Dataset) -> xr.Dataset:
+        """
+        Drop observations with an invalid quality-control flag on any of :attr:`quality_control_vars`
+
+        Args:
+            dataset: Dataset to filter
+
+        Returns:
+            ``dataset`` with observations that fail QC on any present :attr:`quality_control_vars` removed
+        """
         qc_vars_present: Container[Hashable] = dataset.data_vars.keys() & self.quality_control_vars
         for var in qc_vars_present:
             dataset = self.__mask_invalid_qc_for_var(dataset, str(var))
@@ -219,12 +272,22 @@ class MadisAmdarPreprocessor(DataPreprocessor):
 
     @staticmethod
     def __mask_invalid_error_var(dataset: xr.Dataset, data_var: str) -> xr.Dataset:
+        """Mask ``data_var`` to NaN wherever its per-observation error flag indicates a failure"""
         # value_p:  pass -> char(p) = 112
         # value_-:  unknown: no tests could be performed -> char(-) = 45
         # Filters out value_f:  fail: flagged suspect or bad upon receipt -> var(f) = 102
         return dataset.where((dataset[data_var] == ord("p")) | (dataset[data_var] == ord("-")))
 
     def drop_invalid_error_data(self, dataset: xr.Dataset) -> xr.Dataset:
+        """
+        Drop observations with a failing error flag on any of :attr:`error_vars`
+
+        Args:
+            dataset: Dataset to filter
+
+        Returns:
+            ``dataset`` with observations that fail on any present :attr:`error_vars` removed
+        """
         error_vars_present: Container[Hashable] = dataset.data_vars.keys() & self.error_vars
         for var in error_vars_present:
             dataset = self.__mask_invalid_error_var(dataset, str(var))
@@ -232,6 +295,18 @@ class MadisAmdarPreprocessor(DataPreprocessor):
 
     @override
     def apply_preprocessor(self, output_directory: Path) -> None:
+        """
+        Preprocess every file in :attr:`filepaths` into a filtered parquet file under ``output_directory``
+
+        For each file: decompress it (see :meth:`decompress_gz`), open it restricted to
+        :attr:`data_vars_for_turbulence`, drop observations with no turbulence value at all, drop observations
+        failing quality control (:meth:`drop_invalid_qc_data`) or error checks (:meth:`drop_invalid_error_data`),
+        then write the remaining data variables to a parquet file (mirroring the input's directory structure
+        relative to its root, if :attr:`relative_to_root_path` was populated).
+
+        Args:
+            output_directory: Directory to write the preprocessed parquet files into
+        """
         # Filters and exports data to parquet
         output_directory.mkdir(parents=True, exist_ok=True)
 
@@ -274,21 +349,38 @@ class MadisAmdarPreprocessor(DataPreprocessor):
 
 
 class MadisDataServer(StrEnum):
+    """Server protocol used by :class:`AcarsRetriever` to download MADIS archive files"""
+
     FTP = "ftp"
     HTTP = "http"
 
 
 class AcarsRetriever(DataRetriever):
+    """Downloads MADIS ACARS netCDF archive files from NOAA, via either FTP or HTTP"""
+
     HOSTNAME: ClassVar[str] = "madis-data.ncep.noaa.gov"
     PRODUCT: ClassVar[str] = "acars"
     HTTP_ARCHIVE_PATH: ClassVar[str] = "madisPublic1/data/archive"
     FTP_ARCHIVE_PATH: ClassVar[str] = "archive"
 
     def __init__(self, file_pattern: str | None = None, retrive_from: MadisDataServer = MadisDataServer.HTTP) -> None:
+        """
+        Args:
+            file_pattern: Glob pattern used to select which files to download for each date. Defaults to
+                ``"*.gz"``.
+            retrive_from: Server protocol to download from. Defaults to :attr:`MadisDataServer.HTTP`.
+        """
         self.retrieve_from: MadisDataServer = retrive_from
         self.file_pattern: str = "*.gz" if file_pattern is None else file_pattern
 
     def _from_ftp_server(self, date: Date, output_dir: Path) -> None:
+        """
+        Download every file matching :attr:`file_pattern` for ``date`` from the FTP archive
+
+        Args:
+            date: Date to download files for
+            output_dir: Directory to download the files into
+        """
         with FTP(self.HOSTNAME) as ftp:
             ftp.login()
             ftp.cwd(f"{self.FTP_ARCHIVE_PATH}/{date.year}/{date.month:02d}/{date.day:02d}/point/{self.PRODUCT}/netcdf/")
@@ -300,6 +392,16 @@ class AcarsRetriever(DataRetriever):
                     ftp.retrbinary(f"RETR {file}", f_out.write)
 
     def _from_http_server(self, date: Date, output_dir: Path) -> None:
+        """
+        Download every file matching :attr:`file_pattern` for ``date`` from the HTTP archive
+
+        The archive's directory listing page for ``date`` is fetched and scraped for matching file names, since
+        there is no structured index API.
+
+        Args:
+            date: Date to download files for
+            output_dir: Directory to download the files into
+        """
         archive_root: str = f"{self.HOSTNAME}/{self.HTTP_ARCHIVE_PATH}"
         url_for_date: str = (
             f"https://{archive_root}/{date.year}/{date.month:02d}/{date.day:02d}/point/{self.PRODUCT}/netcdf/"
@@ -326,6 +428,14 @@ class AcarsRetriever(DataRetriever):
 
     @override
     def _download_file(self, date: Date, base_output_dir: Path) -> None:
+        """
+        Download the MADIS archive file(s) for a single date, via :attr:`retrieve_from`
+
+        Args:
+            date: Date to download files for
+            base_output_dir: Directory the ``<year>/<month>`` subdirectory is created under, and files downloaded
+                into
+        """
         output_dir: Path = (base_output_dir / f"{date.year:02d}" / f"{date.month:02d}").resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -343,12 +453,23 @@ class AcarsRetriever(DataRetriever):
         days: list[int],
         base_output_dir: Path,
     ) -> None:
+        """
+        Download the MADIS archive file(s) for every combination of ``years``, ``months``, and ``days``
+
+        Args:
+            years: Years to download data for
+            months: Months to download data for. ``[-1]`` means every month.
+            days: Days to download data for. ``[-1]`` means every day of the month.
+            base_output_dir: Directory to download the files into
+        """
         dates: list[Date] = self.compute_date_combinations(years, months, days)
         for date in track(dates):
             self._download_file(date, base_output_dir)
 
 
 class AcarsAmdarRepository(AmdarDataRepository):
+    """Loads MADIS ACARS turbulence observations from the parquet files produced by :class:`MadisAmdarPreprocessor`"""
+
     _MINIMAL_DATA_VARS: ClassVar[set[str]] = {
         "altitude",
         # "baroAltitude",
@@ -368,10 +489,25 @@ class AcarsAmdarRepository(AmdarDataRepository):
     _MAX_VALID_TURB_INDEX: ClassVar[int] = 20
 
     def __init__(self, path_to_files: str | list) -> None:
+        """
+        Args:
+            path_to_files: Path(s) to the preprocessed parquet file(s) to load
+        """
         super().__init__(path_to_files, True)
 
     @override
     def load(self) -> "dd.DataFrame":
+        """
+        Load the parquet file(s) into a dask DataFrame
+
+        If loaded, the ``turbIndex`` column is additionally cleaned: values outside its valid range
+        (``0 <= turbIndex <= 20``, e.g. the sentinel codes ``63`` for missing and ``64`` for none reported) are
+        replaced with NaN.
+
+        Returns:
+            Loaded observations, restricted to :attr:`_MINIMAL_DATA_VARS` if this repository was constructed with
+            ``is_minimal_turb_vars``
+        """
         target_columns: list[str] | None = (
             list(AcarsAmdarRepository._MINIMAL_DATA_VARS) if self._use_min_turbulence_vars else None
         )
@@ -392,6 +528,7 @@ class AcarsAmdarRepository(AmdarDataRepository):
         data_frame: "dd.DataFrame",
         pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]",
     ) -> "dd.Series":
+        """See :meth:`~rojak.core.data.AmdarDataRepository._call_compute_closest_pressure_level`, using ``altitude``"""
         return self._compute_closest_pressure_level(data_frame, pressure_levels, "altitude")
 
     @override
@@ -400,23 +537,32 @@ class AcarsAmdarRepository(AmdarDataRepository):
         data_frame: "dd.DataFrame",
         grid: "dgpd.GeoDataFrame",
     ) -> "AmdarTurbulenceData":
+        """Wrap ``data_frame``/``grid`` in an :class:`AcarsAmdarTurbulenceData`"""
         return AcarsAmdarTurbulenceData(data_frame, grid)
 
     @override
     def _time_column_rename_mapping(self) -> dict[str, str]:
+        """Rename the raw ``timeObs`` column to ``datetime``"""
         return {"timeObs": "datetime"}
 
 
 class AcarsAmdarTurbulenceData(AmdarTurbulenceData):
+    """Quality-controlled MADIS ACARS turbulence observations"""
+
     def __init__(self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame") -> None:
+        """See :meth:`~rojak.core.data.AmdarTurbulenceData.__init__`"""
         super().__init__(data_frame, grid)
 
     @override
     def _minimum_altitude_qc(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
+        """Drop observations below :attr:`~rojak.core.data.AmdarTurbulenceData.MINIMUM_ALTITUDE`"""
         return data_frame[data_frame["altitude"] >= self.MINIMUM_ALTITUDE]
 
     @override
     def _drop_manoeuvre_data_qc(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
+        """
+        No-op: manoeuvre filtering by ``rollFlag`` is not applied, as doing so filters out all of the data
+        """
         # Attributes:
         # long_name:  Aircraft roll angle flag
         # units:        G = < 5 degrees, B = > 5 degrees
@@ -431,9 +577,23 @@ class AcarsAmdarTurbulenceData(AmdarTurbulenceData):
 
     @staticmethod
     def turbulence_column_names() -> list[str]:
+        """Names of the columns holding turbulence-related quantities"""
         return ["maxEDR", "maxTurbulence", "medEDR", "medTurbulence", "turbIndex", "vertGust"]
 
     def edr_distribution(self) -> DistributionParameters:
+        """
+        Mean and variance of the log-normal distribution of the observed ``maxEDR`` values
+
+        Non-positive values are excluded prior to taking the log, since they would otherwise make the mean and
+        variance infinite.
+
+        Returns:
+            Mean and variance of the log of the (positive) ``maxEDR`` values
+
+        Raises:
+            AssertionError: If :attr:`~rojak.core.data.AmdarTurbulenceData.data_frame` is missing
+                :meth:`turbulence_column_names` or the ``maxEDR`` column
+        """
         assert set(self.data_frame.columns).issuperset(self.turbulence_column_names())
         assert "maxEDR" in set(self.data_frame.columns)
 

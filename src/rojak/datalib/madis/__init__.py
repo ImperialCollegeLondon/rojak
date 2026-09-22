@@ -11,3 +11,12 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+"""
+MADIS ACARS AMDAR observation data source
+
+Implements the :mod:`rojak.core.data` interfaces for downloading
+(:class:`~rojak.datalib.madis.amdar.AcarsRetriever`), preprocessing
+(:class:`~rojak.datalib.madis.amdar.MadisAmdarPreprocessor`), and loading
+(:class:`~rojak.datalib.madis.amdar.AcarsAmdarRepository`) ACARS aircraft-reported turbulence observations from
+NOAA's MADIS archive.
+"""
