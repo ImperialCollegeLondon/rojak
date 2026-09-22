@@ -39,7 +39,7 @@ from dask.base import is_dask_collection
 from pyproj import CRS, Geod, Proj
 
 from rojak.core.constants import MAX_LATITUDE, MAX_LONGITUDE
-from rojak.utilities.types import GoHomeYouAreDrunkError, NumpyOrDataArray
+from rojak.utilities.types import NumpyOrDataArray
 
 
 class GridSpacing(NamedTuple):
@@ -169,7 +169,7 @@ def grid_spacing(
     Raises:
         ValueError: If ``latitude`` and ``longitude`` do not have the same number of dimensions
         NotImplementedError: If ``latitude``/``longitude`` are 2D (not yet supported)
-        GoHomeYouAreDrunkError: If ``latitude``/``longitude`` have more than 2 dimensions
+        ValueError: If ``latitude``/``longitude`` have more than 2 dimensions
     """
     if geod is None:
         geod = Geod(ellps="WGS84")
@@ -188,7 +188,7 @@ def grid_spacing(
         # lon_grid = longitude
         raise NotImplementedError("Function doesn't support 2D latitude and longitude inputs")
     else:
-        raise GoHomeYouAreDrunkError("What are you doing? How do lat and lon have >2 dimensions?")
+        raise ValueError("Lat and Lon cannot have >2 dimensions?")
 
     forward_azimuth, _, dy = geod.inv(lon_grid[:-1, :], lat_grid[:-1, :], lon_grid[1:, :], lat_grid[1:, :])
     # I don't understand why this lines is here... Copied from metpy
