@@ -13,7 +13,6 @@
 #  limitations under the License.
 
 import functools
-import sys
 from collections.abc import Hashable, Sequence
 from typing import NamedTuple, Protocol, Self, TypeGuard
 
@@ -23,10 +22,7 @@ import xarray as xr
 from dask import array as da
 from numpy.typing import DTypeLike
 
-if sys.version_info >= (3, 13):
-    from typing import TypeIs
-else:
-    from typing_extensions import TypeIs
+from rojak.utilities._compat import TypeIs
 
 NumpyOrDataArray = npt.NDArray | xr.DataArray
 

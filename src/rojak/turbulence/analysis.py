@@ -33,7 +33,6 @@ values (as computed by :mod:`rojak.turbulence.diagnostic`) into forecasts and sk
 """
 
 import itertools
-import sys
 from abc import ABC
 from collections.abc import Hashable, Mapping
 from enum import StrEnum
@@ -63,6 +62,7 @@ from rojak.turbulence.metrics import (
     relative_risk,
     sample_odds_ratio,
 )
+from rojak.utilities._compat import TypeIs
 from rojak.utilities.types import (
     DistributionParameters,
     Limits,
@@ -75,11 +75,6 @@ from rojak.utilities.types import (
 if TYPE_CHECKING:
     from rojak.atmosphere.jet_stream import AlphaVelField
     from rojak.utilities.types import DiagnosticName
-
-if sys.version_info >= (3, 13):
-    from typing import TypeIs
-else:
-    from typing_extensions import TypeIs
 
 type IntensityName = str
 type IntensityValues = dict[IntensityName, float]
