@@ -12,8 +12,6 @@ from pathlib import Path
 
 import rojak  # for linkcode_resolve
 
-sys.path.insert(0, str(Path("..", "src").resolve()))
-
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
@@ -44,9 +42,9 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 # See https://github.com/sphinx-doc/sphinx/issues/6800
 autosummary_generate = True
 
-autoclass_content = "both"
+autoclass_content = "class"
 autodoc_member_order = "groupwise"
-autodoc_typehints = "both"
+autodoc_typehints = "description"
 
 # Figure numbering
 numfig: bool = True

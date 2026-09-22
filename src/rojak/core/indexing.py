@@ -218,7 +218,7 @@ def map_index_to_coordinate_value(
     """
     Retrieve original value based on index
 
-    This function is the inverse of :py:func`map_values_to_nearest_coordinate_index`
+    This function is the inverse of :py:func:`map_values_to_nearest_coordinate_index`
 
     Args:
         indices: Indices of the values to map

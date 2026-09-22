@@ -28,7 +28,7 @@ from rich.progress import track
 
 from rojak.core.calculations import pressure_to_altitude_icao
 from rojak.core.data import CATData, DataRetriever, DataVarSchema, MetData
-from rojak.datalib.ecmwf.constants import (
+from rojak.datalib.ecmwf._constants import (
     blank_default,
     data_defaults,
     reanalysis_dataset_names,
@@ -95,16 +95,16 @@ class Era5Retriever(DataRetriever):
             dataset_name: ERA5 dataset to request from, either pressure-level or single-level data
             folder_name: Name of the subdirectory (within ``base_output_dir`` passed to :meth:`download_files`) to
                 download the files into
-            default_name: Name of a default request body (see :data:`~rojak.datalib.ecmwf.constants.data_defaults`)
-                to use as the base of the request. If ``None``, an empty request body is used and
-                ``pressure_levels``/``variables`` must be provided instead.
+            default_name: Name of a default request body to use as the base of the request.
+                If ``None``, an empty request body is used and ``pressure_levels``/``variables`` must be
+                provided instead.
             pressure_levels: Pressure levels (in hPa) to request. If provided, overrides the levels in
                 ``default_name``'s request body. Required if ``default_name`` is ``None`` and ``dataset_name`` is
                 ``"pressure-level"``.
             variables: Variables to request. If provided, overrides the variables in ``default_name``'s request
                 body. Required if ``default_name`` is ``None``.
             times: Times of day to request. If provided, overrides the times in ``default_name``'s request body.
-                Defaults to :data:`~rojak.datalib.ecmwf.constants.six_hourly` if not given.
+                Defaults to six hourly if not given.
 
         Raises:
             InvalidEra5RequestConfigurationError: If ``default_name`` is ``None`` and ``pressure_levels`` (for a

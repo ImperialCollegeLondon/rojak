@@ -362,17 +362,15 @@ def vertical_wind_shear(
 
     .. math::
 
-        \\begin{align}
-        S_{v} &= \\left| \\frac{ \\partial \\mathbf{u} }{ \\partial z }  \\right| \\\\
-            &= \\sqrt{ \\left| \\frac{ \\partial u }{ \\partial z }  \\right|^{2} +
+        S_v = \\left| \\frac{ \\partial u }{ \\partial z }  \\right| \\
+            = \\sqrt{ \\left| \\frac{ \\partial u }{ \\partial z }  \\right|^{2} +
                 \\left|  \\frac{ \\partial v }{ \\partial z } \\right| ^{2} }
-        \\end{align}
 
     Args:
         u_wind: :math:`u` wind component
         v_wind: :math:`v` wind component
         geopotential (optional): Array of geopotential values. If provided, derivative in vertical coordinate will
-            be on altitude (see py:func:`altitude_derivative_on_pressure_level` instead of on pressure level
+            be on altitude (see :py:func:`altitude_derivative_on_pressure_level` instead of on pressure level
         is_abs_velocities (optional): If `True`, uses absolute velocities. Default is `False`.
         is_vws_squared (optional): If `True`, returns square of the wind shear. Default is `False`.
     """
