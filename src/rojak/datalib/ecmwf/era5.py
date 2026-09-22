@@ -20,7 +20,8 @@ from the Copernicus Climate Data Store (:class:`Era5Retriever`), and adapting a 
 """
 
 import logging
-from typing import TYPE_CHECKING, ClassVar, Literal, override
+from enum import StrEnum
+from typing import TYPE_CHECKING, ClassVar, override
 
 import cdsapi
 from rich.progress import track
@@ -56,8 +57,20 @@ class InvalidEra5RequestConfigurationError(Exception):
         super().__init__(message)
 
 
-type Era5DefaultsName = Literal["cat", "surface", "contrail", "minimal-cat-contrail"] | None
-type Era5DatasetName = Literal["pressure-level", "single-level"]
+# type Era5DefaultsName = Literal["cat", "surface", "contrail", "minimal-cat-contrail"] | None
+# type Era5DatasetName = Literal["pressure-level", "single-level"]
+
+
+class Era5DatasetName(StrEnum):
+    PRESSURE_LEVEL = "pressure-level"
+    SINGLE_LEVEL = "single-level"
+
+
+class Era5DefaultsName(StrEnum):
+    CAT = "cat"
+    SURFACE = "surface"
+    CONTRAIL = "contrail"
+    MINIMAL_CAT_CONTRAIL = "minimal-cat-contrail"
 
 
 class Era5Retriever(DataRetriever):
@@ -72,7 +85,7 @@ class Era5Retriever(DataRetriever):
         self,
         dataset_name: Era5DatasetName,
         folder_name: str,
-        default_name: Era5DefaultsName = None,
+        default_name: Era5DefaultsName | None = None,
         pressure_levels: list[int] | None = None,
         variables: list[str] | None = None,
         times: list[str] | None = None,
@@ -97,9 +110,8 @@ class Era5Retriever(DataRetriever):
             InvalidEra5RequestConfigurationError: If ``default_name`` is ``None`` and ``pressure_levels`` (for a
                 pressure-level dataset) or ``variables`` is not provided
         """
-        print(default_name)
         if default_name is None:
-            if pressure_levels is None and dataset_name == "pressure-level":
+            if pressure_levels is None and dataset_name == Era5DatasetName.PRESSURE_LEVEL:
                 raise InvalidEra5RequestConfigurationError(
                     "Default not specified. As such, which pressure levels must be specified.",
                 )

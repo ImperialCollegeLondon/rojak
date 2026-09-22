@@ -35,7 +35,6 @@ from rojak.datalib.ecmwf.era5 import (
     Era5DatasetName,
     Era5DefaultsName,
     Era5Retriever,
-    InvalidEra5RequestConfigurationError,
 )
 from rojak.datalib.madis.amdar import AcarsRetriever, MadisAmdarPreprocessor
 from rojak.orchestrator.configuration import AmdarDataSource
@@ -265,55 +264,6 @@ class MeteorologyDataSource(StrEnum):
     ERA5 = "era5"
 
 
-def validate_era5_default_name(default_name_input: str | None) -> Era5DefaultsName:
-    """
-    Validate and narrow the ``--default-name`` option of :func:`retrieve_meteorology` to an :data:`Era5DefaultsName`
-
-    Args:
-        default_name_input: Raw ``--default-name`` value from the CLI
-
-    Returns:
-        ``default_name_input`` narrowed to :data:`~rojak.datalib.ecmwf.era5.Era5DefaultsName`, or ``None`` if it
-        was ``None``
-
-    Raises:
-        InvalidEra5RequestConfigurationError: If ``default_name_input`` is not one of ``"cat"``, ``"surface"``,
-            ``"contrail"``, or ``"minimal-cat-contrail"``
-    """
-    if default_name_input is None:
-        return None
-    if default_name_input == "cat":
-        return "cat"
-    if default_name_input == "surface":
-        return "surface"
-    if default_name_input == "contrail":
-        return "contrail"
-    if default_name_input == "minimal-cat-contrail":
-        return "minimal-cat-contrail"
-    raise InvalidEra5RequestConfigurationError("Invalid default name")
-
-
-def validate_era5_dataset_name(dataset_name_input: str) -> Era5DatasetName:
-    """
-    Validate and narrow the ``--data-set-name`` option of :func:`retrieve_meteorology` to an :data:`Era5DatasetName`
-
-    Args:
-        dataset_name_input: Raw ``--data-set-name`` value from the CLI
-
-    Returns:
-        ``dataset_name_input`` narrowed to :data:`~rojak.datalib.ecmwf.era5.Era5DatasetName`
-
-    Raises:
-        InvalidEra5RequestConfigurationError: If ``dataset_name_input`` is not one of ``"pressure-level"`` or
-            ``"single-level"``
-    """
-    if dataset_name_input == "pressure-level":
-        return "pressure-level"
-    if dataset_name_input == "single-level":
-        return "single-level"
-    raise InvalidEra5RequestConfigurationError("Invalid dataset name")
-
-
 @meteorology_app.command(
     "retrieve",
     help=(
@@ -363,11 +313,11 @@ def retrieve_meteorology(
         ),
     ],
     data_set_name: Annotated[
-        str,
+        Era5DatasetName,
         typer.Option(
             "-n",
             "--data-set-name",
-            help="ERA5 dataset to request from. One of: `'pressure-level'`, `'single-level'`.",
+            help="ERA5 dataset to request from",
         ),
     ],
     output_dir: Annotated[
@@ -379,18 +329,13 @@ def retrieve_meteorology(
         ),
     ] = None,
     default_name: Annotated[
-        str | None,
+        Era5DefaultsName | None,
         typer.Option(
             "--default-name",
-            help=("Name of a built-in CDS request template controlling which variables/pressure levels are "),
-            # help=(
-            #     "Name of a built-in CDS request template controlling which variables/pressure levels are "
-            #     "requested by default. One of: 'cat' (core clear-air turbulence variables), 'surface' (surface "
-            #     "variables for contrail calculations), 'contrail' (combined CAT and contrail variables across "
-            #     "many pressure levels), 'minimal-cat-contrail' ('cat' variables plus relative humidity). If "
-            #     "omitted, --variables (and --pressure-levels, for the pressure-level dataset) must be given "
-            #     "instead."
-            # ),
+            help=(
+                "Name of a built-in CDS request template controlling which variables/pressure levels are "
+                "requested by default."
+            ),
         ),
     ] = None,
     pressure_levels: Annotated[
@@ -437,9 +382,9 @@ def retrieve_meteorology(
         years: Years to download data for
         months: Months to download data for. ``[-1]`` means every month.
         days: Days to download data for. ``[-1]`` means every day of the month.
-        data_set_name: ERA5 dataset to request from, see :func:`validate_era5_dataset_name`
+        data_set_name: ERA5 dataset to request from
         output_dir: Directory to save the downloaded files into
-        default_name: Name of a built-in CDS request template, see :func:`validate_era5_default_name`
+        default_name: Name of a built-in CDS request template
         pressure_levels: Pressure levels (hPa) to request, for the pressure-level dataset
         variables: CDS variable names to request
         times: Times of day (UTC) to request
@@ -453,9 +398,9 @@ def retrieve_meteorology(
     match source:
         case MeteorologyDataSource.ERA5:
             retriever = Era5Retriever(
-                validate_era5_dataset_name(data_set_name),
+                data_set_name,
                 output_dir.stem,
-                default_name=validate_era5_default_name(default_name),
+                default_name=default_name,
                 pressure_levels=pressure_levels,
                 variables=variables,
                 times=times,
@@ -479,7 +424,7 @@ def repartition_parquet(
             "-d",
             "--root-dir",
             help=(
-                "Directory containing the parquet dataset to repartition. If -r is set, this is instead the "
+                "Directory containing the parquet dataset to repartition. If `-r` is set, this is instead the "
                 "parent directory containing one subdirectory per dataset to repartition."
             ),
             exists=True,
@@ -509,7 +454,7 @@ def repartition_parquet(
             "--glob-pattern",
             help=(
                 "Glob pattern (relative to each dataset's directory) matching the parquet files to read, e.g. "
-                "'*.parquet'."
+                "`'*.parquet'`."
             ),
         ),
     ],
@@ -522,8 +467,8 @@ def repartition_parquet(
         typer.Option(
             "-r",
             help=(
-                "If passed, treat every immediate subdirectory of --root-dir as a separate dataset to repartition "
-                "(non-recursively beyond that level). If omitted, --root-dir itself is treated as the single "
+                "If passed, treat every immediate subdirectory of `--root-dir` as a separate dataset to repartition "
+                "(non-recursively beyond that level). If omitted, `--root-dir` itself is treated as the single "
                 "dataset to repartition."
             ),
         ),
