@@ -11,6 +11,22 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+"""
+Coordinate-aware spatial derivatives on a latitude/longitude grid
+
+This module computes gradients, divergence, and the Laplacian of fields defined on a geographic (latitude/
+longitude) grid, accounting for the physical (geodesic) distance between grid points and, where relevant, the
+distortion introduced by a map projection. It underlies the derivative-based turbulence diagnostics in
+:mod:`rojak.turbulence.calculations` and :mod:`rojak.turbulence.diagnostic`.
+
+Grid spacing between adjacent points can be computed either from the true geodesic distance at every grid point
+(:func:`grid_spacing`) or, more cheaply, from a nominal spacing measured along the equator and prime meridian
+(:func:`nominal_grid_spacing`). :func:`get_projection_correction_factors` computes the map projection scale factors
+used to correct raw Cartesian derivatives (:func:`spatial_gradient`, in :attr:`GradientMode.GEOSPATIAL` mode) for
+projection distortion, and :func:`vector_derivatives` computes the full set of horizontal velocity derivatives
+(du/dx, du/dy, dv/dx, dv/dy) with this correction applied. :func:`divergence` and :func:`spatial_laplacian` build on
+:func:`spatial_gradient`.
+"""
 
 import warnings
 from enum import Enum, StrEnum, auto
@@ -23,10 +39,12 @@ from dask.base import is_dask_collection
 from pyproj import CRS, Geod, Proj
 
 from rojak.core.constants import MAX_LATITUDE, MAX_LONGITUDE
-from rojak.utilities.types import GoHomeYouAreDrunkError, NumpyOrDataArray
+from rojak.utilities.types import NumpyOrDataArray
 
 
 class GridSpacing(NamedTuple):
+    """Grid spacing (in meters) along the x and y Cartesian directions, e.g. as computed by :func:`grid_spacing`"""
+
     dx: NumpyOrDataArray
     dy: NumpyOrDataArray
 
@@ -68,6 +86,19 @@ def _is_in_degrees(
 
 
 def _is_lat_lon_in_degrees(latitude: NumpyOrDataArray, longitude: NumpyOrDataArray) -> bool:
+    """
+    Check that latitude and longitude are consistently either both in degrees or both in radians
+
+    Args:
+        latitude: Array of latitude values
+        longitude: Array of longitude values
+
+    Returns:
+        ``True`` if both are in degrees, ``False`` if both are in radians
+
+    Raises:
+        ValueError: If only one of ``latitude``/``longitude`` appears to be in degrees
+    """
     is_lat_in_degrees: bool = _is_in_degrees(latitude, coordinate="latitude")
     is_lon_in_degrees: bool = _is_in_degrees(longitude, coordinate="longitude")
 
@@ -83,6 +114,8 @@ def _is_lat_lon_in_degrees(latitude: NumpyOrDataArray, longitude: NumpyOrDataArr
 
 
 class LatLonUnits(StrEnum):
+    """Units latitude/longitude coordinates are expressed in"""
+
     DEG = "deg"
     RAD = "rad"
 
@@ -118,6 +151,26 @@ def grid_spacing(
     units: LatLonUnits,
     geod: Geod | None = None,
 ) -> GridSpacing:
+    """
+    Compute the geodesic distance between adjacent points of a 2D latitude/longitude grid
+
+    Unlike :func:`nominal_grid_spacing`, the distance is computed at every grid point (rather than approximated
+    from a single row/column), so this accounts for the grid spacing varying with latitude.
+
+    Args:
+        latitude: 1D array of latitude coordinates
+        longitude: 1D array of longitude coordinates
+        units: Units ``latitude``/``longitude`` are expressed in
+        geod: Geodesic to compute distances with. Defaults to a WGS84 ellipsoid.
+
+    Returns:
+        Grid spacing (in meters) between adjacent grid points along each Cartesian direction
+
+    Raises:
+        ValueError: If ``latitude`` and ``longitude`` do not have the same number of dimensions
+        NotImplementedError: If ``latitude``/``longitude`` are 2D (not yet supported)
+        ValueError: If ``latitude``/``longitude`` have more than 2 dimensions
+    """
     if geod is None:
         geod = Geod(ellps="WGS84")
 
@@ -135,7 +188,7 @@ def grid_spacing(
         # lon_grid = longitude
         raise NotImplementedError("Function doesn't support 2D latitude and longitude inputs")
     else:
-        raise GoHomeYouAreDrunkError("What are you doing? How do lat and lon have >2 dimensions?")
+        raise ValueError("Lat and Lon cannot have >2 dimensions?")
 
     forward_azimuth, _, dy = geod.inv(lon_grid[:-1, :], lat_grid[:-1, :], lon_grid[1:, :], lat_grid[1:, :])
     # I don't understand why this lines is here... Copied from metpy
@@ -153,6 +206,26 @@ def nominal_grid_spacing(
     units: LatLonUnits,
     geod: Geod | None = None,
 ) -> GridSpacing:
+    """
+    Estimate the grid spacing of a regular latitude/longitude grid from a single row and column
+
+    Unlike :func:`grid_spacing`, this does not compute the distance at every grid point: ``dx`` is the geodesic
+    distance between adjacent longitude values along the equator, and ``dy`` is the geodesic distance between
+    adjacent latitude values along the prime meridian. This is cheaper than :func:`grid_spacing` but only an
+    approximation away from the equator/meridian.
+
+    Args:
+        latitude: 1D array of latitude coordinates
+        longitude: 1D array of longitude coordinates
+        units: Units ``latitude``/``longitude`` are expressed in
+        geod: Geodesic to compute distances with. Defaults to a WGS84 ellipsoid.
+
+    Returns:
+        Nominal grid spacing (in meters) along each Cartesian direction
+
+    Raises:
+        ValueError: If ``latitude`` or ``longitude`` is not 1D
+    """
     if latitude.ndim != 1 or longitude.ndim != 1:
         raise ValueError("Latitude and longitude must have 1 dimension")
     if geod is None:
@@ -171,6 +244,14 @@ def nominal_grid_spacing(
 
 
 class ProjectionCorrectionFactors(NamedTuple):
+    """
+    Map projection scale factors, as computed by :func:`get_projection_correction_factors`
+
+    These scale a distance measured on the map projection to the corresponding true distance on the ground, along
+    the parallels (``parallel_scale``, i.e. the x/longitude direction) and meridians (``meridional_scale``, i.e.
+    the y/latitude direction).
+    """
+
     # add | float as type checker thinks it should be a float ¯\_(ツ)_/¯
     parallel_scale: xr.DataArray
     meridional_scale: xr.DataArray
@@ -184,6 +265,27 @@ def get_projection_correction_factors(
     is_radians: bool = False,
     crs: CRS | None = None,
 ) -> ProjectionCorrectionFactors:
+    """
+    Compute the map projection scale factors at each point of a latitude/longitude grid
+
+    These factors (see :class:`ProjectionCorrectionFactors`) are used to correct derivatives computed on the raw
+    latitude/longitude grid (see :attr:`GradientMode.GEOSPATIAL` in :func:`spatial_gradient`, and
+    :func:`vector_derivatives`) for the distortion introduced by the map projection.
+
+    Args:
+        latitude: 1D array of latitude coordinates
+        longitude: 1D array of longitude coordinates
+        use_dask: If ``True``, compute the factors lazily with dask
+        is_radians: Whether ``latitude``/``longitude`` are in radians. Defaults to ``False`` (degrees).
+        crs: Coordinate reference system to compute the scale factors for. Defaults to plain latitude/longitude
+            (``"+proj=latlon"``).
+
+    Returns:
+        Scale factors, with dimensions matching ``latitude`` and ``longitude``
+
+    Raises:
+        ValueError: If ``latitude`` and ``longitude`` do not both have exactly 1 dimension
+    """
     if latitude.ndim != longitude.ndim:
         raise ValueError("Latitude and longitude must have same number of dimensions")
     if latitude.ndim != 1:
@@ -228,12 +330,41 @@ def get_projection_correction_factors(
 
 
 def get_dimension_number(name: str, data_array: "xr.DataArray") -> int:
+    """
+    Get the axis position of a named dimension in a DataArray
+
+    Args:
+        name: Name of the dimension to look up
+        data_array: Array to look up the dimension's position in
+
+    Returns:
+        Position of ``name`` in ``data_array.dims``
+
+    Raises:
+        ValueError: If ``name`` is not a dimension of ``data_array``
+    """
     if name not in data_array.dims:
         raise ValueError(f"Attempting to retrieve inexistent dimension ({name}) from data array")
     return data_array.dims.index(name)
 
 
 def first_derivative(array: "xr.DataArray", grid_spacing_in_meters: NumpyOrDataArray, axis: int) -> "xr.DataArray":
+    """
+    First derivative of ``array`` along ``axis``, with respect to physical distance
+
+    The (possibly irregular) grid spacing along ``axis`` is used to build the coordinate values that the central
+    difference derivative (:func:`numpy.gradient`/:func:`dask.array.gradient`) is taken with respect to, so the
+    result is a derivative with respect to true distance (in meters) rather than grid index.
+
+    Args:
+        array: Array to differentiate
+        grid_spacing_in_meters: Spacing (in meters) between adjacent points along ``axis``, of length
+            ``array.shape[axis] - 1``
+        axis: Axis of ``array`` to differentiate along
+
+    Returns:
+        Derivative of ``array`` along ``axis``, with the same shape as ``array``
+    """
     coordinate_of_values: np.ndarray = np.cumsum(np.insert(grid_spacing_in_meters, 0, [0]))
     if is_dask_collection(array):
         computed_gradient = da.gradient(array, coordinate_of_values, axis=axis)
@@ -243,10 +374,13 @@ def first_derivative(array: "xr.DataArray", grid_spacing_in_meters: NumpyOrDataA
 
 
 class CartesianDimension(StrEnum):
+    """Cartesian x/y direction, and the corresponding geographic coordinate/grid spacing/scale factor"""
+
     X = "x"
     Y = "y"
 
     def get_geographic_coordinate(self) -> str | None:
+        """The geographic coordinate name corresponding to this Cartesian dimension (longitude for X, latitude for Y)"""
         match self:
             case CartesianDimension.X:
                 return "longitude"
@@ -257,6 +391,15 @@ class CartesianDimension(StrEnum):
         return None
 
     def get_grid_spacing(self, grid_deltas: GridSpacing) -> NumpyOrDataArray:
+        """
+        Select this dimension's component (``dx`` for X, ``dy`` for Y) from a :class:`GridSpacing`
+
+        Args:
+            grid_deltas: Grid spacing to select from
+
+        Returns:
+            ``grid_deltas.dx`` if this is :attr:`X`, or ``grid_deltas.dy`` if this is :attr:`Y`
+        """
         match self:
             case CartesianDimension.X:
                 grid_delta = grid_deltas.dx
@@ -267,6 +410,19 @@ class CartesianDimension(StrEnum):
         return grid_delta
 
     def get_correction_factor(self, factors: ProjectionCorrectionFactors | None) -> xr.DataArray:
+        """
+        Select this dimension's component (``parallel_scale`` for X, ``meridional_scale`` for Y) from
+        :class:`ProjectionCorrectionFactors`
+
+        Args:
+            factors: Projection correction factors to select from
+
+        Returns:
+            ``factors.parallel_scale`` if this is :attr:`X`, or ``factors.meridional_scale`` if this is :attr:`Y`
+
+        Raises:
+            ValueError: If ``factors`` is ``None``
+        """
         if factors is None:
             raise ValueError("Factors cannot be None")
 
@@ -281,16 +437,35 @@ class CartesianDimension(StrEnum):
 
 
 class GradientMode(Enum):
+    """
+    How :func:`spatial_gradient` should compute the gradient
+
+    ``GEOSPATIAL`` corrects the raw Cartesian gradient by the map projection scale factors (see
+    :func:`get_projection_correction_factors`) so that it is with respect to true geographic distance.
+    ``CARTESIAN`` returns the raw, uncorrected gradient with respect to the (nominal) grid spacing.
+    """
+
     GEOSPATIAL = auto()
     CARTESIAN = auto()
 
 
 class SpatialGradient(NamedTuple):
+    """x and y components of a spatial gradient, as computed by :func:`spatial_gradient`"""
+
     dfdx: xr.DataArray | None
     dfdy: xr.DataArray | None
 
 
 def _check_lat_lon_dimensions_in_array(array: "xr.DataArray") -> None:
+    """
+    Check that ``array`` has ``"longitude"`` and ``"latitude"`` dimensions
+
+    Args:
+        array: Array to check
+
+    Raises:
+        ValueError: If ``array`` is missing either dimension
+    """
     if "longitude" not in array.dims:
         raise ValueError(f"Longitude not in dimension of array - {array.dims}")
     if "latitude" not in array.dims:
@@ -310,6 +485,24 @@ def spatial_gradient(
     geod: Geod | None = None,
     crs: CRS | None = None,
 ) -> dict[SpatialGradientKeys, xr.DataArray]:
+    """
+    Spatial gradient of a scalar field on a latitude/longitude grid
+
+    Args:
+        array: Field to compute the gradient of. Must have ``"longitude"`` and ``"latitude"`` dimensions.
+        units: Units ``array``'s latitude/longitude coordinates are expressed in
+        gradient_mode: Whether to correct for map projection distortion (:attr:`GradientMode.GEOSPATIAL`) or not
+            (:attr:`GradientMode.CARTESIAN`)
+        dimension: If provided, only compute the gradient along this dimension. Defaults to both x and y.
+        geod: Geodesic used to compute the nominal grid spacing (see :func:`nominal_grid_spacing`). Defaults to a
+            WGS84 ellipsoid.
+        crs: Coordinate reference system used to compute projection correction factors when
+            ``gradient_mode`` is :attr:`GradientMode.GEOSPATIAL`. Defaults to plain latitude/longitude.
+
+    Returns:
+        Mapping with ``"dfdx"`` and/or ``"dfdy"`` keys (depending on ``dimension``) to the corresponding component
+        of the gradient
+    """
     _check_lat_lon_dimensions_in_array(array)
 
     gradients: dict[SpatialGradientKeys, xr.DataArray] = {}
@@ -356,6 +549,24 @@ def divergence(
     geod: Geod | None = None,
     crs: CRS | None = None,
 ) -> xr.DataArray:
+    """
+    Horizontal divergence of a 2D vector field
+
+    .. math:: \\delta = \\frac{ \\partial u }{ \\partial x } + \\frac{ \\partial v }{ \\partial y }
+
+    Computed using :func:`vector_derivatives` so that the derivatives are corrected for map projection distortion.
+
+    Args:
+        u: x-component of the vector field
+        v: y-component of the vector field
+        units: Units ``u``/``v``'s latitude/longitude coordinates are expressed in
+        geod: Geodesic used to compute the nominal grid spacing. Defaults to a WGS84 ellipsoid.
+        crs: Coordinate reference system used to compute projection correction factors. Defaults to plain
+            latitude/longitude.
+
+    Returns:
+        Horizontal divergence of ``u`` and ``v``
+    """
     gradients = vector_derivatives(
         u, v, units, [VelocityDerivative.DU_DX, VelocityDerivative.DV_DY], geod=geod, crs=crs
     )
@@ -369,11 +580,32 @@ def spatial_laplacian(
     geod: Geod | None = None,
     crs: CRS | None = None,
 ) -> xr.DataArray:
+    """
+    Laplacian of a scalar field on a latitude/longitude grid
+
+    .. math::
+        \\nabla^{2} f = \\frac{ \\partial^{2} f }{ \\partial x^{2} } + \\frac{ \\partial^{2} f }{ \\partial y^{2} }
+
+    Computed as the divergence (see :func:`divergence`) of the field's gradient (see :func:`spatial_gradient`).
+
+    Args:
+        array: Field to compute the Laplacian of. Must have ``"longitude"`` and ``"latitude"`` dimensions.
+        units: Units ``array``'s latitude/longitude coordinates are expressed in
+        gradient_mode: Whether to correct the gradient for map projection distortion, see :func:`spatial_gradient`
+        geod: Geodesic used to compute the nominal grid spacing. Defaults to a WGS84 ellipsoid.
+        crs: Coordinate reference system used to compute projection correction factors. Defaults to plain
+            latitude/longitude.
+
+    Returns:
+        Laplacian of ``array``
+    """
     gradients = spatial_gradient(array, units, gradient_mode, geod=geod, crs=crs)
     return divergence(gradients["dfdx"], gradients["dfdy"], units=units, geod=geod, crs=crs)
 
 
 class VelocityDerivative(StrEnum):
+    """The four horizontal derivatives of a 2D velocity field, as computed by :func:`vector_derivatives`"""
+
     DU_DX = "du_dx"
     DU_DY = "du_dy"
     DV_DX = "dv_dx"
@@ -389,6 +621,26 @@ def vector_derivatives(
     geod: Geod | None = None,
     crs: CRS | None = None,
 ) -> dict[VelocityDerivative, xr.DataArray]:
+    """
+    Horizontal derivatives of a 2D velocity field, corrected for map projection distortion
+
+    Rather than directly correcting each raw Cartesian derivative by the corresponding
+    :class:`ProjectionCorrectionFactors` component (as :attr:`GradientMode.GEOSPATIAL` does in
+    :func:`spatial_gradient`), this also accounts for the spatial variation of the projection's scale factors
+    themselves, coupling each derivative to the velocity component perpendicular to it.
+
+    Args:
+        u: x-component of the vector field. Must have ``"longitude"`` and ``"latitude"`` dimensions.
+        v: y-component of the vector field. Must have ``"longitude"`` and ``"latitude"`` dimensions.
+        units: Units ``u``/``v``'s latitude/longitude coordinates are expressed in
+        components: Derivatives to compute. Defaults to all four of :class:`VelocityDerivative`.
+        geod: Geodesic used to compute the nominal grid spacing. Defaults to a WGS84 ellipsoid.
+        crs: Coordinate reference system used to compute projection correction factors. Defaults to plain
+            latitude/longitude.
+
+    Returns:
+        Mapping from each requested :class:`VelocityDerivative` to its computed value
+    """
     _check_lat_lon_dimensions_in_array(u)
     _check_lat_lon_dimensions_in_array(v)
 

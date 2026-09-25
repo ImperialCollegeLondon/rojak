@@ -11,6 +11,13 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+"""
+Shared physical and model constants used throughout rojak
+
+This module collects constant values referenced across the codebase:
+coordinate bounds, physical constants, and the climatological parameters
+used to map turbulence diagnostic values onto the EDR scale.
+"""
 
 from typing import Final, NamedTuple
 
@@ -26,6 +33,17 @@ EARTH_AVG_RADIUS: float = 6371008.7714  # m
 
 
 class ClimatologicalEDRConstants(NamedTuple):
+    """
+    Climatological scaling parameters for mapping a turbulence diagnostic onto the EDR scale
+
+    See :class:`rojak.turbulence.analysis.TransformToEDR`, where ``c1``/``c2`` are used as the offset/scaling.
+    coefficients respectively.
+
+    Parameters:
+        c1 (float): Offset coefficient which corresponds to the mean of the EDR observations
+        c2 (float): Scaling coefficient which corresponds to the standard deviation of the EDR observations
+    """
+
     c1: float
     c2: float
 

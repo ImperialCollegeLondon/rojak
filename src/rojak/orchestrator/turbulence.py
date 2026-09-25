@@ -11,6 +11,17 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+"""
+Orchestrates a full turbulence analysis run (``rojak run``): calibration, evaluation, and AMDAR comparison
+
+:class:`TurbulenceLauncher` is the entry point, used by :func:`rojak.cli.main.run`. It runs the calibration stage
+(:class:`CalibrationStage`, deriving thresholds and/or EDR distribution parameters from a calibration dataset, or
+loading them from file), then, if configured, the evaluation stage (:class:`EvaluationStage`, applying the
+calibration results to an evaluation dataset to compute probabilities, EDR, turbulent regions, and diagnostic
+correlations, with plots), and finally, if AMDAR observations are configured, compares the computed diagnostics
+against them (:class:`DiagnosticsAmdarLauncher`). :class:`Result` wraps each phase's output.
+"""
+
 import itertools
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -98,17 +109,35 @@ type TimeStr = str
 
 
 class Result[T]:
+    """Wraps the outcome of running a single calibration/evaluation phase"""
+
     _result: T
 
     def __init__(self, result: T) -> None:
+        """
+        Args:
+            result: Outcome to wrap
+        """
         self._result = result
 
     @property
     def result(self) -> T:
+        """The wrapped outcome"""
         return self._result
 
 
 class CalibrationStage:
+    """
+    Runs the turbulence calibration stage
+
+    For each configured :class:`~rojak.orchestrator.configuration.TurbulenceCalibrationPhaseOption`, either
+    computes the result from a calibration dataset (thresholds via
+    :meth:`~rojak.turbulence.diagnostic.CalibrationDiagnosticSuite.compute_thresholds`, or EDR distribution
+    parameters via :meth:`~rojak.turbulence.diagnostic.CalibrationDiagnosticSuite.compute_distribution_parameters`)
+    or loads a previously computed result from file, per
+    :class:`~rojak.orchestrator.configuration.TurbulenceCalibrationConfig`.
+    """
+
     _phases: "TurbulenceCalibrationPhases"
     _config: "TurbulenceCalibrationConfig"
     _domain: "SpatialDomain"
@@ -124,6 +153,14 @@ class CalibrationStage:
         name: RunName,
         start_time: TimeStr,
     ) -> None:
+        """
+        Args:
+            phases: Which calibration phases to run, and their configuration
+            spatial_domain: Spatial (and optionally vertical) domain to restrict calibration data to
+            output_dir: Base directory to export phase results into
+            name: Name of this run, used to namespace exported files under ``output_dir``
+            start_time: Timestamp identifying this run, used to name exported files
+        """
         self._phases = phases
         self._config = phases.calibration_config
         self._spatial_domain = spatial_domain
@@ -136,6 +173,19 @@ class CalibrationStage:
         diagnostics: list["TurbulenceDiagnostics"],
         chunks: Mapping,
     ) -> Mapping[TurbulenceCalibrationPhaseOption, Result]:
+        """
+        Run every configured calibration phase
+
+        A :class:`~rojak.turbulence.diagnostic.CalibrationDiagnosticSuite` is built once (if
+        ``calibration_data_dir`` is configured) and shared across phases, then released once every phase has run.
+
+        Args:
+            diagnostics: Turbulence diagnostics to calibrate
+            chunks: Dask chunking to load the calibration data with
+
+        Returns:
+            Mapping from each configured phase to its :class:`Result`
+        """
         suite: CalibrationDiagnosticSuite | None = (
             self.create_diagnostic_suite(diagnostics, chunks) if self._config.calibration_data_dir is not None else None
         )
@@ -150,6 +200,19 @@ class CalibrationStage:
         diagnostics: list["TurbulenceDiagnostics"],
         chunks: Mapping,
     ) -> "CalibrationDiagnosticSuite":
+        """
+        Load the calibration data and compute ``diagnostics`` from it
+
+        Args:
+            diagnostics: Turbulence diagnostics to compute
+            chunks: Dask chunking to load the calibration data with
+
+        Returns:
+            :class:`~rojak.turbulence.diagnostic.CalibrationDiagnosticSuite` of the computed diagnostics
+
+        Raises:
+            AssertionError: If ``self._config.calibration_data_dir`` is ``None``
+        """
         assert self._config.calibration_data_dir is not None
         logger.debug("Loading CATData")
         calibration_data: CATData = Era5Data(
@@ -163,6 +226,18 @@ class CalibrationStage:
         current_phase: TurbulenceCalibrationPhaseOption,
         suite: CalibrationDiagnosticSuite | None,
     ) -> Result:
+        """
+        Run a single calibration phase, either loading its result from file or computing it from ``suite``
+
+        Args:
+            current_phase: Calibration phase to run
+            suite: Diagnostic suite to compute the result from, if a corresponding file path is not configured
+                (see :attr:`~rojak.orchestrator.configuration.TurbulenceCalibrationConfig.thresholds_file_path`/
+                :attr:`~rojak.orchestrator.configuration.TurbulenceCalibrationConfig.diagnostic_distribution_file_path`)
+
+        Returns:
+            :class:`Result` of running ``current_phase``
+        """
         match current_phase:
             case TurbulenceCalibrationPhaseOption.THRESHOLDS:
                 if self._config.thresholds_file_path is not None:
@@ -176,6 +251,16 @@ class CalibrationStage:
                 assert_never(unreachable)
 
     def load_thresholds_file(self) -> Result[Mapping["DiagnosticName", "TurbulenceThresholds"]]:
+        """
+        Load previously computed severity thresholds from :attr:`~TurbulenceCalibrationConfig.thresholds_file_path`
+
+        Returns:
+            :class:`Result` of the loaded thresholds, see
+            :func:`~rojak.orchestrator.lite_controller.load_thresholds_from_file`
+
+        Raises:
+            AssertionError: If ``self._config.thresholds_file_path`` is ``None``
+        """
         assert self._config.thresholds_file_path is not None
         thresholds = load_thresholds_from_file(self._config.thresholds_file_path)
         return Result(thresholds)
@@ -184,6 +269,18 @@ class CalibrationStage:
         self,
         suite: CalibrationDiagnosticSuite | None,
     ) -> Result[Mapping["DiagnosticName", "TurbulenceThresholds"]]:
+        """
+        Compute severity thresholds for every diagnostic in ``suite`` and export them
+
+        Args:
+            suite: Diagnostic suite to compute thresholds from
+
+        Returns:
+            :class:`Result` of the computed thresholds
+
+        Raises:
+            AssertionError: If ``suite`` or ``self._config.percentile_thresholds`` is ``None``
+        """
         assert suite is not None
         assert self._config.percentile_thresholds is not None
         thresholds = suite.compute_thresholds(self._config.percentile_thresholds)
@@ -191,6 +288,12 @@ class CalibrationStage:
         return Result(thresholds)
 
     def export_thresholds(self, diagnostic_thresholds: Mapping["DiagnosticName", "TurbulenceThresholds"]) -> None:
+        """
+        Export computed thresholds to a JSON file under ``self._output_dir / self._name``
+
+        Args:
+            diagnostic_thresholds: Mapping from diagnostic name to its computed thresholds
+        """
         export_json(
             dict(diagnostic_thresholds),
             (self._output_dir / self._name),
@@ -200,12 +303,30 @@ class CalibrationStage:
         )
 
     def load_distribution_parameters_from_file(self) -> Result:
+        """
+        Load previously computed distribution histograms from
+        :attr:`~TurbulenceCalibrationConfig.diagnostic_distribution_file_path`
+
+        Returns:
+            :class:`Result` of the loaded mapping from diagnostic name to its
+            :class:`~rojak.turbulence.analysis.HistogramData`
+
+        Raises:
+            AssertionError: If ``self._config.diagnostic_distribution_file_path`` is ``None``
+        """
         assert self._config.diagnostic_distribution_file_path is not None
         json_str: str = self._config.diagnostic_distribution_file_path.read_text()
         distribution_parameters = HISTOGRAM_DATA_TYPE_ADAPTER.validate_json(json_str)
         return Result(distribution_parameters)
 
     def export_distribution_parameters(self, diagnostic_thresholds: Mapping["DiagnosticName", "HistogramData"]) -> None:
+        """
+        Export computed distribution histograms to a JSON file under ``self._output_dir / self._name``
+
+        Args:
+            diagnostic_thresholds: Mapping from diagnostic name to its computed
+                :class:`~rojak.turbulence.analysis.HistogramData`
+        """
         export_json(
             dict(diagnostic_thresholds),
             self._output_dir / self._name,
@@ -215,6 +336,19 @@ class CalibrationStage:
         )
 
     def compute_distribution_parameters(self, suite: CalibrationDiagnosticSuite | None) -> Result:
+        """
+        Compute the log-normal distribution histogram for every diagnostic in ``suite`` and export it
+
+        Args:
+            suite: Diagnostic suite to compute distribution histograms from
+
+        Returns:
+            :class:`Result` of the computed mapping from diagnostic name to its
+            :class:`~rojak.turbulence.analysis.HistogramData`
+
+        Raises:
+            AssertionError: If ``suite`` is ``None``
+        """
         assert suite is not None
         distribution_parameters = suite.compute_distribution_parameters()
         self.export_distribution_parameters(distribution_parameters)
@@ -222,11 +356,22 @@ class CalibrationStage:
 
 
 class EvaluationStageResult(NamedTuple):
+    """Result of running the turbulence evaluation stage: the diagnostic suite used, and each phase's outcome"""
+
     suite: EvaluationDiagnosticSuite
     phase_outcomes: Mapping[TurbulenceEvaluationPhaseOption, Result]
 
 
 class EvaluationStage:
+    """
+    Runs the turbulence evaluation stage
+
+    For each configured :class:`~rojak.orchestrator.configuration.TurbulenceEvaluationPhaseOption`, computes the
+    corresponding result (probabilities, EDR, turbulent regions, or diagnostic correlation) from an evaluation
+    dataset, using the thresholds/distribution parameters produced by the calibration stage where needed, and
+    produces the corresponding plot(s). See :meth:`run_phase`.
+    """
+
     _calibration_result: Mapping[TurbulenceCalibrationPhaseOption, Result]
     _phases: list[TurbulenceEvaluationPhaseOption]
     _config: "TurbulenceEvaluationConfig"
@@ -247,6 +392,18 @@ class EvaluationStage:
         start_time: TimeStr,
         image_format: str,
     ) -> None:
+        """
+        Args:
+            calibration_result: Outcome of :meth:`CalibrationStage.launch`, providing thresholds/distribution
+                parameters to evaluate with
+            phases_config: Which evaluation phases to run, and their configuration
+            domain: Spatial (and optionally vertical) domain to restrict evaluation data to
+            output_dir: Base directory to export zarr results into (a ``name`` subdirectory is created)
+            plots_dir: Base directory to save plots into (a ``name`` subdirectory is created)
+            name: Name of this run, used to namespace exported files
+            start_time: Timestamp identifying this run
+            image_format: File format (e.g. ``"png"``) to save plots as
+        """
         self._calibration_result = calibration_result
         self._phases = phases_config.phases
         self._config = phases_config.evaluation_config
@@ -259,6 +416,16 @@ class EvaluationStage:
         self._image_format = image_format
 
     def launch(self, diagnostics: list["TurbulenceDiagnostics"], chunks: dict) -> EvaluationStageResult:
+        """
+        Run every configured evaluation phase
+
+        Args:
+            diagnostics: Turbulence diagnostics to evaluate
+            chunks: Dask chunking to load the evaluation data with
+
+        Returns:
+            The diagnostic suite used, and each configured phase's :class:`Result`
+        """
         suite: EvaluationDiagnosticSuite = self.create_diagnostic_suite(diagnostics, chunks)
         return EvaluationStageResult(suite, {phase: self.run_phase(phase, suite) for phase in self._phases})
 
@@ -267,6 +434,21 @@ class EvaluationStage:
         diagnostics: list["TurbulenceDiagnostics"],
         chunks: Mapping,
     ) -> EvaluationDiagnosticSuite:
+        """
+        Load the evaluation data, compute ``diagnostics`` from it, and attach calibration results
+
+        Args:
+            diagnostics: Turbulence diagnostics to compute
+            chunks: Dask chunking to load the evaluation data with
+
+        Returns:
+            :class:`~rojak.turbulence.diagnostic.EvaluationDiagnosticSuite` of the computed diagnostics, with
+            probability thresholds and/or EDR distribution parameters attached from
+            ``self._calibration_result`` where those phases were run
+
+        Raises:
+            AssertionError: If ``self._config.evaluation_data_dir`` is ``None``
+        """
         assert self._config.evaluation_data_dir is not None
         logger.debug("Loading CATData")
         evaluation_data: CATData = Era5Data(
@@ -295,6 +477,23 @@ class EvaluationStage:
         )
 
     def run_phase(self, phase: TurbulenceEvaluationPhaseOption, suite: EvaluationDiagnosticSuite) -> Result:  # noqa: PLR0912
+        """
+        Run a single evaluation phase against ``suite``, producing the corresponding plot(s) as a side effect
+
+        Args:
+            phase: Evaluation phase to run: probability of each severity, EDR, boolean turbulent regions, global
+                or latitudinally-stratified correlation between probabilities/EDR, or Matthews correlation between
+                thresholded diagnostics (which is additionally exported to zarr, both globally and per pressure
+                level)
+            suite: Diagnostic suite to compute the result from
+
+        Returns:
+            :class:`Result` of running ``phase``
+
+        Raises:
+            ValueError: If ``phase`` is :attr:`~TurbulenceEvaluationPhaseOption.MATTHEWS_CORRELATION` and ``suite``
+                has no thresholds attached
+        """
         match phase:
             case TurbulenceEvaluationPhaseOption.PROBABILITIES:
                 result = suite.probabilities
@@ -411,16 +610,42 @@ class EvaluationStage:
 
 
 class TurbulenceLauncher:
+    """
+    Top-level orchestrator for a full turbulence analysis run, used by :func:`rojak.cli.main.run`
+
+    Runs the calibration stage, then (if configured) the evaluation stage, then (if AMDAR observations are
+    configured) compares the computed diagnostics against them.
+    """
+
     _config: "TurbulenceConfig"
     _context: "ConfigContext"
 
     def __init__(self, context: "ConfigContext") -> None:
+        """
+        Args:
+            context: Root run configuration. Must have ``turbulence_config`` set.
+
+        Raises:
+            AssertionError: If ``context.turbulence_config`` is ``None``
+        """
         self._context = context
         assert context.turbulence_config is not None
         self._config = context.turbulence_config
         self._start_time = datetime.now(tz=UTC).strftime("%Y-%m-%d_%H_%M_%S")
 
     def launch(self) -> EvaluationStageResult | None:
+        """
+        Run calibration, then evaluation (if configured), then AMDAR comparison (if configured)
+
+        Returns:
+            The evaluation stage's result, or ``None`` if no evaluation phases were configured
+
+        Raises:
+            NotImplementedError: If AMDAR data is configured to be compared against the calibration stage (not
+                yet supported)
+            AssertionError: If the configuration is in a state that should have been prevented by
+                :class:`~rojak.orchestrator.configuration.Context`'s validators
+        """
         logger.info("Launching Turbulence Calibration")
         calibration_result = CalibrationStage(
             self._config.phases.calibration_phases,
@@ -471,6 +696,16 @@ class TurbulenceLauncher:
 
 # PUT THIS IN THIS FILE FOR NOW
 class DiagnosticsAmdarLauncher:
+    """
+    Compares computed turbulence diagnostics against observed AMDAR turbulence
+
+    Spatiotemporally harmonises the AMDAR observations with the diagnostic suite's data (see
+    :class:`~rojak.turbulence.verification.AmdarDataHarmoniser`), and, if validation conditions are configured,
+    validates the diagnostics against the harmonised observations (see
+    :class:`~rojak.turbulence.verification.DiagnosticsAmdarVerification`), producing ROC curve plots and, if a
+    spatial group-by strategy is configured, AUC and observation-count plots aggregated by spatial group.
+    """
+
     _path_to_files: str
     _data_source: AmdarDataSource
     _spatial_domain: "SpatialDomain"
@@ -490,6 +725,16 @@ class DiagnosticsAmdarLauncher:
         plots_dir: "Path",
         run_name: "RunName",
     ) -> None:
+        """
+        Args:
+            data_config: Configuration for the input data. Must have ``amdar_config`` set.
+            output_dir: Base directory to save harmonised data into (if configured to do so)
+            plots_dir: Base directory to save plots into
+            run_name: Name of this run, used to namespace exported files
+
+        Raises:
+            AssertionError: If ``data_config.amdar_config`` is ``None``
+        """
         assert data_config.amdar_config is not None
         self._data_source = data_config.amdar_config.data_source
         self._path_to_files = str(data_config.amdar_config.data_dir.resolve() / data_config.amdar_config.glob_pattern)
@@ -519,6 +764,7 @@ class DiagnosticsAmdarLauncher:
         self._plots_dir.mkdir(parents=True, exist_ok=True)
 
     def create_amdar_data_repository(self) -> "AmdarDataRepository":
+        """The :class:`~rojak.core.data.AmdarDataRepository` matching :attr:`_data_source`"""
         match self._data_source:
             case AmdarDataSource.MADIS:
                 return AcarsAmdarRepository(self._path_to_files)
@@ -528,6 +774,16 @@ class DiagnosticsAmdarLauncher:
                 assert_never(unreachable)
 
     def launch(self, diagnostic_suite: DiagnosticSuite) -> None:
+        """
+        Harmonise AMDAR observations with ``diagnostic_suite``, then validate diagnostics against them if configured
+
+        Args:
+            diagnostic_suite: Computed turbulence diagnostics to compare AMDAR observations against
+
+        Raises:
+            ValueError: If the spatial domain has no grid size configured (needed to spatially bucket the AMDAR
+                observations)
+        """
         if self._spatial_domain.grid_size is None:
             raise ValueError("Grid size for spatial domain must be specified for diagnostics amdar data harmonisation")
 

@@ -1,3 +1,14 @@
+"""
+Geometric utilities for spatial gridding, aggregation, and geodesic calculations
+
+This module provides standalone functions for building spatial grids over a domain and aggregating data onto them
+(:func:`create_grid_data_frame`, :func:`create_rectangular_spatial_grid_buckets`,
+:func:`create_polygon_spatial_grid_buckets`, :func:`spatial_aggregation`), computing waypoints along the great
+circle between two coordinates and interpolating gridded data along them (:func:`geodesic_waypoints_between`,
+:func:`interpolate_to_geodesic_waypoints`), and computing the great-circle distance between two points
+(:func:`haversine_distance`).
+"""
+
 import itertools
 from collections.abc import Callable
 from enum import StrEnum
@@ -22,6 +33,18 @@ if TYPE_CHECKING:
 
 
 def _create_grid_boxes(bounding_box: geometry.Polygon, step_size: float) -> list[geometry.Polygon]:
+    """
+    Tile a polygon's bounding box into a regular grid of rectangular polygons
+
+    Args:
+        bounding_box: Polygon whose bounding box is tiled
+        step_size: Approximate width/height of each grid cell, in the units of ``bounding_box``'s CRS
+
+    Returns:
+        List of rectangular polygons tiling ``bounding_box``'s bounding box. The grid spacing is adjusted slightly
+        so that the bounding box's extent is tiled exactly, so the actual cell size may differ slightly from
+        ``step_size``.
+    """
     # Modified from
     # https://www.matecdev.com/posts/shapely-polygon-gridding.html
     min_x, min_y, max_x, max_y = bounding_box.bounds
@@ -37,6 +60,16 @@ def _create_grid_boxes(bounding_box: geometry.Polygon, step_size: float) -> list
 
 
 def create_rectangular_spatial_grid_buckets(domain: "SpatialDomain", step_size: float) -> list[geometry.Polygon]:
+    """
+    Tile a rectangular spatial domain into a regular grid of polygons
+
+    Args:
+        domain: Rectangular spatial domain to tile
+        step_size: Approximate width/height of each grid cell, in degrees
+
+    Returns:
+        List of rectangular polygons tiling ``domain``
+    """
     bounding_box: geometry.Polygon = geometry.box(
         domain.minimum_longitude,
         domain.minimum_latitude,
@@ -47,6 +80,16 @@ def create_rectangular_spatial_grid_buckets(domain: "SpatialDomain", step_size: 
 
 
 def create_polygon_spatial_grid_buckets(domain: geometry.Polygon, step_size: float) -> list[geometry.Polygon]:
+    """
+    Tile an arbitrary polygon's bounding box into a regular grid, keeping only cells that intersect it
+
+    Args:
+        domain: Polygon to tile
+        step_size: Approximate width/height of each grid cell, in the units of ``domain``'s CRS
+
+    Returns:
+        List of rectangular polygons tiling ``domain``'s bounding box, filtered to those that intersect ``domain``
+    """
     prepared_geometry = prep(domain)
     return list(filter(prepared_geometry.intersects, _create_grid_boxes(domain, step_size)))
 
@@ -56,6 +99,20 @@ def create_grid_data_frame(
     step_size: float,
     crs: str = "epsg:4326",
 ) -> dgpd.GeoDataFrame:
+    """
+    Build a (dask) GeoDataFrame of grid cells tiling a spatial domain
+
+    Args:
+        domain: Spatial domain to tile. If a :class:`~rojak.orchestrator.configuration.SpatialDomain`, its
+            rectangular bounding box is tiled (see :func:`create_rectangular_spatial_grid_buckets`). If a
+            :class:`shapely.geometry.Polygon`, only cells intersecting it are kept (see
+            :func:`create_polygon_spatial_grid_buckets`).
+        step_size: Approximate width/height of each grid cell, in the units of ``crs``
+        crs: Coordinate reference system of the grid. Defaults to ``"epsg:4326"``.
+
+    Returns:
+        Dask GeoDataFrame with one row per grid cell
+    """
     grid = gpd.GeoDataFrame(
         geometry=create_polygon_spatial_grid_buckets(domain, step_size)
         if isinstance(domain, geometry.Polygon)
@@ -73,6 +130,24 @@ def spatial_aggregation(
     by: str = "index_right",
     drop_na: bool = True,
 ) -> "dgpd.GeoDataFrame":
+    """
+    Aggregate data onto a grid, based on a prior spatial join between the data and the grid
+
+    Args:
+        grid: GeoDataFrame of grid cells (see :func:`create_grid_data_frame`) to aggregate onto
+        data_to_aggregate: GeoDataFrame of data to aggregate. Expected to already contain a column (``by``)
+            identifying which row of ``grid`` each row belongs to, e.g. as added by spatially joining
+            ``data_to_aggregate`` onto ``grid`` with :meth:`geopandas.GeoDataFrame.sjoin`.
+        columns_to_aggregate: Columns of ``data_to_aggregate`` to aggregate. ``"geometry"`` is appended
+            automatically if not already present, since it is required by ``dissolve``.
+        agg_func: Aggregation function(s), passed as the ``aggfunc`` of :meth:`geopandas.GeoDataFrame.dissolve`
+        by: Column of ``data_to_aggregate`` identifying which grid cell each row belongs to. Defaults to
+            ``"index_right"``, the column added by :meth:`geopandas.GeoDataFrame.sjoin`.
+        drop_na: If ``True`` (default), drop grid cells with no aggregated data (i.e. no rows joined to them)
+
+    Returns:
+        ``grid`` joined with the aggregated values of ``columns_to_aggregate``, one row per grid cell
+    """
     if not {"geometry"}.issubset(columns_to_aggregate):
         columns_to_aggregate.append("geometry")
 
@@ -221,6 +296,29 @@ def interpolate_to_geodesic_waypoints[T: (xr.Dataset, xr.DataArray)](
     waypoints_dim_name: str = "waypoints",
     **interpolation_kwargs: Any,  # noqa: ANN401
 ) -> T:
+    """
+    Interpolate gridded data onto the geodesic waypoints between two coordinates
+
+    See :func:`geodesic_waypoints_between` for how the waypoints themselves are computed.
+
+    Args:
+        start: Starting coordinate
+        end: Ending coordinate
+        grid_size: Grid spacing in degrees, used to estimate the number of waypoints if ``n_points`` is not given
+        target_data: Gridded data to interpolate, with ``lat_dim_name``/``lon_dim_name`` coordinates
+        n_points_safety_factor: Safety factor applied to the estimated number of waypoints. Ignored if ``n_points``
+            is given.
+        n_points: Number of waypoints to use. If ``None`` (default), the number is estimated from ``grid_size``.
+        lat_dim_name: Name of the latitude coordinate in ``target_data``. Defaults to ``"latitude"``.
+        lon_dim_name: Name of the longitude coordinate in ``target_data``. Defaults to ``"longitude"``.
+        waypoints_dim_name: Name to give the new dimension along the waypoints. Defaults to ``"waypoints"``.
+        **interpolation_kwargs: Additional keyword arguments passed to :meth:`xarray.DataArray.interp`/
+            :meth:`xarray.Dataset.interp`
+
+    Returns:
+        ``target_data`` interpolated onto the waypoints between ``start`` and ``end``, with a new
+        ``waypoints_dim_name`` dimension
+    """
     waypoints = geodesic_waypoints_between(
         start, end, grid_size, n_points_safety_factor=n_points_safety_factor, n_points=n_points
     )
@@ -234,6 +332,8 @@ def interpolate_to_geodesic_waypoints[T: (xr.Dataset, xr.DataArray)](
 
 
 class DistanceUnits(StrEnum):
+    """Units for a computed distance"""
+
     METERS = "meters"
     KILOMETERS = "kilometers"
 
