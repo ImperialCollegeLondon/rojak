@@ -1138,6 +1138,8 @@ class RelationshipBetween(PostProcessor[xr.DataArray]):
     @override
     def execute(self) -> xr.DataArray:
         """Compute the association measure between ``self._this_feature`` and ``self._other_feature``, see subclasses"""
+        # Return a dataarray to appease the pyright gods
+        return xr.DataArray()
 
 
 class JaccardIndex(RelationshipBetween):
