@@ -58,6 +58,7 @@ intersphinx_mapping = {
     "scipy": ("https://docs.scipy.org/doc/scipy", None),
     "scikit-learn": ("https://scikit-learn.org/stable/", None),
     "scikit-image": ("https://scikit-image.org/docs/stable/", None),
+    "pydantic": ("https://pydantic.dev/docs/validation/latest/", None),
 }
 
 # Allow markdown files to be recognised
