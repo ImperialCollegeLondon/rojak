@@ -5,7 +5,7 @@ import pytest
 
 from rojak.cli.main import app
 from rojak.datalib.ecmwf.era5 import InvalidEra5RequestConfigurationError
-from tests.test_cli import runner
+from tests.test_cli import runner, strip_ansi
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -231,7 +231,7 @@ def test_retrieve_meteorology_era5_invalid_config(data_set_name, default_name, m
     )
     assert result.exit_code != 0
     if isinstance(result.exception, SystemExit):
-        assert matches in result.output
+        assert matches in strip_ansi(result.output)
     else:
         assert isinstance(result.exception, InvalidEra5RequestConfigurationError)
         assert matches in str(result.exception)
