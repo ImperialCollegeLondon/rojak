@@ -1,3 +1,13 @@
+"""
+Atmospheric unit conversions and general xarray/interpolation utilities
+
+This module provides:
+
+- Pressure/altitude conversions following the ICAO standard atmosphere manual [NACA3182]_
+- Interpolation helpers
+- :func:`apply_data_var_reduction`, for aggregating over the data variables of an :class:`xarray.Dataset`.
+"""
+
 import copy
 import dataclasses
 from enum import StrEnum
@@ -98,6 +108,18 @@ def pressure_to_altitude_us_std_atm(pressure: "NumpyOrDataArray") -> "NumpyOrDat
 
 
 def _check_if_pressures_are_valid(pressure: "NumpyOrDataArray", is_below_tropopause: bool) -> None:
+    """
+    Check that pressure values are consistent with the atmospheric layer they are being converted for
+
+    Args:
+        pressure: Pressure values (in hPa) to check
+        is_below_tropopause: If ``True``, check that every value is at or below the tropopause pressure (i.e.
+            within the troposphere). If ``False``, check that every value is above it (i.e. within the
+            stratosphere).
+
+    Raises:
+        ValueError: If any value in ``pressure`` is inconsistent with ``is_below_tropopause``
+    """
     # Closer to ground => larger pressure
     # Thus, below tropopause => values > tropopause pressure. Condition will be opposite
     condition = (
@@ -298,6 +320,28 @@ def interpolation_on_lat_lon(
     points_dim: str = "points",
     interp_method: Literal["linear", "nearest", "pchip"] = "linear",
 ) -> xr.DataArray:
+    """
+    Interpolate a latitude/longitude gridded DataArray onto a set of (longitude, latitude) points
+
+    .. deprecated::
+        Use :meth:`xarray.DataArray.interp` or :func:`rojak.core.geometric.interpolate_to_geodesic_waypoints`
+        instead.
+
+    Args:
+        data: Gridded array to interpolate, with ``latitude_dim``/``longitude_dim`` dimensions
+        interp_points: Array of shape ``(n_points, 2)`` of (longitude, latitude) pairs to interpolate onto
+        latitude_dim: Name of the latitude dimension in ``data``. Defaults to ``"latitude"``.
+        longitude_dim: Name of the longitude dimension in ``data``. Defaults to ``"longitude"``.
+        points_dim: Name of the new dimension along the interpolated points. Defaults to ``"points"``.
+        interp_method: Interpolation method passed to :class:`scipy.interpolate.RegularGridInterpolator`. Defaults
+            to ``"linear"``.
+
+    Returns:
+        ``data`` interpolated onto ``interp_points``, with a new ``points_dim`` dimension
+
+    Raises:
+        ValueError: If ``interp_points`` is not of shape ``(n_points, 2)``
+    """
     interp_points_shape = interp_points.shape  # (n_points, 2) => n_points of (lon, lat) pairs
     if len(interp_points_shape) != 2 or interp_points_shape[1] != 2:  # noqa:PLR2004
         print(interp_points_shape)
@@ -312,6 +356,7 @@ def interpolation_on_lat_lon(
         lat_coord: "NDArray",
         target_points: "NDArray",
     ) -> "NDArray":
+        """Interpolate ``values`` on the ``(lon_coord, lat_coord)`` grid at ``target_points``"""
         return RegularGridInterpolator((lon_coord, lat_coord), values, method=interp_method)(target_points)
 
     interpolated = xr.apply_ufunc(
@@ -335,6 +380,13 @@ def interpolation_on_lat_lon(
 
 
 class XrAggregationMethod(StrEnum):
+    """
+    An aggregation method supported by :func:`apply_data_var_reduction`
+
+    Each member's value matches the name of the corresponding :class:`xarray.DataArray` aggregation method (e.g.
+    ``"mean"`` for :meth:`xarray.DataArray.mean`).
+    """
+
     ALL = "all"
     ANY = "any"
     ARGMAX = "argmax"
@@ -363,7 +415,8 @@ def apply_data_var_reduction(
     var_name: str = "ensemble",
     append: Literal[False],
     **kwargs: Any,  # noqa: ANN401
-) -> xr.DataArray: ...
+) -> xr.DataArray:
+    """Overload of :func:`apply_data_var_reduction` for ``append=False``, returning the aggregated DataArray"""
 
 
 @overload
@@ -375,7 +428,8 @@ def apply_data_var_reduction(
     var_name: str = "ensemble",
     append: Literal[True] = True,
     **kwargs: Any,  # noqa: ANN401
-) -> xr.Dataset: ...
+) -> xr.Dataset:
+    """Overload of :func:`apply_data_var_reduction` for ``append=True``, returning ``data`` with the result appended"""
 
 
 def apply_data_var_reduction(

@@ -32,7 +32,10 @@ repos:
         entry: doc8
         types: [ file ]
         files: \.(rst)$
-  - repo: https://github.com/RobertCraigie/pyright-python
-    rev: v1.1.411
+  - repo: local
     hooks:
       - id: pyright
+        name: pyright
+        entry: pyright
+        language: system
+        types: [ python ]

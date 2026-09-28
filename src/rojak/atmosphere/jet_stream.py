@@ -77,8 +77,8 @@ class AlphaVelField(JetStreamAlgorithm):
 def get_peak_mask(
     two_dimensional_slice: NDArray,
     threshold: float,
-    footprint: NDArray[np.bool_] | None = None,
-) -> NDArray[np.bool_]:
+    footprint: NDArray[np.bool] | None = None,
+) -> NDArray[np.bool]:
     """
     Find peaks from a 2D array
 
@@ -88,7 +88,7 @@ def get_peak_mask(
         footprint: Represents local regions within which to search for peaks at every point in the 2D array
 
     Returns:
-        mask: NDArray[np.bool_]
+        mask: NDArray[np.bool]
             Mask of local maxima in the input 2D array
 
     Examples

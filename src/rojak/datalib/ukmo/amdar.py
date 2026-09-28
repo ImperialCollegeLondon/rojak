@@ -11,6 +11,12 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+"""
+UK Met Office AMDAR turbulence observation loading
+
+This module implements the :mod:`rojak.core.data` interfaces for loading UK Met Office AMDAR data from CSV files
+(:class:`UkmoAmdarRepository`) and applying quality control to it (:class:`UkmoAmdarTurbulenceData`).
+"""
 
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, ClassVar, override
@@ -25,6 +31,15 @@ if TYPE_CHECKING:
 
 
 class UkmoAmdarRepository(AmdarDataRepository):
+    """
+    Loads UK Met Office AMDAR turbulence observations from CSV files
+
+    The UK Met Office data is stored as CSV files with fixed column positions, identified by
+    :attr:`TURBULENCE_COL_INDICES`/:attr:`MIN_COL_INDICES` and named by :attr:`COLUMN_NAMES`/:attr:`MIN_COL_NAMES`;
+    which set is used depends on whether the repository was constructed to load the minimal set of turbulence
+    variables (see :class:`~rojak.core.data.AmdarDataRepository`).
+    """
+
     TIME_COLUMNS: ClassVar[frozenset[str]] = frozenset({"year", "month", "day", "hour", "minute", "second"})
     TURBULENCE_COL_INDICES: ClassVar[list[int]] = [0, 1, 2, 3, 4, 5, 11, 12, 13, 14, 15, 20, 21, 22, 24, 25, 26, 27, 28,
                                                   30, 32]  # fmt: skip
@@ -52,6 +67,10 @@ class UkmoAmdarRepository(AmdarDataRepository):
     ]
 
     def __init__(self, path: str | list) -> None:
+        """
+        Args:
+            path: Path(s) to the CSV file(s) to load
+        """
         super().__init__(path, True)
 
     def load(
@@ -59,6 +78,24 @@ class UkmoAmdarRepository(AmdarDataRepository):
         target_columns: Iterable[str | int] | None = None,
         column_names: list[str] | None = None,
     ) -> dd.DataFrame:
+        """
+        Load the CSV file(s) into a dask DataFrame
+
+        Args:
+            target_columns: Column indices to read. Defaults to :attr:`TURBULENCE_COL_INDICES` or
+                :attr:`MIN_COL_INDICES`, depending on whether this repository was constructed with
+                ``is_minimal_turb_vars``.
+            column_names: Names to give the loaded columns, in the same order as ``target_columns``. Defaults to
+                :attr:`COLUMN_NAMES` or :attr:`MIN_COL_NAMES`, matching ``target_columns``'s default.
+
+        Returns:
+            Loaded observations, with the individual ``year``/``month``/.../``second`` columns combined into a
+            single ``datetime`` column
+
+        Raises:
+            AssertionError: If ``column_names`` does not include every column in :attr:`TIME_COLUMNS` or
+                ``"turbulence_degree"``
+        """
         if target_columns is None:
             target_columns = (
                 UkmoAmdarRepository.TURBULENCE_COL_INDICES
@@ -117,6 +154,7 @@ class UkmoAmdarRepository(AmdarDataRepository):
         data_frame: "dd.DataFrame",
         pressure_levels: "np.ndarray[Any, np.dtype[np.float64]]",
     ) -> "dd.Series":
+        """See :meth:`~rojak.core.data.AmdarDataRepository._call_compute_closest_pressure_level`, using ``altitude``"""
         return self._compute_closest_pressure_level(data_frame, pressure_levels, "altitude")
 
     @override
@@ -125,26 +163,37 @@ class UkmoAmdarRepository(AmdarDataRepository):
         data_frame: "dd.DataFrame",
         grid: "dgpd.GeoDataFrame",
     ) -> "AmdarTurbulenceData":
+        """Wrap ``data_frame``/``grid`` in a :class:`UkmoAmdarTurbulenceData`"""
         return UkmoAmdarTurbulenceData(data_frame, grid)
 
     @override
     def _time_column_rename_mapping(self) -> dict[str, str]:
+        """No renaming needed; :meth:`load` already produces a ``datetime`` column"""
         return {}
 
 
 class UkmoAmdarTurbulenceData(AmdarTurbulenceData):
+    """Quality-controlled UK Met Office AMDAR turbulence observations"""
+
     def __init__(self, data_frame: "dd.DataFrame", grid: "dgpd.GeoDataFrame") -> None:
+        """See :meth:`~rojak.core.data.AmdarTurbulenceData.__init__`"""
         super().__init__(data_frame, grid)
 
     @override
     def _minimum_altitude_qc(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
+        """Drop observations below :attr:`~rojak.core.data.AmdarTurbulenceData.MINIMUM_ALTITUDE`"""
         return data_frame[data_frame["altitude"] >= self.MINIMUM_ALTITUDE]
 
     @override
     def _drop_manoeuvre_data_qc(self, data_frame: "dd.DataFrame") -> "dd.DataFrame":
+        """
+        No-op: manoeuvre filtering by ``roll_angle`` is not applied, as it is entirely missing for some months
+        (e.g. January and May 2024)
+        """
         # roll_angle is NA in entire month of Jan and May in 2024
         return data_frame
 
     @staticmethod
     def turbulence_column_names() -> list[str]:
+        """Names of the columns holding turbulence-related quantities"""
         return ["turbulence_degree", "vert_gust_velocity", "vert_gust_acceleration"]

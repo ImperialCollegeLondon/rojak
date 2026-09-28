@@ -11,3 +11,13 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+"""
+Computation and verification of clear-air turbulence (CAT) diagnostics
+
+This package implements the turbulence diagnostics themselves (:mod:`rojak.turbulence.diagnostic`), the physical
+quantities they are built from (:mod:`rojak.turbulence.calculations`), post-processing analyses such as
+thresholding, EDR mapping, and association between diagnostics (:mod:`rojak.turbulence.analysis`), the binary
+classification and association metrics used to verify diagnostics against observed turbulence
+(:mod:`rojak.turbulence.metrics`), and the higher-level verification workflows that tie these together
+(:mod:`rojak.turbulence.verification`).
+"""

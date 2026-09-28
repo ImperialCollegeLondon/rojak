@@ -11,6 +11,26 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+"""
+Binary classification and association metrics for verifying turbulence diagnostics
+
+This module provides dask- and xarray-aware implementations of metrics used to verify binary/categorical
+turbulence forecasts against observed truth. Most functions accept :class:`dask.array.Array` or dask-backed
+:class:`xarray.DataArray` inputs so that metrics can be computed lazily over large, chunked datasets.
+
+The functionality is broadly grouped into:
+
+- Curve-based metrics summarising performance across all classification thresholds:
+  :func:`binary_classification_curve`, :func:`received_operating_characteristic`, and :func:`area_under_curve`.
+- Point metrics computed from a 2x2 confusion matrix of true/false positives/negatives (see
+  :func:`confusion_matrix`), such as :func:`accuracy`, :func:`f1_score`, :func:`matthews_corr_coeff`,
+  :func:`critical_success_index`, :func:`gilbert_skill_score`, and :func:`true_skill_score`.
+- Association measures for (optionally multidimensional and/or stratified) binary variables, built on top of
+  :func:`contingency_table` and :class:`ContingencyTable`, such as :func:`sample_odds_ratio`, :func:`relative_risk`,
+  and their conditional/marginal/stratified counterparts, along with the multidimensional skill scores
+  :func:`matthews_corr_coeff_multidim` and :func:`jaccard_index_multidim`.
+"""
+
 import functools
 import math
 from functools import singledispatch
@@ -131,6 +151,20 @@ def received_operating_characteristic(
 
 
 def _check_lazy_sizes_equal[T: xr.DataArray | da.Array](first_array: T, second_array: T) -> int:
+    """
+    Check that two dask-backed arrays have the same size
+
+    Args:
+        first_array: First lazy array
+        second_array: Second lazy array
+
+    Returns:
+        The shared size of both arrays
+
+    Raises:
+        AssertionError: If either array is not a dask collection
+        ValueError: If the arrays do not have the same size
+    """
     assert is_dask_collection(first_array)
     assert is_dask_collection(second_array)
     sizes = dask.compute(first_array.size, second_array.size)  # pyright: ignore[reportPrivateImportUsage]
@@ -263,6 +297,7 @@ def binary_classification_rate_from_cumsum(
 def _(
     cumsum_for_group: pd.Series,
 ) -> BinaryClassificationRateFromLabels | None:
+    """Pandas ``Series`` implementation of :func:`binary_classification_rate_from_cumsum`"""
     return _binary_classification_from_cumsum(cumsum_for_group.to_numpy())
 
 
@@ -271,6 +306,18 @@ def _binary_classification_from_cumsum(
     cumsum_for_group: np.ndarray,
     min_true_positives: int = 2,
 ) -> BinaryClassificationRateFromLabels | None:
+    """
+    Numpy array implementation of :func:`binary_classification_rate_from_cumsum`
+
+    Args:
+        cumsum_for_group: Cumulative sum on boolean truth labels
+        min_true_positives: Minimum number of true positives required for the rates to be computed. If the number
+            of true positives in ``cumsum_for_group`` is below this threshold, ``None`` is returned.
+
+    Returns:
+        True positive and false positive rate. If there are fewer than ``min_true_positives`` true positives,
+        returns None
+    """
     group_size: int = cumsum_for_group.size
     true_positive_rate = cumsum_for_group
     false_positive_rate = 1 + np.arange(group_size) - true_positive_rate
@@ -301,6 +348,20 @@ def _binary_classification_from_cumsum(
 
 
 def _serial_area_under_curve(x_values: "NDArray", y_values: "NDArray") -> float:
+    """
+    Numpy implementation of :func:`area_under_curve`
+
+    Args:
+        x_values: 1D array of points corresponding to the y values
+        y_values: 1D array to integrate
+
+    Returns:
+        Area under the curve, always positive regardless of whether ``x_values`` is increasing or decreasing
+
+    Raises:
+        ValueError: If ``x_values`` and ``y_values`` do not have the same size, have fewer than 2 points, or
+            ``x_values`` is neither monotonically increasing nor decreasing
+    """
     if x_values.size != y_values.size:
         raise ValueError("x_values and y_values must have same size")
     if x_values.size < 2:  # noqa: PLR2004
@@ -317,6 +378,23 @@ def _serial_area_under_curve(x_values: "NDArray", y_values: "NDArray") -> float:
 
 
 def _parallel_area_under_curve(x_values: da.Array | xr.DataArray, y_values: da.Array | xr.DataArray) -> float:
+    """
+    Dask implementation of :func:`area_under_curve`
+
+    Integrates each chunk independently using :func:`scipy:scipy.integrate.trapezoid` and sums the per-chunk areas,
+    correcting for the overlap introduced between adjacent chunks.
+
+    Args:
+        x_values: 1D dask array (or dask-backed DataArray) of points corresponding to the y values
+        y_values: 1D dask array (or dask-backed DataArray) to integrate
+
+    Returns:
+        Area under the curve, always positive regardless of whether ``x_values`` is increasing or decreasing
+
+    Raises:
+        ValueError: If ``x_values`` and ``y_values`` do not have the same size, have fewer than 2 points, or
+            ``x_values`` is neither monotonically increasing nor decreasing
+    """
     if is_xr_data_array(x_values):
         assert is_dask_array(x_values.values)
         # Import pandas into is throwing up incorrect linting
@@ -455,12 +533,36 @@ def mean_absolute_error(truth: da.Array, prediction: da.Array) -> float:
 
 
 def _check_array_is_boolean(array: da.Array) -> None:
+    """
+    Check that a dask array is boolean, or contains only values that can be interpreted as boolean (0 or 1)
+
+    Args:
+        array: Dask array to check
+
+    Raises:
+        AssertionError: If ``array`` is not a dask collection
+        ValueError: If ``array`` is not boolean and contains values other than 0 or 1
+    """
     assert is_dask_collection(array)
     if array.dtype != bool and not da.isin(array, [0, 1]).all().compute():
         raise ValueError("Array must be boolean")
 
 
 def _confusion_matrix_coo_reduction(truth: da.Array, prediction: da.Array) -> "NDArray[np.int_]":
+    """
+    Compute confusion matrix counts using a dask reduction backed by sparse COO arrays
+
+    ``truth`` and ``prediction`` are stacked into a single dask array so that they can be reduced together, chunk by
+    chunk. Each chunk is converted into a dense 2x2 count matrix via a sparse :class:`sparse.COO` array, and the
+    per-chunk matrices are then summed together to give the overall confusion matrix.
+
+    Args:
+        truth: dask array of shape (n_samples,) of boolean ground truth values
+        prediction: dask array of shape (n_samples,) of boolean predicted values
+
+    Returns:
+        Confusion matrix in the order of (tn, fp, fn, tp)
+    """
     # Combine them as reduction only works on a single dask array
     combined_array: da.Array = da.vstack([truth, prediction])
     # Force both rows to be in the same chunk so that the chunk is 2D
@@ -553,6 +655,23 @@ def _populate_confusion_matrix(
     prediction: da.Array | None = None,
     confuse_matrix: "NDArray[np.int_] | None" = None,
 ) -> "NDArray[np.int_]":
+    """
+    Resolve the confusion matrix to use for a metric computation
+
+    If ``confuse_matrix`` is provided, it is returned as is. Otherwise, it is computed from ``truth`` and
+    ``prediction`` using :func:`confusion_matrix`.
+
+    Args:
+        truth: dask array of shape (n_samples,) of boolean ground truth values
+        prediction: dask array of shape (n_samples,) of boolean predicted values
+        confuse_matrix: Pre-computed confusion matrix. If provided, ``truth`` and ``prediction`` are ignored
+
+    Returns:
+        Confusion matrix in the order of (tn, fp, fn, tp)
+
+    Raises:
+        ValueError: If ``confuse_matrix`` is None and either ``truth`` or ``prediction`` is also None
+    """
     if confuse_matrix is None:
         if truth is None or prediction is None:
             raise ValueError("If confusion matrix is None, must provide truth and prediction")
@@ -613,6 +732,15 @@ class ContingencyTable(NamedTuple):
     n_10: xr.DataArray
 
     def to_data_array(self) -> xr.DataArray:
+        """
+        Stack the four contingency table counts into a single 2x2 ``xarray.DataArray``
+
+        The returned array has ``row`` and ``col`` dimensions of size 2, such that ``[row=0, col=0]`` is ``n_00``,
+        ``[row=0, col=1]`` is ``n_01``, ``[row=1, col=0]`` is ``n_10``, and ``[row=1, col=1]`` is ``n_11``.
+
+        Returns:
+            2x2 ``xarray.DataArray`` of the contingency table counts
+        """
         first_row = concat_new_dim([self.n_00, self.n_01], dim_name="col", dim_values=[0, 1])
         second_row = concat_new_dim([self.n_10, self.n_11], dim_name="col", dim_values=[0, 1])
         return concat_new_dim([first_row, second_row], dim_name="row", dim_values=[0, 1])
@@ -624,7 +752,7 @@ def contingency_table(
     """
     Contingency Table for multidimensional arrays
 
-    Computed contingency table as defined as,
+    Computed contingency table as defined as by [Agresti2022]_,
 
     .. math::
 
@@ -688,6 +816,44 @@ def contingency_table(
 def stratified_contingency_table(
     effect_of: xr.DataArray, on_var: xr.DataArray, *control_var: xr.DataArray, sum_over: str | list[str] | None
 ) -> list[ContingencyTable]:
+    """
+    Compute contingency tables stratified by one or more control variables
+
+    If a single ``control_var`` is given, the contingency table between ``effect_of`` and ``on_var`` is computed
+    assuming the stratification is on the prescence of ``control_var`` and the abscence. In other words, two contingency
+    tables are computed, once on the condition of ``control_var`` and another on ``not control_var``. If more than one
+    ``control_var`` is given, the contingency table between ``effect_of`` and ``on_var`` is instead computed once
+    each of the control variables assuming that each represents a specific strata.
+
+    Given :math`k` strata :math`Z_{1}, \\dots, Z_{k}` (defined by ``control_var`` as described above), a contingency
+    table is computed for each stratum, as defined as [Agresti2022]_,
+
+    .. math::
+
+       \\begin{array}{c|c|c|c}
+           Z & X & Y = 1 & Y = 0 \\\\
+           \\hline
+           Z_{1} & X = 1 & n_{111} & n_{011} \\\\
+                 & X = 0 & n_{101} & n_{001} \\\\
+           \\hline
+           \\vdots & \\vdots & \\vdots & \\vdots \\\\
+           \\hline
+           Z_{k} & X = 1 & n_{11k} & n_{01k} \\\\
+                 & X = 0 & n_{10k} & n_{00k} \\\\
+       \\end{array}
+
+    where :math`X` is ``effect_of`` and :math`Y` is ``on_var``.
+
+    Args:
+        effect_of: First binary variable (:math`x` in contingency table)
+        on_var: Second binary variable (:math`y` in contingency table)
+        *control_var: One or more binary variables to stratify by (:math`z` in contingency table)
+        sum_over: Dimension(s) to sum over to compute the number of observations. If None, it will sum over all
+                  dimension in the array
+
+    Returns:
+        List of :class:`ContingencyTable`, one per stratum
+    """
     if len(control_var) == 1:
         single_control_var: xr.DataArray = control_var[0]
         return [
@@ -741,6 +907,18 @@ def _sample_odd_ratio_formula[T: (SupportsArithmetic, xr.DataArray)](n_00: T, n_
 
 
 def _odds_ratio_from_table(table: ContingencyTable, use_log: bool) -> xr.DataArray:
+    """
+    Compute the (log) sample odds ratio directly from a :class:`ContingencyTable`
+
+    Infinite values, which arise when one of the cell counts is zero, are masked out with NaN.
+
+    Args:
+        table: Contingency table of cell counts
+        use_log: If True, returns the natural logarithm of the odds ratio
+
+    Returns:
+        The sample odds ratio (or log odds ratio if ``use_log`` is True)
+    """
     this_odds: xr.DataArray = _sample_odd_ratio_formula(table.n_00, table.n_01, table.n_10, table.n_11)
     if use_log:
         this_odds = np.log(this_odds)  # pyright: ignore[reportAssignmentType]
@@ -788,6 +966,23 @@ def conditional_odds_ratio(
     sum_over: str | list[str] | None,
     use_log: bool = True,
 ) -> list[xr.DataArray]:
+    """
+    Sample odds ratio between two binary variables, conditional on one or more control variables
+
+    See :func:`stratified_contingency_table` for details on how the contingency tables are stratified by
+    ``control_var``.
+
+    Args:
+        effect_of: A binary xarray DataArray representing the exposure variable
+        on_var: A binary xarray DataArray representing the outcome variable
+        *control_var: One or more binary variables to condition on
+        sum_over: Dimension(s) to sum over when computing the 2x2 contingency table for each stratum
+        use_log: If True (default), returns the natural logarithm of the odds ratio
+
+    Returns:
+        List of the conditional (log) odds ratio, one per stratum. See :func:`stratified_contingency_table` for how
+        strata are determined
+    """
     tables: list[ContingencyTable] = stratified_contingency_table(effect_of, on_var, *control_var, sum_over=sum_over)
     return [_odds_ratio_from_table(this_table, use_log) for this_table in tables]
 
@@ -799,6 +994,22 @@ def marginal_odds_ratio(
     sum_over: str | list[str] | None,
     use_log: bool = True,
 ) -> xr.DataArray:
+    """
+    Marginal (pooled) sample odds ratio between two binary variables, aggregated over one or more control variables
+
+    The contingency tables for each stratum (see :func:`stratified_contingency_table`) are computed, and their cell
+    counts are summed together before the odds ratio is computed from the pooled counts.
+
+    Args:
+        effect_of: A binary xarray DataArray representing the exposure variable
+        on_var: A binary xarray DataArray representing the outcome variable
+        *control_var: One or more binary variables to marginalise over
+        sum_over: Dimension(s) to sum over when computing the 2x2 contingency table for each stratum
+        use_log: If True (default), returns the natural logarithm of the odds ratio
+
+    Returns:
+        The marginal (log) odds ratio, pooled across all strata
+    """
     tables: list[ContingencyTable] = stratified_contingency_table(effect_of, on_var, *control_var, sum_over=sum_over)
 
     field_names = ["n_11", "n_01", "n_10", "n_00"]
@@ -864,6 +1075,18 @@ def _relative_risk_formula[T: (SupportsArithmetic, xr.DataArray)](n_00: T, n_01:
 
 
 def _rel_risk_from_table(table: ContingencyTable, use_log: bool) -> xr.DataArray:
+    """
+    Compute the (log) relative risk directly from a :class:`ContingencyTable`
+
+    Infinite values, which arise when one of the cell counts is zero, are masked out with NaN.
+
+    Args:
+        table: Contingency table of cell counts
+        use_log: If True, returns the natural logarithm of the relative risk
+
+    Returns:
+        The relative risk (or log relative risk if ``use_log`` is True)
+    """
     this_odds: xr.DataArray = _relative_risk_formula(table.n_00, table.n_01, table.n_10, table.n_11)
     if use_log:
         this_odds = np.log(this_odds)  # pyright: ignore[reportAssignmentType]
@@ -906,11 +1129,38 @@ def stratified_relative_risk(
     sum_over: str | list[str] | None,
     use_log: bool = False,
 ) -> list[xr.DataArray]:
+    """
+    Relative risk of an outcome with respect to an exposure variable, stratified by one or more control variables
+
+    See :func:`stratified_contingency_table` for details on how the contingency tables are stratified by
+    ``control_var``.
+
+    Args:
+        effect_of: A binary xarray DataArray representing the exposure variable
+        on_var: A binary xarray DataArray representing the outcome variable
+        *control_var: One or more binary variables to stratify by
+        sum_over: Dimension to sum over to obtain counts for each stratum
+        use_log: If True, returns the natural logarithm of the relative risk. Default is False.
+
+    Returns:
+        List of the relative risk (or log relative risk if ``use_log`` is True), one per stratum. See
+        :func:`stratified_contingency_table` for how strata are determined
+    """
     tables: list[ContingencyTable] = stratified_contingency_table(effect_of, on_var, *control_var, sum_over=sum_over)
     return [_rel_risk_from_table(this_table, use_log) for this_table in tables]
 
 
 def _get_total_num_observations(target_array: xr.DataArray, sum_over_dims: str | list[str] | None) -> int:
+    """
+    Compute the total number of observations summed over the given dimension(s)
+
+    Args:
+        target_array: Array to compute the number of observations for
+        sum_over_dims: Dimension(s) that are summed over. If None, the total size of ``target_array`` is returned
+
+    Returns:
+        Total number of observations
+    """
     if sum_over_dims is None:
         return target_array.size
     dim_names = sum_over_dims if isinstance(sum_over_dims, list) else [sum_over_dims]

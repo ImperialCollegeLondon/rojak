@@ -11,3 +11,10 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+"""
+The ``rojak`` command line interface
+
+See :mod:`rojak.cli.main` for the ``rojak`` entry point (:data:`~rojak.cli.main.app`),
+:mod:`rojak.cli.data_interface` for the ``rojak data ...`` commands, and :mod:`rojak.cli.lite_interface` for the
+``rojak lite ...`` commands.
+"""

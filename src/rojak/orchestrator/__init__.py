@@ -11,3 +11,12 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+"""
+Configuration schema and run orchestration for ``rojak``'s command line workflows
+
+This package defines the pydantic configuration models for both the full ``rojak run`` workflow
+(:mod:`rojak.orchestrator.configuration`) and the lower-memory, step-by-step ``rojak lite turbulence`` workflow
+(:mod:`rojak.orchestrator.lite_configuration`), and the orchestration logic that drives each from a loaded
+configuration: :mod:`rojak.orchestrator.turbulence` for ``rojak run``, and
+:mod:`rojak.orchestrator.lite_controller` for ``rojak lite turbulence``.
+"""
