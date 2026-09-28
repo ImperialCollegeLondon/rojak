@@ -171,63 +171,67 @@ def test_preprocess_data_madis_single_file(retrieve_madis_data_single_file) -> N
 @pytest.mark.parametrize(
     ("data_set_name", "default_name", "matches"),
     [
-        pytest.param("nonsense", None, "Invalid dataset name", id="invalid_dataset_name"),
+        pytest.param("nonsense", None, "Invalid value for '-n' / '--data-set-name'", id="invalid_dataset_name"),
+        pytest.param(None, "nonsense", "Missing option '-n'", id="missing_dataset_name"),
         pytest.param(
             "nonsense",
             "cat",
-            "Invalid dataset name",
+            "Invalid value for '-n' / '--data-set-name'",
             id="invalid_dataset_name_default_cat",
         ),
         pytest.param(
             "nonsense",
             "surface",
-            "Invalid dataset name",
+            "Invalid value for '-n' / '--data-set-name'",
             id="invalid_dataset_name_default_surface",
         ),
         pytest.param(
             "nonsense",
             "contrail",
-            "Invalid dataset name",
+            "Invalid value for '-n' / '--data-set-name'",
             id="invalid_dataset_name_default_contrail",
         ),
         pytest.param(
             "pressure-level",
             "nonsense",
-            "Invalid default name",
+            "Invalid value for '--default-name'",
             id="invalid_default_name_pl",
         ),
         pytest.param(
             "single-level",
             "nonsense",
-            "Invalid default name",
+            "Invalid value for '--default-name'",
             id="invalid_default_name_sl",
         ),
-        pytest.param("pressure-level", None, "Default not specified", id="default_not_specified"),
+        pytest.param("pressure-level", None, "Default not specified.", id="default_not_specified"),
     ],
 )
 def test_retrieve_meteorology_era5_invalid_config(data_set_name, default_name, matches, tmp_path) -> None:
-    with pytest.raises(InvalidEra5RequestConfigurationError, match=matches) as excinfo:
-        runner.invoke(
-            app,
-            [
-                "data",
-                "meteorology",
-                "retrieve",
-                "-s",
-                "era5",
-                "-y",
-                "2024",
-                "-m",
-                "1",
-                "-d",
-                "1",
-                "-n",
-                data_set_name,
-                "-o",
-                str(tmp_path),
-                "--default-name",
-                default_name,
-            ],
-            catch_exceptions=False,
-        )
-    assert excinfo.type is InvalidEra5RequestConfigurationError
+    result = runner.invoke(
+        app,
+        [
+            "data",
+            "meteorology",
+            "retrieve",
+            "-s",
+            "era5",
+            "-y",
+            "2024",
+            "-m",
+            "1",
+            "-d",
+            "1",
+            "-n",
+            data_set_name,
+            "-o",
+            str(tmp_path),
+            "--default-name",
+            default_name,
+        ],
+    )
+    assert result.exit_code != 0
+    if isinstance(result.exception, SystemExit):
+        assert matches in result.output
+    else:
+        assert isinstance(result.exception, InvalidEra5RequestConfigurationError)
+        assert matches in str(result.exception)
