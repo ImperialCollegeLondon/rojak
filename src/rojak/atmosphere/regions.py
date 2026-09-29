@@ -1,16 +1,23 @@
 from collections.abc import Callable, Sequence
 from enum import StrEnum
-from typing import Any, assert_never, cast
+from typing import TYPE_CHECKING, Any, assert_never, cast
 
+import dask.array as da
 import numpy as np
 import pyproj
 import scipy.interpolate as si
 import scipy.ndimage as ndi
 import xarray as xr
+from dask.base import is_dask_collection
 from numba import guvectorize, int8, njit, vectorize
 
 from rojak.core.geometric import haversine_distance
 from rojak.utilities.types import is_xr_data_array
+
+if TYPE_CHECKING:
+    import dask.dataframe as dd
+
+    from rojak.utilities.types import PandasDataFrame
 
 
 def _region_labeller(target_array: np.ndarray, num_dim: int = 3, connectivity: int | None = None) -> np.ndarray:
@@ -1102,6 +1109,56 @@ def _project_data_about_extrema(
     centre_lat = float(lats[lat_indices[0]])
     centre_lon = float(lons[lon_indices[0]])
 
+    return _project_about_centre(data_values, km_coords, centre_lat, centre_lon, lats, lons, lat_lon_buffer, n_km)
+
+
+def _project_about_centre(
+    data_values: np.ndarray,
+    km_coords: np.ndarray,
+    centre_lat: float,
+    centre_lon: float,
+    lats: np.ndarray,
+    lons: np.ndarray,
+    lat_lon_buffer: float,
+    n_km: int,
+) -> np.ndarray:
+    """Re-project a 2D data field onto a km-scale Cartesian grid centred on a given latitude and longitude.
+
+    Constructs a WGS-84 orthographic projection (:class:`pyproj.Proj`) anchored at the centre and interpolates
+    ``data_values`` from its native lat/lon grid onto a regular ``(y_km, x_km)`` Cartesian grid using linear
+    interpolation via :func:`scipy.interpolate.griddata`. This is the shared implementation used by
+    :func:`_project_data_about_extrema` and :func:`_project_data_about_centre`.
+
+    The re-projection pipeline is:
+
+    1. Use the inverse orthographic projection to find which latitudes and longitudes fall within the output grid
+       extent (plus ``lat_lon_buffer``). Longitudes are compared as offsets from ``centre_lon`` wrapped to
+       ``[-180, 180)`` (see :func:`_wrap_longitude_offset`), so that grids crossing the antimeridian or the 0/360 seam
+       only select the longitudes near the centre.
+    2. Use the forward projection to convert those native lat/lon points to km coordinates.
+    3. Discard any points that are not visible from the centre (i.e. on the far side of the globe), as the
+       orthographic projection maps them to ``inf`` and :func:`scipy.interpolate.griddata` cannot triangulate them.
+    4. Interpolate the remaining native data onto the regular km grid.
+
+    Args:
+        data_values (numpy.ndarray): Geophysical field to re-project, of shape ``(lat, lon)``.
+        km_coords (numpy.ndarray): 1D array of the km coordinates of the output grid, used for both x and y.
+        centre_lat (float): Latitude of the centre in degrees.
+        centre_lon (float): Longitude of the centre in degrees. Can be in either ``[-180, 180)`` or ``[0, 360)``,
+            independent of the convention used by ``lons``.
+        lats (numpy.ndarray): 1D array of latitude values in degrees, corresponding to axis 0 of ``data_values``.
+        lons (numpy.ndarray): 1D array of longitude values in degrees, corresponding to axis 1 of ``data_values``.
+            Can be in either ``[-180, 180)`` or ``[0, 360)``.
+        lat_lon_buffer (float): Extra margin in degrees added when subsetting the input lat/lon arrays before
+            interpolation, to avoid edge artefacts near the boundary of the output grid.
+        n_km (int): Number of points in ``km_coords``.
+
+    Returns:
+        numpy.ndarray: Data field interpolated onto the km grid, of shape ``(n_km, n_km)`` with the axes ordered
+        ``(y_km, x_km)``. Points of the km grid that lie outside of the input data (e.g. beyond the edge of a regional
+        domain) are ``NaN``. If fewer than 3 visible input points fall within the extent of the km grid (e.g. the
+        centre is outside of the domain of the input data), an array filled with ``NaN`` is returned.
+    """
     # km grid that we want to map the data onto
     x_km_mesh, y_km_mesh = np.meshgrid(km_coords, km_coords)
 
@@ -1110,11 +1167,17 @@ def _project_data_about_extrema(
     new_lons, new_lats = ortho(x_km_mesh, y_km_mesh, inverse=True)
 
     lat_mask = (lats >= new_lats.min() - lat_lon_buffer) & (lats <= new_lats.max() + lat_lon_buffer)
-    lon_mask = (lons >= new_lons.min() - lat_lon_buffer) & (lons <= new_lons.max() + lat_lon_buffer)
+    # Longitudes are compared as offsets from the centre, wrapped to [-180, 180). Otherwise, when the grid crosses the
+    # antimeridian, the min and max of new_lons are ~-180 and ~180, which selects every longitude. This also makes it
+    # independent of whether the longitudes are in [-180, 180) or [0, 360)
+    lon_offsets = _wrap_longitude_offset(lons, centre_lon)
+    new_lon_offsets = _wrap_longitude_offset(new_lons, centre_lon)
+    lon_mask = (lon_offsets >= new_lon_offsets.min() - lat_lon_buffer) & (
+        lon_offsets <= new_lon_offsets.max() + lat_lon_buffer
+    )
     lats_within = lats[lat_mask]
     lons_within = lons[lon_mask]
 
-    # data_masked = np.where(extrema_mask > 0, data_values, np.nan)
     data_within = data_values[np.ix_(lat_mask, lon_mask)]
 
     # Forward projection identify what these data points are in km so that scipy.griddata() can use to to interpolate
@@ -1122,12 +1185,339 @@ def _project_data_about_extrema(
     lon_grid, lat_grid = np.meshgrid(lons_within, lats_within)
     x_km_within, y_km_within = ortho(lon_grid, lat_grid)
 
+    # Points on the far side of the globe are not visible in an orthographic projection and are projected to inf.
+    # These must be removed as scipy.griddata() (qhull) fails with a QhullError if any of the points are not finite
+    is_finite = np.isfinite(x_km_within) & np.isfinite(y_km_within)
+    min_points_for_triangulation: int = 3
+    if np.count_nonzero(is_finite) < min_points_for_triangulation:
+        return np.full((n_km, n_km), np.nan)
+
     return si.griddata(
-        points=(x_km_within.ravel(), y_km_within.ravel()),
-        values=data_within.ravel(),
+        points=(x_km_within[is_finite], y_km_within[is_finite]),
+        values=data_within[is_finite],
         xi=(x_km_mesh.ravel(), y_km_mesh.ravel()),
         method="linear",
     ).reshape(n_km, n_km)
+
+
+def _wrap_longitude_offset(lons: np.ndarray, relative_to: float) -> np.ndarray:
+    """Longitude offsets relative to a reference longitude, wrapped to the range ``[-180, 180)``
+
+    Args:
+        lons (numpy.ndarray): Longitudes in degrees. Can be in either ``[-180, 180)`` or ``[0, 360)``.
+        relative_to (float): Reference longitude in degrees, e.g. the longitude of a centre. Can be in either
+            ``[-180, 180)`` or ``[0, 360)``.
+
+    Returns:
+        numpy.ndarray: ``lons - relative_to`` wrapped to ``[-180, 180)``, i.e. the signed angular difference in degrees
+        of each longitude from ``relative_to``. Positive values are east of ``relative_to``.
+
+    Examples
+    --------
+
+    >>> _wrap_longitude_offset(np.array([-190.0, -180.0, 0.0, 170.0, 180.0, 350.0]), 0.0)
+    array([ 170., -180.,    0.,  170., -180.,  -10.])
+
+    Longitudes either side of the antimeridian are close to a reference longitude of 175 degrees
+
+    >>> _wrap_longitude_offset(np.array([170.0, 179.5, -180.0, -175.0]), 175.0)
+    array([-5. ,  4.5,  5. , 10. ])
+
+    Longitudes either side of the 0/360 seam are close to a reference longitude of 2 degrees
+
+    >>> _wrap_longitude_offset(np.array([355.0, 0.0, 5.0]), 2.0)
+    array([-7., -2.,  3.])
+    """
+    return (lons - relative_to + 180) % 360 - 180
+
+
+def centres_from_dataframe(
+    centres: "PandasDataFrame | dd.DataFrame",
+    *,
+    time_col_name: str = "time",
+    lat_col_name: str = "latitude",
+    lon_col_name: str = "longitude",
+    alt_col_name: str = "altitude",
+    num_centre_dim: str = "n_centre",
+) -> xr.DataArray:
+    """Convert a table of composite centres into a :class:`xarray.DataArray` indexed by centre.
+
+    Each row of ``centres`` is treated as a single composite centre. The returned array is 1D along
+    ``num_centre_dim``, with its values being the index of each centre (i.e. ``[0, N)``). The time, latitude,
+    longitude and altitude of each centre are attached as coordinates along ``num_centre_dim``, analogous to the
+    ``time`` coordinate on the ``n_extrema`` dimension produced by :func:`identify_and_stack_circular_extrema`.
+
+    Args:
+        centres (pd.DataFrame | dd.DataFrame): Table with one row per composite centre. Must contain the columns
+            ``time_col_name``, ``lat_col_name``, ``lon_col_name`` and ``alt_col_name``. Any other columns are
+            ignored. If it is a dask dataframe, the values of the columns are not computed and remain lazy. However,
+            the number of rows (both in total and in each partition) is computed so that the size of
+            ``num_centre_dim`` is known.
+        time_col_name (str): Name of the time column. Defaults to ``"time"``.
+        lat_col_name (str): Name of the latitude column. Defaults to ``"latitude"``.
+        lon_col_name (str): Name of the longitude column. Defaults to ``"longitude"``.
+        alt_col_name (str): Name of the altitude column. Defaults to ``"altitude"``.
+        num_centre_dim (str): Name of the dimension indexing each centre. Defaults to ``"n_centre"``.
+
+    Returns:
+        xr.DataArray: Array named ``num_centre_dim`` with dimension ``(num_centre_dim,)`` whose values are
+        ``[0, N)``, where ``N`` is the number of rows in ``centres``. Its coordinates are:
+
+        - ``num_centre_dim`` - index coordinate with the values ``[0, N)``.
+        - ``time_col_name``, ``lat_col_name``, ``lon_col_name`` and ``alt_col_name`` - the values of each column,
+          attached to ``num_centre_dim``.
+
+        If ``centres`` is a dask dataframe, the data and the column coordinates are dask arrays. The index coordinate
+        is always in memory, as xarray loads index coordinates.
+
+    Raises:
+        ValueError: If any of the required columns are missing from ``centres``.
+
+    Example:
+    >>> import pandas as pd
+    >>> df = pd.DataFrame(
+    ...     {
+    ...         "time": pd.to_datetime(["2024-01-01T00:00", "2024-01-01T06:00"]),
+    ...         "latitude": [50.0, 55.0],
+    ...         "longitude": [-10.0, 0.0],
+    ...         "altitude": [10000.0, 11000.0],
+    ...     }
+    ... )
+    >>> centres = centres_from_dataframe(df)
+    >>> centres.dims
+    ('n_centre',)
+    >>> centres.values
+    array([0, 1])
+    >>> centres["latitude"].values
+    array([50., 55.])
+    """
+    required_columns = [time_col_name, lat_col_name, lon_col_name, alt_col_name]
+    missing_columns = set(required_columns).difference(centres.columns)
+    if missing_columns:
+        raise ValueError(f"Expected columns {sorted(missing_columns)} to be present in centres")
+
+    if is_dask_collection(centres):
+        # Keep the columns lazy. lengths=True is required so that the size of the n_centre dim is known
+        columns = {col_name: centres[col_name].to_dask_array(lengths=True) for col_name in required_columns}
+        num_centres = len(centres)
+        centre_count = da.arange(num_centres)
+    else:
+        columns = {col_name: centres[col_name].to_numpy() for col_name in required_columns}
+        num_centres = len(centres)
+        centre_count = np.arange(num_centres)
+
+    return xr.DataArray(
+        centre_count,
+        dims=[num_centre_dim],
+        coords={
+            num_centre_dim: centre_count,
+            **{col_name: (num_centre_dim, column) for col_name, column in columns.items()},
+        },
+        name=num_centre_dim,
+    )
+
+
+def _project_data_about_centre(
+    data_values: np.ndarray,
+    centre_lat: float,
+    centre_lon: float,
+    *,
+    lats: np.ndarray,
+    lons: np.ndarray,
+    max_km_extent: float,
+    grid_km_spacing: float,
+    lat_lon_buffer: float = 0.5,
+) -> np.ndarray:
+    """Re-project a 2D data field onto a km-scale Cartesian grid centred on a given point.
+
+    Thin wrapper around :func:`_project_about_centre` that builds the km grid from ``max_km_extent`` and
+    ``grid_km_spacing`` and has the arguments in the order required by :func:`xarray.apply_ufunc`. Intended to be
+    called via :func:`xarray.apply_ufunc` with ``vectorize=True`` so that it operates on a single ``(lat, lon)`` slice
+    and a single centre at a time.
+
+    Args:
+        data_values (numpy.ndarray): Geophysical field to re-project, of shape ``(lat, lon)``.
+        centre_lat (float): Latitude of the centre in degrees. When vectorised by :func:`xarray.apply_ufunc`, this is
+            a 0D array, which is converted to a ``float``.
+        centre_lon (float): Longitude of the centre in degrees. Can be in either ``[-180, 180)`` or ``[0, 360)``.
+            When vectorised by :func:`xarray.apply_ufunc`, this is a 0D array, which is converted to a ``float``.
+        lats (numpy.ndarray): 1D array of latitude values in degrees, corresponding to axis 0 of ``data_values``.
+        lons (numpy.ndarray): 1D array of longitude values in degrees, corresponding to axis 1 of ``data_values``.
+            Can be in either ``[-180, 180)`` or ``[0, 360)``.
+        max_km_extent (float): Half-width of the output Cartesian grid in kilometres. The grid spans
+            ``[-max_km_extent, +max_km_extent]`` in both x and y.
+        grid_km_spacing (float): Spacing between output grid points in kilometres.
+        lat_lon_buffer (float): Extra margin in degrees added when subsetting the input lat/lon arrays before
+            interpolation. Defaults to ``0.5``.
+
+    Returns:
+        numpy.ndarray: Data field interpolated onto the km grid, of shape ``(n_km, n_km)`` with the axes ordered
+        ``(y_km, x_km)``, where ``n_km = len(np.arange(-max_km_extent, max_km_extent + 1, grid_km_spacing))``. See
+        :func:`_project_about_centre` for when the output contains ``NaN``.
+    """
+    km_coords = np.arange(-max_km_extent, max_km_extent + 1, grid_km_spacing)
+    return _project_about_centre(
+        data_values, km_coords, float(centre_lat), float(centre_lon), lats, lons, lat_lon_buffer, len(km_coords)
+    )
+
+
+def composite_about_centre(
+    to_composite: xr.DataArray,
+    centres: xr.DataArray,
+    *,
+    time_dim_name: str = "time",
+    num_centre_dim: str = "n_centre",
+    lat_dim_name: str = "latitude",
+    lon_dim_name: str = "longitude",
+    vert_dim_name: str | None = None,
+    max_km_extent: float = 2000,
+    grid_km_spacing: float = 25,
+    time_sel_method: str | None = "nearest",
+) -> xr.DataArray:
+    """Composite a geophysical field onto a common km-scale grid centred on each of the given centres.
+
+    For every centre in ``centres``, the corresponding timestep of ``to_composite`` is extracted and re-projected
+    onto a regular Cartesian grid (in km) centred on the latitude and longitude of that centre using a WGS-84
+    orthographic projection. The result is a stack of re-projected fields - one per centre - that can subsequently be
+    averaged to produce a mean composite structure.
+
+    This is analogous to :func:`composite_about_extrema`, except that the centres are arbitrary points (e.g.
+    observations) instead of being derived from the extrema of a field. Unlike :func:`composite_about_extrema`, the
+    centre does not need to lie on a grid point of ``to_composite``.
+
+    The longitudes of ``to_composite`` and ``centres`` can each be in either ``[-180, 180)`` or ``[0, 360)``, and
+    composites which cross the antimeridian or the 0/360 seam are handled (see :func:`_project_about_centre`).
+
+    Optionally supports a vertical dimension, in which case the re-projection is applied independently at each
+    level. The altitude of each centre is not used to select a level; every level of ``vert_dim_name`` is
+    composited.
+
+    See Also:
+        - :func:`centres_from_dataframe`: Constructs ``centres`` from a :class:`pandas.DataFrame` or a
+          :class:`dask.dataframe.DataFrame`.
+        - :func:`composite_about_extrema`: Composites about extrema instead.
+
+    Args:
+        to_composite (xr.DataArray): Geophysical field to composite. Must contain at minimum the dimensions
+            ``lat_dim_name``, ``lon_dim_name``, and ``time_dim_name``. If ``vert_dim_name`` is provided, that
+            dimension must also be present.
+        centres (xr.DataArray): Array of composite centres, as returned by :func:`centres_from_dataframe`. Must
+            only have the dimension ``num_centre_dim`` and have the coordinates ``time_dim_name``, ``lat_dim_name``
+            and ``lon_dim_name`` along it. If the coordinates are dask arrays, the time coordinate is loaded into
+            memory as label-based selection on ``to_composite`` requires concrete values, while the latitude and
+            longitude remain lazy.
+        time_dim_name (str): Name of the time dimension in ``to_composite`` and the time coordinate in ``centres``.
+            Defaults to ``"time"``.
+        num_centre_dim (str): Name of the dimension in ``centres`` that indexes individual centres.
+            Defaults to ``"n_centre"``.
+        lat_dim_name (str): Name of the latitude dimension in ``to_composite`` and the latitude coordinate in
+            ``centres``. Defaults to ``"latitude"``.
+        lon_dim_name (str): Name of the longitude dimension in ``to_composite`` and the longitude coordinate in
+            ``centres``. Defaults to ``"longitude"``.
+        vert_dim_name (str, optional): Name of the vertical dimension in ``to_composite`` (e.g. ``"pressure_level"``).
+            If ``None``, the input is treated as purely 2D in space. Defaults to ``None``.
+        max_km_extent (float): Half-width of the output Cartesian grid in kilometres. The grid spans
+            ``[-max_km_extent, +max_km_extent]`` in both x and y. Defaults to ``2000``.
+        grid_km_spacing (float): Spacing between output grid points in kilometres. Defaults to ``25``.
+        time_sel_method (str, optional): Method passed to :meth:`xarray.DataArray.sel` when matching the time of
+            each centre to the time of ``to_composite``. Defaults to ``"nearest"`` as the centres are unlikely to
+            coincide exactly with the times in ``to_composite``. If ``None``, an exact match is required.
+
+    Returns:
+        xr.DataArray: Composited field of dtype ``float64`` with dimensions
+        ``(num_centre_dim, [vert_dim_name,] y_km, x_km)`` and coordinates:
+
+        - ``num_centre_dim`` - index of each centre, as in ``centres``.
+        - Every coordinate of ``centres`` along ``num_centre_dim`` apart from ``lat_dim_name`` and ``lon_dim_name``
+          (e.g. ``time`` and ``altitude``). The latitude and longitude of the centres are dropped, as they conflict
+          with the latitude and longitude dimensions of ``to_composite``. Note that ``time`` is the time of each
+          centre, not the (nearest) time step of ``to_composite`` which was composited.
+        - ``y_km``, ``x_km`` - symmetric kilometre-coordinate arrays spanning ``[-max_km_extent, +max_km_extent]``
+          with spacing ``grid_km_spacing``.
+        - ``vert_dim_name`` - vertical coordinate values, if applicable.
+
+        The result is lazy if either ``to_composite`` or the latitude and longitude of ``centres`` are dask arrays.
+        Points of the km grid outside of the domain of ``to_composite`` are ``NaN``, so a centre outside of the domain
+        produces a composite filled with ``NaN``.
+
+    Raises:
+        ValueError: If ``to_composite`` does not contain the required latitude, longitude and time dimensions.
+        ValueError: If ``vert_dim_name`` is specified but absent from ``to_composite``.
+        ValueError: If ``num_centre_dim`` is absent from ``centres`` or if ``centres`` is not 1D.
+        ValueError: If ``centres`` does not have the time, latitude and longitude coordinates along
+            ``num_centre_dim``.
+        KeyError: If ``time_sel_method`` is ``None`` and the time of a centre is not present in ``to_composite``.
+    """
+    if not set(to_composite.dims).issuperset({lat_dim_name, lon_dim_name, time_dim_name}):
+        raise ValueError("Dimensions of to_composite do not contain the time, latitude and longitude dims")
+
+    if vert_dim_name is not None and vert_dim_name not in to_composite.dims:
+        raise ValueError(f"Expected '{vert_dim_name}' to be present in to_composite")
+
+    if centres.dims != (num_centre_dim,):
+        raise ValueError(f"Expected centres to only have the dimension '{num_centre_dim}'")
+
+    for coord_name in (time_dim_name, lat_dim_name, lon_dim_name):
+        if coord_name not in centres.coords or centres[coord_name].dims != (num_centre_dim,):
+            raise ValueError(f"Expected '{coord_name}' to be a coordinate of centres along '{num_centre_dim}'")
+
+    centre_index = centres[num_centre_dim].values
+    target_with_centre_dim: xr.DataArray = (
+        to_composite.sel(indexers={time_dim_name: centres[time_dim_name].values}, method=time_sel_method)
+        .assign_coords(coords={time_dim_name: centre_index})
+        .rename({time_dim_name: num_centre_dim})
+    )
+
+    # Ensure that dimensions are in the same order for the apply_ufunc() method
+    if vert_dim_name is not None:
+        target_with_centre_dim = target_with_centre_dim.transpose(
+            num_centre_dim, vert_dim_name, lat_dim_name, lon_dim_name
+        )
+    else:
+        target_with_centre_dim = target_with_centre_dim.transpose(num_centre_dim, lat_dim_name, lon_dim_name)
+
+    km_coords = np.arange(-max_km_extent, max_km_extent + 1, grid_km_spacing)
+    n_km = len(km_coords)
+
+    composited_data: xr.DataArray = xr.apply_ufunc(
+        _project_data_about_centre,
+        target_with_centre_dim,
+        centres[lat_dim_name],
+        centres[lon_dim_name],
+        kwargs={
+            "lats": to_composite[lat_dim_name].values,
+            "lons": to_composite[lon_dim_name].values,
+            "max_km_extent": max_km_extent,
+            "grid_km_spacing": grid_km_spacing,
+        },
+        input_core_dims=[
+            [lat_dim_name, lon_dim_name],  # field
+            [],  # centre latitude
+            [],  # centre longitude
+        ],
+        output_core_dims=[
+            ["y_km", "x_km"],
+        ],
+        dask="parallelized",
+        vectorize=True,
+        output_dtypes=[float],
+        dask_gufunc_kwargs={
+            "output_sizes": {
+                "y_km": n_km,
+                "x_km": n_km,
+            }
+        },
+    )
+
+    coords = {
+        num_centre_dim: centre_index,
+        "y_km": km_coords,
+        "x_km": km_coords,
+    }
+    if vert_dim_name is not None:
+        coords[vert_dim_name] = to_composite[vert_dim_name].values
+
+    return composited_data.assign_coords(coords)
 
 
 def composite_about_extrema(

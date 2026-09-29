@@ -1,10 +1,15 @@
 from typing import TYPE_CHECKING
 
 import dask.array as da
+import dask.dataframe as dd
 import numpy as np
+import pandas as pd
+import pyproj
 import pytest
+import scipy.interpolate as si
 import scipy.ndimage as ndi
 import xarray as xr
+from dask.base import is_dask_collection
 
 from rojak.atmosphere.jet_stream import JetStreamAlgorithmFactory
 from rojak.atmosphere.regions import (
@@ -13,12 +18,17 @@ from rojak.atmosphere.regions import (
     ExtremaKind,
     _apply_and_combine_on_n_extrema_groups,
     _parent_region_mask,
+    _project_about_centre,
+    _project_data_about_centre,
     _project_data_about_extrema,
     _region_labeller,
     _stack_extrema,
+    _wrap_longitude_offset,
     apply_extrema_filter,
+    centres_from_dataframe,
     chebyshev_distance_from_a_to_b,
     circular_footprint,
+    composite_about_centre,
     composite_about_extrema,
     distance_from_a_to_b,
     euclidean_distance_from_a_to_b,
@@ -35,6 +45,8 @@ from rojak.orchestrator.configuration import JetStreamAlgorithms, TurbulenceDiag
 from rojak.turbulence.diagnostic import DiagnosticFactory
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from pytest_mock import MockerFixture
 
 
@@ -110,7 +122,7 @@ TI1_THRESHOLD: float = 1.3947336218633176e-10
 
 
 @pytest.fixture
-def get_is_ti1_turb(load_cat_data) -> xr.DataArray:
+def get_is_ti1_turb(load_cat_data: "Callable") -> xr.DataArray:
     return (
         DiagnosticFactory(load_cat_data(None, with_chunks=True)).create(TurbulenceDiagnostics.TI1).computed_value
         > TI1_THRESHOLD
@@ -118,7 +130,7 @@ def get_is_ti1_turb(load_cat_data) -> xr.DataArray:
 
 
 @pytest.fixture
-def get_js_regions(load_cat_data) -> xr.DataArray:
+def get_js_regions(load_cat_data: "Callable") -> xr.DataArray:
     return (
         JetStreamAlgorithmFactory(load_cat_data(None, with_chunks=True))
         .create(JetStreamAlgorithms.ALPHA_VEL_KOCH)
@@ -274,7 +286,7 @@ def test_distance_a_to_b_inverse_not_equiv(
 
 def test_great_circle_distance_from_a_to_b_equiv_in_multi_dim(
     get_is_ti1_turb: xr.DataArray, get_js_regions: xr.DataArray
-):
+) -> None:
     js_regions = get_js_regions
     turb_regions = get_is_ti1_turb
     computed_distance: xr.DataArray = shortest_haversine_distance_from_a_to_b(
@@ -302,7 +314,7 @@ def test_great_circle_distance_from_a_to_b_equiv_in_multi_dim(
 @pytest.mark.parametrize("mask_by", [True, False])
 @pytest.mark.parametrize("all_present", [True, False])
 def test_shortest_and_vertical_distance_to_positive_trivial(
-    all_present: bool, mask_by: bool, distance_mode: DistanceMode, make_dummy_cat_data
+    all_present: bool, mask_by: bool, distance_mode: DistanceMode, make_dummy_cat_data: "Callable"
 ) -> None:
     dummy_data = make_dummy_cat_data({})
     dummy_array: xr.DataArray = (
@@ -396,7 +408,7 @@ class TestVerticalDistanceToPositive:
         result = vertical_distance_to_positive(all_false)
         assert np.all(np.isinf(result.to_numpy()))
 
-    def test_returns_zero_for_true_positions(self, boolean_data_array: xr.DataArray):
+    def test_returns_zero_for_true_positions(self, boolean_data_array: xr.DataArray) -> None:
         """Test that positions with True return distance of 0.
 
         Generated test did not have correct assertion logic for xarray.DataArray.
@@ -511,7 +523,7 @@ class TestCircularFootprint:
         assert footprint.shape == (3, 3)
 
     @pytest.mark.parametrize("radius", [1, 2, 5, 10, 24])
-    def test_symmetry(self, radius) -> None:
+    def test_symmetry(self, radius: int) -> None:
         """Footprint should be symmetric along both axes."""
         footprint = circular_footprint(radius)
         np.testing.assert_array_equal(footprint, footprint[::-1])
@@ -520,16 +532,16 @@ class TestCircularFootprint:
 
 class TestApplyExtremaFilter:
     @pytest.fixture
-    def get_dummy_array(self, make_dummy_cat_data) -> xr.DataArray:
+    def get_dummy_array(self, make_dummy_cat_data: "Callable") -> xr.DataArray:
         dummy_data: xr.DataArray = make_dummy_cat_data(None, use_numpy=False, rng_seed=42)["temperature"]
         return dummy_data.isel(pressure_level=0)
 
-    def test_fails_without_specifying_size_or_footprint(self, get_dummy_array) -> None:
+    def test_fails_without_specifying_size_or_footprint(self, get_dummy_array: xr.DataArray) -> None:
         dummy_data = get_dummy_array
         with pytest.raises(RuntimeError, match="no footprint provided"):
             _ = apply_extrema_filter(dummy_data, ExtremaKind.MAXIMA).compute()
 
-    def test_output_shape_dtype_dims_coords_preserved(self, get_dummy_array) -> None:
+    def test_output_shape_dtype_dims_coords_preserved(self, get_dummy_array: xr.DataArray) -> None:
         dummy_data = get_dummy_array
         result = apply_extrema_filter(dummy_data, ExtremaKind.MAXIMA, size=10)
 
@@ -562,7 +574,7 @@ class TestApplyExtremaFilter:
     @pytest.mark.parametrize(
         "filter_kwargs", [{"size": 2}, {"footprint": np.ones((1, 1)), "axes": (0, 1)}, {"size": 2, "mode": "wrap"}]
     )
-    def test_minima_filter_values_lte_input(self, get_dummy_array, filter_kwargs: dict) -> None:
+    def test_minima_filter_values_lte_input(self, get_dummy_array: xr.DataArray, filter_kwargs: dict) -> None:
         """Minimum filter output should always be <= input values."""
         result = apply_extrema_filter(get_dummy_array, ExtremaKind.MINIMA, **filter_kwargs)
         assert (result <= get_dummy_array).all()
@@ -609,7 +621,7 @@ class TestApplyExtremaFilter:
         with pytest.raises(ValueError, match="longitude"):
             apply_extrema_filter(data, ExtremaKind.MAXIMA, size=3).compute()
 
-    def test_custom_dim_names(self, get_dummy_array) -> None:
+    def test_custom_dim_names(self, get_dummy_array: xr.DataArray) -> None:
         renamed_array = get_dummy_array.rename({"latitude": "lat", "longitude": "lon"})
         result = apply_extrema_filter(
             renamed_array,
@@ -815,7 +827,9 @@ class TestStackExtrema:
         filtered[8:13, 18:23] = 5.0  # region around the extremum
         return filtered
 
-    def test_output_shape_single_extremum_and_dtype_int8(self, simple_extrema_mask, simple_filtered):
+    def test_output_shape_single_extremum_and_dtype_int8(
+        self, simple_extrema_mask: np.ndarray, simple_filtered: np.ndarray
+    ) -> None:
         """
         Output shape should be (n_extrema, lat, lon) where n_extrema equals the number of True values in
         extrema_locations.
@@ -829,7 +843,7 @@ class TestStackExtrema:
         )
         assert result.dtype == np.int8
 
-    def test_centre_value_is_2(self, simple_extrema_mask, simple_filtered):
+    def test_centre_value_is_2(self, simple_extrema_mask: np.ndarray, simple_filtered: np.ndarray) -> None:
         """
         The exact location of each extremum (where extrema_locations is True) must have a value of 2 in the output.
         """
@@ -838,7 +852,7 @@ class TestStackExtrema:
         for i, (lat_idx, lon_idx) in enumerate(indices):
             assert result[i, lat_idx, lon_idx] == self.peak_location_value
 
-    def test_region_values_are_1(self, simple_extrema_mask, simple_filtered):
+    def test_region_values_are_1(self, simple_extrema_mask: np.ndarray, simple_filtered: np.ndarray) -> None:
         """
         Points that share the same label value as the extremum but are not the centre should have a value of 1.
         """
@@ -851,13 +865,13 @@ class TestStackExtrema:
         region_not_centre = region_mask & ~centre_mask
         assert np.all(result[0][region_not_centre])
 
-    def test_non_region_values_are_0(self, simple_extrema_mask, simple_filtered):
+    def test_non_region_values_are_0(self, simple_extrema_mask: np.ndarray, simple_filtered: np.ndarray) -> None:
         """Points outside the extremum region should have a value of 0."""
         result = _stack_extrema(simple_extrema_mask, simple_filtered)
         outside_region: np.ndarray = simple_filtered != simple_filtered[10, 20]
         assert not np.any(result[0][outside_region])
 
-    def test_multiple_extrema_produces_correct_slices(self):
+    def test_multiple_extrema_produces_correct_slices(self) -> None:
         """
         With multiple extrema, each slice should correspond to exactly
         one extremum with its own region and centre.
@@ -882,7 +896,7 @@ class TestStackExtrema:
         assert result[0, 50, 100] == 0
         assert result[1, 10, 20] == 0
 
-    def test_no_extrema_returns_empty(self):
+    def test_no_extrema_returns_empty(self) -> None:
         """
         When extrema_locations has no True values, output should have zero slices along the first dimension.
         """
@@ -1028,7 +1042,7 @@ class TestProjectDataAboutExtrema:
                 grid_km_spacing=50,
             )
 
-    def test_centre_of_output_is_not_nan(self, load_mslp_data) -> None:
+    def test_centre_of_output_is_not_nan(self, load_mslp_data: xr.DataArray) -> None:
         msl_shape = load_mslp_data.isel(time=0).shape
         mask = np.zeros(msl_shape, dtype=np.int8)
         mask[80, 200] = 2  # centre of the domain
@@ -1045,7 +1059,7 @@ class TestProjectDataAboutExtrema:
         centre_idx = result.shape[0] // 2
         assert not np.isnan(result[centre_idx, centre_idx])
 
-    def test_custom_int_for_center(self, load_mslp_data) -> None:
+    def test_custom_int_for_center(self, load_mslp_data: xr.DataArray) -> None:
         msl_shape = load_mslp_data.isel(time=0).shape
         mask = np.zeros(msl_shape, dtype=np.int8)
         mask[80, 200] = 9  # centre of the domain
@@ -1062,6 +1076,441 @@ class TestProjectDataAboutExtrema:
         )
         assert result.shape[0] > 0
         assert not np.all(np.isnan(result))
+
+    def test_extrema_near_antimeridian(self) -> None:
+        lats = np.arange(-90, 90.1, 0.5)
+        lons = np.arange(-180, 180, 0.5)
+        mask = np.zeros((lats.size, lons.size), dtype=np.int8)
+        mask[np.argmin(np.abs(lats - 50)), np.argmin(np.abs(lons - 179.5))] = 2
+
+        # This used to raise a QhullError as every longitude was selected, including ones not visible in the projection
+        result = _project_data_about_extrema(
+            mask,
+            np.ones(mask.shape),
+            lats=lats,
+            lons=lons,
+            max_km_extent=1000,
+            grid_km_spacing=50,
+        )
+        np.testing.assert_allclose(result, 1.0)
+
+
+def _smooth_field_on_sphere(lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
+    # Single-valued at the poles and periodic in longitude, so it is well-defined everywhere on the sphere
+    return np.cos(np.radians(lat)) * np.cos(np.radians(lon)) + np.sin(np.radians(lat))
+
+
+def _expected_on_km_grid(centre_lat: float, centre_lon: float, km_coords: np.ndarray) -> np.ndarray:
+    x_km, y_km = np.meshgrid(km_coords, km_coords)
+    ortho = pyproj.Proj(proj="ortho", lat_0=centre_lat, lon_0=centre_lon, units="km", ellps="WGS84")
+    lons, lats = ortho(x_km, y_km, inverse=True)
+    return _smooth_field_on_sphere(lats, lons)
+
+
+class TestWrapLongitudeOffset:
+    @pytest.mark.parametrize(
+        ("offset", "expected"),
+        [
+            (0.0, 0.0),
+            (179.5, 179.5),
+            (180.0, -180.0),
+            (-180.0, -180.0),
+            (-190.0, 170.0),
+            (350.0, -10.0),
+            (-350.0, 10.0),
+            (720.0, 0.0),
+        ],
+    )
+    def test_wrapped_values_relative_to_zero(self, offset: float, expected: float) -> None:
+        np.testing.assert_allclose(_wrap_longitude_offset(np.array([offset]), 0.0), [expected])
+
+    @pytest.mark.parametrize(
+        ("lons", "relative_to", "expected"),
+        [
+            pytest.param([170.0, 179.5, -180.0, -175.0], 175.0, [-5.0, 4.5, 5.0, 10.0], id="across_antimeridian"),
+            pytest.param([175.0, -175.0], -178.0, [-7.0, 3.0], id="across_antimeridian_negative_reference"),
+            pytest.param([355.0, 0.0, 5.0], 2.0, [-7.0, -2.0, 3.0], id="across_0_360_seam"),
+            pytest.param([358.0, 0.0, 2.0], 0.0, [-2.0, 0.0, 2.0], id="reference_on_0_360_seam"),
+            pytest.param([170.0, 190.0], -175.0, [-15.0, 5.0], id="lons_0_to_360_negative_reference"),
+            pytest.param([-10.0, 10.0], 355.0, [-5.0, 15.0], id="lons_-180_to_180_reference_above_180"),
+        ],
+    )
+    def test_wrapped_values(self, lons: list[float], relative_to: float, expected: list[float]) -> None:
+        np.testing.assert_allclose(_wrap_longitude_offset(np.array(lons), relative_to), expected)
+
+    @pytest.mark.parametrize("relative_to", [0.0, 175.0, -178.0, 359.0])
+    def test_output_in_range(self, relative_to: float) -> None:
+        half_circle: float = 180
+        wrapped = _wrap_longitude_offset(np.linspace(-1000, 1000, 2001), relative_to)
+        assert (wrapped >= -half_circle).all()
+        assert (wrapped < half_circle).all()
+
+    @pytest.mark.parametrize("relative_to", [0.0, 175.0, -178.0, 359.0])
+    def test_independent_of_longitude_convention(self, relative_to: float) -> None:
+        lons_180 = np.arange(-180, 180, 0.5)
+        lons_360 = np.where(lons_180 < 0, lons_180 + 360, lons_180)
+        np.testing.assert_allclose(
+            _wrap_longitude_offset(lons_180, relative_to), _wrap_longitude_offset(lons_360, relative_to)
+        )
+
+
+class TestProjectAboutCentre:
+    lats: np.ndarray = np.arange(-90, 90.1, 0.5)
+    km_coords: np.ndarray = np.arange(-2000, 2001, 50.0)
+    tolerance: float = 1e-3
+
+    @staticmethod
+    def _field(lons: np.ndarray) -> np.ndarray:
+        lon_grid, lat_grid = np.meshgrid(lons, TestProjectAboutCentre.lats)
+        return _smooth_field_on_sphere(lat_grid, lon_grid)
+
+    def _project(self, lons: np.ndarray, centre_lat: float, centre_lon: float) -> np.ndarray:
+        return _project_about_centre(
+            self._field(lons), self.km_coords, centre_lat, centre_lon, self.lats, lons, 0.5, self.km_coords.size
+        )
+
+    def test_output_shape(self) -> None:
+        result = self._project(np.arange(-180, 180, 0.5), 50.0, 0.0)
+        assert result.shape == (self.km_coords.size, self.km_coords.size)
+
+    @pytest.mark.parametrize(
+        "lons",
+        [np.arange(-180, 180, 0.5), np.arange(0, 360, 0.5)],
+        ids=["lon_-180_to_180", "lon_0_to_360"],
+    )
+    @pytest.mark.parametrize(
+        ("centre_lat", "centre_lon"),
+        [
+            pytest.param(50.0, -30.0, id="away_from_any_seam"),
+            pytest.param(50.0, 175.0, id="crosses_antimeridian_east"),
+            pytest.param(-40.0, -178.0, id="crosses_antimeridian_west"),
+            pytest.param(10.0, 180.0, id="on_antimeridian"),
+            pytest.param(50.0, 0.0, id="on_prime_meridian"),
+            pytest.param(50.0, 359.0, id="centre_lon_above_180"),
+            pytest.param(85.0, 30.0, id="covers_north_pole"),
+            pytest.param(-88.0, -100.0, id="covers_south_pole"),
+        ],
+    )
+    def test_matches_analytic_field(
+        self, lons: np.ndarray, centre_lat: float, centre_lon: float, mocker: "MockerFixture"
+    ) -> None:
+        griddata_spy = mocker.spy(si, "griddata")
+        result = self._project(lons, centre_lat, centre_lon)
+
+        # Points projected to inf (i.e. not visible) must not be passed on to griddata, as qhull fails on them
+        points = griddata_spy.call_args.kwargs["points"]
+        assert np.isfinite(points[0]).all()
+        assert np.isfinite(points[1]).all()
+
+        assert not np.isnan(result).any()
+        np.testing.assert_allclose(
+            result, _expected_on_km_grid(centre_lat, centre_lon, self.km_coords), atol=self.tolerance
+        )
+
+    def test_equivalent_for_both_longitude_conventions(self) -> None:
+        np.testing.assert_allclose(
+            self._project(np.arange(-180, 180, 0.5), 30.0, 179.0),
+            self._project(np.arange(0, 360, 0.5), 30.0, 179.0),
+        )
+
+    def test_only_selects_longitudes_near_centre_when_crossing_antimeridian(self, mocker: "MockerFixture") -> None:
+        griddata_spy = mocker.spy(si, "griddata")
+        lons = np.arange(-180, 180, 0.5)
+        _ = self._project(lons, 50.0, 175.0)
+
+        num_points_passed = griddata_spy.call_args.kwargs["points"][0].size
+        assert num_points_passed < self.lats.size * lons.size / 4
+
+    def test_returns_nan_when_centre_outside_of_domain(self) -> None:
+        regional_lats = np.linspace(65.0, 25.0, 81)
+        regional_lons = np.linspace(-100.0, 10.0, 221)
+        result = _project_about_centre(
+            np.ones((regional_lats.size, regional_lons.size)),
+            self.km_coords,
+            -50.0,
+            120.0,
+            regional_lats,
+            regional_lons,
+            0.5,
+            self.km_coords.size,
+        )
+        assert result.shape == (self.km_coords.size, self.km_coords.size)
+        assert np.isnan(result).all()
+
+
+class TestProjectDataAboutCentre:
+    lats: np.ndarray = np.linspace(65.0, 25.0, 81)
+    lons: np.ndarray = np.linspace(-100.0, 10.0, 221)
+
+    def test_equivalent_to_project_about_centre(self) -> None:
+        field = np.random.default_rng(42).random((self.lats.size, self.lons.size))
+        km_coords = np.arange(-500, 501, 50)
+        result = _project_data_about_centre(
+            field, 45.0, -40.0, lats=self.lats, lons=self.lons, max_km_extent=500, grid_km_spacing=50
+        )
+        expected = _project_about_centre(field, km_coords, 45.0, -40.0, self.lats, self.lons, 0.5, km_coords.size)
+        np.testing.assert_array_equal(result, expected)
+
+    def test_accepts_zero_dim_arrays_as_centre(self) -> None:
+        # When vectorized by apply_ufunc, the centres are passed in as 0D arrays
+        field = np.ones((self.lats.size, self.lons.size))
+        result = _project_data_about_centre(
+            field,
+            np.array(45.0),  # pyright: ignore[reportArgumentType]
+            np.array(-40.0),  # pyright: ignore[reportArgumentType]
+            lats=self.lats,
+            lons=self.lons,
+            max_km_extent=500,
+            grid_km_spacing=50,
+        )
+        n_km = len(np.arange(-500, 501, 50))
+        assert result.shape == (n_km, n_km)
+        np.testing.assert_allclose(result, 1.0)
+
+
+@pytest.fixture
+def centres_dataframe() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "time": pd.to_datetime(["2025-12-29T01:00", "2025-12-29T05:00", "2025-12-29T06:00"]),
+            "latitude": [50.0, 45.0, 40.0],
+            "longitude": [-40.0, -30.0, -20.0],
+            "altitude": [10000.0, 11000.0, 9000.0],
+        }
+    )
+
+
+class TestCentresFromDataframe:
+    def test_dims_values_and_coords(self, centres_dataframe: pd.DataFrame) -> None:
+        centres = centres_from_dataframe(centres_dataframe)
+
+        assert isinstance(centres, xr.DataArray)
+        assert centres.dims == ("n_centre",)
+        assert centres.name == "n_centre"
+        np.testing.assert_array_equal(centres.to_numpy(), np.arange(len(centres_dataframe)))
+        np.testing.assert_array_equal(centres["n_centre"].to_numpy(), np.arange(len(centres_dataframe)))
+        for col_name in ("time", "latitude", "longitude", "altitude"):
+            assert centres[col_name].dims == ("n_centre",)
+            np.testing.assert_array_equal(centres[col_name].to_numpy(), centres_dataframe[col_name].to_numpy())
+
+    def test_extra_columns_are_dropped(self, centres_dataframe: pd.DataFrame) -> None:
+        centres = centres_from_dataframe(centres_dataframe.assign(other=[1, 2, 3]))
+        assert "other" not in centres.coords
+
+    def test_custom_names(self, centres_dataframe: pd.DataFrame) -> None:
+        renamed = centres_dataframe.rename(
+            columns={"time": "t", "latitude": "lat", "longitude": "lon", "altitude": "alt"}
+        )
+        centres = centres_from_dataframe(
+            renamed,
+            time_col_name="t",
+            lat_col_name="lat",
+            lon_col_name="lon",
+            alt_col_name="alt",
+            num_centre_dim="obs",
+        )
+        assert centres.dims == ("obs",)
+        assert {"obs", "t", "lat", "lon", "alt"} == set(centres.coords)
+
+    @pytest.mark.parametrize("missing_column", ["time", "latitude", "longitude", "altitude"])
+    def test_raises_if_column_missing(self, centres_dataframe: pd.DataFrame, missing_column: str) -> None:
+        with pytest.raises(ValueError, match=f"Expected columns \\['{missing_column}'\\] to be present"):
+            centres_from_dataframe(centres_dataframe.drop(columns=missing_column))
+
+    def test_empty_dataframe(self, centres_dataframe: pd.DataFrame) -> None:
+        centres = centres_from_dataframe(centres_dataframe.iloc[:0])
+        assert centres.sizes == {"n_centre": 0}
+
+    def test_dask_dataframe_stays_lazy(self, centres_dataframe: pd.DataFrame) -> None:
+        centres = centres_from_dataframe(dd.from_pandas(centres_dataframe, npartitions=2))
+
+        assert centres.sizes == {"n_centre": len(centres_dataframe)}
+        assert is_dask_collection(centres.variable)
+        for col_name in ("time", "latitude", "longitude", "altitude"):
+            assert is_dask_collection(centres[col_name].variable)
+
+    def test_dask_dataframe_equivalent_to_pandas(self, centres_dataframe: pd.DataFrame) -> None:
+        from_dask = centres_from_dataframe(dd.from_pandas(centres_dataframe, npartitions=2))
+        from_pandas = centres_from_dataframe(centres_dataframe)
+        xr.testing.assert_identical(from_dask.compute(), from_pandas)
+
+
+class TestCompositeAboutCentre:
+    lats: np.ndarray = np.linspace(65.0, 25.0, 81)
+    lons: np.ndarray = np.linspace(-100.0, 10.0, 221)
+    time: np.ndarray = np.array(["2025-12-29T00:00", "2025-12-29T06:00"], dtype="datetime64[ns]")
+    # Offset between each time step so that it is possible to identify which time step has been selected
+    time_offset: float = 1000.0
+
+    @pytest.fixture
+    def dummy_target_data(self) -> xr.DataArray:
+        lat_grid, lon_grid = np.meshgrid(self.lats, self.lons, indexing="ij")
+        data = np.stack([lat_grid + lon_grid + self.time_offset * i for i in range(len(self.time))], axis=0)
+        return xr.DataArray(
+            data,
+            dims=["time", "latitude", "longitude"],
+            coords={"time": self.time, "latitude": self.lats, "longitude": self.lons},
+        )
+
+    @pytest.fixture
+    def dummy_centres(self, centres_dataframe: pd.DataFrame) -> xr.DataArray:
+        return centres_from_dataframe(centres_dataframe)
+
+    def test_raises_if_lat_lon_time_missing_from_target(
+        self, dummy_target_data: xr.DataArray, dummy_centres: xr.DataArray
+    ) -> None:
+        for dim in ("time", "latitude", "longitude"):
+            with pytest.raises(ValueError, match="do not contain the time, latitude and longitude dims"):
+                composite_about_centre(dummy_target_data.rename({dim: "wrong"}), dummy_centres)
+
+    def test_raises_if_vert_dim_not_in_target(
+        self, dummy_target_data: xr.DataArray, dummy_centres: xr.DataArray
+    ) -> None:
+        with pytest.raises(ValueError, match="Expected 'pressure_level' to be present in to_composite"):
+            composite_about_centre(dummy_target_data, dummy_centres, vert_dim_name="pressure_level")
+
+    def test_raises_if_centre_dim_wrong(self, dummy_target_data: xr.DataArray, dummy_centres: xr.DataArray) -> None:
+        with pytest.raises(ValueError, match="Expected centres to only have the dimension 'n_centre'"):
+            composite_about_centre(dummy_target_data, dummy_centres.rename({"n_centre": "wrong"}))
+
+    def test_raises_if_centres_not_1d(self, dummy_target_data: xr.DataArray, dummy_centres: xr.DataArray) -> None:
+        with pytest.raises(ValueError, match="Expected centres to only have the dimension 'n_centre'"):
+            composite_about_centre(dummy_target_data, dummy_centres.expand_dims("extra"))
+
+    @pytest.mark.parametrize("coord_name", ["time", "latitude", "longitude"])
+    def test_raises_if_coord_missing_from_centres(
+        self, dummy_target_data: xr.DataArray, dummy_centres: xr.DataArray, coord_name: str
+    ) -> None:
+        with pytest.raises(ValueError, match=f"Expected '{coord_name}' to be a coordinate of centres"):
+            composite_about_centre(dummy_target_data, dummy_centres.drop_vars(coord_name))
+
+    def test_output_dims_and_coords(self, dummy_target_data: xr.DataArray, dummy_centres: xr.DataArray) -> None:
+        result = composite_about_centre(dummy_target_data, dummy_centres, max_km_extent=500, grid_km_spacing=50)
+
+        expected_km = np.arange(-500, 501, 50)
+        assert result.dims == ("n_centre", "y_km", "x_km")
+        assert result.shape == (dummy_centres.size, expected_km.size, expected_km.size)
+        np.testing.assert_array_equal(result["n_centre"].values, dummy_centres["n_centre"].values)
+        np.testing.assert_array_equal(result["y_km"].values, expected_km)
+        np.testing.assert_array_equal(result["x_km"].values, expected_km)
+        # Coordinates of the centres are retained so that the source of each composite can be identified
+        for coord_name in ("time", "altitude"):
+            assert result[coord_name].dims == ("n_centre",)
+            np.testing.assert_array_equal(result[coord_name].values, dummy_centres[coord_name].values)
+
+    def test_default_km_grid(self, dummy_target_data: xr.DataArray, dummy_centres: xr.DataArray) -> None:
+        result = composite_about_centre(dummy_target_data, dummy_centres)
+        expected_km = np.arange(-2000, 2001, 25)
+        np.testing.assert_array_equal(result["y_km"].values, expected_km)
+        np.testing.assert_array_equal(result["x_km"].values, expected_km)
+
+    def test_centre_value_from_nearest_time(self, dummy_target_data: xr.DataArray, dummy_centres: xr.DataArray) -> None:
+        result = composite_about_centre(dummy_target_data, dummy_centres, max_km_extent=500, grid_km_spacing=50)
+
+        # Centres are on grid points, so the value at the centre of the km grid is exactly the value at the centre
+        # 01:00 -> 00:00, 05:00 -> 06:00, 06:00 -> 06:00
+        nearest_time_index = np.array([0, 1, 1])
+        expected = (
+            dummy_centres["latitude"].to_numpy()
+            + dummy_centres["longitude"].to_numpy()
+            + self.time_offset * nearest_time_index
+        )
+        np.testing.assert_allclose(result.sel(x_km=0, y_km=0).values, expected)
+
+    def test_exact_time_selection_raises_if_no_match(
+        self, dummy_target_data: xr.DataArray, dummy_centres: xr.DataArray
+    ) -> None:
+        with pytest.raises(KeyError):
+            composite_about_centre(dummy_target_data, dummy_centres, time_sel_method=None)
+
+    def test_exact_time_selection(self, dummy_target_data: xr.DataArray, centres_dataframe: pd.DataFrame) -> None:
+        on_time_steps = centres_dataframe.assign(time=pd.to_datetime(["2025-12-29T00:00"] * 2 + ["2025-12-29T06:00"]))
+        result = composite_about_centre(
+            dummy_target_data,
+            centres_from_dataframe(on_time_steps),
+            time_sel_method=None,
+            max_km_extent=500,
+            grid_km_spacing=50,
+        )
+        expected = on_time_steps["latitude"] + on_time_steps["longitude"] + self.time_offset * np.array([0, 0, 1])
+        np.testing.assert_allclose(result.sel(x_km=0, y_km=0).values, expected)
+
+    def test_with_vertical_dimension(self, dummy_target_data: xr.DataArray, dummy_centres: xr.DataArray) -> None:
+        pressure = np.array([500.0, 850.0])
+        # Put vertical dim last to check that it is transposed correctly
+        target_4d = xr.concat(
+            [dummy_target_data, dummy_target_data * 2], dim=xr.DataArray(pressure, dims="pressure_level")
+        ).transpose("time", "latitude", "longitude", "pressure_level")
+        result = composite_about_centre(
+            target_4d, dummy_centres, vert_dim_name="pressure_level", max_km_extent=500, grid_km_spacing=50
+        )
+
+        assert result.dims == ("n_centre", "pressure_level", "y_km", "x_km")
+        np.testing.assert_array_equal(result["pressure_level"].values, pressure)
+        np.testing.assert_allclose(result.isel(pressure_level=1).values, result.isel(pressure_level=0).to_numpy() * 2)
+
+    def test_matches_composite_about_extrema(self, dummy_target_data: xr.DataArray) -> None:
+        # Compositing about a point should be the same as compositing about an extremum at the same point
+        lat_index, lon_index = 30, 120
+        extrema = np.zeros((1, self.lats.size, self.lons.size), dtype=np.int8)
+        extrema[0, lat_index, lon_index] = 2
+        extrema_data = xr.DataArray(
+            extrema,
+            dims=["n_extrema", "latitude", "longitude"],
+            coords={
+                "n_extrema": [0],
+                "time": ("n_extrema", self.time[:1]),
+                "latitude": self.lats,
+                "longitude": self.lons,
+            },
+        )
+        centres = centres_from_dataframe(
+            pd.DataFrame(
+                {
+                    "time": self.time[:1],
+                    "latitude": self.lats[lat_index : lat_index + 1],
+                    "longitude": self.lons[lon_index : lon_index + 1],
+                    "altitude": [10000.0],
+                }
+            )
+        )
+        about_extrema = composite_about_extrema(dummy_target_data, extrema_data, max_km_extent=500, grid_km_spacing=50)
+        about_centre = composite_about_centre(dummy_target_data, centres, max_km_extent=500, grid_km_spacing=50)
+        np.testing.assert_allclose(about_centre.values, about_extrema.values)
+
+    def test_across_antimeridian(self) -> None:
+        lats = np.arange(-90, 90.1, 0.5)
+        lons = np.arange(-180, 180, 0.5)
+        lon_grid, lat_grid = np.meshgrid(lons, lats)
+        target = xr.DataArray(
+            _smooth_field_on_sphere(lat_grid, lon_grid)[np.newaxis, ...],
+            dims=["time", "latitude", "longitude"],
+            coords={"time": self.time[:1], "latitude": lats, "longitude": lons},
+        )
+        centres = centres_from_dataframe(
+            pd.DataFrame({"time": self.time[:1], "latitude": [50.0], "longitude": [179.0], "altitude": [10000.0]})
+        )
+        result = composite_about_centre(target, centres, max_km_extent=1000, grid_km_spacing=50)
+
+        np.testing.assert_allclose(
+            result.isel(n_centre=0).values, _expected_on_km_grid(50.0, 179.0, result["x_km"].values), atol=1e-3
+        )
+
+    def test_dask_inputs_stay_lazy_and_match_eager(
+        self, dummy_target_data: xr.DataArray, centres_dataframe: pd.DataFrame
+    ) -> None:
+        eager = composite_about_centre(
+            dummy_target_data, centres_from_dataframe(centres_dataframe), max_km_extent=500, grid_km_spacing=50
+        )
+        lazy = composite_about_centre(
+            dummy_target_data.chunk({"time": 1}),
+            centres_from_dataframe(dd.from_pandas(centres_dataframe, npartitions=2)),
+            max_km_extent=500,
+            grid_km_spacing=50,
+        )
+
+        assert is_dask_collection(lazy.variable)
+        xr.testing.assert_allclose(lazy.compute(), eager)
 
 
 class TestCompositeAboutExtrema:
@@ -1106,7 +1555,7 @@ class TestCompositeAboutExtrema:
             },
         )
 
-    def test_raises_if_lat_lon_missing_from_target(self, dummy_extrema_data) -> None:
+    def test_raises_if_lat_lon_missing_from_target(self, dummy_extrema_data: xr.DataArray) -> None:
         bad_target = xr.DataArray(
             np.ones((4, 10)),
             dims=["time", "x"],
@@ -1115,26 +1564,34 @@ class TestCompositeAboutExtrema:
         with pytest.raises(ValueError, match="do not contain latitude and longitude"):
             composite_about_extrema(bad_target, dummy_extrema_data)
 
-    def test_raises_if_vert_dim_not_in_target(self, dummy_target_data, dummy_extrema_data):
+    def test_raises_if_vert_dim_not_in_target(
+        self, dummy_target_data: xr.DataArray, dummy_extrema_data: xr.DataArray
+    ) -> None:
         with pytest.raises(ValueError, match="Expected 'pressure_level' to be present in target_data"):
             composite_about_extrema(dummy_target_data, dummy_extrema_data, vert_dim_name="pressure_level")
 
-    def test_raises_if_n_extrema_not_in_extrema_data(self, dummy_target_data, dummy_extrema_data):
+    def test_raises_if_n_extrema_not_in_extrema_data(
+        self, dummy_target_data: xr.DataArray, dummy_extrema_data: xr.DataArray
+    ) -> None:
         bad_extrema = dummy_extrema_data.rename({"n_extrema": "wrong_dim"})
         with pytest.raises(ValueError, match="Expected 'n_extrema' to be in"):
             composite_about_extrema(dummy_target_data, bad_extrema)
 
-    def test_raises_if_time_not_in_target(self, dummy_target_data, dummy_extrema_data):
+    def test_raises_if_time_not_in_target(
+        self, dummy_target_data: xr.DataArray, dummy_extrema_data: xr.DataArray
+    ) -> None:
         bad_target = dummy_target_data.rename({"time": "wrong_time"})
         with pytest.raises(ValueError, match="Expected 'time' to be present in target_data"):
             composite_about_extrema(bad_target, dummy_extrema_data)
 
-    def test_raises_if_time_not_in_extrema_coords(self, dummy_target_data, dummy_extrema_data):
+    def test_raises_if_time_not_in_extrema_coords(
+        self, dummy_target_data: xr.DataArray, dummy_extrema_data: xr.DataArray
+    ) -> None:
         bad_extrema = dummy_extrema_data.drop_vars("time")
         with pytest.raises(ValueError, match="Expected 'time' to be present in extrema_data coords"):
             composite_about_extrema(dummy_target_data, bad_extrema)
 
-    def test_on_mslp_data(self, load_mslp_data) -> None:
+    def test_on_mslp_data(self, load_mslp_data: xr.DataArray) -> None:
         extrema_data = identify_and_stack_circular_extrema(
             load_mslp_data, ExtremaKind.MINIMA, extrema_threshold_value=100000
         )
@@ -1160,20 +1617,24 @@ class TestCompositeAboutExtrema:
         msl_composite_mean = result.mean(dim="n_extrema", skipna=True) / 100
         assert not np.isnan(msl_composite_mean).any()
 
-    def test_is_only_extrema_region_applies_where(self, dummy_target_data, dummy_extrema_data, mocker: "MockerFixture"):
+    def test_is_only_extrema_region_applies_where(
+        self, dummy_target_data: xr.DataArray, dummy_extrema_data: xr.DataArray, mocker: "MockerFixture"
+    ) -> None:
         mock_where = mocker.patch.object(xr.DataArray, "where")
         composite_about_extrema(dummy_target_data, dummy_extrema_data, is_only_extrema_region=True)
 
         mock_where.assert_called_once()
 
     def test_is_only_extrema_region_false_does_not_apply_where(
-        self, dummy_target_data, dummy_extrema_data, mocker: "MockerFixture"
-    ):
+        self, dummy_target_data: xr.DataArray, dummy_extrema_data: xr.DataArray, mocker: "MockerFixture"
+    ) -> None:
         mock_where = mocker.patch.object(xr.DataArray, "where", wraps=xr.DataArray.where)
         composite_about_extrema(dummy_target_data, dummy_extrema_data, is_only_extrema_region=False)
         mock_where.assert_not_called()
 
-    def test_with_vertical_dimension(self, dummy_target_data, dummy_extrema_data, mocker: "MockerFixture"):
+    def test_with_vertical_dimension(
+        self, dummy_target_data: xr.DataArray, dummy_extrema_data: xr.DataArray, mocker: "MockerFixture"
+    ) -> None:
         pressure = np.array([500.0, 850.0])
         target_4d = dummy_target_data.expand_dims({"pressure_level": pressure})
         result = composite_about_extrema(
