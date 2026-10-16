@@ -173,6 +173,8 @@ def altitude_to_pressure_troposphere(altitude: "NumpyOrDataArray") -> "NumpyOrDa
     """
     Convert altitude to pressure for the troposphere
 
+    Please use :py:func:`altitude_to_pressure_icao` for altitudes in both the troposphere and stratosphere.
+
     An implementation of equation 18 from ICAO manual [NACA3182]_
 
     .. math::
@@ -234,6 +236,35 @@ def pressure_to_altitude_stratosphere(pressure: "NumpyOrDataArray") -> "NumpyOrD
     )
 
 
+def altitude_to_pressure_stratosphere(altitude: "NumpyOrDataArray") -> "NumpyOrDataArray":
+    """
+    Convert altitude to pressure for the stratosphere
+
+    Please use :py:func:`altitude_to_pressure_icao` for altitudes in both the troposphere and stratosphere.
+
+    Obtained by rearranging equation 41 from ICAO manual [NACA3182]_, such that it is the inverse of
+    :py:func:`pressure_to_altitude_stratosphere`
+
+    .. math::
+        P = P_0 \\times 10^{n \\log_{10} \\left( \\frac{T^*}{T_0} \\right) - \\text{B} \\left( H - H^* \\right)}
+
+    where :math:`^*` indicates values at the tropopause, :math:`H` is the geopotential height and is treated as
+    equivalent to altitude for engineering purposes (see [NACA3182]_ for details).
+
+    Args:
+        altitude (NumpyOrDataArray): Altitude in m
+
+    Returns:
+        NumpyOrDataArray: Pressure in hPa
+
+    """
+    return _icao_constants.reference_pressure * 10 ** (
+        _icao_constants.n_value
+        * np.log10(_icao_constants.tropopause_temperature / _icao_constants.reference_temperature)
+        - _icao_constants.b_value * (altitude - _icao_constants.tropopause_height)
+    )
+
+
 def pressure_to_altitude_icao(pressure: "NumpyOrDataArray", in_place: bool = False) -> "NumpyOrDataArray":
     """
     Convert pressure to altitude for ICAO standard atmosphere up to 80 km [NACA3182]_
@@ -278,6 +309,43 @@ def pressure_to_altitude_icao(pressure: "NumpyOrDataArray", in_place: bool = Fal
         pressure.loc[~mask] = pressure_to_altitude_stratosphere(pressures_within_stratosphere)
 
     return pressure
+
+
+def altitude_to_pressure_icao(altitude: "NumpyOrDataArray") -> "NumpyOrDataArray":
+    """
+    Convert altitude to pressure for ICAO standard atmosphere [NACA3182]_
+
+    This is the inverse of :py:func:`pressure_to_altitude_icao`. Altitudes below the tropopause height, :math:`H^*`,
+    are converted using :py:func:`altitude_to_pressure_troposphere` and the remaining altitudes are converted using
+    :py:func:`altitude_to_pressure_stratosphere`.
+
+    Unlike :py:func:`pressure_to_altitude_icao`, the conversion is never in-place as the altitude is often an integer
+    array which cannot store the pressure. It also supports multidimensional and dask-backed arrays, with the latter
+    remaining lazy.
+
+    Args:
+        altitude (NumpyOrDataArray): Altitude in m. Any ``NaN`` values remain ``NaN``.
+
+    Returns:
+        NumpyOrDataArray: Pressure in hPa, of the same shape as ``altitude``. If ``altitude`` is a
+        :class:`xarray.DataArray`, its coordinates, attributes and name are retained.
+
+    Examples
+    --------
+
+    >>> altitude_to_pressure_icao(np.array([0, 5000, 11000, 15000]))
+    array([1013.25      ,  540.19717375,  226.31981252,  120.43472736])
+    """
+    is_within_troposphere: NumpyOrDataArray = altitude < _icao_constants.tropopause_height
+    # Each formula is only evaluated for the altitudes within its layer (the others are NaN), as the troposphere
+    # formula results in invalid values when evaluated high in the stratosphere (above ~44 km)
+    pressure_within_troposphere: NumpyOrDataArray = altitude_to_pressure_troposphere(
+        xr.where(is_within_troposphere, altitude, np.nan, keep_attrs=True)
+    )
+    pressure_within_stratosphere: NumpyOrDataArray = altitude_to_pressure_stratosphere(
+        xr.where(is_within_troposphere, np.nan, altitude, keep_attrs=True)
+    )
+    return xr.where(is_within_troposphere, pressure_within_troposphere, pressure_within_stratosphere, keep_attrs=True)
 
 
 def bilinear_interpolation(

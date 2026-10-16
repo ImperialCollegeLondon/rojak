@@ -1,15 +1,19 @@
+import warnings
 from collections.abc import Callable
 from typing import TYPE_CHECKING, assert_never
 
 import numpy as np
 import pytest
 import xarray as xr
+from dask.base import is_dask_collection
 from scipy.interpolate import RegularGridInterpolator
 from xarray import testing as xrt
 
 from rojak.core.calculations import (
     XrAggregationMethod,
     _icao_constants,
+    altitude_to_pressure_icao,
+    altitude_to_pressure_stratosphere,
     altitude_to_pressure_troposphere,
     apply_data_var_reduction,
     bilinear_interpolation,
@@ -107,14 +111,24 @@ def test_pressure_to_altitude_fails_checks(
         converter_method(pressures)
 
 
+# Values from Metric Table I in section 5 of NACA3182
+_TROPOSPHERE_ALTITUDES_FROM_TABLE = np.asarray([0, 2000, 3000, 4000, 4500, 6000, 6300, 7000, 8500, 8100, 9150, 10350])
+_TROPOSPHERE_PRESSURES_FROM_TABLE = np.asarray(
+    [1013.25, 794.95, 701.08, 616.40, 577.28, 471.81, 452.72, 410.61, 330.99, 350.88, 300.62, 250.50]
+)
+_STRATOSPHERE_ALTITUDES_FROM_TABLE = np.asarray([11000, 11800, 12600, 13600, 14800, 16200])
+_STRATOSPHERE_PRESSURES_FROM_TABLE = np.asarray([226.32, 199.50, 175.85, 150.20, 124.30, 99.68])
+_ICAO_ALTITUDES_FROM_TABLE = np.concatenate([_TROPOSPHERE_ALTITUDES_FROM_TABLE, _STRATOSPHERE_ALTITUDES_FROM_TABLE])
+_ICAO_PRESSURES_FROM_TABLE = np.concatenate([_TROPOSPHERE_PRESSURES_FROM_TABLE, _STRATOSPHERE_PRESSURES_FROM_TABLE])
+# Table pressures are given to 2 d.p. and the ICAO constants are rounded, so an exact match is not expected
+_TABLE_PRESSURE_RTOL: float = 2e-4
+
+
 @pytest.mark.parametrize("is_2d", [True, False])
 @pytest.mark.parametrize("wrap_in_data_array", [True, False])
 def test_pressure_to_altitude_troposphere_and_vice_versa(wrap_in_data_array: bool, is_2d: bool) -> None:
-    # Values from Metric Table I in section 5 of NACA3182
-    pressure = np.asarray(
-        [1013.25, 794.95, 701.08, 616.40, 577.28, 471.81, 452.72, 410.61, 330.99, 350.88, 300.62, 250.50],
-    )
-    altitude_from_table = np.asarray([0, 2000, 3000, 4000, 4500, 6000, 6300, 7000, 8500, 8100, 9150, 10350])
+    pressure = _TROPOSPHERE_PRESSURES_FROM_TABLE
+    altitude_from_table = _TROPOSPHERE_ALTITUDES_FROM_TABLE
 
     if is_2d:
         pressure = pressure.reshape((2, 6))
@@ -153,8 +167,8 @@ def test_pressure_to_altitude_troposphere_equiv_to_wallace() -> None:
 @pytest.mark.parametrize("is_2d", [True, False])
 @pytest.mark.parametrize("wrap_in_data_array", [True, False])
 def test_pressure_to_altitude_stratosphere(is_2d: bool, wrap_in_data_array: bool) -> None:
-    pressure = np.asarray([226.32, 199.50, 175.85, 150.20, 124.30, 99.68])
-    altitude_from_table = np.asarray([11000, 11800, 12600, 13600, 14800, 16200])
+    pressure = _STRATOSPHERE_PRESSURES_FROM_TABLE
+    altitude_from_table = _STRATOSPHERE_ALTITUDES_FROM_TABLE
 
     if is_2d:
         pressure = pressure.reshape((2, 3))
@@ -177,50 +191,8 @@ def test_pressure_to_altitude_stratosphere(is_2d: bool, wrap_in_data_array: bool
 
 @pytest.mark.parametrize("wrap_in_data_array", [True, False])
 def test_pressure_to_altitude_icao(wrap_in_data_array) -> None:
-    pressure = np.asarray(
-        [
-            1013.25,
-            794.95,
-            701.08,
-            616.40,
-            577.28,
-            471.81,
-            452.72,
-            410.61,
-            330.99,
-            350.88,
-            300.62,
-            250.50,
-            226.32,
-            199.50,
-            175.85,
-            150.20,
-            124.30,
-            99.68,
-        ],
-    )
-    altitude_from_table = np.asarray(
-        [
-            0,
-            2000,
-            3000,
-            4000,
-            4500,
-            6000,
-            6300,
-            7000,
-            8500,
-            8100,
-            9150,
-            10350,
-            11000,
-            11800,
-            12600,
-            13600,
-            14800,
-            16200,
-        ],
-    )
+    pressure = _ICAO_PRESSURES_FROM_TABLE
+    altitude_from_table = _ICAO_ALTITUDES_FROM_TABLE
 
     if wrap_in_data_array:
         pressure = xr.DataArray(pressure)
@@ -237,6 +209,137 @@ def test_pressure_to_altitude_icao_era5_data(make_dummy_cat_data) -> None:
     computed_altitude = pressure_to_altitude_icao(dummy_data["pressure_level"])
     np.testing.assert_equal(np.round(computed_altitude, decimals=-1), altitude_from_table)
     np.testing.assert_allclose(computed_altitude, altitude_from_table, rtol=1e-4)
+
+
+@pytest.mark.parametrize("is_2d", [True, False])
+@pytest.mark.parametrize("wrap_in_data_array", [True, False])
+def test_altitude_to_pressure_stratosphere(is_2d: bool, wrap_in_data_array: bool) -> None:
+    altitude: NumpyOrDataArray = _STRATOSPHERE_ALTITUDES_FROM_TABLE
+    pressure_from_table: NumpyOrDataArray = _STRATOSPHERE_PRESSURES_FROM_TABLE
+
+    if is_2d:
+        altitude = altitude.reshape((2, 3))
+        pressure_from_table = pressure_from_table.reshape((2, 3))
+
+    if wrap_in_data_array:
+        altitude = xr.DataArray(altitude)
+        pressure_from_table = xr.DataArray(pressure_from_table)
+
+    computed_pressure = altitude_to_pressure_stratosphere(altitude)
+    np.testing.assert_allclose(computed_pressure, pressure_from_table, rtol=_TABLE_PRESSURE_RTOL)
+
+    # Test that we get back the same thing when passed through the inverse
+    np.testing.assert_allclose(pressure_to_altitude_stratosphere(computed_pressure), altitude)
+    np.testing.assert_allclose(
+        altitude_to_pressure_stratosphere(pressure_to_altitude_stratosphere(pressure_from_table)), pressure_from_table
+    )
+
+
+def test_altitude_to_pressure_is_continuous_at_tropopause() -> None:
+    np.testing.assert_allclose(
+        altitude_to_pressure_troposphere(np.asarray([_icao_constants.tropopause_height])),
+        altitude_to_pressure_stratosphere(np.asarray([_icao_constants.tropopause_height])),
+    )
+
+
+class TestAltitudeToPressureIcao:
+    altitude: np.ndarray = _ICAO_ALTITUDES_FROM_TABLE
+    pressure_from_table: np.ndarray = _ICAO_PRESSURES_FROM_TABLE
+
+    @pytest.mark.parametrize("wrap_in_data_array", [True, False])
+    def test_matches_table_values(self, wrap_in_data_array: bool) -> None:
+        altitude = xr.DataArray(self.altitude) if wrap_in_data_array else self.altitude
+        computed_pressure = altitude_to_pressure_icao(altitude)
+        assert type(computed_pressure) is type(altitude)
+        np.testing.assert_allclose(computed_pressure, self.pressure_from_table, rtol=_TABLE_PRESSURE_RTOL)
+
+    @pytest.mark.parametrize("wrap_in_data_array", [True, False])
+    def test_inverse_of_pressure_to_altitude_icao(self, wrap_in_data_array: bool) -> None:
+        pressure = xr.DataArray(self.pressure_from_table) if wrap_in_data_array else self.pressure_from_table
+        np.testing.assert_allclose(altitude_to_pressure_icao(pressure_to_altitude_icao(pressure)), pressure)
+
+        altitude = np.linspace(0, 20000, 101)
+        np.testing.assert_allclose(pressure_to_altitude_icao(altitude_to_pressure_icao(altitude)), altitude)
+
+    @pytest.mark.parametrize(
+        ("altitude", "layer_converter"),
+        [
+            pytest.param(_TROPOSPHERE_ALTITUDES_FROM_TABLE, altitude_to_pressure_troposphere, id="only_troposphere"),
+            pytest.param(_STRATOSPHERE_ALTITUDES_FROM_TABLE, altitude_to_pressure_stratosphere, id="only_stratosphere"),
+        ],
+    )
+    def test_equivalent_to_layer_converter(self, altitude: np.ndarray, layer_converter: Callable) -> None:
+        np.testing.assert_allclose(altitude_to_pressure_icao(altitude), layer_converter(altitude))
+
+    def test_uses_correct_layer_either_side_of_tropopause(self) -> None:
+        below = _icao_constants.tropopause_height - 1
+        altitude = np.asarray([below, _icao_constants.tropopause_height])
+        computed_pressure = altitude_to_pressure_icao(altitude)
+        np.testing.assert_allclose(computed_pressure[0], altitude_to_pressure_troposphere(np.asarray([below])))
+        np.testing.assert_allclose(
+            computed_pressure[1], altitude_to_pressure_stratosphere(np.asarray([_icao_constants.tropopause_height]))
+        )
+
+    def test_pressure_decreases_with_altitude(self) -> None:
+        computed_pressure = altitude_to_pressure_icao(np.linspace(0, 30000, 301))
+        assert (np.diff(computed_pressure) < 0).all()
+
+    def test_no_invalid_values_high_in_stratosphere(self) -> None:
+        # The troposphere formula is invalid above ~44 km, so it must not be evaluated for these altitudes
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            computed_pressure = altitude_to_pressure_icao(np.asarray([1000.0, 50000.0, 80000.0]))
+        assert np.isfinite(computed_pressure).all()
+        np.testing.assert_allclose(
+            computed_pressure[1:], altitude_to_pressure_stratosphere(np.asarray([50000.0, 80000.0]))
+        )
+
+    def test_integer_altitudes_give_float_pressures(self) -> None:
+        integer_altitude = np.asarray([0, 5000, 11000, 15000])
+        computed_pressure = altitude_to_pressure_icao(integer_altitude)
+        assert np.issubdtype(computed_pressure.dtype, np.floating)
+        np.testing.assert_allclose(computed_pressure, altitude_to_pressure_icao(integer_altitude.astype(float)))
+
+    def test_does_not_modify_input(self) -> None:
+        altitude = np.asarray([0.0, 5000.0, 11000.0, 15000.0])
+        original = altitude.copy()
+        altitude_to_pressure_icao(altitude)
+        np.testing.assert_array_equal(altitude, original)
+
+    def test_nan_propagates(self) -> None:
+        computed_pressure = altitude_to_pressure_icao(np.asarray([0.0, np.nan, 15000.0]))
+        assert np.isnan(computed_pressure[1])
+        assert np.isfinite(computed_pressure[[0, 2]]).all()
+
+    def test_multidimensional(self) -> None:
+        altitude = self.altitude.reshape((3, 6))
+        computed_pressure = altitude_to_pressure_icao(altitude)
+        assert computed_pressure.shape == altitude.shape
+        np.testing.assert_allclose(computed_pressure, altitude_to_pressure_icao(self.altitude).reshape((3, 6)))
+
+    def test_data_array_retains_coords_attrs_and_name(self) -> None:
+        altitude = xr.DataArray(
+            self.altitude,
+            dims=["n_centre"],
+            coords={"n_centre": np.arange(self.altitude.size), "time": ("n_centre", np.arange(self.altitude.size))},
+            attrs={"description": "altitude of each centre"},
+            name="altitude",
+        )
+        computed_pressure = altitude_to_pressure_icao(altitude)
+        assert isinstance(computed_pressure, xr.DataArray)
+        assert computed_pressure.dims == altitude.dims
+        assert computed_pressure.name == altitude.name
+        assert computed_pressure.attrs == altitude.attrs
+        xrt.assert_identical(computed_pressure.coords.to_dataset(), altitude.coords.to_dataset())
+
+    @pytest.mark.parametrize("wrap_in_data_array", [True, False])
+    def test_dask_stays_lazy(self, wrap_in_data_array: bool) -> None:
+        chunked_altitude = xr.DataArray(self.altitude).chunk({"dim_0": 5})
+        altitude = chunked_altitude if wrap_in_data_array else chunked_altitude.data
+        computed_pressure = altitude_to_pressure_icao(altitude)
+
+        assert is_dask_collection(computed_pressure)
+        np.testing.assert_allclose(np.asarray(computed_pressure), altitude_to_pressure_icao(self.altitude), rtol=1e-12)
 
 
 def linear_function(x_vals, y_vals):
