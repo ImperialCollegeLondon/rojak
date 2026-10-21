@@ -27,7 +27,7 @@ in this module validate that the configuration is internally consistent (e.g. th
 also configured) and raise :class:`InvalidConfigurationError` if not.
 """
 
-import datetime
+import datetime as dt
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Self, assert_never
@@ -909,7 +909,7 @@ class AmdarConfig(BaseInputDataConfig[AmdarDataSource]):
         Field(description="Glob pattern to match to get the data files", repr=True, frozen=True),
     ]
     time_window: Annotated[
-        Limits[datetime.datetime],
+        Limits[dt.datetime],
         Field(description="Time window to extract data for", repr=True, frozen=True),
     ]
     # ASSUME FOR NOW ONLY USE FOR THIS IS DATA HARMONISATION
