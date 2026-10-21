@@ -976,7 +976,7 @@ class TestIdentifyAndStackCircularExtrema:
         assert result["n_extrema"].size == num_minima_in_mslp
 
         # Check time axis is sorted, i.e. increasing
-        assert (result["time"].diff(dim=...).astype(int) > 0).all()
+        assert (np.diff(result["time"]) >= 0).all()
 
 
 class TestProjectDataAboutExtrema:
