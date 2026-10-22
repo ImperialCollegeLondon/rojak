@@ -348,6 +348,7 @@ def altitude_to_pressure_icao(altitude: "NumpyOrDataArray") -> "NumpyOrDataArray
     return xr.where(is_within_troposphere, pressure_within_troposphere, pressure_within_stratosphere, keep_attrs=True)
 
 
+@deprecated("Use scipy.interpolate.RegularGridInterpolator or the xarray interp() method instead")
 def bilinear_interpolation(
     longitude: "NDArray",
     latitude: "NDArray",
@@ -356,6 +357,9 @@ def bilinear_interpolation(
 ) -> "NDArray":
     """
     Bilinear interpolation using 4 points
+
+    .. deprecated::
+        Use :class:`scipy.interpolate.RegularGridInterpolator` or :meth:`xarray.DataArray.interp` instead.
 
     Args:
         longitude:

@@ -366,12 +366,13 @@ def test_bilinear_interpolation(x_slice, y_slice, interpolation_point, ff, is_ff
     xx, yy = np.meshgrid(x, y)
 
     rgi = RegularGridInterpolator((x, y), ff(xx, yy))
-    interpolated = bilinear_interpolation(
-        x[x_slice],
-        y[y_slice],
-        ff(*np.meshgrid(x[x_slice], y[y_slice])),
-        Coordinate(*interpolation_point),
-    )
+    with pytest.deprecated_call():
+        interpolated = bilinear_interpolation(
+            x[x_slice],
+            y[y_slice],
+            ff(*np.meshgrid(x[x_slice], y[y_slice])),
+            Coordinate(*interpolation_point),
+        )
     assert rgi(interpolation_point) == interpolated
     if is_ff_linear:
         assert interpolated == ff(interpolation_point[0], interpolation_point[1])
