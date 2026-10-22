@@ -108,3 +108,8 @@ def load_cat_data(load_era5_data) -> Callable:
         return data.to_clear_air_turbulence_data(domain)
 
     return _load_cat_data
+
+
+@pytest.fixture
+def load_mslp_data() -> xr.DataArray:
+    return xr.open_dataset("tests/_static/test_mslp.nc", engine="h5netcdf")["msl"]
