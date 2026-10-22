@@ -128,3 +128,124 @@ def project_about_centre(
         xi=(x_km_mesh.ravel(), y_km_mesh.ravel()),
         method="linear",
     ).reshape(n_km, n_km)
+
+
+def is_periodic_longitude(lons: np.ndarray) -> bool:
+    """Whether the longitudes cover the whole globe, such that interpolation should wrap across the seam.
+
+    The meridian gap is the gap from the largest longitude, round the globe, to the smallest longitude, i.e.
+    ``360 - (max - min)``. The longitudes are periodic if the seam gap is no larger than the largest spacing between
+    adjacent longitudes, i.e. crossing the seam is no different to crossing any other grid cell. This does not
+    require the longitudes to be regularly spaced.
+
+    If the seam gap is zero (e.g. ``[0, 360]`` inclusive), the longitudes already cover the seam so they are not
+    treated as periodic.
+
+    Args:
+        lons (numpy.ndarray): 1D array of longitudes in degrees, in either ``[-180, 180)`` or ``[0, 360)``.
+
+    Returns:
+        bool: ``True`` if interpolation should wrap across the seam.
+
+    Examples
+    --------
+
+    >>> is_periodic_longitude(np.arange(0, 360, 0.25))
+    True
+    >>> is_periodic_longitude(np.arange(-80, 20.1, 0.25))
+    False
+
+    The longitudes do not need to be regularly spaced
+
+    >>> is_periodic_longitude(np.array([0.0, 0.5, *np.arange(1.0, 360.0, 1.0)]))
+    True
+
+    Including both 0 and 360 degrees means the seam is already covered
+
+    >>> is_periodic_longitude(np.arange(0, 360.1, 0.25))
+    False
+    """
+    if lons.size < 2:  # noqa: PLR2004
+        return False
+    sorted_lons = np.sort(lons)
+    meridian_gap: float = 360.0 - (sorted_lons[-1] - sorted_lons[0])
+    if meridian_gap <= 0 or np.isclose(meridian_gap, 0.0):
+        return False
+    largest_spacing: float = np.diff(sorted_lons).max()
+    return bool(meridian_gap < largest_spacing or np.isclose(meridian_gap, largest_spacing))
+
+
+def bilinear_about_point(
+    data_values: np.ndarray,
+    *,
+    target_lats: np.ndarray,
+    target_lons: np.ndarray,
+    lats: np.ndarray,
+    lons: np.ndarray,
+    is_lon_periodic: bool,
+) -> np.ndarray:
+    """Bilinearly interpolate a 2D ``(lat, lon)`` field at the given target lat/lon points.
+
+    Uses :class:`scipy.interpolate.RegularGridInterpolator`. Points outside the domain are ``NaN``.
+    """
+    # Normalise longitudes into the same convention as the data, e.g. [-180, 180) vs [0, 360), i.e. into the 360
+    # degrees centred on the middle of the range of the data
+    middle_of_lons: float = lons.min() + 180.0
+    target_lons = middle_of_lons + wrap_longitude_offset(target_lons, middle_of_lons)
+
+    if is_lon_periodic:
+        if lons[0] > lons[-1]:
+            # Make ascending so that the wrapped column is appended after the largest longitude
+            lons = lons[::-1]
+            data_values = data_values[:, ::-1]
+        # RegularGridInterpolator does not wrap, so append the first column at +360 degrees so that targets between
+        # the last and first longitude are bracketed
+        lons = np.append(lons, lons[0] + 360.0)
+        data_values = np.concatenate([data_values, data_values[:, :1]], axis=1)
+
+    interpolator = si.RegularGridInterpolator(
+        (lats, lons), data_values, method="linear", bounds_error=False, fill_value=np.nan
+    )
+    return interpolator((target_lats, target_lons))
+
+
+def bilinear_project_about_centre(
+    data_values: np.ndarray,
+    km_coords: np.ndarray,
+    centre_lat: float,
+    centre_lon: float,
+    lats: np.ndarray,
+    lons: np.ndarray,
+    *,
+    is_lon_periodic: bool,
+) -> np.ndarray:
+    """Re-project a 2D data field onto a km-scale Cartesian grid centred on a given latitude and longitude.
+
+    Uses the same WGS-84 orthographic projection and km grid as :func:`project_about_centre`, but interpolates
+    bilinearly on the native lat/lon grid (see :func:`bilinear_about_point`) instead of triangulating in projected
+    space. This is significantly faster as no triangulation is required.
+
+    Args:
+        data_values (numpy.ndarray): Geophysical field to re-project, of shape ``(lat, lon)``.
+        km_coords (numpy.ndarray): 1D array of the km coordinates of the output grid, used for both x and y.
+        centre_lat (float): Latitude of the centre in degrees.
+        centre_lon (float): Longitude of the centre in degrees.
+        lats (numpy.ndarray): 1D array of latitude values in degrees, corresponding to axis 0 of ``data_values``.
+        lons (numpy.ndarray): 1D array of longitude values in degrees, corresponding to axis 1 of ``data_values``.
+        is_lon_periodic (bool): Whether ``lons`` covers the whole globe, see :func:`is_periodic_longitude`.
+
+    Returns:
+        numpy.ndarray: Data field interpolated onto the km grid, of shape ``(n_km, n_km)`` with the axes ordered
+        ``(y_km, x_km)``. Points of the km grid that lie outside of the input data are ``NaN``.
+    """
+    x_km_mesh, y_km_mesh = np.meshgrid(km_coords, km_coords)
+    ortho: pyproj.Proj = pyproj.Proj(proj="ortho", lat_0=centre_lat, lon_0=centre_lon, units="km", ellps="WGS84")
+    new_lons, new_lats = ortho(x_km_mesh, y_km_mesh, inverse=True)
+    return bilinear_about_point(
+        data_values,
+        target_lats=new_lats,
+        target_lons=new_lons,
+        lats=lats,
+        lons=lons,
+        is_lon_periodic=is_lon_periodic,
+    )
