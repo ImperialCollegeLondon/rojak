@@ -9,6 +9,7 @@ import pytest
 import xarray as xr
 
 from rojak.core.indexing import (
+    NearestTieBreakConvention,
     get_regular_grid_spacing,
     make_value_based_slice,
     map_order,
@@ -466,11 +467,17 @@ class TestShiftAndCombine:
         assert result.shape == tuple(expected_shape)
 
 
-def _brute_force_nearest_index(coordinate: "NDArray", values: "NDArray") -> "NDArray":
-    # Reference implementation: smallest distance, with ties broken towards the larger coordinate value
+def _brute_force_nearest_index(
+    coordinate: "NDArray",
+    values: "NDArray",
+    tie_break_convention: NearestTieBreakConvention = NearestTieBreakConvention.UPPER,
+) -> "NDArray":
+    # Reference implementation: smallest distance, with ties broken towards the larger/smaller coordinate value
     distance = np.abs(values[:, np.newaxis] - coordinate[np.newaxis, :])
     is_closest = distance == distance.min(axis=1, keepdims=True)
-    return np.where(is_closest, coordinate[np.newaxis, :], -np.inf).argmax(axis=1)
+    if tie_break_convention is NearestTieBreakConvention.UPPER:
+        return np.where(is_closest, coordinate[np.newaxis, :], -np.inf).argmax(axis=1)
+    return np.where(is_closest, coordinate[np.newaxis, :], np.inf).argmin(axis=1)
 
 
 class TestNearestIndex:
@@ -487,14 +494,42 @@ class TestNearestIndex:
             nearest_index(coordinate, values), pd.Index(coordinate).get_indexer(pd.Index(values), method="nearest")
         )
 
-    def test_unsorted_irregular_coordinate_matches_brute_force(self) -> None:
+    @pytest.mark.parametrize("tie_break_convention", [NearestTieBreakConvention.UPPER, NearestTieBreakConvention.LOWER])
+    def test_unsorted_irregular_coordinate_matches_brute_force(
+        self, tie_break_convention: NearestTieBreakConvention
+    ) -> None:
         rng = np.random.default_rng(7)
         coordinate = rng.permutation(np.cumsum(rng.uniform(1, 10, 30)))
         # Include values outside of the coordinate and exact ties halfway between coordinate values
         ties = (np.sort(coordinate)[1:] + np.sort(coordinate)[:-1]) / 2
         values = np.concatenate([rng.uniform(coordinate.min() - 20, coordinate.max() + 20, 500), ties])
 
-        np.testing.assert_array_equal(nearest_index(coordinate, values), _brute_force_nearest_index(coordinate, values))
+        np.testing.assert_array_equal(
+            nearest_index(coordinate, values, tie_break_convention=tie_break_convention),
+            _brute_force_nearest_index(coordinate, values, tie_break_convention),
+        )
+
+    @pytest.mark.parametrize(
+        ("tie_break_convention", "expected"),
+        [
+            pytest.param(NearestTieBreakConvention.UPPER, [1, 2], id="upper"),
+            pytest.param(NearestTieBreakConvention.LOWER, [0, 1], id="lower"),
+        ],
+    )
+    def test_tie_break_convention(self, tie_break_convention: NearestTieBreakConvention, expected: list[int]) -> None:
+        coordinate = np.array([0.0, 10.0, 20.0])
+        values = np.array([5.0, 15.0])
+        np.testing.assert_array_equal(
+            nearest_index(coordinate, values, tie_break_convention=tie_break_convention), expected
+        )
+
+    def test_default_tie_break_convention_is_upper(self) -> None:
+        coordinate = np.array([0.0, 10.0, 20.0])
+        values = np.array([5.0, 15.0])
+        np.testing.assert_array_equal(
+            nearest_index(coordinate, values),
+            nearest_index(coordinate, values, tie_break_convention=NearestTieBreakConvention.UPPER),
+        )
 
     def test_datetime_coordinate(self) -> None:
         coordinate = np.arange(np.datetime64("2025-01-01T00"), np.datetime64("2025-01-02T00"), np.timedelta64(6, "h"))
@@ -538,7 +573,8 @@ class TestMapValuesToNearestIndexIrregularGrid:
         result = map_values_to_nearest_index_irregular_grid(series, self.coordinate)
 
         assert isinstance(result, np.ndarray)
-        np.testing.assert_array_equal(result, [0, 1, 5, 6, 0])
+        # 775 is a tie between 850 (index 1) and 700 (index 2); default tie_breaker is LOWER, so it resolves to 2
+        np.testing.assert_array_equal(result, [0, 2, 5, 6, 0])
 
     def test_dask_series_is_lazy_and_matches_pandas(self) -> None:
         rng = np.random.default_rng(8)
@@ -550,7 +586,21 @@ class TestMapValuesToNearestIndexIrregularGrid:
             result.compute(), map_values_to_nearest_index_irregular_grid(series, self.coordinate)
         )
 
-    def test_ties_broken_towards_larger_value(self) -> None:
+    def test_default_tie_breaker_breaks_towards_smaller_value(self) -> None:
         # 775 is halfway between 850 and 700, and 225 is halfway between 250 and 200
         result = map_values_to_nearest_index_irregular_grid(pd.Series([775.0, 225.0]), self.coordinate)
+        np.testing.assert_array_equal(result, [2, 6])
+
+    def test_tie_breaker_kwarg_upper_breaks_towards_larger_value(self) -> None:
+        # 775 is halfway between 850 and 700, and 225 is halfway between 250 and 200
+        result = map_values_to_nearest_index_irregular_grid(
+            pd.Series([775.0, 225.0]), self.coordinate, tie_breaker=NearestTieBreakConvention.UPPER
+        )
         np.testing.assert_array_equal(result, [1, 5])
+
+    def test_tie_breaker_kwarg_lower_breaks_towards_smaller_value(self) -> None:
+        # 775 is halfway between 850 and 700, and 225 is halfway between 250 and 200
+        result = map_values_to_nearest_index_irregular_grid(
+            pd.Series([775.0, 225.0]), self.coordinate, tie_breaker=NearestTieBreakConvention.LOWER
+        )
+        np.testing.assert_array_equal(result, [2, 6])

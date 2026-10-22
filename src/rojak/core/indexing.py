@@ -25,8 +25,10 @@ NaN (:func:`apply_nan_mask`), and concatenating arrays along a new dimension (:f
 """
 
 import functools
+import operator
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Any
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any, assert_never
 
 import numpy as np
 import pandas as pd
@@ -104,21 +106,47 @@ def get_regular_grid_spacing[T: np.number | np.inexact | np.datetime64 | np.time
     return None
 
 
-def nearest_index(coordinate: "NDArray", values: "NDArray") -> "NDArray[np.intp]":
+class NearestTieBreakConvention(StrEnum):
+    """Convention for breaking ties when a value is exactly halfway between two coordinate values"""
+
+    LOWER = "lower"
+    UPPER = "upper"
+
+    def get_operator(self) -> Callable:
+        # <= ties towards lower_index (smaller value), < ties towards upper_index (larger value)
+        match self:
+            case NearestTieBreakConvention.LOWER:
+                return operator.le
+            case NearestTieBreakConvention.UPPER:
+                return operator.lt
+            case _ as unreachable:
+                assert_never(unreachable)
+
+
+def nearest_index(
+    coordinate: "NDArray",
+    values: "NDArray",
+    *,
+    tie_break_convention: NearestTieBreakConvention = NearestTieBreakConvention.UPPER,
+) -> "NDArray[np.intp]":
     """
     Compute the index of the value in ``coordinate`` that is closest to each of ``values``
 
     ``coordinate`` does not need to be regularly spaced or sorted. It is sorted once and each value is located with a
     binary search, so it costs :math:`O((n + m) \\log m)` for :math:`n` values and :math:`m` coordinate values.
 
-    Ties (i.e. values exactly halfway between two coordinate values) are broken towards the larger coordinate value,
-    consistent with :meth:`pandas.Index.get_indexer` and :meth:`xarray.DataArray.sel` with ``method="nearest"``.
-    Values outside of the range of ``coordinate`` map to the index of its minimum or maximum. Missing values (``NaN``
-    or ``NaT``) map to index ``0``.
+    Ties (i.e. values exactly halfway between two coordinate values) are broken according to
+    ``tie_break_convention``. With :attr:`NearestTieBreakConvention.UPPER` (the default), ties are broken towards the
+    larger coordinate value, consistent with :meth:`pandas.Index.get_indexer` and :meth:`xarray.DataArray.sel` with
+    ``method="nearest"``. With :attr:`NearestTieBreakConvention.LOWER`, ties are broken towards the smaller coordinate
+    value. Values outside of the range of ``coordinate`` map to the index of its minimum or maximum. Missing values
+    (``NaN`` or ``NaT``) map to index ``0``.
 
     Args:
         coordinate: 1D array which is to be indexed into
         values: Values to find the closest index in ``coordinate`` of
+        tie_break_convention: Convention used to break ties. Defaults to
+            :attr:`NearestTieBreakConvention.UPPER`
 
     Returns:
         Array of the same shape as ``values`` with the index in ``coordinate`` that each value is closest to
@@ -152,9 +180,12 @@ def nearest_index(coordinate: "NDArray", values: "NDArray") -> "NDArray[np.intp]
     # coordinate index
     upper_index: np.ndarray = np.clip(np.searchsorted(sorted_coordinate, values), 1, sorted_coordinate.size - 1)
     lower_index: np.ndarray = upper_index - 1
-    # < => ties goes to the larger value to conform to pandas/xarray convention
+
+    tie_break_operator = tie_break_convention.get_operator()
     nearest_in_sorted_coord: np.ndarray = np.where(
-        values - sorted_coordinate[lower_index] < sorted_coordinate[upper_index] - values, lower_index, upper_index
+        tie_break_operator(values - sorted_coordinate[lower_index], sorted_coordinate[upper_index] - values),
+        lower_index,
+        upper_index,
     )
 
     nearest_in_coordinate: np.ndarray = coord_sort_order[nearest_in_sorted_coord]
@@ -164,7 +195,10 @@ def nearest_index(coordinate: "NDArray", values: "NDArray") -> "NDArray[np.intp]
 
 
 def map_values_to_nearest_index_irregular_grid(
-    series: "dd.Series | pd.Series", coordinate: "NDArray"
+    series: "dd.Series | pd.Series",
+    coordinate: "NDArray",
+    *,
+    tie_breaker: NearestTieBreakConvention = NearestTieBreakConvention.LOWER,
 ) -> "da.Array | NDArray":
     """
     Compute the closest index in ``coordinate`` that each value in ``series`` corresponds to
@@ -187,9 +221,9 @@ def map_values_to_nearest_index_irregular_grid(
     """
     if is_dask_collection(series):
         return series.to_dask_array(lengths=True).map_blocks(
-            functools.partial(nearest_index, coordinate), dtype=np.intp
+            functools.partial(nearest_index, coordinate, tie_break_convention=tie_breaker), dtype=np.intp
         )
-    return nearest_index(coordinate, series.to_numpy())
+    return nearest_index(coordinate, series.to_numpy(), tie_break_convention=tie_breaker)
 
 
 def map_values_to_nearest_coordinate_index[T: (np.datetime64, np.number, np.inexact)](
