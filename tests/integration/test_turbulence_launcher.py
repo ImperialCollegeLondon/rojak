@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import dask.dataframe as dd
 import pytest
 
+from rojak.core.sources import FilesLocation
 from rojak.datalib.madis.amdar import AcarsAmdarTurbulenceData
 from rojak.orchestrator.configuration import (
     AggregationMetricOption,
@@ -15,6 +16,7 @@ from rojak.orchestrator.configuration import (
     DataConfig,
     DiagnosticValidationCondition,
     DiagnosticValidationConfig,
+    MeteorologyConfig,
     SpatialDomain,
     SpatialGroupByStrategy,
     TurbulenceCalibrationConfig,
@@ -39,6 +41,10 @@ if TYPE_CHECKING:
     from rojak.turbulence.analysis import HistogramData
 
 
+def files_met_config(data_dir: Path) -> MeteorologyConfig:
+    return MeteorologyConfig(location=FilesLocation(root=str(data_dir)), engine="netcdf4")
+
+
 @pytest.fixture
 def create_calibration_only_config(create_config_context) -> Callable:
     def _calibration_only_config(num_diagnostics: int) -> ConfigContext:
@@ -53,7 +59,7 @@ def create_calibration_only_config(create_config_context) -> Callable:
                         TurbulenceCalibrationPhaseOption.HISTOGRAM,
                     ],
                     calibration_config=TurbulenceCalibrationConfig(
-                        calibration_data_dir=Path("tests/_static/"),
+                        calibration_data=files_met_config(Path("tests/_static/")),
                         percentile_thresholds=TurbulenceThresholds(light=0.97, light_to_moderate=98.0, moderate=99.0),
                     ),
                 ),
@@ -95,7 +101,7 @@ def create_evaluation_config_restore_from_outputs(create_config_context) -> Call
                         # TurbulenceEvaluationPhaseOption.CORRELATION_BTW_EDR,
                     ],
                     evaluation_config=TurbulenceEvaluationConfig(
-                        evaluation_data_dir=Path("tests/_static/"),
+                        evaluation_data=files_met_config(Path("tests/_static/")),
                     ),
                 ),
             ),
@@ -211,7 +217,7 @@ def test_turbulence_calibration_and_evaluation(create_config_context, client, re
                 ],
                 calibration_config=TurbulenceCalibrationConfig(
                     # calibration_data_dir=Path("tests/_static/"),
-                    calibration_data_dir=retrieve_era5_cat_data,
+                    calibration_data=files_met_config(retrieve_era5_cat_data),
                     percentile_thresholds=TurbulenceThresholds(light=0.97, light_to_moderate=98.0, moderate=99.0),
                 ),
             ),
@@ -219,7 +225,7 @@ def test_turbulence_calibration_and_evaluation(create_config_context, client, re
                 phases=eval_phases,
                 evaluation_config=TurbulenceEvaluationConfig(
                     # evaluation_data_dir=Path("tests/_static/"),
-                    evaluation_data_dir=retrieve_era5_cat_data,
+                    evaluation_data=files_met_config(retrieve_era5_cat_data),
                 ),
             ),
         ),
@@ -250,14 +256,14 @@ def test_turbulence_amdar_acars_harmonisation(
                     TurbulenceCalibrationPhaseOption.HISTOGRAM,
                 ],
                 calibration_config=TurbulenceCalibrationConfig(
-                    calibration_data_dir=retrieve_era5_cat_data,
+                    calibration_data=files_met_config(retrieve_era5_cat_data),
                     percentile_thresholds=TurbulenceThresholds(light=0.97, light_to_moderate=98.0, moderate=99.0),
                 ),
             ),
             evaluation_phases=TurbulenceEvaluationPhases(
                 phases=[],  # Don't specify EDR as it should automatically calculate due to how code is structured
                 evaluation_config=TurbulenceEvaluationConfig(
-                    evaluation_data_dir=retrieve_era5_cat_data,
+                    evaluation_data=files_met_config(retrieve_era5_cat_data),
                 ),
             ),
         ),
@@ -339,14 +345,14 @@ def test_turbulence_amdar_roc(
             calibration_phases=TurbulenceCalibrationPhases(
                 phases=[],
                 calibration_config=TurbulenceCalibrationConfig(
-                    calibration_data_dir=retrieve_era5_cat_data,
+                    calibration_data=files_met_config(retrieve_era5_cat_data),
                     percentile_thresholds=TurbulenceThresholds(light=0.97),
                 ),
             ),
             evaluation_phases=TurbulenceEvaluationPhases(
                 phases=[],
                 evaluation_config=TurbulenceEvaluationConfig(
-                    evaluation_data_dir=retrieve_era5_cat_data,
+                    evaluation_data=files_met_config(retrieve_era5_cat_data),
                 ),
             ),
         ),

@@ -17,7 +17,9 @@ Pydantic schema for the YAML configuration consumed by ``rojak run`` (:func:`roj
 :class:`Context`, loaded via :meth:`BaseConfigModel.from_yaml`, is the root of the configuration tree and
 describes an entire run: where to write output (:class:`Context`), what turbulence analysis to perform
 (:class:`TurbulenceConfig`, :class:`TurbulencePhases`), and what input data to use (:class:`DataConfig`,
-:class:`MeteorologyConfig`, :class:`AmdarConfig`).
+:class:`MeteorologyConfig`, :class:`AmdarConfig`). Where meteorological data lives is described by a
+:data:`~rojak.core.sources.DataLocation`, and which :class:`~rojak.core.data.MetData` adapter reads it by
+:class:`MetDataSource` (see :mod:`rojak.datalib.registry`).
 
 Turbulence analysis is split into a calibration stage (:class:`TurbulenceCalibrationPhases`, deriving thresholds
 and EDR distribution parameters from a calibration dataset) and an evaluation stage
@@ -37,6 +39,7 @@ import yaml
 from pydantic import AfterValidator, BaseModel, DirectoryPath, Field, ValidationError, model_validator
 from pydantic.types import PositiveInt
 
+from rojak.core.sources import DataLocation, NetcdfEngine
 from rojak.datalib.madis.amdar import AcarsAmdarTurbulenceData
 from rojak.datalib.ukmo.amdar import UkmoAmdarTurbulenceData
 from rojak.utilities.types import Limits
@@ -364,6 +367,84 @@ class TurbulenceThresholds(BaseConfigModel):
         return Limits(lower_bound, upper_bound)
 
 
+class MetDataSource(StrEnum):
+    """Meteorological reanalysis data provider, see :mod:`rojak.datalib.registry`"""
+
+    ERA5 = "era5"
+
+
+class MeteorologyConfig(BaseConfigModel):
+    """
+    A meteorological dataset: what it is (:attr:`data_source`, selecting the
+    :class:`~rojak.core.data.MetData` adapter) and where it lives (:attr:`location`)
+
+    Example YAML::
+
+        data_source: era5
+        location:
+          type: template
+          root: s3://my-bucket/era5
+          template: "{time:%Y}/{time:%Y-%m-%d}.nc"
+          time_window: {lower: 2024-01-01T00:00:00Z, upper: 2024-01-31T00:00:00Z}
+          storage_options: {anon: true}
+    """
+
+    data_source: Annotated[
+        MetDataSource,
+        Field(description="Where data comes from", repr=True, frozen=True),
+    ] = MetDataSource.ERA5
+    location: Annotated[DataLocation, Field(description="Where the data lives", repr=True, frozen=True)]
+    engine: Annotated[
+        NetcdfEngine,
+        Field(description="Engine used to read netCDF files (ignored for zarr)", repr=True, frozen=True),
+    ] = "h5netcdf"
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_legacy_data_dir(cls, data: Any) -> Any:  # noqa: ANN401
+        """Accept the deprecated ``data_dir`` field as the root of a :class:`~rojak.core.sources.FilesLocation`"""
+        if not isinstance(data, dict) or "data_dir" not in data:
+            return data
+        data = dict(data)
+        data_dir = data.pop("data_dir")
+        if data.get("location") is not None:
+            raise InvalidConfigurationError("Specify only one of data_dir or location, not both")
+        data["location"] = {"type": "files", "root": str(data_dir)}
+        return data
+
+
+def fold_legacy_data_dir(data: Any, legacy_key: str, new_key: str, **extra: Any) -> Any:  # noqa: ANN401
+    """
+    Rewrite a legacy ``<legacy_key>: <directory>`` entry into ``<new_key>``'s :class:`MeteorologyConfig` form
+
+    Intended for use in a ``mode="before"`` model validator so existing configuration files keep working.
+
+    Args:
+        data: Raw input to the model being validated
+        legacy_key: Name of the deprecated directory field (e.g. ``calibration_data_dir``)
+        new_key: Name of the :class:`MeteorologyConfig` field replacing it
+        **extra: Additional :class:`MeteorologyConfig` fields (e.g. ``engine``) or, under the ``location`` key,
+            additional :class:`~rojak.core.sources.FilesLocation` fields (e.g. ``glob_pattern``)
+
+    Returns:
+        ``data`` with ``legacy_key`` replaced by ``new_key``
+
+    Raises:
+        InvalidConfigurationError: If both ``legacy_key`` and ``new_key`` are given
+    """
+    if not isinstance(data, dict) or legacy_key not in data:
+        return data
+    data = dict(data)
+    legacy_dir = data.pop(legacy_key)
+    if legacy_dir is None:
+        return data
+    if data.get(new_key) is not None:
+        raise InvalidConfigurationError(f"Specify only one of {legacy_key} or {new_key}, not both")
+    location: dict[str, Any] = {"type": "files", "root": str(legacy_dir), **extra.pop("location", {})}
+    data[new_key] = {"location": location, **extra}
+    return data
+
+
 class TurbulenceCalibrationPhaseOption(StrEnum):
     """
     A step of the turbulence calibration stage
@@ -379,13 +460,9 @@ class TurbulenceCalibrationPhaseOption(StrEnum):
 class TurbulenceCalibrationConfig(BaseConfigModel):
     """Configuration for the turbulence calibration stage, see :class:`TurbulenceCalibrationPhases`"""
 
-    calibration_data_dir: Annotated[
-        Path | None,
-        Field(
-            description="Path to directory containing calibration data",
-            repr=True,
-            frozen=True,
-        ),
+    calibration_data: Annotated[
+        MeteorologyConfig | None,
+        Field(description="Meteorological data to calibrate on", repr=True, frozen=True),
     ] = None
     percentile_thresholds: Annotated[
         TurbulenceThresholds | None,
@@ -403,6 +480,13 @@ class TurbulenceCalibrationConfig(BaseConfigModel):
         Path | None,
         Field(description="Path to directory containing distribution of diagnostic indices"),
     ] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_legacy_data_dir(cls, data: Any) -> Any:  # noqa: ANN401
+        """Accept the deprecated ``calibration_data_dir`` field, see :func:`fold_legacy_data_dir`"""
+        # netcdf4 preserves the engine that was used when only a directory could be given
+        return fold_legacy_data_dir(data, "calibration_data_dir", "calibration_data", engine="netcdf4")
 
 
 class TurbulenceCalibrationPhases(BaseConfigModel):
@@ -431,26 +515,22 @@ class TurbulenceCalibrationPhases(BaseConfigModel):
                 case TurbulenceCalibrationPhaseOption.THRESHOLDS:
                     # Check that either calibration or thresholds file specified
                     if (
-                        self.calibration_config.calibration_data_dir is None
+                        self.calibration_config.calibration_data is None
                         and self.calibration_config.thresholds_file_path is None
                     ):
                         raise InvalidConfigurationError(
-                            "Either calibration data directory or thresholds file must be provided.",
+                            "Either calibration data or thresholds file must be provided.",
                         )
                     if (
-                        self.calibration_config.calibration_data_dir is not None
+                        self.calibration_config.calibration_data is not None
                         and self.calibration_config.thresholds_file_path is not None
                     ):
                         raise InvalidConfigurationError(
-                            "Either calibration data directory or thresholds file must be provided, NOT both",
+                            "Either calibration data or thresholds file must be provided, NOT both",
                         )
 
-                    # Check that the paths are to the correct type of file system object
-                    if (
-                        self.calibration_config.calibration_data_dir is not None
-                        and not self.calibration_config.calibration_data_dir.is_dir()
-                    ):
-                        raise InvalidConfigurationError("Calibration data directory is not a directory.")
+                    # Check that the paths are to the correct type of file system object. The calibration data's
+                    # location validates itself (see rojak.core.sources)
                     if (
                         self.calibration_config.thresholds_file_path is not None
                         and not self.calibration_config.thresholds_file_path.is_file()
@@ -459,11 +539,11 @@ class TurbulenceCalibrationPhases(BaseConfigModel):
 
                     # If performing calibration, percentiles must be specified
                     if (
-                        self.calibration_config.calibration_data_dir is not None
+                        self.calibration_config.calibration_data is not None
                         and self.calibration_config.percentile_thresholds is None
                     ):
                         raise InvalidConfigurationError(
-                            "If calibration data directory is provided, threshold configuration must be provided.",
+                            "If calibration data is provided, threshold configuration must be provided.",
                         )
                 case TurbulenceCalibrationPhaseOption.HISTOGRAM:
                     if (
@@ -506,15 +586,10 @@ class TurbulenceEvaluationPhaseOption(StrEnum):
 class TurbulenceEvaluationConfig(BaseConfigModel):
     """Configuration for the turbulence evaluation stage, see :class:`TurbulenceEvaluationPhases`"""
 
-    evaluation_data_dir: Annotated[
-        Path,
-        Field(
-            description="Path to directory containing evaluation data",
-            repr=True,
-            frozen=True,
-        ),
-        AfterValidator(_dir_must_exist),
-    ]  # Remove this?????
+    evaluation_data: Annotated[
+        MeteorologyConfig,
+        Field(description="Meteorological data to evaluate on", repr=True, frozen=True),
+    ]
     threshold_mode: Annotated[
         TurbulenceThresholdMode,
         Field(
@@ -532,6 +607,12 @@ class TurbulenceEvaluationConfig(BaseConfigModel):
         list[float],
         Field(description="Pressure levels to evaluate on", repr=True, frozen=True),
     ] = [200.0]
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_legacy_data_dir(cls, data: Any) -> Any:  # noqa: ANN401
+        """Accept the deprecated ``evaluation_data_dir`` field, see :func:`fold_legacy_data_dir`"""
+        return fold_legacy_data_dir(data, "evaluation_data_dir", "evaluation_data", engine="netcdf4")
 
 
 class TurbulenceEvaluationPhases(BaseConfigModel):
@@ -862,12 +943,6 @@ class SpatialDomain(BaseConfigModel):
         return is_start_or_end_at_equator and abs(self.minimum_latitude + self.maximum_latitude) >= 45  # noqa: PLR2004
 
 
-class MetDataSource(StrEnum):
-    """Meteorological reanalysis data provider, see :mod:`rojak.datalib`"""
-
-    ERA5 = "era5"
-
-
 class AmdarDataSource(StrEnum):
     """AMDAR turbulence observation provider, see :mod:`rojak.datalib`"""
 
@@ -888,10 +963,6 @@ class BaseInputDataConfig[T: StrEnum](BaseConfigModel):
         AfterValidator(_dir_must_exist),
     ]
     data_source: Annotated[T, Field(description="Where data comes from", repr=True, frozen=True)]
-
-
-class MeteorologyConfig(BaseInputDataConfig[MetDataSource]):
-    """Configuration for a directory of meteorological reanalysis data, see :attr:`DataConfig.meteorology_config`"""
 
 
 class AmdarDiagnosticCmpSource(StrEnum):
@@ -1073,7 +1144,7 @@ class Context(BaseConfigModel):
 
             match self.data_config.amdar_config.diagnostics_from:
                 case AmdarDiagnosticCmpSource.CALIBRATION:
-                    if self.turbulence_config.phases.calibration_phases.calibration_config.calibration_data_dir is None:
+                    if self.turbulence_config.phases.calibration_phases.calibration_config.calibration_data is None:
                         raise InvalidConfigurationError(
                             "To compare amdar data against calibration, calibration data must be specified and "
                             "cannot be restored from an earlier run",
@@ -1083,7 +1154,7 @@ class Context(BaseConfigModel):
                         raise InvalidConfigurationError(
                             "To compare amdar data against evaluation, evaluation phases must be specified",
                         )
-                    #  No need to check if evaluation data dir is specified as it is a required argument once
+                    #  No need to check if evaluation data is specified as it is a required argument once
                     #  evaluation_phases is specified
                 case _ as unreachable:
                     assert_never(unreachable)
