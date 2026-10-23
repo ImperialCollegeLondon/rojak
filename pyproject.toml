@@ -26,6 +26,7 @@ dependencies = [
     "crick", # necessary for dask.percentile method
     "dask",
     "distributed",
+    "fsspec",
     "h5netcdf[h5py]",
     "pydantic",
     "pyproj",
