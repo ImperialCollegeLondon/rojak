@@ -1,3 +1,4 @@
+import warnings
 from contextlib import nullcontext
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -174,3 +175,18 @@ def test_load_from_folder_is_backwards_compatible(daily_files) -> None:
     assert ds.sizes["time"] == len(DAYS)
     with pytest.raises(ValueError, match="Chunks"):
         load_from_folder(daily_files / "2024" / "01", chunks=None)
+
+
+@pytest.fixture
+def misaligned_files(tmp_path) -> "Path":
+    make_day(1).to_netcdf(tmp_path / "2024-01-01.nc", engine="h5netcdf")
+    make_day(2).assign_coords(latitude=[0.0, 1.0, 3.0]).to_netcdf(tmp_path / "2024-01-02.nc", engine="h5netcdf")
+    return tmp_path
+
+
+def test_open_dataset_files_does_not_warn_about_xarray_defaults(misaligned_files) -> None:
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", FutureWarning)
+        ds = open_dataset(FilesLocation(root=str(misaligned_files)), chunks={})
+    # Default join="outer" keeps the union of the misaligned coordinates
+    assert ds.sizes["latitude"] == 4  # noqa: PLR2004

@@ -269,10 +269,14 @@ def open_dataset(
                 decode_coords=is_decoded,
                 decode_cf=is_decoded,
                 decode_timedelta=True,
-                # xarray >= 2025.08 refuses compat="override" with the default coords="different" once more
-                # than one file is concatenated. xarray's annotation does not admit the literal it documents
+                # Pinned explicitly as xarray is changing these defaults (to coords="minimal", compat="override" and
+                # join="exact"). xarray >= 2025.08 refuses compat="override" with coords="different" once more than
+                # one file is concatenated. join="outer" preserves rojak's existing behaviour of tolerating files
+                # whose non-concatenated coordinates differ. xarray's annotation does not admit the literal it
+                # documents
                 coords="minimal",  # pyright: ignore[reportArgumentType]
                 compat="override",
+                join="outer",
             )
         case _ as unreachable:
             assert_never(unreachable)
