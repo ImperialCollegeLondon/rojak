@@ -986,3 +986,12 @@ def test_lite_context_explicit_met_data(tmp_path) -> None:
     context = BaseTurbulenceContext.model_validate(lite_context_fields(tmp_path, met_data=met_data))
     assert isinstance(context.met_data.location, ZarrLocation)
     assert context.met_data.engine == "netcdf4"
+
+
+def test_meteorology_config_open_kwargs_from_yaml(tmp_path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        yaml.safe_dump({"location": {"type": "files", "root": str(tmp_path)}, "open_kwargs": {"join": "exact"}}),
+    )
+    config = configuration.MeteorologyConfig.from_yaml(config_file)
+    assert config.open_kwargs == {"join": "exact"}

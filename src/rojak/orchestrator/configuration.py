@@ -387,6 +387,7 @@ class MeteorologyConfig(BaseConfigModel):
           template: "{time:%Y}/{time:%Y-%m-%d}.nc"
           time_window: {lower: 2024-01-01T00:00:00Z, upper: 2024-01-31T00:00:00Z}
           storage_options: {anon: true}
+        open_kwargs: {join: exact}
     """
 
     data_source: Annotated[
@@ -398,6 +399,15 @@ class MeteorologyConfig(BaseConfigModel):
         NetcdfEngine,
         Field(description="Engine used to read netCDF files (ignored for zarr)", repr=True, frozen=True),
     ] = "h5netcdf"
+    open_kwargs: Annotated[
+        dict[str, Any],
+        Field(
+            description="Additional keyword arguments for xarray.open_mfdataset (or xarray.open_zarr for zarr), "
+            "see rojak.core.sources.open_dataset",
+            repr=True,
+            frozen=True,
+        ),
+    ] = {}
 
     @model_validator(mode="before")
     @classmethod

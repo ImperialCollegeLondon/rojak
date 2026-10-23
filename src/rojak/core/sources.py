@@ -215,18 +215,23 @@ def open_dataset(
     chunks: "Mapping | None",
     engine: NetcdfEngine = "h5netcdf",
     is_decoded: bool = True,
+    **open_kwargs: Any,  # noqa: ANN401
 ) -> xr.Dataset:
     """
     Lazily open ``location`` as a single dataset
 
-    File-based locations are concatenated with :func:`xarray.open_mfdataset`. Remote files are opened through
-    fsspec as file-like objects, which only the ``h5netcdf`` engine supports.
+    File-based locations are concatenated with :func:`xarray.open_mfdataset`, and zarr stores are opened with
+    :func:`xarray.open_zarr`. Remote files are opened through fsspec as file-like objects, which only the
+    ``h5netcdf`` engine supports.
 
     Args:
         location: Where the data lives
         chunks: Dask chunking to use. Must not be ``None`` for file-based locations.
         engine: Backend engine used to read netCDF files (ignored for zarr). Defaults to ``"h5netcdf"``.
         is_decoded: Whether to decode coordinates and CF conventions on load. Defaults to ``True``.
+        **open_kwargs: Additional keyword arguments passed to :func:`xarray.open_mfdataset` (file-based locations)
+            or :func:`xarray.open_zarr` (zarr locations). These take precedence over rojak's defaults, e.g.
+            ``join="exact"`` to refuse files whose coordinates do not line up.
 
     Returns:
         Lazily loaded dataset
@@ -238,16 +243,14 @@ def open_dataset(
     """
     match location:
         case ZarrLocation():
-            return xr.open_zarr(
-                location.store,
-                # pyright takes issue with the chunks kwarg. This is due to it being untyped
-                # See https://github.com/pydata/xarray/issues/11221
-                chunks=chunks if chunks is not None else "auto",  # pyright: ignore[reportArgumentType]
-                storage_options=location.storage_options or None,
-                consolidated=location.consolidated,
-                decode_coords=is_decoded,
-                decode_cf=is_decoded,
-            )
+            zarr_kwargs: dict[str, Any] = {
+                "chunks": chunks if chunks is not None else "auto",
+                "storage_options": location.storage_options or None,
+                "consolidated": location.consolidated,
+                "decode_coords": is_decoded,
+                "decode_cf": is_decoded,
+            }
+            return xr.open_zarr(location.store, **(zarr_kwargs | open_kwargs))
         case FilesLocation() | TemplateLocation():
             if chunks is None:
                 raise ValueError("Chunks for multi-file load cannot be None")
@@ -261,22 +264,21 @@ def open_dataset(
                 ]
             else:
                 to_open = paths
-            return xr.open_mfdataset(
-                to_open,
-                chunks=chunks,
-                parallel=True,
-                engine=engine,
-                decode_coords=is_decoded,
-                decode_cf=is_decoded,
-                decode_timedelta=True,
+            mfdataset_kwargs: dict[str, Any] = {
+                "chunks": chunks,
+                "parallel": True,
+                "engine": engine,
+                "decode_coords": is_decoded,
+                "decode_cf": is_decoded,
+                "decode_timedelta": True,
                 # Pinned explicitly as xarray is changing these defaults (to coords="minimal", compat="override" and
                 # join="exact"). xarray >= 2025.08 refuses compat="override" with coords="different" once more than
                 # one file is concatenated. join="outer" preserves rojak's existing behaviour of tolerating files
-                # whose non-concatenated coordinates differ. xarray's annotation does not admit the literal it
-                # documents
-                coords="minimal",  # pyright: ignore[reportArgumentType]
-                compat="override",
-                join="outer",
-            )
+                # whose non-concatenated coordinates differ
+                "coords": "minimal",
+                "compat": "override",
+                "join": "outer",
+            }
+            return xr.open_mfdataset(to_open, **(mfdataset_kwargs | open_kwargs))
         case _ as unreachable:
             assert_never(unreachable)

@@ -87,5 +87,7 @@ def load_cat_data(config: "MeteorologyConfig", domain: "SpatialDomain", chunks: 
         :class:`~rojak.core.data.CATData` restricted to ``domain``
     """
     adapter: MetDataAdapter = get_met_data_adapter(config.data_source)
-    dataset: xr.Dataset = sources.open_dataset(config.location, chunks=chunks, engine=config.engine)
+    dataset: xr.Dataset = sources.open_dataset(
+        config.location, chunks=chunks, engine=config.engine, **config.open_kwargs
+    )
     return adapter(dataset).to_clear_air_turbulence_data(domain)

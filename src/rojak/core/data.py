@@ -410,6 +410,7 @@ def load_from_folder(
     chunks: Mapping | None = None,
     engine: "NetcdfEngine" = "netcdf4",
     is_decoded: bool = True,
+    **open_kwargs: Any,  # noqa: ANN401
 ) -> "xr.Dataset":
     """
     Lazily load and concatenate every file matching ``glob_pattern`` in a folder into a single Dataset
@@ -425,6 +426,8 @@ def load_from_folder(
         chunks: Dask chunking to use, passed to :func:`xarray.open_mfdataset`. Must not be ``None``.
         engine: Backend engine used to read the files. Defaults to ``"netcdf4"``.
         is_decoded: Whether to decode coordinates, CF conventions, and timedeltas on load. Defaults to ``True``.
+        **open_kwargs: Additional keyword arguments passed to :func:`xarray.open_mfdataset`, see
+            :func:`rojak.core.sources.open_dataset`
 
     Returns:
         Dataset formed by concatenating every matching file
@@ -438,6 +441,7 @@ def load_from_folder(
         chunks=chunks,
         engine=engine,
         is_decoded=is_decoded,
+        **open_kwargs,
     )
 
 

@@ -37,3 +37,17 @@ def test_load_cat_data_dispatches_through_registry(mocker, tmp_path) -> None:
     adapter.assert_called_once_with("raw dataset")
     adapter.return_value.to_clear_air_turbulence_data.assert_called_once_with(domain)
     assert result is adapter.return_value.to_clear_air_turbulence_data.return_value
+
+
+def test_load_cat_data_passes_open_kwargs(mocker, tmp_path) -> None:
+    config = MeteorologyConfig(
+        location={"type": "files", "root": str(tmp_path)},  # pyright: ignore[reportArgumentType]
+        open_kwargs={"join": "exact"},
+    )
+    domain = SpatialDomain(minimum_latitude=0, maximum_latitude=10, minimum_longitude=0, maximum_longitude=10)
+    open_mock = mocker.patch.object(registry.sources, "open_dataset")
+    mocker.patch.dict(registry._MET_DATA_ADAPTERS, {MetDataSource.ERA5: mocker.Mock()})
+
+    registry.load_cat_data(config, domain, {})
+
+    open_mock.assert_called_once_with(config.location, chunks={}, engine="h5netcdf", join="exact")

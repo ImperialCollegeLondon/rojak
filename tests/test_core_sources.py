@@ -190,3 +190,20 @@ def test_open_dataset_files_does_not_warn_about_xarray_defaults(misaligned_files
         ds = open_dataset(FilesLocation(root=str(misaligned_files)), chunks={})
     # Default join="outer" keeps the union of the misaligned coordinates
     assert ds.sizes["latitude"] == 4  # noqa: PLR2004
+
+
+def test_open_dataset_open_kwargs_override_defaults(misaligned_files) -> None:
+    with pytest.raises(ValueError, match="join='exact'"):
+        open_dataset(FilesLocation(root=str(misaligned_files)), chunks={}, join="exact")
+
+
+def test_open_dataset_open_kwargs_passed_to_open_zarr(tmp_path) -> None:
+    store = tmp_path / "data.zarr"
+    make_day(1).assign(u=lambda ds: ds["t"] * 2).to_zarr(store, consolidated=False)
+    ds = open_dataset(ZarrLocation(store=str(store), consolidated=False), chunks=None, drop_variables=["u"])
+    assert set(ds.data_vars) == {"t"}
+
+
+def test_load_from_folder_passes_open_kwargs(misaligned_files) -> None:
+    with pytest.raises(ValueError, match="join='exact'"):
+        load_from_folder(misaligned_files, chunks={}, engine="h5netcdf", join="exact")
