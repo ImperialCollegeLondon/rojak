@@ -34,7 +34,7 @@ protocols need their fsspec implementation installed (e.g. ``s3fs``, ``gcsfs``) 
 other options via ``storage_options``.
 """
 
-import datetime
+import datetime as dt
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, assert_never
@@ -141,7 +141,7 @@ class TemplateLocation(_BaseLocation):
     type: Literal["template"] = "template"
     root: str = Field(description="Directory (local path or fsspec URL) the template is relative to", repr=True)
     template: str = Field(description="str.format template for each file name, using the `time` field", repr=True)
-    time_window: Limits[datetime.datetime] = Field(description="Inclusive time window to load", repr=True)
+    time_window: Limits[dt.datetime] = Field(description="Inclusive time window to load", repr=True)
     frequency: str = Field(default="1D", description="pandas frequency string to step through time_window")
     on_missing: Literal["raise", "skip"] = Field(
         default="raise", description="What to do if a file produced by the template does not exist"
