@@ -39,7 +39,7 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple
+from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
 
 import dask.array as da
 import dask_geopandas as dgpd
@@ -47,7 +47,7 @@ import numpy as np
 import xarray as xr
 
 from rojak.atmosphere.contrails import issr
-from rojak.core import derivatives
+from rojak.core import derivatives, sources
 from rojak.core.calculations import pressure_to_altitude_icao
 from rojak.core.constants import MAX_LONGITUDE
 from rojak.core.derivatives import LatLonUnits, VelocityDerivative
@@ -62,6 +62,7 @@ if TYPE_CHECKING:
     import dask.dataframe as dd
     from shapely.geometry import Polygon
 
+    from rojak.core.sources import NetcdfEngine
     from rojak.orchestrator.configuration import SpatialDomain
 
 logger = logging.getLogger(__name__)
@@ -407,11 +408,16 @@ def load_from_folder(
     path_to_folder: "Path",
     glob_pattern: str = "*.nc",
     chunks: Mapping | None = None,
-    engine: Literal["netcdf4", "scipy", "pydap", "h5netcdf", "zarr"] = "netcdf4",
+    engine: "NetcdfEngine" = "netcdf4",
     is_decoded: bool = True,
+    **open_kwargs: Any,  # noqa: ANN401
 ) -> "xr.Dataset":
     """
     Lazily load and concatenate every file matching ``glob_pattern`` in a folder into a single Dataset
+
+    Thin wrapper around :func:`rojak.core.sources.open_dataset` with a
+    :class:`~rojak.core.sources.FilesLocation`, kept for backwards compatibility. Prefer configuring a
+    :data:`~rojak.core.sources.DataLocation` instead.
 
     Args:
         path_to_folder: Directory containing the data files
@@ -420,6 +426,8 @@ def load_from_folder(
         chunks: Dask chunking to use, passed to :func:`xarray.open_mfdataset`. Must not be ``None``.
         engine: Backend engine used to read the files. Defaults to ``"netcdf4"``.
         is_decoded: Whether to decode coordinates, CF conventions, and timedeltas on load. Defaults to ``True``.
+        **open_kwargs: Additional keyword arguments passed to :func:`xarray.open_mfdataset`, see
+            :func:`rojak.core.sources.open_dataset`
 
     Returns:
         Dataset formed by concatenating every matching file
@@ -427,18 +435,13 @@ def load_from_folder(
     Raises:
         ValueError: If ``chunks`` is ``None``
     """
-    if chunks is None:
-        raise ValueError("Chunks for ERA5 multi-file load cannot be None")
     logger.debug("Loading CATData from folder")
-    return xr.open_mfdataset(
-        str(path_to_folder / glob_pattern),
+    return sources.open_dataset(
+        sources.FilesLocation(root=str(path_to_folder), glob_pattern=glob_pattern),
         chunks=chunks,
-        parallel=True,
         engine=engine,
-        decode_coords=is_decoded,
-        decode_cf=is_decoded,
-        decode_timedelta=True,
-        compat="override",
+        is_decoded=is_decoded,
+        **open_kwargs,
     )
 
 

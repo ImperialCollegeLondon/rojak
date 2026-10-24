@@ -10,6 +10,7 @@ import yaml
 from pydantic import ValidationError
 
 from rojak.core.constants import MAX_LATITUDE, MAX_LONGITUDE
+from rojak.core.sources import FilesLocation, TemplateLocation, ZarrLocation
 from rojak.orchestrator import configuration
 from rojak.orchestrator.configuration import (
     AggregationMetricOption,
@@ -25,6 +26,7 @@ from rojak.orchestrator.configuration import (
     TurbulenceThresholdMode,
     TurbulenceThresholds,
 )
+from rojak.orchestrator.lite_configuration import BaseTurbulenceContext
 from rojak.utilities.types import Limits
 
 if TYPE_CHECKING:
@@ -867,3 +869,129 @@ def test_get_bounds_threshold_is_none(target_severity, all_none_except_light_tur
     with pytest.raises(ValueError, match="Attempting to retrieve threshold value for a severity that is None") as e_geq:
         all_none_except_light_turbulence_thresholds.get_bounds(target_severity, TurbulenceThresholdMode.GEQ)
     assert e_geq.type is ValueError
+
+
+def test_legacy_calibration_data_dir_is_folded_into_calibration_data(tmp_path) -> None:
+    config = configuration.TurbulenceCalibrationConfig(calibration_data_dir=tmp_path)  # pyright: ignore[reportCallIssue]
+    assert config.calibration_data is not None
+    assert config.calibration_data.data_source == configuration.MetDataSource.ERA5
+    assert config.calibration_data.location == FilesLocation(root=str(tmp_path))
+    # Preserves the engine rojak used before locations could be configured
+    assert config.calibration_data.engine == "netcdf4"
+
+
+def test_legacy_and_new_calibration_data_conflict(tmp_path) -> None:
+    with pytest.raises(InvalidConfigurationError, match="not both"):
+        configuration.TurbulenceCalibrationConfig(
+            calibration_data_dir=tmp_path,  # pyright: ignore[reportCallIssue]
+            calibration_data={"location": {"type": "files", "root": str(tmp_path)}},  # pyright: ignore[reportArgumentType]
+        )
+
+
+def test_legacy_evaluation_data_dir_must_exist(tmp_path) -> None:
+    with pytest.raises(ValidationError):
+        configuration.TurbulenceEvaluationConfig(evaluation_data_dir=tmp_path / "missing")  # pyright: ignore[reportCallIssue]
+
+
+def test_evaluation_data_from_template_location(tmp_path) -> None:
+    config = configuration.TurbulenceEvaluationConfig.model_validate(
+        {
+            "evaluation_data": {
+                "data_source": "era5",
+                "location": {
+                    "type": "template",
+                    "root": str(tmp_path),
+                    "template": "{time:%Y-%m-%d}.nc",
+                    "time_window": {"lower": "2024-01-01T00:00:00Z", "upper": "2024-01-03T00:00:00Z"},
+                },
+            },
+        },
+    )
+    assert isinstance(config.evaluation_data.location, TemplateLocation)
+    assert config.evaluation_data.engine == "h5netcdf"
+
+
+def lite_context_fields(data_dir: "Path", **extra_fields) -> dict:
+    return {
+        "name": "test",
+        "spatial_domain": {},
+        "data_dir": str(data_dir),
+        "chunks": {},
+        "diagnostics": ["deformation"],
+    } | (extra_fields)
+
+
+@pytest.mark.parametrize(
+    ("extra_fields", "expected_glob"),
+    [
+        pytest.param({}, "*.nc", id="defaults"),
+        pytest.param({"glob_pattern": "**/*.nc", "data_source": "era5"}, "**/*.nc", id="legacy_fields"),
+    ],
+)
+def test_lite_context_defaults_met_data_from_data_dir(tmp_path, extra_fields, expected_glob) -> None:
+    context = BaseTurbulenceContext.model_validate(lite_context_fields(tmp_path, **extra_fields))
+    assert context.met_data.location == FilesLocation(root=str(tmp_path), glob_pattern=expected_glob)
+    assert context.met_data.engine == "h5netcdf"
+
+
+def test_lite_context_rejects_legacy_fields_alongside_met_data(tmp_path) -> None:
+    met_data = {"location": {"type": "zarr", "store": "s3://bucket/era5.zarr"}}
+    with pytest.raises(InvalidConfigurationError):
+        BaseTurbulenceContext.model_validate(lite_context_fields(tmp_path, glob_pattern="*.nc", met_data=met_data))
+
+
+def test_meteorology_config_accepts_legacy_data_dir(tmp_path) -> None:
+    config = configuration.MeteorologyConfig.model_validate({"data_dir": str(tmp_path), "data_source": "era5"})
+    assert config.location == FilesLocation(root=str(tmp_path))
+    assert config.data_source == configuration.MetDataSource.ERA5
+
+
+def test_meteorology_config_legacy_data_dir_conflicts_with_location(tmp_path) -> None:
+    with pytest.raises(InvalidConfigurationError, match="not both"):
+        configuration.MeteorologyConfig.model_validate(
+            {"data_dir": str(tmp_path), "location": {"type": "files", "root": str(tmp_path)}},
+        )
+
+
+def test_data_config_accepts_legacy_meteorology_config(tmp_path) -> None:
+    config = configuration.DataConfig.model_validate(
+        {
+            "spatial_domain": {
+                "minimum_latitude": 0,
+                "maximum_latitude": 10,
+                "minimum_longitude": 0,
+                "maximum_longitude": 10,
+            },
+            "meteorology_config": {"data_dir": str(tmp_path), "data_source": "era5"},
+        },
+    )
+    assert config.meteorology_config is not None
+    assert config.meteorology_config.location == FilesLocation(root=str(tmp_path))
+
+
+def test_legacy_evaluation_data_dir_from_yaml(tmp_path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(yaml.safe_dump({"evaluation_data_dir": str(tmp_path)}))
+    config = configuration.TurbulenceEvaluationConfig.from_yaml(config_file)
+    assert config.evaluation_data.location == FilesLocation(root=str(tmp_path))
+    assert config.evaluation_data.engine == "netcdf4"
+
+
+def test_lite_context_explicit_met_data(tmp_path) -> None:
+    met_data = {
+        "data_source": "era5",
+        "location": {"type": "zarr", "store": "s3://bucket/era5.zarr"},
+        "engine": "netcdf4",
+    }
+    context = BaseTurbulenceContext.model_validate(lite_context_fields(tmp_path, met_data=met_data))
+    assert isinstance(context.met_data.location, ZarrLocation)
+    assert context.met_data.engine == "netcdf4"
+
+
+def test_meteorology_config_open_kwargs_from_yaml(tmp_path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        yaml.safe_dump({"location": {"type": "files", "root": str(tmp_path)}, "open_kwargs": {"join": "exact"}}),
+    )
+    config = configuration.MeteorologyConfig.from_yaml(config_file)
+    assert config.open_kwargs == {"join": "exact"}

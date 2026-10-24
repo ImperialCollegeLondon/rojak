@@ -24,9 +24,8 @@ from rich.progress import track
 
 from rojak.core.calculations import XrAggregationMethod, apply_data_var_reduction
 from rojak.core.constants import TWENTIES_CLIMATOLOGICAL_PARAMETER
-from rojak.core.data import load_from_folder
-from rojak.datalib.ecmwf.era5 import Era5Data
-from rojak.orchestrator.configuration import MetDataSource, TurbulenceThresholds
+from rojak.datalib.registry import load_cat_data
+from rojak.orchestrator.configuration import TurbulenceThresholds
 from rojak.orchestrator.lite_configuration import DiagnosticsFormat
 from rojak.plot.turbulence_plotter import chain_diagnostic_names
 from rojak.turbulence.analysis import (
@@ -64,26 +63,6 @@ DISTRIBUTION_PARAMS_TYPE_ADAPTER: TypeAdapter[dict[str, DistributionParameters]]
 )
 
 
-def _load_era5_data(context: "BaseTurbulenceContext", /) -> "CATData":
-    """
-    Load the ERA5 data described by ``context`` and adapt it into a :class:`~rojak.core.data.CATData`
-
-    Args:
-        context: Configuration describing where the data is and how to load it
-
-    Returns:
-        :class:`~rojak.core.data.CATData` restricted to ``context.spatial_domain``
-
-    Raises:
-        NotImplementedError: If ``context.data_source`` is not ERA5
-    """
-    if context.data_source != MetDataSource.ERA5:
-        raise NotImplementedError("Only ERA5 data is currently supported")
-    return Era5Data(
-        load_from_folder(context.data_dir, glob_pattern=context.glob_pattern, chunks=context.chunks, engine="h5netcdf"),
-    ).to_clear_air_turbulence_data(context.spatial_domain)
-
-
 def _instantiate_diagnostic_factory(context: "BaseTurbulenceContext", /) -> DiagnosticFactory:
     """
     Build a :class:`~rojak.turbulence.diagnostic.DiagnosticFactory` from the meteorological data in ``context``
@@ -95,11 +74,9 @@ def _instantiate_diagnostic_factory(context: "BaseTurbulenceContext", /) -> Diag
         :class:`~rojak.turbulence.diagnostic.DiagnosticFactory` backed by ``context``'s data
 
     Raises:
-        NotImplementedError: If ``context.data_source`` is not ERA5
+        NotImplementedError: If no adapter is registered for ``context.met_data.data_source``
     """
-    if context.data_source != MetDataSource.ERA5:
-        raise NotImplementedError("Only ERA5 data is currently supported")
-    source_data: CATData = _load_era5_data(context)
+    source_data: CATData = load_cat_data(context.met_data, context.spatial_domain, context.chunks)
     return DiagnosticFactory(source_data)
 
 

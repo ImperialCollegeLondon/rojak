@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -4276,6 +4276,7 @@ dependencies = [
     { name = "crick" },
     { name = "dask" },
     { name = "distributed" },
+    { name = "fsspec" },
     { name = "h5netcdf", extra = ["h5py"] },
     { name = "pydantic" },
     { name = "pyproj" },
@@ -4367,6 +4368,7 @@ requires-dist = [
     { name = "dask-geopandas", marker = "extra == 'cli'" },
     { name = "distributed" },
     { name = "flox", marker = "extra == 'performance'" },
+    { name = "fsspec" },
     { name = "geopandas", marker = "extra == 'amdar'" },
     { name = "geopandas", marker = "extra == 'cli'" },
     { name = "geoviews", marker = "extra == 'cli'" },
