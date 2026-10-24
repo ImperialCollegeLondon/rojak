@@ -11,18 +11,22 @@ This module provides:
 import copy
 import dataclasses
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Literal, overload
+from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
+import dask.dataframe as dd
 import numpy as np
+import pandas as pd
 import xarray as xr
 from dask.base import is_dask_collection
+from dask.dataframe.dispatch import make_meta
 from scipy.interpolate import RegularGridInterpolator
 
-from rojak.core.constants import GAS_CONSTANT_DRY_AIR, GRAVITATIONAL_ACCELERATION
+from rojak.core.constants import FT_TO_M, GAS_CONSTANT_DRY_AIR, GRAVITATIONAL_ACCELERATION
 from rojak.utilities._compat import deprecated
 from rojak.utilities.types import is_np_array
 
 if TYPE_CHECKING:
+    import dask.array as da
     from numpy.typing import NDArray
 
     from rojak.utilities.types import Coordinate, NumpyOrDataArray
@@ -346,6 +350,49 @@ def altitude_to_pressure_icao(altitude: "NumpyOrDataArray") -> "NumpyOrDataArray
         xr.where(is_within_troposphere, np.nan, altitude, keep_attrs=True)
     )
     return xr.where(is_within_troposphere, pressure_within_troposphere, pressure_within_stratosphere, keep_attrs=True)
+
+
+def _pandas_altitude_in_ft_to_pressure[T: (pd.Series, pd.DataFrame)](altitude: T) -> T:
+    """Convert a pandas object of altitudes in ft to pressure in hPa, retaining its index and name/columns"""
+    pressure = np.asarray(altitude_to_pressure_icao(altitude.to_numpy() * FT_TO_M))
+    if isinstance(altitude, pd.Series):
+        return pd.Series(pressure, index=altitude.index, name=altitude.name)
+    return pd.DataFrame(pressure, index=altitude.index, columns=altitude.columns)
+
+
+def altitude_in_ft_to_pressure[
+    T: (np.ndarray, xr.DataArray, da.Array, pd.Series, pd.DataFrame, dd.Series, dd.DataFrame)
+](
+    altitude: T,
+) -> T:
+    """
+    Convert altitude in ft to pressure in hPa for ICAO standard atmosphere [NACA3182]_
+
+    The altitude is converted to m and passed to :py:func:`altitude_to_pressure_icao`. Dask-backed inputs (i.e.
+    :class:`dask.array.Array`, dask-backed :class:`xarray.DataArray`, :class:`dask.dataframe.Series` and
+    :class:`dask.dataframe.DataFrame`) remain lazy.
+
+    Args:
+        altitude: Altitude in ft. For a dataframe, every column is converted.
+
+    Returns:
+        Pressure in hPa, of the same type and shape as ``altitude``. The index and name (or columns) of pandas/dask
+        dataframe objects, and the coordinates, attributes and name of a :class:`xarray.DataArray` are retained.
+
+    Examples
+    --------
+
+    >>> ddf["pressure_level"] = altitude_in_ft_to_pressure(ddf["altitude"])  # doctest: +SKIP
+    """
+    if isinstance(altitude, (pd.Series, pd.DataFrame)):
+        return _pandas_altitude_in_ft_to_pressure(altitude)
+
+    if isinstance(altitude, (dd.Series, dd.DataFrame)):
+        return altitude.map_partitions(
+            _pandas_altitude_in_ft_to_pressure, meta=_pandas_altitude_in_ft_to_pressure(make_meta(altitude))
+        )
+
+    return cast("T", altitude_to_pressure_icao(altitude * FT_TO_M))
 
 
 @deprecated("Use scipy.interpolate.RegularGridInterpolator or the xarray interp() method instead")

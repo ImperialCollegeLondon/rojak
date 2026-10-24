@@ -2,7 +2,10 @@ import warnings
 from collections.abc import Callable
 from typing import TYPE_CHECKING, assert_never
 
+import dask.array as da
+import dask.dataframe as dd
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
 from dask.base import is_dask_collection
@@ -12,6 +15,7 @@ from xarray import testing as xrt
 from rojak.core.calculations import (
     XrAggregationMethod,
     _icao_constants,
+    altitude_in_ft_to_pressure,
     altitude_to_pressure_icao,
     altitude_to_pressure_stratosphere,
     altitude_to_pressure_troposphere,
@@ -23,6 +27,7 @@ from rojak.core.calculations import (
     pressure_to_altitude_troposphere,
     pressure_to_altitude_us_std_atm,
 )
+from rojak.core.constants import FT_TO_M
 from rojak.utilities.types import Coordinate
 
 if TYPE_CHECKING:
@@ -342,6 +347,104 @@ class TestAltitudeToPressureIcao:
         np.testing.assert_allclose(np.asarray(computed_pressure), altitude_to_pressure_icao(self.altitude), rtol=1e-12)
 
 
+class TestAltitudeInFtToPressure:
+    altitude_in_ft: np.ndarray = np.asarray([0.0, 10000.0, 25000.0, 35000.0, 36089.0, 40000.0, 45000.0])
+    expected_pressure: np.ndarray = np.asarray(altitude_to_pressure_icao(altitude_in_ft * FT_TO_M))
+
+    def test_known_values(self) -> None:
+        # 0 ft => P_0 and the tropopause (~36,089 ft) => P^*
+        computed_pressure = altitude_in_ft_to_pressure(np.asarray([0.0, _icao_constants.tropopause_height / FT_TO_M]))
+        np.testing.assert_allclose(
+            computed_pressure, [_icao_constants.reference_pressure, _icao_constants.tropopause_pressure], rtol=1e-5
+        )
+
+    def test_numpy(self) -> None:
+        computed_pressure = altitude_in_ft_to_pressure(self.altitude_in_ft)
+        assert isinstance(computed_pressure, np.ndarray)
+        np.testing.assert_allclose(computed_pressure, self.expected_pressure)
+
+    def test_integer_altitudes_give_float_pressures(self) -> None:
+        computed_pressure = altitude_in_ft_to_pressure(pd.Series([0, 10000, 40000]))
+        assert pd.api.types.is_float_dtype(computed_pressure)
+
+    @pytest.mark.parametrize("is_dask", [True, False])
+    def test_data_array(self, is_dask: bool) -> None:
+        altitude = xr.DataArray(
+            self.altitude_in_ft,
+            dims=["obs"],
+            coords={"obs": np.arange(self.altitude_in_ft.size)},
+            attrs={"units": "ft"},
+            name="altitude",
+        )
+        if is_dask:
+            altitude = altitude.chunk({"obs": 3})
+        computed_pressure = altitude_in_ft_to_pressure(altitude)
+
+        assert isinstance(computed_pressure, xr.DataArray)
+        assert is_dask_collection(computed_pressure) == is_dask
+        assert computed_pressure.name == altitude.name
+        xrt.assert_identical(computed_pressure.coords.to_dataset(), altitude.coords.to_dataset())
+        np.testing.assert_allclose(computed_pressure.to_numpy(), self.expected_pressure)
+
+    def test_dask_array(self) -> None:
+        computed_pressure = altitude_in_ft_to_pressure(da.from_array(self.altitude_in_ft).rechunk(3))
+        assert isinstance(computed_pressure, da.Array)
+        np.testing.assert_allclose(computed_pressure.compute(), self.expected_pressure)
+
+    @pytest.mark.parametrize("is_dask", [True, False])
+    def test_series_retains_index_and_name(self, is_dask: bool) -> None:
+        # Non-default index ensures the result aligns with the input rather than having a fresh RangeIndex
+        index = pd.Index(np.arange(self.altitude_in_ft.size) * 10 + 5, name="obs_id")
+        altitude = pd.Series(self.altitude_in_ft, index=index, name="altitude")
+        if is_dask:
+            altitude = dd.from_pandas(altitude, npartitions=3)
+        computed_pressure = altitude_in_ft_to_pressure(altitude)
+
+        if is_dask:
+            assert isinstance(computed_pressure, dd.Series)
+            assert computed_pressure.npartitions == altitude.npartitions
+            computed_pressure = computed_pressure.compute()
+        pd.testing.assert_series_equal(
+            computed_pressure, pd.Series(self.expected_pressure, index=index, name="altitude")
+        )
+
+    @pytest.mark.parametrize("is_dask", [True, False])
+    def test_data_frame_converts_every_column(self, is_dask: bool) -> None:
+        altitude = pd.DataFrame(
+            {"altitude": self.altitude_in_ft, "other_altitude": self.altitude_in_ft[::-1]},
+            index=np.arange(self.altitude_in_ft.size) + 100,
+        )
+        if is_dask:
+            altitude = dd.from_pandas(altitude, npartitions=2)
+        computed_pressure = altitude_in_ft_to_pressure(altitude)
+
+        if is_dask:
+            assert isinstance(computed_pressure, dd.DataFrame)
+            computed_pressure = computed_pressure.compute()
+        pd.testing.assert_frame_equal(
+            computed_pressure,
+            pd.DataFrame(
+                {"altitude": self.expected_pressure, "other_altitude": self.expected_pressure[::-1]},
+                index=np.arange(self.altitude_in_ft.size) + 100,
+            ),
+        )
+
+    def test_assign_to_dask_data_frame(self) -> None:
+        # Mirrors the intended usage of adding a pressure column derived from an altitude column
+        ddf = dd.from_pandas(
+            pd.DataFrame({"altitude": self.altitude_in_ft}, index=np.arange(self.altitude_in_ft.size) * 2),
+            npartitions=3,
+        )
+        ddf["pressure_level"] = altitude_in_ft_to_pressure(ddf["altitude"])
+        np.testing.assert_allclose(ddf["pressure_level"].compute().to_numpy(), self.expected_pressure)
+
+    def test_dask_meta_matches_computed(self) -> None:
+        ddf = dd.from_pandas(pd.DataFrame({"altitude": [0, 10000, 40000, 45000]}), npartitions=2)
+        computed_pressure = altitude_in_ft_to_pressure(ddf["altitude"])
+        assert computed_pressure.dtype == computed_pressure.compute().dtype
+        assert computed_pressure.name == "altitude"
+
+
 def linear_function(x_vals, y_vals):
     return x_vals + y_vals
 
@@ -425,7 +528,7 @@ def test_interpolation_on_lat_lon_to_grid_points(load_cat_data, client) -> None:
     with pytest.deprecated_call():
         interpolated_to: xr.DataArray = interpolation_on_lat_lon(apply_on, interpolation_points)
         np.testing.assert_array_equal(
-            apply_on.stack(z=["latitude", "longitude"]),
+            apply_on.stack(z=["latitude", "longitude"]),  # noqa: PD013
             interpolated_to,
         )
 
@@ -533,7 +636,7 @@ class TestApplyDataVarsReduction:
     def test_skipna_kwarg(self, make_dummy_cat_data):
         # Add NaN values
         data_with_nan = make_dummy_cat_data({}).copy()
-        data_with_nan["temperature"].values[0, 0] = np.nan
+        data_with_nan["temperature"].values[0, 0] = np.nan  # noqa: PD011
 
         result_skipna_true = apply_data_var_reduction(
             data_with_nan,
