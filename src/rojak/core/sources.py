@@ -36,6 +36,7 @@ other options via ``storage_options``.
 
 import datetime as dt
 import logging
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, assert_never
 
@@ -54,9 +55,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-type NetcdfEngine = Literal["netcdf4", "scipy", "pydap", "h5netcdf"]
-
 _LOCAL_PROTOCOLS: frozenset[str] = frozenset({"file", "local"})
+
+
+class NetcdfEngine(StrEnum):
+    """xarray backend engine used to read netCDF files"""
+
+    NETCDF4 = "netcdf4"
+    SCIPY = "scipy"
+    PYDAP = "pydap"
+    H5NETCDF = "h5netcdf"
 
 
 def is_remote(urlpath: str | Path) -> bool:
@@ -213,7 +221,7 @@ def resolve_paths(location: FilesLocation | TemplateLocation) -> list[str]:
 def open_dataset(
     location: FilesLocation | TemplateLocation | ZarrLocation,
     chunks: "Mapping | None",
-    engine: NetcdfEngine = "h5netcdf",
+    engine: NetcdfEngine = NetcdfEngine.H5NETCDF,
     is_decoded: bool = True,
     **open_kwargs: Any,  # noqa: ANN401
 ) -> xr.Dataset:
@@ -257,7 +265,7 @@ def open_dataset(
             paths: list[str] = resolve_paths(location)
             logger.debug("Opening %d files from %s", len(paths), location.root)
             if is_remote(location.root):
-                if engine != "h5netcdf":
+                if engine != NetcdfEngine.H5NETCDF:
                     raise ValueError(f"Remote netCDF files can only be opened with h5netcdf, not {engine}")
                 to_open: list = [
                     file.open() for file in fsspec.open_files(paths, mode="rb", **location.storage_options)

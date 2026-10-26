@@ -398,7 +398,7 @@ class MeteorologyConfig(BaseConfigModel):
     engine: Annotated[
         NetcdfEngine,
         Field(description="Engine used to read netCDF files (ignored for zarr)", repr=True, frozen=True),
-    ] = "h5netcdf"
+    ] = NetcdfEngine.H5NETCDF
     open_kwargs: Annotated[
         dict[str, Any],
         Field(
@@ -496,7 +496,7 @@ class TurbulenceCalibrationConfig(BaseConfigModel):
     def accept_legacy_data_dir(cls, data: Any) -> Any:  # noqa: ANN401
         """Accept the deprecated ``calibration_data_dir`` field, see :func:`fold_legacy_data_dir`"""
         # netcdf4 preserves the engine that was used when only a directory could be given
-        return fold_legacy_data_dir(data, "calibration_data_dir", "calibration_data", engine="netcdf4")
+        return fold_legacy_data_dir(data, "calibration_data_dir", "calibration_data", engine=NetcdfEngine.NETCDF4)
 
 
 class TurbulenceCalibrationPhases(BaseConfigModel):
@@ -622,7 +622,7 @@ class TurbulenceEvaluationConfig(BaseConfigModel):
     @classmethod
     def accept_legacy_data_dir(cls, data: Any) -> Any:  # noqa: ANN401
         """Accept the deprecated ``evaluation_data_dir`` field, see :func:`fold_legacy_data_dir`"""
-        return fold_legacy_data_dir(data, "evaluation_data_dir", "evaluation_data", engine="netcdf4")
+        return fold_legacy_data_dir(data, "evaluation_data_dir", "evaluation_data", engine=NetcdfEngine.NETCDF4)
 
 
 class TurbulenceEvaluationPhases(BaseConfigModel):

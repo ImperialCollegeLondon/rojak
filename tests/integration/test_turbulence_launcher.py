@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, NamedTuple
 import dask.dataframe as dd
 import pytest
 
-from rojak.core.sources import FilesLocation
+from rojak.core.sources import FilesLocation, NetcdfEngine
 from rojak.datalib.madis.amdar import AcarsAmdarTurbulenceData
 from rojak.orchestrator.configuration import (
     AggregationMetricOption,
@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 
 
 def files_met_config(data_dir: Path) -> MeteorologyConfig:
-    return MeteorologyConfig(location=FilesLocation(root=str(data_dir)), engine="netcdf4")
+    return MeteorologyConfig(location=FilesLocation(root=str(data_dir)), engine=NetcdfEngine.NETCDF4)
 
 
 @pytest.fixture

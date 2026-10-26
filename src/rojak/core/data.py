@@ -62,7 +62,6 @@ if TYPE_CHECKING:
     import dask.dataframe as dd
     from shapely.geometry import Polygon
 
-    from rojak.core.sources import NetcdfEngine
     from rojak.orchestrator.configuration import SpatialDomain
 
 logger = logging.getLogger(__name__)
@@ -408,7 +407,7 @@ def load_from_folder(
     path_to_folder: "Path",
     glob_pattern: str = "*.nc",
     chunks: Mapping | None = None,
-    engine: "NetcdfEngine" = "netcdf4",
+    engine: sources.NetcdfEngine = sources.NetcdfEngine.NETCDF4,
     is_decoded: bool = True,
     **open_kwargs: Any,  # noqa: ANN401
 ) -> "xr.Dataset":

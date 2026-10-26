@@ -13,6 +13,7 @@ from rojak.core.data import load_from_folder
 from rojak.core.sources import (
     DataLocation,
     FilesLocation,
+    NetcdfEngine,
     TemplateLocation,
     ZarrLocation,
     is_remote,
@@ -160,7 +161,7 @@ def test_open_dataset_remote_files(memory_files) -> None:
 
 def test_open_dataset_remote_files_requires_h5netcdf(memory_files) -> None:
     with pytest.raises(ValueError, match="h5netcdf"):
-        open_dataset(FilesLocation(root=memory_files), chunks={}, engine="netcdf4")
+        open_dataset(FilesLocation(root=memory_files), chunks={}, engine=NetcdfEngine.NETCDF4)
 
 
 def test_open_dataset_zarr(tmp_path) -> None:
@@ -171,7 +172,7 @@ def test_open_dataset_zarr(tmp_path) -> None:
 
 
 def test_load_from_folder_is_backwards_compatible(daily_files) -> None:
-    ds = load_from_folder(daily_files / "2024" / "01", chunks={}, engine="h5netcdf")
+    ds = load_from_folder(daily_files / "2024" / "01", chunks={}, engine=NetcdfEngine.H5NETCDF)
     assert ds.sizes["time"] == len(DAYS)
     with pytest.raises(ValueError, match="Chunks"):
         load_from_folder(daily_files / "2024" / "01", chunks=None)
@@ -206,4 +207,4 @@ def test_open_dataset_open_kwargs_passed_to_open_zarr(tmp_path) -> None:
 
 def test_load_from_folder_passes_open_kwargs(misaligned_files) -> None:
     with pytest.raises(ValueError, match="join='exact'"):
-        load_from_folder(misaligned_files, chunks={}, engine="h5netcdf", join="exact")
+        load_from_folder(misaligned_files, chunks={}, engine=NetcdfEngine.H5NETCDF, join="exact")
