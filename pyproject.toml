@@ -35,7 +35,7 @@ dependencies = [
     "sparse",
     "xarray",
     "zarr",
-]
+] # end dependencies
 
 [project.urls]
 repository = "https://github.com/ImperialCollegeLondon/rojak"
