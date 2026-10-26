@@ -985,7 +985,7 @@ def identify_and_stack_circular_extrema(
     )
 
     # Count how many extrema are in a given point in time
-    n_composite_dim = extrema_locations.sum(dim=["longitude", "latitude"]).compute().values
+    n_composite_dim = extrema_locations.sum(dim=[lon_dim_name, lat_dim_name]).compute().values
     # Create a dataset so that both arrays can be used at the GroupBy stage
     extrema_ds = xr.Dataset(
         data_vars={"filtered": filter_applied, "extrema_locations": extrema_locations},
@@ -998,7 +998,7 @@ def identify_and_stack_circular_extrema(
 
     # Add new `n_extrema` coord that is attached to the existing time dimension - ensure that when the data is split
     #   in the GroupBy, the information about the tiem is still there.
-    extrema_ds = extrema_ds.assign_coords({extrema_global_idx_dim: ("time", n_composite_dim)})
+    extrema_ds = extrema_ds.assign_coords({extrema_global_idx_dim: (time_dim_name, n_composite_dim)})
 
     # groupby("n_extrema"): This ensures that each item in a group only has a fixed number of extrema. This allows for
     #                       xr.apply_ufunc() to be used as each iteration over the non-lat-lon dim results in the array
