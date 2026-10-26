@@ -665,7 +665,7 @@ def __identify_extrema_locations(
         latitude_dim_name=lat_dim_name,
         longitude_dim_name=lon_dim_name,
         **filter_kwargs,
-    ).persist()
+    )
     extrema_locations: xr.DataArray = target_data == filter_applied
     if extrema_threshold_value is not None:
         extrema_locations = extrema_locations & (
@@ -1021,7 +1021,7 @@ def identify_and_stack_circular_extrema(
             new_dim_name=extrema_group_idx_dim,
         )
         .sortby(time_dim_name)
-    ).persist()
+    )
     time_values = n_extrema_indexed[time_dim_name].values
     return n_extrema_indexed.drop_vars([extrema_global_idx_dim, extrema_group_idx_dim, time_dim_name]).assign_coords(
         n_extrema=np.arange(time_values.size), time=(extrema_global_idx_dim, time_values)
