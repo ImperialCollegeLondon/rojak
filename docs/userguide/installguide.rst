@@ -8,7 +8,7 @@ Requirements
 
 .. literalinclude:: ../../pyproject.toml
     :start-after: dependencies = [
-    :end-before: ]
+    :end-before: # end dependencies
 
 Installation
 -------------------
