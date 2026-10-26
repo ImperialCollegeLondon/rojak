@@ -57,7 +57,7 @@ def project_about_centre(
     Constructs a WGS-84 orthographic projection (:class:`pyproj.Proj`) anchored at the centre and interpolates
     ``data_values`` from its native lat/lon grid onto a regular ``(y_km, x_km)`` Cartesian grid using linear
     interpolation via :func:`scipy.interpolate.griddata`. This is the shared implementation used by
-    :func:`_project_data_about_extrema` and :func:`_project_data_about_centre`.
+    :func:`_project_data_about_extrema` and :func:`~rojak.atmosphere.compositing._composite_block_about_points`.
 
     The re-projection pipeline is:
 
