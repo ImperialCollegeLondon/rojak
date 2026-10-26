@@ -30,9 +30,8 @@ from typing import TYPE_CHECKING, NamedTuple, assert_never
 import numpy as np
 import xarray as xr
 
-from rojak.core import data
-from rojak.datalib.ecmwf.era5 import Era5Data
 from rojak.datalib.madis.amdar import AcarsAmdarRepository
+from rojak.datalib.registry import load_cat_data
 from rojak.datalib.ukmo.amdar import UkmoAmdarRepository
 from rojak.orchestrator.configuration import (
     AmdarDataSource,
@@ -177,7 +176,7 @@ class CalibrationStage:
         Run every configured calibration phase
 
         A :class:`~rojak.turbulence.diagnostic.CalibrationDiagnosticSuite` is built once (if
-        ``calibration_data_dir`` is configured) and shared across phases, then released once every phase has run.
+        ``calibration_data`` is configured) and shared across phases, then released once every phase has run.
 
         Args:
             diagnostics: Turbulence diagnostics to calibrate
@@ -187,7 +186,7 @@ class CalibrationStage:
             Mapping from each configured phase to its :class:`Result`
         """
         suite: CalibrationDiagnosticSuite | None = (
-            self.create_diagnostic_suite(diagnostics, chunks) if self._config.calibration_data_dir is not None else None
+            self.create_diagnostic_suite(diagnostics, chunks) if self._config.calibration_data is not None else None
         )
 
         result = {phase: self.run_phase(phase, suite) for phase in self._phases.phases}
@@ -211,13 +210,11 @@ class CalibrationStage:
             :class:`~rojak.turbulence.diagnostic.CalibrationDiagnosticSuite` of the computed diagnostics
 
         Raises:
-            AssertionError: If ``self._config.calibration_data_dir`` is ``None``
+            AssertionError: If ``self._config.calibration_data`` is ``None``
         """
-        assert self._config.calibration_data_dir is not None
+        assert self._config.calibration_data is not None
         logger.debug("Loading CATData")
-        calibration_data: CATData = Era5Data(
-            data.load_from_folder(self._config.calibration_data_dir, chunks=chunks),
-        ).to_clear_air_turbulence_data(self._spatial_domain)
+        calibration_data: CATData = load_cat_data(self._config.calibration_data, self._spatial_domain, chunks)
         logger.debug("Instantiating CalibrationDiagnosticSuite")
         return CalibrationDiagnosticSuite(DiagnosticFactory(calibration_data), diagnostics)
 
@@ -447,13 +444,11 @@ class EvaluationStage:
             ``self._calibration_result`` where those phases were run
 
         Raises:
-            AssertionError: If ``self._config.evaluation_data_dir`` is ``None``
+            AssertionError: If ``self._config.evaluation_data`` is ``None``
         """
-        assert self._config.evaluation_data_dir is not None
+        assert self._config.evaluation_data is not None
         logger.debug("Loading CATData")
-        evaluation_data: CATData = Era5Data(
-            data.load_from_folder(self._config.evaluation_data_dir, chunks=chunks),
-        ).to_clear_air_turbulence_data(self._spatial_domain)
+        evaluation_data: CATData = load_cat_data(self._config.evaluation_data, self._spatial_domain, chunks)
         if TurbulenceCalibrationPhaseOption.HISTOGRAM in self._calibration_result:
             dist_params = {
                 name: DistributionParameters(histogram_data.mean, histogram_data.variance)
