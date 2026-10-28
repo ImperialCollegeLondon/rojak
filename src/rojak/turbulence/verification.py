@@ -280,7 +280,7 @@ class AmdarDataHarmoniser:
             **{
                 self.level_index_column: coords_of_observation.vertical_index,
                 self.lat_index_column: coords_of_observation.latitude_index,
-                self.lon_index_column: coords_of_observation.latitude_index,
+                self.lon_index_column: coords_of_observation.longitude_index,
                 self.time_index_column: coords_of_observation.time_index,
             }
         )

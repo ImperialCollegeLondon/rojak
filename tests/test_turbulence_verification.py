@@ -523,3 +523,31 @@ class TestDiagnosticAmdarVerification:
                     f"tp: {classification_result.true_positives.compute()}, "
                     f"fp: {classification_result.false_positives.compute()}"
                 )
+
+
+class TestVerificationCorrectness:
+    @pytest.mark.parametrize("case_size", possible_test_case_sizes)
+    def test_observation_data_with_indices_matches_coordinates(
+        self, mocker: "MockerFixture", case_size: ThisTestCaseSize, grid_setup: GridSetup
+    ) -> None:
+        # Unlike the other tests, coordinates_of_observations is NOT mocked so that the mapping of the observations'
+        # positions onto the grid is checked
+        case: ThisTestCaseValues = get_test_case(case_size, grid_setup.grid_prototype)
+        grid = grid_setup.grid_prototype
+        observations = pd.DataFrame(
+            {
+                AmdarDataHarmoniser.latitude_column: grid["latitude"].to_numpy()[case.indices["lat_index"]],
+                AmdarDataHarmoniser.longitude_column: grid["longitude"].to_numpy()[case.indices["lon_index"]],
+                AmdarDataHarmoniser.time_column: grid["time"].to_numpy()[case.indices["time_index"]],
+                AmdarDataHarmoniser.level_column: grid["pressure_level"].to_numpy()[case.indices["level_index"]],
+                "index_right": case.indices["index_right"],
+            }
+        )
+        amdar_turb_data_mock, _ = amdar_data_mock(mocker, dd.from_pandas(observations, npartitions=2))
+        data_harmoniser = AmdarDataHarmoniser(amdar_turb_data_mock, grid, grid_setup.time_window)
+
+        with_indices: pd.DataFrame = data_harmoniser.observation_data_with_indices().compute()
+        as_arrays: dict[str, da.Array] = data_harmoniser.coordinates_of_observations().as_arrays()
+        for index_column in ["lat_index", "lon_index", "level_index", "time_index"]:
+            np.testing.assert_array_equal(with_indices[index_column].to_numpy(), case.indices[index_column])
+            np.testing.assert_array_equal(as_arrays[index_column].compute(), case.indices[index_column])
