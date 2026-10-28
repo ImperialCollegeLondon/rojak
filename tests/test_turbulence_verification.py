@@ -735,3 +735,42 @@ class TestVerificationCorrectness:
 
             computed = keyed_by(computed_by_diagnostic[str(diagnostic_name)].compute(), coordinate_columns)
             pd.testing.assert_frame_equal(computed[validation_columns], expected, check_dtype=False)
+
+    @pytest.mark.parametrize("min_edr", [0.05, 0.1])
+    def test_nearest_value_roc_matches_numpy(
+        self, mocker: "MockerFixture", min_edr: float, grid_setup: GridSetup
+    ) -> None:
+        rng = np.random.default_rng(3)
+        # Several observations in the same grid cell should be aggregated: any for the observed turbulence and mean
+        # for the (identical) diagnostic values
+        cells = observations_at_positions(grid_setup.grid_prototype, seed=3)[
+            ["lat_index", "lon_index", "level_index", "time_index", "index_right"]
+        ]
+        observations = cells.loc[cells.index.repeat(rng.integers(1, 4, size=len(cells)))].reset_index(drop=True)
+        observations = observations.assign(
+            maxEDR=rng.lognormal(-3, 1, size=len(observations)),
+            medEDR=rng.lognormal(-3, 1, size=len(observations)),
+        )
+        data_harmoniser, _ = make_harmoniser(mocker, dd.from_pandas(observations, npartitions=4), grid_setup)
+        verifier = DiagnosticsAmdarVerification(data_harmoniser, grid_setup.diagnostics)
+        conditions = conditions_for(min_edr)
+
+        roc = verifier.nearest_value_roc(conditions)
+
+        cell_columns = ["lat_index", "lon_index", "level_index", "time_index"]
+        for diagnostic_name, diagnostic in grid_setup.diagnostics.data_vars.items():
+            for condition in conditions:
+                column = condition.observed_turbulence_column_name
+                by_cell = (
+                    observations.assign(is_turbulent=observations[column] > condition.value_greater_than)
+                    .groupby(cell_columns)["is_turbulent"]
+                    .any()
+                    .reset_index()
+                )
+                by_cell = by_cell.assign(diagnostic=diagnostic_values_at(diagnostic, by_cell))
+                labels = by_cell.sort_values("diagnostic", ascending=False)["is_turbulent"].to_numpy()
+                expected_tpr, expected_fpr = rates_from_labels(labels)
+
+                computed = roc.by_amdar_col_then_diagnostic[column][str(diagnostic_name)]
+                np.testing.assert_allclose(computed.true_positives.compute(), expected_tpr)
+                np.testing.assert_allclose(computed.false_positives.compute(), expected_fpr)
