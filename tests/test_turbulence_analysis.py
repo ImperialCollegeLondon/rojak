@@ -4,6 +4,7 @@ import dask.array as da
 import numpy as np
 import pytest
 import xarray as xr
+from dask import config as dask_config
 from dask.base import is_dask_collection
 from numpy.typing import NDArray
 
@@ -20,6 +21,7 @@ from rojak.turbulence.analysis import (
     HistogramData,
     RelationshipBetweenAlphaVelAndTurbulence,
     RelationshipBetweenXAndTurbulence,
+    TransformToEDR,
     TurbulenceIntensityThresholds,
 )
 from rojak.turbulence.diagnostic import DiagnosticFactory
@@ -91,6 +93,34 @@ def test_histogram_distribution_serial_and_parallel_match() -> None:
     assert parallel_result.bins == serial_result.bins
     assert np.abs(parallel_result.mean - serial_result.mean) < tolerance
     assert np.abs(parallel_result.variance - serial_result.variance) < tolerance
+
+
+def _dummy_diagnostic_for_edr() -> xr.DataArray:
+    rng = np.random.default_rng(3)
+    # Include negative values to exercise the clipping
+    return xr.DataArray(rng.lognormal(size=(4, 6, 8)) - 0.1, dims=("time", "latitude", "longitude"))
+
+
+def test_transform_to_edr_serial_and_parallel_match() -> None:
+    serial_data_array = _dummy_diagnostic_for_edr()
+    parallel_data_array = serial_data_array.chunk({"time": 1})
+    serial_result = TransformToEDR(serial_data_array, mean=-0.5, variance=0.8).execute()
+    parallel_result = TransformToEDR(parallel_data_array, mean=-0.5, variance=0.8).execute()
+
+    assert is_dask_collection(parallel_result)
+    xr.testing.assert_allclose(parallel_result.compute(), serial_result)
+
+
+def test_transform_to_edr_is_lazy() -> None:
+    # Regression test: execute() must not trigger any computation (e.g. via persist) so that callers which only use
+    # the result once (e.g. the ensemble EDR export) don't materialise every diagnostic's EDR in memory
+    def fail_if_computed(*args, **kwargs) -> None:
+        raise AssertionError("TransformToEDR.execute() triggered a computation")
+
+    parallel_data_array = _dummy_diagnostic_for_edr().chunk({"time": 1})
+    with dask_config.set(scheduler=fail_if_computed):
+        result = TransformToEDR(parallel_data_array, mean=-0.5, variance=0.8).execute()
+    assert is_dask_collection(result)
 
 
 THRESHOLDS = {

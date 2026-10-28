@@ -694,8 +694,7 @@ class TransformToEDR(PostProcessor[xr.DataArray]):
         # https://stackoverflow.com/a/45384691
         # return exponent_term * (np.sign(self.computed_value()) * (np.abs(self.computed_value()) ** scaling))
         # e^a x^b
-        mapped_index: xr.DataArray = (np.exp(offset) * (unmapped_index**scaling)).persist()
-        return mapped_index
+        return np.exp(offset) * (unmapped_index**scaling)
 
 
 class CorrelationBetweenDiagnostics(PostProcessor[xr.DataArray]):
