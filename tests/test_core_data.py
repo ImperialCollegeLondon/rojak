@@ -1,3 +1,5 @@
+import threading
+from collections import Counter
 from typing import TYPE_CHECKING
 
 import dask.dataframe as dd
@@ -592,6 +594,39 @@ def test_convert_to_amdar_turbulence_data(
         "latitude",
         "longitude",
     }
+
+
+# Number of times each partition has been read. Module level (rather than a closure) so that dask can deterministically
+# tokenise the function which counts the reads
+_PARTITION_READS: Counter[int] = Counter()
+_PARTITION_READS_LOCK = threading.Lock()
+
+
+def _count_partition_reads(partition: pd.DataFrame, partition_info: dict | None = None) -> pd.DataFrame:
+    if partition_info is not None:
+        with _PARTITION_READS_LOCK:
+            _PARTITION_READS[partition_info["number"]] += 1
+    return partition
+
+
+@pytest.mark.parametrize("concrete_class", [AcarsAmdarRepository, UkmoAmdarRepository])
+def test_convert_to_amdar_turbulence_data_loads_data_once(
+    mocker: "MockerFixture",
+    load_flat_data: pd.DataFrame,
+    concrete_class,
+    valid_region_for_flat_data,
+) -> None:
+    _PARTITION_READS.clear()
+    num_partitions: int = 3
+    loaded = dd.from_pandas(load_flat_data, npartitions=num_partitions).map_partitions(
+        _count_partition_reads, meta=load_flat_data.iloc[:0]
+    )
+    instance = concrete_class("")
+    mocker.patch.object(instance, "load", return_value=loaded)
+
+    instance.to_amdar_turbulence_data(valid_region_for_flat_data, 0.25, [150, 200, 250]).data_frame.compute()
+
+    assert dict(_PARTITION_READS) == dict.fromkeys(range(num_partitions), 1)
 
 
 def test_ice_super_saturated_regions(load_cat_data) -> None:

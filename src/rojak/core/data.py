@@ -771,7 +771,9 @@ class AmdarDataRepository(ABC):
             AmdarTurbulenceData: Instance containing the data loaded from file with the spatial operations applied.
 
         """
-        raw_data_frame: dd.DataFrame = self.load()
+        # Persist so that the data is only loaded once, as computing the closest pressure level (including the lengths
+        # of the partitions) and assigning it into the data frame would otherwise each load it
+        raw_data_frame: dd.DataFrame = self.load().persist()
         raw_data_frame = raw_data_frame.assign(
             level=self._call_compute_closest_pressure_level(
                 raw_data_frame,
