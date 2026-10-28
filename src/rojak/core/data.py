@@ -174,6 +174,7 @@ class CATPrognosticData:
 
     _dataset: xr.Dataset
     _pressure_level_prefix: float
+    _persist: bool
     _persisted_variables: dict[str, xr.DataArray]
 
     required_variables: ClassVar[frozenset[str]] = frozenset(
@@ -192,12 +193,15 @@ class CATPrognosticData:
         ["pressure_level", "latitude", "longitude", "time", "altitude"],
     )
 
-    def __init__(self, dataset: xr.Dataset, pressure_level_prefix: float) -> None:
+    def __init__(self, dataset: xr.Dataset, pressure_level_prefix: float, *, persist: bool = True) -> None:
         """
         Args:
             dataset: Dataset containing at least :attr:`required_variables` and :attr:`required_coords`
             pressure_level_prefix: Multiplier applied to the pressure level coordinate to convert it to Pascals,
                 see :meth:`pressure_level`
+            persist: If ``True`` (default), each field is persisted the first time it is accessed and the persisted
+                field is returned thereafter. If ``False``, nothing is persisted and each access returns the lazy
+                field.
 
         Raises:
             ValueError: If ``dataset`` is missing any of :attr:`required_variables` or :attr:`required_coords`
@@ -212,13 +216,20 @@ class CATPrognosticData:
             raise ValueError(f"Attempting to instantiate CATPrognosticData with missing coords: {missing_coords}")
         self._dataset = dataset.sortby("time")
         self._pressure_level_prefix = pressure_level_prefix
+        self._persist = persist
         self._persisted_variables = {}
 
     def _variable(self, name: str) -> xr.DataArray:
-        """Data variable ``name``, persisted on first access"""
+        """Data variable ``name``, persisted on first access if :attr:`_persist` is ``True``"""
+        if not self._persist:
+            return self._dataset[name]
         if name not in self._persisted_variables:
             self._persisted_variables[name] = self._dataset[name].persist()
         return self._persisted_variables[name]
+
+    def _maybe_persist(self, array: xr.DataArray) -> xr.DataArray:
+        """Persist ``array`` if :attr:`_persist` is ``True``, otherwise return it unchanged"""
+        return array.persist() if self._persist else array
 
     def temperature(self) -> xr.DataArray:
         """Air temperature in Kelvin"""
@@ -284,7 +295,8 @@ class CATData(CATPrognosticData):
     :class:`MetData` source is required to be able to produce one of these, which is what lets
     :mod:`rojak.turbulence` diagnostics work against any data source uniformly.
 
-    Each derived quantity is computed lazily on first access and cached (persisted) thereafter.
+    Each derived quantity is computed lazily on first access and cached thereafter (and persisted, unless
+    constructed with ``persist=False``).
     """
 
     _potential_temperature: xr.DataArray | None = None
@@ -292,17 +304,16 @@ class CATData(CATPrognosticData):
     _shear_deformation: xr.DataArray | None = None
     _stretching_deformation: xr.DataArray | None = None
 
-    def __init__(self, dataset: xr.Dataset, pressure_level_prefix: float) -> None:
+    def __init__(self, dataset: xr.Dataset, pressure_level_prefix: float, *, persist: bool = True) -> None:
         """See :meth:`CATPrognosticData.__init__`"""
-        super().__init__(dataset, pressure_level_prefix)
+        super().__init__(dataset, pressure_level_prefix, persist=persist)
 
     def potential_temperature(self) -> xr.DataArray:
         """Potential temperature, see :func:`rojak.turbulence.calculations.potential_temperature`"""
         if self._potential_temperature is None:
-            self._potential_temperature = turb_calc.potential_temperature(
-                self.temperature(),
-                self.temperature()["pressure_level"],
-            ).persist()
+            self._potential_temperature = self._maybe_persist(
+                turb_calc.potential_temperature(self.temperature(), self.temperature()["pressure_level"])
+            )
         return self._potential_temperature
 
     def velocity_derivatives(self) -> dict[VelocityDerivative, xr.DataArray]:
@@ -328,19 +339,23 @@ class CATData(CATPrognosticData):
     def shear_deformation(self) -> xr.DataArray:
         """Shear deformation, see :func:`rojak.turbulence.calculations.shearing_deformation`"""
         if self._shear_deformation is None:
-            self._shear_deformation = turb_calc.shearing_deformation(
-                self.specific_velocity_derivative(VelocityDerivative.DV_DX),
-                self.specific_velocity_derivative(VelocityDerivative.DU_DY),
-            ).persist()
+            self._shear_deformation = self._maybe_persist(
+                turb_calc.shearing_deformation(
+                    self.specific_velocity_derivative(VelocityDerivative.DV_DX),
+                    self.specific_velocity_derivative(VelocityDerivative.DU_DY),
+                )
+            )
         return self._shear_deformation
 
     def stretching_deformation(self) -> xr.DataArray:
         """Stretch deformation, see :func:`rojak.turbulence.calculations.stretching_deformation`"""
         if self._stretching_deformation is None:
-            self._stretching_deformation = turb_calc.stretching_deformation(
-                self.specific_velocity_derivative(VelocityDerivative.DU_DX),
-                self.specific_velocity_derivative(VelocityDerivative.DV_DY),
-            ).persist()
+            self._stretching_deformation = self._maybe_persist(
+                turb_calc.stretching_deformation(
+                    self.specific_velocity_derivative(VelocityDerivative.DU_DX),
+                    self.specific_velocity_derivative(VelocityDerivative.DV_DY),
+                )
+            )
         return self._stretching_deformation
 
     def total_deformation(self) -> xr.DataArray:
@@ -490,20 +505,45 @@ class MetData(ABC):
     subclass must implement :meth:`to_clear_air_turbulence_data`, adapting its own underlying data into the common
     :class:`CATData`/:class:`CATPrognosticData` interface. This is the extension point of the architecture: adding
     support for a new meteorological data source only requires a new ``MetData`` subclass that can produce a
-    ``CATData``, and every consumer downstream in :mod:`rojak.turbulence` keeps working unchanged.
+    ``CATData``, and every consumer downstream in :mod:`rojak.turbulence` keeps working unchanged. Subclasses should
+    build the ``CATData`` with :meth:`_create_cat_data` so that it respects :attr:`persist`.
     """
 
     _longitude_coord_name: str
     _latitude_coord_name: str
+    _persist: bool
 
-    def __init__(self, longitude_name: str = "longitude", latitude_name: str = "latitude") -> None:
+    def __init__(
+        self, longitude_name: str = "longitude", latitude_name: str = "latitude", *, persist: bool = True
+    ) -> None:
         """
         Args:
             longitude_name: Name of the longitude coordinate in the underlying data. Defaults to ``"longitude"``.
             latitude_name: Name of the latitude coordinate in the underlying data. Defaults to ``"latitude"``.
+            persist: Whether the :class:`CATData` produced by :meth:`to_clear_air_turbulence_data` persists its
+                fields, see :meth:`CATPrognosticData.__init__`. Defaults to ``True``.
         """
         self._longitude_coord_name = longitude_name
         self._latitude_coord_name = latitude_name
+        self._persist = persist
+
+    @property
+    def persist(self) -> bool:
+        """Whether the :class:`CATData` produced by :meth:`to_clear_air_turbulence_data` persists its fields"""
+        return self._persist
+
+    def _create_cat_data(self, dataset: xr.Dataset, pressure_level_prefix: float) -> CATData:
+        """
+        Construct the :class:`CATData` returned by :meth:`to_clear_air_turbulence_data`, respecting :attr:`persist`
+
+        Args:
+            dataset: Dataset adapted to the :class:`CATPrognosticData` interface
+            pressure_level_prefix: See :meth:`CATPrognosticData.__init__`
+
+        Returns:
+            :class:`CATData` wrapping ``dataset``
+        """
+        return CATData(dataset, pressure_level_prefix, persist=self._persist)
 
     def select_domain(
         self,

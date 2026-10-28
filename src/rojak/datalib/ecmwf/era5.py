@@ -203,12 +203,13 @@ class Era5Data(MetData):
     vorticity: ClassVar[DataVarSchema] = DataVarSchema("vo", "vorticity")
     vertical_velocity: ClassVar[DataVarSchema] = DataVarSchema("w", "vertical_velocity")
 
-    def __init__(self, on_pressure_level: "xr.Dataset") -> None:
+    def __init__(self, on_pressure_level: "xr.Dataset", *, persist: bool = True) -> None:
         """
         Args:
             on_pressure_level: Raw ERA5 dataset on pressure levels, as downloaded by :class:`Era5Retriever`
+            persist: See :meth:`~rojak.core.data.MetData.__init__`. Defaults to ``True``.
         """
-        super().__init__()
+        super().__init__(persist=persist)
         self._on_pressure_level = on_pressure_level
 
     @override
@@ -253,4 +254,4 @@ class Era5Data(MetData):
             ),
         )
         target_data = target_data.transpose("latitude", "longitude", "time", "pressure_level")
-        return CATData(target_data, pressure_level_prefix=100)  # pressure_level in hPa
+        return self._create_cat_data(target_data, pressure_level_prefix=100)  # pressure_level in hPa

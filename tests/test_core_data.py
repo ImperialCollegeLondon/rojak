@@ -13,7 +13,7 @@ from dask.core import flatten
 from dask.local import get_sync
 
 from rojak.atmosphere.contrails import issr
-from rojak.core.data import CATData, CATPrognosticData, as_geo_dataframe
+from rojak.core.data import CATData, CATPrognosticData, MetData, as_geo_dataframe
 from rojak.core.derivatives import VelocityDerivative
 from rojak.datalib.ecmwf.era5 import Era5Data
 from rojak.datalib.madis.amdar import AcarsAmdarRepository, AcarsAmdarTurbulenceData
@@ -356,11 +356,16 @@ def test_instantiate_cat_prognostic_successfully(make_dummy_cat_data):
         ("altitude", "altitude"),
     ],
 )
-def test_getters_on_cat_prognostic_dataset(make_dummy_cat_data, attr_name: str, dataset_name: str):
+@pytest.mark.parametrize("persist", [True, False])
+def test_getters_on_cat_prognostic_dataset(make_dummy_cat_data, attr_name: str, dataset_name: str, persist: bool):
     dummy_data = make_dummy_cat_data({})
-    dataset = CATPrognosticData(dummy_data, 100)
+    dataset = CATPrognosticData(dummy_data, 100, persist=persist)
 
     xrt.assert_equal(getattr(dataset, attr_name)(), dummy_data[dataset_name])
+
+
+def fail_if_computed(*args, **kwargs) -> None:
+    raise AssertionError("Dask computation was triggered")
 
 
 def test_cat_prognostic_data_only_persists_accessed_variable(make_dummy_cat_data) -> None:
@@ -379,6 +384,49 @@ def test_cat_prognostic_data_only_persists_accessed_variable(make_dummy_cat_data
 
         assert data.u_wind() is u_wind
         assert len(requested_keys) == 1, "u wind should only be loaded once"
+
+
+def test_cat_data_persists_nothing_when_disabled(make_dummy_cat_data) -> None:
+    with dask_config.set(scheduler=fail_if_computed):
+        data = CATData(make_dummy_cat_data({}, use_numpy=False), 100, persist=False)
+        for accessor in [
+            "temperature",
+            "divergence",
+            "geopotential",
+            "specific_humidity",
+            "u_wind",
+            "v_wind",
+            "potential_vorticity",
+            "vorticity",
+            "potential_temperature",
+        ]:
+            getattr(data, accessor)()
+
+
+@pytest.mark.parametrize("persist", [True, False])
+def test_met_data_creates_cat_data_respecting_persist(make_dummy_cat_data, persist: bool) -> None:
+    class DummyMetData(MetData):
+        def __init__(self, dataset: xr.Dataset) -> None:
+            super().__init__(persist=persist)
+            self._dataset = dataset
+
+        def to_clear_air_turbulence_data(self, domain: "SpatialDomain") -> CATData:
+            return self._create_cat_data(self._dataset, 100)
+
+    met_data = DummyMetData(make_dummy_cat_data({}, use_numpy=False))
+    assert met_data.persist == persist
+
+    requested: list = []
+
+    def recording_scheduler(dsk, keys, **kwargs):
+        requested.append(keys)
+        return get_sync(dsk, keys, **kwargs)
+
+    with dask_config.set(scheduler=recording_scheduler):
+        met_data.to_clear_air_turbulence_data(
+            SpatialDomain(minimum_latitude=-90, maximum_latitude=90, minimum_longitude=-180, maximum_longitude=180)
+        ).u_wind()
+    assert bool(requested) == persist
 
 
 def test_time_window_on_cat_prognostic_dataset(make_dummy_cat_data):
