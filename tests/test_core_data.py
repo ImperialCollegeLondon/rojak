@@ -629,6 +629,35 @@ def test_convert_to_amdar_turbulence_data_loads_data_once(
     assert dict(_PARTITION_READS) == dict.fromkeys(range(num_partitions), 1)
 
 
+def test_turbulence_frequency_statistics_in_single_pass() -> None:
+    rng = np.random.default_rng(6)
+    values = rng.lognormal(-3, 1, size=500)
+    values[::7] = np.nan
+    data = pd.DataFrame(dict.fromkeys(AcarsAmdarTurbulenceData.turbulence_column_names(), values))
+
+    # Bypass __init__ as only the data frame is used and the quality control requires geospatial columns
+    acars_data = object.__new__(AcarsAmdarTurbulenceData)
+    acars_data._data_frame = dd.from_pandas(data, npartitions=4)
+
+    num_computes: list[int] = []
+
+    def counting_scheduler(dsk, keys, **kwargs):
+        num_computes.append(1)
+        return get_sync(dsk, keys, **kwargs)
+
+    with dask_config.set(scheduler=counting_scheduler):
+        statistics = acars_data.turbulence_frequency_statistics("maxEDR", 0.1)
+
+    assert len(num_computes) == 1
+    num_observations = int(np.count_nonzero(~np.isnan(values)))
+    num_turb_obs = int(np.sum(values > 0.1))  # noqa: PLR2004
+    assert statistics == {
+        "num_turb_obs": num_turb_obs,
+        "num_observations": num_observations,
+        "frequency": num_turb_obs / num_observations,
+    }
+
+
 def test_ice_super_saturated_regions(load_cat_data) -> None:
     instantiated: CATData = load_cat_data(None)
     np.testing.assert_allclose(

@@ -881,8 +881,9 @@ class AmdarTurbulenceData(ABC):
             Dict with ``num_turb_obs`` (count of observations exceeding ``greater_than``), ``num_observations``
             (total count of non-null observations), and ``frequency`` (their ratio)
         """
-        num_observations: int = self.data_frame[column_name].count().compute()
-        num_turb_obs: int = (self.data_frame[column_name] > greater_than).sum().compute()
+        column = self.data_frame[column_name]
+        # Compute together so that the column is only traversed once
+        num_observations, num_turb_obs = da.compute(column.count(), (column > greater_than).sum())
         return {
             "num_turb_obs": num_turb_obs,
             "num_observations": num_observations,
