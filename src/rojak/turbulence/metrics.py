@@ -574,7 +574,13 @@ def _confusion_matrix_coo_reduction(truth: da.Array, prediction: da.Array) -> "N
     def on_chunk(x_chunk: np.ndarray, **kwargs) -> np.ndarray:  # noqa: ANN003,ARG001
         truth_chunk: np.ndarray = x_chunk[0, :]
         pred_chunk: np.ndarray = x_chunk[1, :]
-        return COO((truth_chunk, pred_chunk), np.ones_like(truth_chunk), shape=(2, 2)).todense()
+        # Cast coordinates to integers as COO treats boolean coordinates as a mask, and count using int64 as the
+        # counts would otherwise share the dtype of the input and overflow (e.g. int8)
+        return COO(
+            (truth_chunk.astype(np.intp), pred_chunk.astype(np.intp)),
+            np.ones(truth_chunk.shape, dtype=np.int64),
+            shape=(2, 2),
+        ).todense()
 
     # Kwargs are to comply with the expected function signature of reduction Callable
     def to_aggregate(x_chunk: list[np.ndarray], **kwargs) -> np.ndarray:  # noqa: ANN003,ARG001

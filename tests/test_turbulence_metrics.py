@@ -70,6 +70,19 @@ def test_binary_classification_rate_from_cumsum_fails(cumsum: np.typing.NDArray,
         binary_classification_rate_from_cumsum(cumsum if not as_pandas else pd.Series(cumsum))
 
 
+@pytest.mark.parametrize("dtype", [np.bool_, np.int8, np.int64])
+def test_confusion_matrix_counts_do_not_overflow(dtype: type) -> None:
+    # More points per chunk than an int8 can count
+    truth = np.tile([True, True, False, False], 250)
+    prediction = np.tile([True, False, True, False], 250)
+    tn, fp, fn, tp = (
+        confusion_matrix(da.asarray(truth.astype(dtype), chunks=500), da.asarray(prediction.astype(dtype), chunks=500))
+        .ravel()
+        .tolist()
+    )
+    assert (tn, fp, fn, tp) == (250, 250, 250, 250)
+
+
 @pytest.mark.parametrize(
     ("truth_array", "pred_array"),
     [(da.eye(2), da.ones(4)), (da.ones(4), da.eye(2)), (da.eye(2), da.eye(2))],
