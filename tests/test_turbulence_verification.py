@@ -1,8 +1,8 @@
 from collections import namedtuple
-from collections.abc import Callable
-from enum import Enum, auto
+from enum import Enum, StrEnum, auto
 from typing import TYPE_CHECKING, assert_never
 
+import dask.array as da
 import dask.dataframe as dd
 import numpy as np
 import pandas as pd
@@ -21,11 +21,10 @@ from rojak.turbulence.verification import (
     IndexingFormat,
     ObservationCoordinates,
 )
+from rojak.utilities.types import Limits
 from tests.conftest import time_window_for_cat_data
 
 if TYPE_CHECKING:
-    import dask.array as da
-    from distributed import Client
     from pytest_mock import MockerFixture
 
     from rojak.core.data import CATData
@@ -45,67 +44,113 @@ class ThisTestCaseSize(Enum):
 possible_test_case_sizes: list[ThisTestCaseSize] = [ThisTestCaseSize.SMALL, ThisTestCaseSize.LARGE]
 
 
-@pytest.fixture
-def get_test_case(load_cat_data) -> Callable[[ThisTestCaseSize], ThisTestCaseValues]:
-    def _get_test_case(size: ThisTestCaseSize) -> ThisTestCaseValues:
-        rand_generator = np.random.default_rng()
-        match size:
-            case ThisTestCaseSize.SMALL:
-                index_into_dataset = [
-                    {"latitude": 0, "longitude": 2, "pressure_level": 2, "time": 0},
-                    {"latitude": 1, "longitude": 5, "pressure_level": 1, "time": 0},
-                    {"latitude": 2, "longitude": 8, "pressure_level": 0, "time": 1},
-                ]
-                edr_values = rand_generator.lognormal(-3, 1, size=3)
-                indices: dict[str, np.ndarray] = {
-                    "lat_index": np.arange(3),
-                    "lon_index": np.asarray([2, 5, 8]),
-                    "level_index": np.asarray([2, 1, 0]),
-                    "time_index": np.asarray([0, 0, 1]),
-                    "maxEDR": edr_values,
-                    "medEDR": edr_values,
-                    "index_right": np.arange(3),
+GridSetup = namedtuple("GridSetup", ["grid_prototype", "diagnostics", "time_window"])
+
+
+class GridBackend(StrEnum):
+    # Small synthetic grid on the default (local) scheduler
+    SYNTHETIC = "synthetic"
+    # ERA5 test data on a distributed cluster
+    ERA5 = "era5"
+
+
+def synthetic_grid_setup() -> GridSetup:
+    rng = np.random.default_rng(0)
+    coords = {
+        "latitude": np.linspace(-60, 60, 5),
+        "longitude": np.arange(-180, 180, 36, dtype=float),
+        "time": np.arange("2018-08-01T00", "2018-08-02T00", 6, dtype="datetime64[h]").astype("datetime64[ns]"),
+        "pressure_level": np.asarray([200.0, 250.0, 300.0]),
+    }
+    dims = ("latitude", "longitude", "time", "pressure_level")
+    shape = tuple(coords[dim].size for dim in dims)
+
+    def make_array() -> xr.DataArray:
+        return xr.DataArray(da.asarray(rng.random(shape), chunks=(2, 5, 2, 3)), dims=dims, coords=coords)
+
+    grid_prototype = make_array()
+    return GridSetup(
+        grid_prototype,
+        xr.Dataset(data_vars={"f3d": grid_prototype, "def": make_array()}),
+        Limits(np.datetime64("2018-08-01T00"), np.datetime64("2018-08-01T18")),
+    )
+
+
+@pytest.fixture(params=[GridBackend.SYNTHETIC, pytest.param(GridBackend.ERA5, marks=pytest.mark.slow)])
+def grid_setup(request: pytest.FixtureRequest) -> GridSetup:
+    """
+    Grid, diagnostics, and time window for the tests to run against
+
+    The synthetic backend checks the same behaviour as the ERA5 one in a fraction of the time. The ERA5 backend is
+    retained (marked as slow) to check the behaviour on real data with a distributed scheduler.
+    """
+    if request.param == GridBackend.SYNTHETIC:
+        return synthetic_grid_setup()
+
+    request.getfixturevalue("client")
+    cat_data: CATData = request.getfixturevalue("load_cat_data")(None, with_chunks=True)
+    return GridSetup(
+        cat_data.u_wind(),
+        xr.Dataset(data_vars={"f3d": cat_data.u_wind(), "def": cat_data.total_deformation()}),
+        time_window_for_cat_data(),
+    )
+
+
+def get_test_case(size: ThisTestCaseSize, grid_prototype: xr.DataArray) -> ThisTestCaseValues:
+    rand_generator = np.random.default_rng()
+    match size:
+        case ThisTestCaseSize.SMALL:
+            index_into_dataset = [
+                {"latitude": 0, "longitude": 2, "pressure_level": 2, "time": 0},
+                {"latitude": 1, "longitude": 5, "pressure_level": 1, "time": 0},
+                {"latitude": 2, "longitude": 8, "pressure_level": 0, "time": 1},
+            ]
+            edr_values = rand_generator.lognormal(-3, 1, size=3)
+            indices: dict[str, np.ndarray] = {
+                "lat_index": np.arange(3),
+                "lon_index": np.asarray([2, 5, 8]),
+                "level_index": np.asarray([2, 1, 0]),
+                "time_index": np.asarray([0, 0, 1]),
+                "maxEDR": edr_values,
+                "medEDR": edr_values,
+                "index_right": np.arange(3),
+            }
+            observational_data: dd.DataFrame = dd.from_pandas(pd.DataFrame(indices), npartitions=2)
+            return ThisTestCaseValues(index_into_dataset, observational_data, indices)
+        case ThisTestCaseSize.LARGE:
+            num_points: int = 30
+            dims = ["latitude", "longitude", "pressure_level", "time"]
+            # Sample without replacement so that each observation is in a distinct grid cell
+            flat_cells = rand_generator.choice(grid_prototype.size, size=num_points, replace=False)
+            unravelled = np.unravel_index(flat_cells, tuple(grid_prototype[dim].size for dim in dims))
+            indices: dict[str, np.ndarray] = dict(
+                zip(["lat_index", "lon_index", "level_index", "time_index"], unravelled, strict=True)
+            )
+            index_into_dataset = [
+                {
+                    "latitude": indices["lat_index"][index],
+                    "longitude": indices["lon_index"][index],
+                    "pressure_level": indices["level_index"][index],
+                    "time": indices["time_index"][index],
                 }
-                observational_data: dd.DataFrame = dd.from_pandas(pd.DataFrame(indices), npartitions=2)
-                return ThisTestCaseValues(index_into_dataset, observational_data, indices)
-            case ThisTestCaseSize.LARGE:
-                cat_data: CATData = load_cat_data(None, with_chunks=True)
-                num_points: int = 30
-                indices: dict[str, np.ndarray] = {
-                    "lat_index": rand_generator.integers(0, high=cat_data.u_wind()["latitude"].size, size=num_points),
-                    "lon_index": rand_generator.integers(0, high=cat_data.u_wind()["longitude"].size, size=num_points),
-                    "level_index": rand_generator.integers(
-                        0, high=cat_data.u_wind()["pressure_level"].size, size=num_points
-                    ),
-                    "time_index": rand_generator.integers(0, high=cat_data.u_wind()["time"].size, size=num_points),
-                }
-                index_into_dataset = [
-                    {
-                        "latitude": indices["lat_index"][index],
-                        "longitude": indices["lon_index"][index],
-                        "pressure_level": indices["level_index"][index],
-                        "time": indices["time_index"][index],
-                    }
-                    for index in range(num_points)
-                ]
+                for index in range(num_points)
+            ]
 
-                mean: float = -3
-                std_dev: float = 1
-                indices["maxEDR"] = rand_generator.lognormal(mean=mean, sigma=std_dev, size=num_points)
-                indices["medEDR"] = rand_generator.lognormal(mean=mean, sigma=std_dev, size=num_points)
-                indices["index_right"] = np.arange(num_points)
+            mean: float = -3
+            std_dev: float = 1
+            indices["maxEDR"] = rand_generator.lognormal(mean=mean, sigma=std_dev, size=num_points)
+            indices["medEDR"] = rand_generator.lognormal(mean=mean, sigma=std_dev, size=num_points)
+            indices["index_right"] = np.arange(num_points)
 
-                observational_data: dd.DataFrame = dd.from_pandas(pd.DataFrame(indices), npartitions=10)
-                return ThisTestCaseValues(index_into_dataset, observational_data, indices)
-            case _ as unreachable:
-                assert_never(unreachable)
-
-    return _get_test_case
+            observational_data: dd.DataFrame = dd.from_pandas(pd.DataFrame(indices), npartitions=10)
+            return ThisTestCaseValues(index_into_dataset, observational_data, indices)
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 @pytest.mark.parametrize("case_size", possible_test_case_sizes)
-def test_observation_coordinates_as_arrays(get_test_case, case_size: ThisTestCaseSize, client: "Client") -> None:
-    case = get_test_case(case_size)
+def test_observation_coordinates_as_arrays(grid_setup: GridSetup, case_size: ThisTestCaseSize) -> None:
+    case = get_test_case(case_size, grid_setup.grid_prototype)
     coords: ObservationCoordinates = ObservationCoordinates(
         case.observational_data["level_index"].to_dask_array(lengths=True),
         case.observational_data["lat_index"],
@@ -149,16 +194,13 @@ class TestAmdarDataHarmoniser:
         mocker: "MockerFixture",
         case_size: ThisTestCaseSize,
         indexing_format: IndexingFormat,
-        load_cat_data,
-        get_test_case,
-        client,
+        grid_setup: GridSetup,
     ) -> None:
-        case: ThisTestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size, grid_setup.grid_prototype)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
-        cat_data: CATData = load_cat_data(None, with_chunks=True)
         data_harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
-            amdar_turb_data_mock, cat_data.u_wind(), time_window_for_cat_data()
+            amdar_turb_data_mock, grid_setup.grid_prototype, grid_setup.time_window
         )
 
         get_coords_mock = mocker.patch.object(
@@ -187,16 +229,13 @@ class TestAmdarDataHarmoniser:
         mocker: "MockerFixture",
         stack_on_axis: int,
         case_size: ThisTestCaseSize,
-        load_cat_data,
-        get_test_case,
-        client,
+        grid_setup: GridSetup,
     ) -> None:
-        case: ThisTestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size, grid_setup.grid_prototype)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
-        cat_data: CATData = load_cat_data(None, with_chunks=True)
         data_harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
-            amdar_turb_data_mock, cat_data.u_wind(), time_window_for_cat_data()
+            amdar_turb_data_mock, grid_setup.grid_prototype, grid_setup.time_window
         )
 
         get_coords_mock = mocker.patch.object(
@@ -205,7 +244,12 @@ class TestAmdarDataHarmoniser:
             return_value=coords_of_obs_return_value(case.observational_data),
         )
 
-        assert cat_data.u_wind().get_axis_num(["latitude", "longitude", "time", "pressure_level"]) == (0, 1, 2, 3)
+        assert grid_setup.grid_prototype.get_axis_num(["latitude", "longitude", "time", "pressure_level"]) == (
+            0,
+            1,
+            2,
+            3,
+        )
 
         coords: list[tuple[int, int, int, int]] = [
             (item["latitude"], item["longitude"], item["time"], item["pressure_level"])
@@ -224,14 +268,13 @@ class TestAmdarDataHarmoniser:
 
     @pytest.mark.parametrize("case_size", possible_test_case_sizes)
     def test_observations_index_to_grid_ravel_equiv_coords(
-        self, mocker: "MockerFixture", case_size: ThisTestCaseSize, load_cat_data, get_test_case, client
+        self, mocker: "MockerFixture", case_size: ThisTestCaseSize, grid_setup: GridSetup
     ) -> None:
-        case: ThisTestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size, grid_setup.grid_prototype)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
-        cat_data: CATData = load_cat_data(None, with_chunks=True)
         data_harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
-            amdar_turb_data_mock, cat_data.u_wind(), time_window_for_cat_data()
+            amdar_turb_data_mock, grid_setup.grid_prototype, grid_setup.time_window
         )
 
         get_coords_mock = mocker.patch.object(
@@ -243,18 +286,17 @@ class TestAmdarDataHarmoniser:
         flattened_idx = data_harmoniser.observations_index_to_grid(IndexingFormat.FLAT)
         get_coords_mock.assert_called_once()
         coords_idx = data_harmoniser.observations_index_to_grid(IndexingFormat.COORDINATES, stack_on_axis=1)
-        np.testing.assert_array_equal(flattened_idx, np.ravel_multi_index(coords_idx.T, cat_data.u_wind().shape))
+        np.testing.assert_array_equal(
+            flattened_idx, np.ravel_multi_index(coords_idx.T, grid_setup.grid_prototype.shape)
+        )
 
     @pytest.mark.parametrize("case_size", possible_test_case_sizes)
-    def test_has_observation(
-        self, mocker: "MockerFixture", case_size: ThisTestCaseSize, load_cat_data, get_test_case, client
-    ) -> None:
-        case: ThisTestCaseValues = get_test_case(case_size)
+    def test_has_observation(self, mocker: "MockerFixture", case_size: ThisTestCaseSize, grid_setup: GridSetup) -> None:
+        case: ThisTestCaseValues = get_test_case(case_size, grid_setup.grid_prototype)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
-        cat_data: CATData = load_cat_data(None, with_chunks=True)
         data_harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
-            amdar_turb_data_mock, cat_data.u_wind(), time_window_for_cat_data()
+            amdar_turb_data_mock, grid_setup.grid_prototype, grid_setup.time_window
         )
 
         get_coords_mock = mocker.patch.object(
@@ -263,7 +305,7 @@ class TestAmdarDataHarmoniser:
             return_value=coords_of_obs_return_value(case.observational_data),
         )
 
-        desired: xr.DataArray = xr.zeros_like(cat_data.u_wind(), dtype=int)
+        desired: xr.DataArray = xr.zeros_like(grid_setup.grid_prototype, dtype=int)
         num_points: int = len(case.index_into_dataset)
         for index in case.index_into_dataset:
             desired[index] = 1
@@ -277,14 +319,13 @@ class TestAmdarDataHarmoniser:
     @pytest.mark.parametrize("case_size", possible_test_case_sizes)
     @pytest.mark.parametrize("min_edr", [0, 0.1, 0.22, 0.5, 1])
     def test_has_positive_turbulence_observation(
-        self, mocker: "MockerFixture", case_size: ThisTestCaseSize, min_edr: float, load_cat_data, get_test_case, client
+        self, mocker: "MockerFixture", case_size: ThisTestCaseSize, min_edr: float, grid_setup: GridSetup
     ) -> None:
-        case: ThisTestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size, grid_setup.grid_prototype)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
-        cat_data: CATData = load_cat_data(None, with_chunks=True)
         data_harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
-            amdar_turb_data_mock, cat_data.u_wind(), time_window_for_cat_data()
+            amdar_turb_data_mock, grid_setup.grid_prototype, grid_setup.time_window
         )
 
         conditions: list[DiagnosticValidationCondition] = [
@@ -293,7 +334,7 @@ class TestAmdarDataHarmoniser:
         ]
 
         desired_data_vars: dict[str, xr.DataArray] = {
-            cond.observed_turbulence_column_name: xr.zeros_like(cat_data.u_wind()) for cond in conditions
+            cond.observed_turbulence_column_name: xr.zeros_like(grid_setup.grid_prototype) for cond in conditions
         }
         for i, indexer in enumerate(case.index_into_dataset):
             for cond in conditions:
@@ -322,14 +363,13 @@ class TestAmdarDataHarmoniser:
 class TestDiagnosticAmdarVerification:
     @pytest.mark.parametrize("case_size", possible_test_case_sizes)
     def test_data_with_diagnostics(
-        self, mocker: "MockerFixture", case_size: ThisTestCaseSize, load_cat_data, get_test_case, client
+        self, mocker: "MockerFixture", case_size: ThisTestCaseSize, grid_setup: GridSetup
     ) -> None:
-        case: ThisTestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size, grid_setup.grid_prototype)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
-        cat_data: CATData = load_cat_data(None, with_chunks=True)
         data_harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
-            amdar_turb_data_mock, cat_data.u_wind(), time_window_for_cat_data()
+            amdar_turb_data_mock, grid_setup.grid_prototype, grid_setup.time_window
         )
         get_coords_mock = mocker.patch.object(
             data_harmoniser,
@@ -337,19 +377,17 @@ class TestDiagnosticAmdarVerification:
             return_value=coords_of_obs_return_value(case.observational_data),
         )
 
-        diagnostics_mock: xr.Dataset = xr.Dataset(
-            data_vars={"f3d": cat_data.u_wind(), "def": cat_data.total_deformation()}
-        )
+        diagnostics_mock: xr.Dataset = grid_setup.diagnostics
         verifier: DiagnosticsAmdarVerification = DiagnosticsAmdarVerification(data_harmoniser, diagnostics_mock)
 
         with_diagnostics: dd.DataFrame = verifier.data
         get_coords_mock.assert_called()
 
         f3d_values = pd.Series(
-            [cat_data.u_wind()[indexer].data.compute() for indexer in case.index_into_dataset], name="f3d"
+            [grid_setup.diagnostics["f3d"][indexer].data.compute() for indexer in case.index_into_dataset], name="f3d"
         )
         def_values = pd.Series(
-            [cat_data.total_deformation()[indexer].data.compute() for indexer in case.index_into_dataset],
+            [grid_setup.diagnostics["def"][indexer].data.compute() for indexer in case.index_into_dataset],
             name="def",
         )
 
@@ -367,16 +405,13 @@ class TestDiagnosticAmdarVerification:
         case_size: ThisTestCaseSize,
         min_edr: float,
         groupby_strategy: SpatialGroupByStrategy,
-        load_cat_data,
-        get_test_case,
-        client,
+        grid_setup: GridSetup,
     ) -> None:
-        case: ThisTestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size, grid_setup.grid_prototype)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
-        cat_data: CATData = load_cat_data(None, with_chunks=True)
         data_harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
-            amdar_turb_data_mock, cat_data.u_wind(), time_window_for_cat_data()
+            amdar_turb_data_mock, grid_setup.grid_prototype, grid_setup.time_window
         )
         get_coords_mock = mocker.patch.object(
             data_harmoniser,
@@ -384,9 +419,7 @@ class TestDiagnosticAmdarVerification:
             return_value=coords_of_obs_return_value(case.observational_data),
         )
 
-        diagnostics_mock: xr.Dataset = xr.Dataset(
-            data_vars={"f3d": cat_data.u_wind(), "def": cat_data.total_deformation()}
-        )
+        diagnostics_mock: xr.Dataset = grid_setup.diagnostics
         verifier: DiagnosticsAmdarVerification = DiagnosticsAmdarVerification(data_harmoniser, diagnostics_mock)
 
         conditions: list[DiagnosticValidationCondition] = [
@@ -417,16 +450,13 @@ class TestDiagnosticAmdarVerification:
         case_size: ThisTestCaseSize,
         min_edr: float,
         groupby_strategy: SpatialGroupByStrategy,
-        load_cat_data,
-        get_test_case,
-        client,
+        grid_setup: GridSetup,
     ) -> None:
-        case: ThisTestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size, grid_setup.grid_prototype)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
-        cat_data: CATData = load_cat_data(None, with_chunks=True)
         data_harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
-            amdar_turb_data_mock, cat_data.u_wind(), time_window_for_cat_data()
+            amdar_turb_data_mock, grid_setup.grid_prototype, grid_setup.time_window
         )
         get_coords_mock = mocker.patch.object(
             data_harmoniser,
@@ -434,9 +464,7 @@ class TestDiagnosticAmdarVerification:
             return_value=coords_of_obs_return_value(case.observational_data),
         )
 
-        diagnostics_mock: xr.Dataset = xr.Dataset(
-            data_vars={"f3d": cat_data.u_wind(), "def": cat_data.total_deformation()}
-        )
+        diagnostics_mock: xr.Dataset = grid_setup.diagnostics
         verifier: DiagnosticsAmdarVerification = DiagnosticsAmdarVerification(data_harmoniser, diagnostics_mock)
 
         conditions: list[DiagnosticValidationCondition] = [
@@ -460,16 +488,13 @@ class TestDiagnosticAmdarVerification:
         mocker: "MockerFixture",
         case_size: ThisTestCaseSize,
         min_edr: float,
-        load_cat_data,
-        get_test_case,
-        client,
+        grid_setup: GridSetup,
     ) -> None:
-        case: ThisTestCaseValues = get_test_case(case_size)
+        case: ThisTestCaseValues = get_test_case(case_size, grid_setup.grid_prototype)
         amdar_turb_data_mock, _ = amdar_data_mock(mocker, case.observational_data)
 
-        cat_data: CATData = load_cat_data(None, with_chunks=True)
         data_harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
-            amdar_turb_data_mock, cat_data.u_wind(), time_window_for_cat_data()
+            amdar_turb_data_mock, grid_setup.grid_prototype, grid_setup.time_window
         )
         get_coords_mock = mocker.patch.object(
             data_harmoniser,
@@ -477,9 +502,7 @@ class TestDiagnosticAmdarVerification:
             return_value=coords_of_obs_return_value(case.observational_data),
         )
 
-        diagnostics_mock: xr.Dataset = xr.Dataset(
-            data_vars={"f3d": cat_data.u_wind(), "def": cat_data.total_deformation()}
-        )
+        diagnostics_mock: xr.Dataset = grid_setup.diagnostics
         verifier: DiagnosticsAmdarVerification = DiagnosticsAmdarVerification(data_harmoniser, diagnostics_mock)
 
         conditions: list[DiagnosticValidationCondition] = [
