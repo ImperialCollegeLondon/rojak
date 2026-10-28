@@ -230,7 +230,7 @@ class AmdarDataHarmoniser:
 
     def has_observation(self) -> xr.DataArray:
         raveled_index: da.Array = self.observations_index_to_grid(IndexingFormat.FLAT)
-        store_into: da.Array = da.zeros(self._grid_prototype.size, dtype=bool).persist()
+        store_into: da.Array = da.zeros(self._grid_prototype.size, dtype=bool)
 
         if raveled_index.size > 0:
             store_into[raveled_index] = True  # pyright:ignore[reportIndexIssue]
@@ -250,7 +250,8 @@ class AmdarDataHarmoniser:
         assert {condition.observed_turbulence_column_name for condition in positive_obs_condition}.issubset(
             self.observational_data.columns
         )
-        raveled_index: da.Array = self.observations_index_to_grid(IndexingFormat.FLAT)
+        # Persist as it is used for each condition
+        raveled_index: da.Array = self.observations_index_to_grid(IndexingFormat.FLAT).persist()
 
         data_vars: dict[str, xr.DataArray] = {}
         for condition in positive_obs_condition:
@@ -514,7 +515,7 @@ class DiagnosticsAmdarVerification:
         elif trigger_reset_index:
             data_frame = data_frame.reset_index(drop=True)
 
-        return data_frame.persist()
+        return data_frame
 
     def _retrieve_index_column_values(
         self,
@@ -574,7 +575,7 @@ class DiagnosticsAmdarVerification:
         minimum_columns: list[str] = [*groupby_columns, turbulence_col]
         num_obs = target_data[minimum_columns].groupby(groupby_columns).count()
         num_obs = self._retrieve_grouped_columns(num_obs, groupby_columns, True)
-        return num_obs.rename(columns={turbulence_col: "num_obs"})
+        return num_obs.rename(columns={turbulence_col: "num_obs"}).persist()
 
     def _spatial_data_grouping(
         self,
