@@ -13,7 +13,7 @@ from rojak.atmosphere.contrails import issr
 from rojak.core.data import CATData, CATPrognosticData, as_geo_dataframe
 from rojak.core.derivatives import VelocityDerivative
 from rojak.datalib.ecmwf.era5 import Era5Data
-from rojak.datalib.madis.amdar import AcarsAmdarRepository
+from rojak.datalib.madis.amdar import AcarsAmdarRepository, AcarsAmdarTurbulenceData
 from rojak.datalib.ukmo.amdar import UkmoAmdarRepository
 from rojak.orchestrator.configuration import SpatialDomain
 from tests.conftest import generate_array_data, time_coordinate
@@ -547,3 +547,25 @@ def test_ice_super_saturated_regions(load_cat_data) -> None:
     )
 
     assert instantiated.ice_supersaturated_regions().name == "issr"
+
+
+def test_acars_edr_distribution_matches_numpy() -> None:
+    rng = np.random.default_rng(5)
+    num_rows: int = 1000
+    max_edr = rng.lognormal(mean=-3, sigma=0.5, size=num_rows)
+    # Non-positive and missing values must be excluded
+    max_edr[::10] = 0
+    max_edr[1::10] = -0.1
+    max_edr[2::10] = np.nan
+    data = pd.DataFrame(
+        {column: rng.random(num_rows) for column in AcarsAmdarTurbulenceData.turbulence_column_names()}
+    ).assign(maxEDR=max_edr)
+
+    # Bypass __init__ as only the data frame is used and the quality control requires geospatial columns
+    acars_data = object.__new__(AcarsAmdarTurbulenceData)
+    acars_data._data_frame = dd.from_pandas(data, npartitions=7)
+    distribution = acars_data.edr_distribution()
+
+    expected = np.log(max_edr[max_edr > 0])
+    np.testing.assert_allclose(distribution.mean, np.mean(expected))
+    np.testing.assert_allclose(distribution.variance, np.var(expected))
