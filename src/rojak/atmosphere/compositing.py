@@ -25,6 +25,7 @@ import dask.dataframe as dd
 import numpy as np
 import xarray as xr
 from dask.dataframe.dispatch import make_meta
+from dask.delayed import delayed
 
 from rojak.atmosphere._compositing_kernels import (
     bilinear_project_about_centre,
@@ -575,15 +576,19 @@ class _TargetGrid:
             _locate_centres_in_target,
             time_column=time_column,
             vert_column=vert_column,
-            time_coord=self.time_coord,
             vert_coord=self.vert_coord,
             is_grouped_by_time=self.is_grouped_by_time,
-            group_chunk_edges=self.group_chunk_edges,
             time_tolerance=time_tolerance,
         )
         return centres.map_partitions(
             locate_centres_partial,
-            meta=locate_centres_partial(make_meta(centres, parent_meta=centres)),
+            time_coord=delayed(self.time_coord, pure=True),
+            group_chunk_edges=delayed(self.group_chunk_edges, pure=True),
+            meta=locate_centres_partial(
+                make_meta(centres, parent_meta=centres),
+                time_coord=self.time_coord,
+                group_chunk_edges=self.group_chunk_edges,
+            ),
         )
 
     def group_by_chunk(self, located: dd.DataFrame) -> tuple[dd.DataFrame, np.ndarray]:
