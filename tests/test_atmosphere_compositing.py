@@ -187,6 +187,11 @@ class TestCompositeAboutExtrema:
         with pytest.raises(ValueError, match="Expected 'n_extrema' to be in"):
             composite_about_extrema(dummy_target_data, bad_extrema)
 
+    def test_raises_if_no_extrema(self, dummy_target_data: xr.DataArray, dummy_extrema_data: xr.DataArray) -> None:
+        empty_extrema = dummy_extrema_data.isel(n_extrema=slice(0, 0))
+        with pytest.raises(ValueError, match="at least one extrema along 'n_extrema'"):
+            composite_about_extrema(dummy_target_data, empty_extrema)
+
     def test_raises_if_time_not_in_target(
         self, dummy_target_data: xr.DataArray, dummy_extrema_data: xr.DataArray
     ) -> None:

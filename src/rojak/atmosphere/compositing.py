@@ -182,6 +182,7 @@ def composite_about_extrema(
             dimensions.
         ValueError: If ``vert_dim_name`` is specified but absent from ``target_data``.
         ValueError: If ``num_extrema_dim`` is absent from ``extrema_data``.
+        ValueError: If ``num_extrema_dim`` of ``extrema_data`` has size ``0``, i.e. there are no extrema.
         ValueError: If ``time_dim_name`` is absent from ``target_data`` or from the coordinates of ``extrema_data``.
         ValueError: If ``num_extrema_dim`` is not a dimension of ``extrema_data[time_dim_name]``.
     """
@@ -195,6 +196,9 @@ def composite_about_extrema(
 
     if num_extrema_dim not in extrema_data.dims:
         raise ValueError(f"Expected '{num_extrema_dim}' to be in {extrema_data.dims}")
+
+    if extrema_data.sizes[num_extrema_dim] == 0:
+        raise ValueError(f"Expected extrema_data to contain at least one extrema along '{num_extrema_dim}'")
 
     if time_dim_name not in target_data.dims:
         raise ValueError(f"Expected '{time_dim_name}' to be present in target_data")

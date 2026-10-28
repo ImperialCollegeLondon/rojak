@@ -917,7 +917,7 @@ class TestApplyAndCombineOnNExtremaGroups:
                 "time": time,
                 "latitude": lat,
                 "longitude": lon,
-                "n_extrema": ("time", np.arange(n_time, dtype=int)),
+                "n_extrema": ("time", np.ones(n_time, dtype=int)),
             },
         )
 
@@ -938,6 +938,23 @@ class TestApplyAndCombineOnNExtremaGroups:
         assert isinstance(result, xr.DataArray)
         assert "n_extrema" in result.dims
         assert "time" not in result.dims
+        assert "time" in result.coords
+
+    def test_zero_extrema_group_short_circuits(self, mocker: "MockerFixture") -> None:
+        mock_fn = mocker.patch("rojak.atmosphere.regions._stack_extrema")
+        ds = self._make_simple_group_dataset().chunk({"time": 1})
+        ds = ds.assign_coords(n_extrema=("time", np.zeros(ds.sizes["time"], dtype=int)))
+        result = _apply_and_combine_on_n_extrema_groups(
+            ds,
+            lat_dim_name="latitude",
+            lon_dim_name="longitude",
+            new_dim_name="extrema_count",
+        )
+        mock_fn.assert_not_called()
+
+        assert isinstance(result, xr.DataArray)
+        assert result.dtype == np.int8
+        assert result.sizes == {"latitude": 161, "longitude": 441, "n_extrema": 0}
         assert "time" in result.coords
 
 
@@ -974,3 +991,46 @@ class TestIdentifyAndStackCircularExtrema:
 
         # Check time axis is sorted, i.e. increasing
         assert (np.diff(result["time"]) >= 0).all()
+
+    def test_zero_extrema_group_spanning_multiple_time_chunks(self) -> None:
+        """Group with no extrema must stack when its timesteps lie in different dask chunks."""
+        rng = np.random.default_rng(0)
+        data = rng.normal(100000, 500, (8, 40, 50))
+        # No minima below the threshold at these timesteps. The zero extrema group is larger than a time chunk, so it
+        #   spans multiple chunks
+        data[[1, 4, 6]] += 5000
+        target = xr.DataArray(
+            data,
+            dims=("time", "latitude", "longitude"),
+            coords={
+                "time": np.arange(8),
+                "latitude": np.linspace(60, 0, 40),
+                "longitude": np.linspace(-40, 40, 50),
+            },
+        )
+
+        expected = identify_and_stack_circular_extrema(
+            target, ExtremaKind.MINIMA, extrema_threshold_value=100000, footprint_radius=5
+        )
+        result = identify_and_stack_circular_extrema(
+            target.chunk({"time": 2}), ExtremaKind.MINIMA, extrema_threshold_value=100000, footprint_radius=5
+        ).compute()
+
+        xr.testing.assert_equal(result, expected)
+        assert not np.isin([1, 4, 6], result["time"]).any()
+
+    def test_no_extrema_returns_empty_stack(self) -> None:
+        rng = np.random.default_rng(0)
+        target = xr.DataArray(
+            rng.normal(100000, 500, (4, 40, 50)),
+            dims=("time", "latitude", "longitude"),
+            coords={"time": np.arange(4), "latitude": np.linspace(60, 0, 40), "longitude": np.linspace(-40, 40, 50)},
+        ).chunk({"time": 1})
+        # Threshold is below every value, so no minima qualify
+        with pytest.warns(UserWarning, match="No extrema identified"):
+            result = identify_and_stack_circular_extrema(
+                target, ExtremaKind.MINIMA, extrema_threshold_value=0, footprint_radius=5
+            ).compute()
+
+        assert result.sizes == {"latitude": 40, "longitude": 50, "n_extrema": 0}
+        assert "time" in result.coords

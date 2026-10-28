@@ -1,3 +1,4 @@
+import warnings
 from collections.abc import Callable, Sequence
 from enum import StrEnum
 from typing import Any, assert_never, cast
@@ -874,6 +875,13 @@ def _apply_and_combine_on_n_extrema_groups(
         ``0 / 1 / 2`` encoding of :func:`_stack_extrema`.
     """
     num_extrema_in_group = target_ds["n_extrema"].values[0]
+    if num_extrema_in_group == 0:
+        # Nothing to stack, so skip _stack_extrema and build the empty (time, new_dim, lat, lon) result directly.
+        #   Slicing time to zero length also avoids dask's reshape failing to merge a zero-length dim with a
+        #   multi-chunk dim in the stack below
+        empty_regions = target_ds["filtered"].isel(time=slice(0, 0)).astype(np.int8)
+        return empty_regions.expand_dims({new_dim_name: 0}, axis=1).stack(n_extrema=(new_dim_name, "time"))
+
     extrema_regions: xr.DataArray = xr.apply_ufunc(
         _stack_extrema,
         target_ds["extrema_locations"],
@@ -956,13 +964,17 @@ def identify_and_stack_circular_extrema(
           ``n_extrema`` dimension.
 
         Pixel values follow the ``0 / 1 / 2`` encoding described in
-        :func:`_stack_extrema`.
+        :func:`_stack_extrema`. If no extrema are identified, ``n_extrema``
+        has size ``0``.
 
     Raises:
         ValueError: If ``target_data`` is not 3D.
         ValueError: If the dimensions of ``target_data`` do not match the
             specified ``lat_dim_name``, ``lon_dim_name``, and
             ``time_dim_name``.
+
+    Warns:
+        UserWarning: If no extrema are identified in ``target_data``.
     """
     if target_data.ndim != 3:  # noqa: PLR2004
         raise ValueError("Target data must be 3D")
@@ -999,6 +1011,25 @@ def identify_and_stack_circular_extrema(
     # Add new `n_extrema` coord that is attached to the existing time dimension - ensure that when the data is split
     #   in the GroupBy, the information about the tiem is still there.
     extrema_ds = extrema_ds.assign_coords({extrema_global_idx_dim: (time_dim_name, n_composite_dim)})
+
+    has_extrema = n_composite_dim > 0
+    # If no time step has any extrema, there is nothing to stack. Return an empty array with the same dims and coords
+    #   as the stacked output, and warn so that the empty result is not silent
+    if not has_extrema.any():
+        warnings.warn("No extrema identified in target_data, returning an empty array", stacklevel=2)
+        empty_regions = filter_applied.isel({time_dim_name: slice(0, 0)}).astype(np.int8)
+        return (
+            empty_regions.rename({time_dim_name: extrema_global_idx_dim})
+            .drop_vars(extrema_global_idx_dim)
+            .transpose(lat_dim_name, lon_dim_name, extrema_global_idx_dim)
+            .assign_coords(
+                n_extrema=np.arange(0),
+                time=(extrema_global_idx_dim, target_data[time_dim_name].values[:0]),
+            )
+        )
+
+    # Drop time steps without extrema as they contribute nothing to the stack
+    extrema_ds = extrema_ds.isel({time_dim_name: has_extrema})
 
     # groupby("n_extrema"): This ensures that each item in a group only has a fixed number of extrema. This allows for
     #                       xr.apply_ufunc() to be used as each iteration over the non-lat-lon dim results in the array
