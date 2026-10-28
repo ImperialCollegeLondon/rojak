@@ -323,12 +323,9 @@ class DiagnosticHistogramDistribution(PostProcessor[HistogramData]):
             range=(min_and_max[0], min_and_max[1]),
             density=True,
         )
-        return HistogramData(
-            hist_values=h.compute(),
-            bins=bins,
-            mean=da.mean(log_of_diagnostic).compute(),
-            variance=da.var(log_of_diagnostic).compute(),
-        )
+        # Compute together so that the flatten, mask, and log are only evaluated once
+        hist_values, mean, variance = da.compute(h, da.mean(log_of_diagnostic), da.var(log_of_diagnostic))
+        return HistogramData(hist_values=hist_values, bins=bins, mean=mean, variance=variance)
 
     @override
     def execute(self) -> HistogramData:
