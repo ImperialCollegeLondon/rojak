@@ -133,15 +133,17 @@ def received_operating_characteristic(
     zero_array = da.zeros(1)
     true_positive = da.hstack((zero_array, classification_result.true_positives)).persist()  # pyright: ignore[reportAttributeAccessIssue]
     false_positive = da.hstack((zero_array, classification_result.false_positives)).persist()  # pyright: ignore[reportAttributeAccessIssue]
-    thresholds = da.hstack((da.asarray([np.inf]), classification_result.thresholds)).persist()  # pyright: ignore[reportAttributeAccessIssue]
+    thresholds = da.hstack((da.asarray([np.inf]), classification_result.thresholds))  # pyright: ignore[reportAttributeAccessIssue]
 
-    if false_positive[-1] < 0:
+    # Compute the totals once so that the normalised arrays divide by a scalar rather than a lazy array
+    false_positive_total, true_positive_total = da.compute(false_positive[-1], true_positive[-1])
+    if false_positive_total < 0:
         raise ValueError("false positives cannot be negative")
-    false_positive = false_positive / false_positive[-1]
+    false_positive = false_positive / false_positive_total
 
-    if true_positive[-1] < 0:
+    if true_positive_total < 0:
         raise ValueError("true positives cannot be negative")
-    true_positive = true_positive / true_positive[-1]
+    true_positive = true_positive / true_positive_total
 
     return BinaryClassificationResult(
         false_positives=false_positive,

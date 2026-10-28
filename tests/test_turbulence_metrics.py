@@ -11,6 +11,7 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+import gc
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -21,6 +22,7 @@ import pytest
 
 from rojak.turbulence.metrics import (
     _populate_confusion_matrix,
+    area_under_curve,
     binary_classification_curve,
     binary_classification_rate_from_cumsum,
     confusion_matrix,
@@ -69,6 +71,40 @@ def test_binary_classification_equiv_sklearn_example(as_pandas: bool, client: "C
 def test_binary_classification_rate_from_cumsum_fails(cumsum: np.typing.NDArray, as_pandas: bool) -> None:
     with pytest.raises(ValueError, match="must not be negative"):
         binary_classification_rate_from_cumsum(cumsum if not as_pandas else pd.Series(cumsum))
+
+
+def test_roc_computable_after_inputs_released(client: "Client") -> None:
+    # Regression test for futures of the ROC being cancelled once the (persisted) inputs are no longer referenced.
+    # This mirrors how DiagnosticsAmdarVerification.nearest_value_roc invokes received_operating_characteristic
+    rng = np.random.default_rng(1)
+    num_points: int = 20_000
+    values = np.sort(rng.normal(size=num_points))[::-1].copy()
+    truth = rng.random(num_points) < (1 / (1 + np.exp(-values)))
+    chunks: int = num_points // 7
+
+    results = []
+    for _ in range(3):
+        values_array = da.asarray(values, chunks=chunks).persist()
+        results.append(
+            received_operating_characteristic(
+                da.asarray(truth, chunks=chunks).persist(), values_array, num_intervals=-1
+            )
+        )
+        del values_array
+    gc.collect()
+
+    # As values are continuous and distinct, every point is a threshold
+    expected_tpr = np.concatenate(([0], np.cumsum(truth))) / truth.sum()
+    expected_fpr = np.concatenate(([0], np.cumsum(~truth))) / (~truth).sum()
+    expected_thresholds = np.concatenate(([np.inf], values))
+    for roc in results:
+        fpr, tpr, thresholds = da.compute(roc.false_positives, roc.true_positives, roc.thresholds)
+        np.testing.assert_allclose(fpr, expected_fpr)
+        np.testing.assert_allclose(tpr, expected_tpr)
+        np.testing.assert_equal(thresholds, expected_thresholds)
+        np.testing.assert_allclose(
+            area_under_curve(roc.false_positives, roc.true_positives), np.trapezoid(expected_tpr, expected_fpr)
+        )
 
 
 def test_binary_classification_curve_buckets_by_num_intervals() -> None:
