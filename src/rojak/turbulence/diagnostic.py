@@ -407,7 +407,7 @@ class Endlich(Diagnostic):
                 kwargs={"coord_values": values_in_z_axis, "target_axis": z_axis},
                 dask="parallelized",
                 output_dtypes=[np.float32],
-            ).persist()
+            )
         else:
             d_direction_d_p_values: np.ndarray = angles_gradient(
                 self._wind_direction.values,
@@ -985,7 +985,7 @@ class DirectionalShear(Diagnostic):
                 kwargs={"coord_values": values_in_z_axis, "target_axis": z_axis},
                 dask="parallelized",
                 output_dtypes=[np.float32],
-            ).persist()
+            )
         else:
             directional_shear: xr.DataArray = direction.copy(
                 data=angles_gradient(direction.values, z_axis, values_in_z_axis),
