@@ -549,10 +549,12 @@ class DiagnosticsAmdarVerification:
         data_frame = data_frame.map_partitions(
             lambda df: df.assign(
                 **{
+                    # Assign by position as the returned series has a default index, which does not align with
+                    # the index of the partition (e.g. the grid box index)
                     col_name_mapping[col_name]: map_index_to_coordinate_value(
                         df[col_name],
                         prototype_array[col_name_mapping[col_name]].to_numpy(),
-                    )
+                    ).to_numpy()
                     for col_name in index_columns
                 },
             ),

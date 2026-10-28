@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
+from scipy import integrate
 
 from rojak.core.data import AmdarTurbulenceData
 from rojak.orchestrator.configuration import (
@@ -25,6 +26,8 @@ from rojak.utilities.types import Limits
 from tests.conftest import time_window_for_cat_data
 
 if TYPE_CHECKING:
+    from unittest.mock import Mock
+
     from pytest_mock import MockerFixture
 
     from rojak.core.data import CATData
@@ -184,6 +187,21 @@ def amdar_data_mock(mocker: "MockerFixture", obs_data: "dd.DataFrame") -> AmdarT
     amdar_turb_data_mock = mocker.Mock(spec=AmdarTurbulenceData)
     df_mock = mocker.patch.object(amdar_turb_data_mock, "clip_to_time_window", return_value=obs_data)
     return AmdarTurbDataMock(amdar_turb_data_mock, df_mock)
+
+
+def make_harmoniser(
+    mocker: "MockerFixture", observational_data: dd.DataFrame, grid_setup: GridSetup
+) -> tuple[AmdarDataHarmoniser, "Mock"]:
+    amdar_turb_data_mock, _ = amdar_data_mock(mocker, observational_data)
+    data_harmoniser: AmdarDataHarmoniser = AmdarDataHarmoniser(
+        amdar_turb_data_mock, grid_setup.grid_prototype, grid_setup.time_window
+    )
+    get_coords_mock = mocker.patch.object(
+        data_harmoniser,
+        "coordinates_of_observations",
+        return_value=coords_of_obs_return_value(observational_data),
+    )
+    return data_harmoniser, get_coords_mock
 
 
 class TestAmdarDataHarmoniser:
@@ -525,6 +543,108 @@ class TestDiagnosticAmdarVerification:
                 )
 
 
+# Horizontal positions (lat_index, lon_index) used by the correctness tests. Each one is observed in every
+# combination of time and pressure level (i.e. in distinct grid cells), apart from the last position which only has
+# two observations so that it falls below the minimum group size
+HORIZONTAL_POSITIONS: list[tuple[int, int]] = [(1, 0), (1, 4), (2, 2), (2, 7), (3, 5), (3, 9)]
+MINIMUM_GROUP_SIZE: int = 3
+
+SPACE_INDEX_COLUMNS: dict[SpatialGroupByStrategy, list[str]] = {
+    SpatialGroupByStrategy.GRID_BOX: ["index_right", AmdarDataHarmoniser.level_index_column],
+    SpatialGroupByStrategy.GRID_POINT: [
+        AmdarDataHarmoniser.lat_index_column,
+        AmdarDataHarmoniser.lon_index_column,
+        AmdarDataHarmoniser.level_index_column,
+    ],
+    SpatialGroupByStrategy.HORIZONTAL_BOX: ["index_right"],
+    SpatialGroupByStrategy.HORIZONTAL_POINT: [
+        AmdarDataHarmoniser.lat_index_column,
+        AmdarDataHarmoniser.lon_index_column,
+    ],
+}
+INDEX_TO_COORDINATE: dict[str, str] = {
+    AmdarDataHarmoniser.lat_index_column: "latitude",
+    AmdarDataHarmoniser.lon_index_column: "longitude",
+    AmdarDataHarmoniser.level_index_column: "pressure_level",
+}
+
+
+def observations_at_positions(grid_prototype: xr.DataArray, seed: int) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    rows = [
+        (lat, lon, level, time)
+        for lat, lon in HORIZONTAL_POSITIONS[:-1]
+        for level in range(grid_prototype["pressure_level"].size)
+        for time in range(grid_prototype["time"].size)
+    ]
+    lat, lon = HORIZONTAL_POSITIONS[-1]
+    rows.extend([(lat, lon, 0, 0), (lat, lon, 0, 1)])
+    observations = pd.DataFrame(rows, columns=["lat_index", "lon_index", "level_index", "time_index"])
+    return observations.assign(
+        # Boxes contain all the positions which share a latitude
+        index_right=observations["lat_index"] * 10,
+        maxEDR=rng.lognormal(-3, 1, size=len(observations)),
+        medEDR=rng.lognormal(-3, 1, size=len(observations)),
+    )
+
+
+def diagnostic_values_at(diagnostic: xr.DataArray, observations: pd.DataFrame) -> np.ndarray:
+    return (
+        diagnostic.isel(
+            latitude=xr.DataArray(observations["lat_index"].to_numpy()),
+            longitude=xr.DataArray(observations["lon_index"].to_numpy()),
+            pressure_level=xr.DataArray(observations["level_index"].to_numpy()),
+            time=xr.DataArray(observations["time_index"].to_numpy()),
+        )
+        .compute()
+        .to_numpy()
+    )
+
+
+def rates_from_labels(labels: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """True and false positive rates at each threshold for labels sorted by descending diagnostic value"""
+    num_positives: int = int(labels.sum())
+    num_negatives: int = labels.size - num_positives
+    true_positive_rate = np.concatenate(([0], np.cumsum(labels))) / num_positives
+    false_positive_rate = (
+        np.concatenate(([0], np.cumsum(~labels))) / num_negatives if num_negatives else np.zeros(labels.size + 1)
+    )
+    return true_positive_rate, false_positive_rate
+
+
+def expected_group_metric(
+    labels: np.ndarray, metric: AggregationMetricOption, integration_scheme: str = "simpson"
+) -> float:
+    # Minimum number of positive observations for the rates to be computed
+    min_true_positives: int = 2
+    if labels.size < MINIMUM_GROUP_SIZE:
+        return np.nan
+    if metric == AggregationMetricOption.PREVALENCE:
+        return labels.sum() / labels.size
+    if labels.sum() < min_true_positives:
+        return -1
+    true_positive_rate, false_positive_rate = rates_from_labels(labels)
+    if metric == AggregationMetricOption.TSS:
+        return float(np.max(true_positive_rate - false_positive_rate))
+    if integration_scheme == "trapz":
+        return float(np.trapezoid(true_positive_rate, x=false_positive_rate))
+    return float(integrate.simpson(true_positive_rate, x=false_positive_rate))
+
+
+def keyed_by(data_frame: pd.DataFrame, key_columns: list[str]) -> pd.DataFrame:
+    """Move the grid box index into a column (if it is the index) and index by ``key_columns`` for comparison"""
+    if data_frame.index.name == "index_right":
+        data_frame = data_frame.reset_index(drop="index_right" in data_frame.columns)
+    return data_frame.reset_index(drop=True).set_index(key_columns).sort_index()
+
+
+def conditions_for(min_edr: float) -> list[DiagnosticValidationCondition]:
+    return [
+        DiagnosticValidationCondition(observed_turbulence_column_name="maxEDR", value_greater_than=min_edr),
+        DiagnosticValidationCondition(observed_turbulence_column_name="medEDR", value_greater_than=min_edr),
+    ]
+
+
 class TestVerificationCorrectness:
     @pytest.mark.parametrize("case_size", possible_test_case_sizes)
     def test_observation_data_with_indices_matches_coordinates(
@@ -551,3 +671,67 @@ class TestVerificationCorrectness:
         for index_column in ["lat_index", "lon_index", "level_index", "time_index"]:
             np.testing.assert_array_equal(with_indices[index_column].to_numpy(), case.indices[index_column])
             np.testing.assert_array_equal(as_arrays[index_column].compute(), case.indices[index_column])
+
+    @pytest.mark.parametrize("groupby_strategy", list(SpatialGroupByStrategy))
+    def test_num_obs_per_matches_pandas(
+        self, mocker: "MockerFixture", groupby_strategy: SpatialGroupByStrategy, grid_setup: GridSetup
+    ) -> None:
+        observations = observations_at_positions(grid_setup.grid_prototype, seed=1)
+        data_harmoniser, _ = make_harmoniser(mocker, dd.from_pandas(observations, npartitions=3), grid_setup)
+        verifier = DiagnosticsAmdarVerification(data_harmoniser, grid_setup.diagnostics)
+
+        space_columns = SPACE_INDEX_COLUMNS[groupby_strategy]
+        computed = keyed_by(verifier.num_obs_per(conditions_for(0.1), groupby_strategy).compute(), space_columns)
+        expected = observations.groupby(space_columns).size().rename("num_obs").to_frame().sort_index()
+
+        pd.testing.assert_frame_equal(computed[["num_obs"]], expected, check_dtype=False)
+
+    @pytest.mark.parametrize("groupby_strategy", list(SpatialGroupByStrategy))
+    @pytest.mark.parametrize("min_edr", [0.05, 0.22])
+    def test_aggregate_by_auc_matches_pandas(
+        self,
+        mocker: "MockerFixture",
+        groupby_strategy: SpatialGroupByStrategy,
+        min_edr: float,
+        grid_setup: GridSetup,
+    ) -> None:
+        observations = observations_at_positions(grid_setup.grid_prototype, seed=2)
+        data_harmoniser, _ = make_harmoniser(mocker, dd.from_pandas(observations, npartitions=3), grid_setup)
+        verifier = DiagnosticsAmdarVerification(data_harmoniser, grid_setup.diagnostics)
+        conditions = conditions_for(min_edr)
+
+        computed_by_diagnostic = verifier.aggregate_by_auc(
+            conditions, groupby_strategy, MINIMUM_GROUP_SIZE, AggregationMetricOption.AUC
+        )
+
+        space_columns = SPACE_INDEX_COLUMNS[groupby_strategy]
+        coordinate_columns = [INDEX_TO_COORDINATE.get(column, column) for column in space_columns]
+        validation_columns = [condition.observed_turbulence_column_name for condition in conditions]
+        for diagnostic_name, diagnostic in grid_setup.diagnostics.data_vars.items():
+            in_descending_order = observations.assign(
+                diagnostic=diagnostic_values_at(diagnostic, observations)
+            ).sort_values("diagnostic", ascending=False)
+            expected = pd.DataFrame(
+                {
+                    condition.observed_turbulence_column_name: in_descending_order.groupby(space_columns)[
+                        condition.observed_turbulence_column_name
+                    ].apply(
+                        lambda values, threshold=condition.value_greater_than: expected_group_metric(
+                            values.to_numpy() > threshold, AggregationMetricOption.AUC
+                        )
+                    )
+                    for condition in conditions
+                }
+            )
+            # Mirror aggregate_by_auc: drop groups with too few observations, then invalid values become NaN
+            expected = expected.dropna()
+            expected = expected.where(expected >= 0)
+            # Grid indices are returned as their coordinate values
+            expected = expected.reset_index()
+            for index_column, coordinate in INDEX_TO_COORDINATE.items():
+                if index_column in expected.columns:
+                    expected[coordinate] = grid_setup.grid_prototype[coordinate].to_numpy()[expected[index_column]]
+            expected = expected.set_index(coordinate_columns)[validation_columns].sort_index()
+
+            computed = keyed_by(computed_by_diagnostic[str(diagnostic_name)].compute(), coordinate_columns)
+            pd.testing.assert_frame_equal(computed[validation_columns], expected, check_dtype=False)
