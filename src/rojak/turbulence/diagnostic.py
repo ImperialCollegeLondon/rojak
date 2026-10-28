@@ -1790,7 +1790,9 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
                     self._severities,
                     self._probability_thresholds[name],
                     self._threshold_mode,
-                ).execute()
+                )
+                .execute()
+                .persist()
                 for name, diagnostic in self.computed_values(
                     "Computing probability of encountering turbulence of a given severity",
                 )
