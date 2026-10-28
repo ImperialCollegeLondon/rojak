@@ -326,7 +326,7 @@ def metric_based_aggregation(
         if binary_classification is None:
             return -1
 
-        tss: NDArray = binary_classification.true_positives_rate + binary_classification.false_positives_rate - 1
+        tss: NDArray = binary_classification.true_positives_rate - binary_classification.false_positives_rate
         return tss.max()
 
     def auc_from_cumsum(on_group: "pd.Series") -> float:

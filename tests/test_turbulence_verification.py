@@ -21,6 +21,7 @@ from rojak.turbulence.verification import (
     DiagnosticsAmdarVerification,
     IndexingFormat,
     ObservationCoordinates,
+    metric_based_aggregation,
 )
 from rojak.utilities.types import Limits
 from tests.conftest import time_window_for_cat_data
@@ -774,3 +775,60 @@ class TestVerificationCorrectness:
                 computed = roc.by_amdar_col_then_diagnostic[column][str(diagnostic_name)]
                 np.testing.assert_allclose(computed.true_positives.compute(), expected_tpr)
                 np.testing.assert_allclose(computed.false_positives.compute(), expected_fpr)
+
+
+@pytest.mark.parametrize(
+    "aggregation_metric",
+    [
+        AggregationMetricOption.AUC,
+        AggregationMetricOption.PREVALENCE,
+        AggregationMetricOption.TSS,
+    ],
+)
+@pytest.mark.parametrize("integration_scheme", ["simpson", "trapz"])
+def test_metric_based_aggregation_matches_numpy(
+    aggregation_metric: AggregationMetricOption, integration_scheme: str
+) -> None:
+    rng = np.random.default_rng(4)
+    # Groups are interleaved (as they would be after sorting by the diagnostic) and spread across partitions.
+    # Group 2 is below the minimum group size and group 3 has a single positive observation
+    groups = np.asarray([0, 1, 0, 2, 1, 3, 0, 1, 3, 2, 0, 1, 3, 0, 1, 3, 0, 1])
+    observed = rng.lognormal(-3, 1, size=groups.size)
+    single_positive_group: int = 3
+    observed[groups == single_positive_group] = [0.5, 0.01, 0.01, 0.01]
+    condition = DiagnosticValidationCondition(observed_turbulence_column_name="maxEDR", value_greater_than=0.05)
+    # As in DiagnosticsAmdarVerification._spatial_data_grouping, the index is the group the row belongs to
+    data = dd.from_pandas(
+        pd.DataFrame({"group": groups, "maxEDR": observed}, index=pd.Index(groups.astype(str), name="multi_index")),
+        npartitions=3,
+        sort=False,
+    )
+
+    computed = (
+        data.groupby("group", sort=False)
+        .aggregate(
+            {
+                "maxEDR": metric_based_aggregation(
+                    condition,
+                    MINIMUM_GROUP_SIZE,
+                    aggregation_metric,
+                    integration_scheme=integration_scheme,  # pyright: ignore[reportArgumentType]
+                )
+            },
+            meta={"maxEDR": pd.Series(dtype=float)},
+        )
+        .compute()["maxEDR"]
+    )
+    computed.index = computed.index.get_level_values("group")
+    computed = computed.sort_index()
+
+    expected = pd.Series(
+        {
+            group: expected_group_metric(
+                observed[groups == group] > condition.value_greater_than, aggregation_metric, integration_scheme
+            )
+            for group in np.unique(groups)
+        },
+        name="maxEDR",
+    )
+    pd.testing.assert_series_equal(computed, expected, check_index_type=False, check_names=False)
