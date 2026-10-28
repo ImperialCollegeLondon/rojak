@@ -21,6 +21,7 @@ import pytest
 
 from rojak.turbulence.metrics import (
     _populate_confusion_matrix,
+    binary_classification_curve,
     binary_classification_rate_from_cumsum,
     confusion_matrix,
     contingency_table,
@@ -68,6 +69,27 @@ def test_binary_classification_equiv_sklearn_example(as_pandas: bool, client: "C
 def test_binary_classification_rate_from_cumsum_fails(cumsum: np.typing.NDArray, as_pandas: bool) -> None:
     with pytest.raises(ValueError, match="must not be negative"):
         binary_classification_rate_from_cumsum(cumsum if not as_pandas else pd.Series(cumsum))
+
+
+def test_binary_classification_curve_buckets_by_num_intervals() -> None:
+    rng = np.random.default_rng(2)
+    num_intervals: int = 5
+    # Clusters 10 apart with small jitter => only the jumps between clusters exceed the step size of range / 5
+    values = np.sort(np.concatenate([rng.uniform(0, 0.01, 400) + offset for offset in range(0, 50, 10)]))[::-1].copy()
+    positive_rate: float = 0.3
+    truth = rng.random(values.size) < positive_rate
+
+    step_size = (values.max() - values.min()) / num_intervals
+    expected_indices = np.append(np.nonzero(np.abs(np.diff(values)) > step_size)[0], values.size - 1)
+    assert expected_indices.size == num_intervals  # boundaries between the 5 clusters + final point
+    expected_tp = np.cumsum(truth)[expected_indices]
+
+    result = binary_classification_curve(
+        da.asarray(truth, chunks=300), da.asarray(values, chunks=300), num_intervals=num_intervals
+    )
+    np.testing.assert_equal(result.true_positives.compute(), expected_tp)
+    np.testing.assert_equal(result.false_positives.compute(), 1 + expected_indices - expected_tp)
+    np.testing.assert_equal(result.thresholds.compute(), values[expected_indices])
 
 
 @pytest.mark.parametrize("dtype", [np.bool_, np.int8, np.int64])

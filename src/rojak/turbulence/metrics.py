@@ -245,20 +245,23 @@ def binary_classification_curve(
         sorted_truth = sorted_truth == positive_classification_label
 
     diff_values: da.Array = da.diff(sorted_values)
-    if da.any(diff_values > 0).compute():
+    # Compute together so that sorted_values is only traversed once
+    to_compute: list[da.Array] = [da.any(diff_values > 0)]
+    if num_intervals != -1:
+        to_compute.extend([da.nanmin(sorted_values), da.nanmax(sorted_values)])
+    is_not_decreasing, *min_and_max = da.compute(*to_compute)
+    if is_not_decreasing:
         raise ValueError("values must be strictly decreasing")
     diff_values = da.abs(diff_values)
 
-    if num_intervals == -1:
-        minimum_step_size: float = 0.0
-    else:
-        values_min: float = da.nanmin(sorted_values).compute()
-        values_max: float = da.nanmax(sorted_values).compute()
-        minimum_step_size: float = np.abs(values_max - values_min) / num_intervals
+    minimum_step_size: float = (
+        0.0 if num_intervals == -1 else float(np.abs(min_and_max[1] - min_and_max[0]) / num_intervals)
+    )
 
     # As the values would be from the turbulence diagnostics, they are continuous
     # To reduce the data, use step_size to determine the minimum difference between two data points
-    bucketed_value_indices = da.nonzero(diff_values > minimum_step_size)[0].compute_chunk_sizes()
+    # Persist first so that computing the chunk sizes doesn't discard the values, which would then be recomputed
+    bucketed_value_indices = da.nonzero(diff_values > minimum_step_size)[0].persist().compute_chunk_sizes()
     # ^ computing chunks here means that the subsequent dask arrays have a known number of chunks
     threshold_indices = da.hstack((bucketed_value_indices, da.asarray([sorted_truth.size - 1]))).persist()
 
