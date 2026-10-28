@@ -8,6 +8,9 @@ import pandas as pd
 import pytest
 import xarray as xr
 import xarray.testing as xrt
+from dask import config as dask_config
+from dask.core import flatten
+from dask.local import get_sync
 
 from rojak.atmosphere.contrails import issr
 from rojak.core.data import CATData, CATPrognosticData, as_geo_dataframe
@@ -358,6 +361,24 @@ def test_getters_on_cat_prognostic_dataset(make_dummy_cat_data, attr_name: str, 
     dataset = CATPrognosticData(dummy_data, 100)
 
     xrt.assert_equal(getattr(dataset, attr_name)(), dummy_data[dataset_name])
+
+
+def test_cat_prognostic_data_only_persists_accessed_variable(make_dummy_cat_data) -> None:
+    requested_keys: list[set] = []
+
+    def recording_scheduler(dsk, keys, **kwargs):
+        requested_keys.append(set(flatten(keys)))
+        return get_sync(dsk, keys, **kwargs)
+
+    with dask_config.set(scheduler=recording_scheduler):
+        data = CATPrognosticData(make_dummy_cat_data({}, use_numpy=False), 100)
+        assert requested_keys == [], "Nothing should be loaded on construction"
+
+        u_wind = data.u_wind()
+        assert requested_keys == [set(flatten(u_wind.data.__dask_keys__()))], "Only u wind should be loaded"
+
+        assert data.u_wind() is u_wind
+        assert len(requested_keys) == 1, "u wind should only be loaded once"
 
 
 def test_time_window_on_cat_prognostic_dataset(make_dummy_cat_data):

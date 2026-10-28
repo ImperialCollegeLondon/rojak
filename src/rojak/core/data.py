@@ -167,11 +167,14 @@ class CATPrognosticData:
     support for a new data source without having to change any of the diagnostic code that consumes it.
 
     On construction, checks that the underlying dataset contains :attr:`required_variables` and
-    :attr:`required_coords`, then exposes each required field via an accessor method.
+    :attr:`required_coords`, then exposes each required field via an accessor method. By default, each field is
+    persisted the first time it is accessed, so that only the fields which are used are loaded into memory, and they
+    are only loaded once.
     """
 
     _dataset: xr.Dataset
     _pressure_level_prefix: float
+    _persisted_variables: dict[str, xr.DataArray]
 
     required_variables: ClassVar[frozenset[str]] = frozenset(
         [
@@ -207,40 +210,47 @@ class CATPrognosticData:
         if not set(dataset.coords.keys()).issuperset(self.required_coords):
             missing_coords = self.required_coords - dataset.coords.keys()
             raise ValueError(f"Attempting to instantiate CATPrognosticData with missing coords: {missing_coords}")
-        self._dataset = dataset.sortby("time").persist()
+        self._dataset = dataset.sortby("time")
         self._pressure_level_prefix = pressure_level_prefix
+        self._persisted_variables = {}
+
+    def _variable(self, name: str) -> xr.DataArray:
+        """Data variable ``name``, persisted on first access"""
+        if name not in self._persisted_variables:
+            self._persisted_variables[name] = self._dataset[name].persist()
+        return self._persisted_variables[name]
 
     def temperature(self) -> xr.DataArray:
         """Air temperature in Kelvin"""
-        return self._dataset["temperature"]
+        return self._variable("temperature")
 
     def divergence(self) -> xr.DataArray:
         """Horizontal divergence of wind in m/s"""
-        return self._dataset["divergence_of_wind"]
+        return self._variable("divergence_of_wind")
 
     def geopotential(self) -> xr.DataArray:
         """Geopotential in m^2/s^2"""
-        return self._dataset["geopotential"]
+        return self._variable("geopotential")
 
     def specific_humidity(self) -> xr.DataArray:
         """Specific humidity"""
-        return self._dataset["specific_humidity"]
+        return self._variable("specific_humidity")
 
     def u_wind(self) -> xr.DataArray:
         """Zonal (eastward) wind speed in m/s"""
-        return self._dataset["eastward_wind"]
+        return self._variable("eastward_wind")
 
     def v_wind(self) -> xr.DataArray:
         """Meridional (northward) wind speed in m/s"""
-        return self._dataset["northward_wind"]
+        return self._variable("northward_wind")
 
     def potential_vorticity(self) -> xr.DataArray:
         """Potential vorticity"""
-        return self._dataset["potential_vorticity"]
+        return self._variable("potential_vorticity")
 
     def vorticity(self) -> xr.DataArray:
         """Vertical component of vorticity in m/s"""
-        return self._dataset["vorticity"]
+        return self._variable("vorticity")
 
     def altitude(self) -> xr.DataArray:
         """Altitude"""
