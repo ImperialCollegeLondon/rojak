@@ -779,7 +779,8 @@ class MatthewsCorrelationOnDataset(PostProcessor[xr.DataArray]):
         if not all_dtypes_match(is_dataset, np.bool_):
             raise TypeError("Dataset must contain DataArrays boolean dtypes")
 
-        self._is_dataset = is_dataset.astype(int)
+        # Keep as boolean, as confusion_matrix skips its check that the values are 0 or 1 for boolean arrays
+        self._is_dataset = is_dataset
         self._with_vars = with_vars
 
     @override

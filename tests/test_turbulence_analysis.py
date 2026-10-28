@@ -19,6 +19,7 @@ from rojak.orchestrator.configuration import (
 from rojak.turbulence.analysis import (
     DiagnosticHistogramDistribution,
     HistogramData,
+    MatthewsCorrelationOnDataset,
     RelationshipBetweenAlphaVelAndTurbulence,
     RelationshipBetweenXAndTurbulence,
     TransformToEDR,
@@ -204,3 +205,31 @@ def test_relationship_between_alpha_vel_jet_stream_and_turbulence(
 
     for data_var in computed_rel.data_vars.values():
         assert data_var.any(dim=None), "Test that there is at least one true value in the whole array"
+
+
+def _numpy_matthews_corr_coeff(truth: NDArray, prediction: NDArray) -> float:
+    tp = np.sum(truth & prediction)
+    tn = np.sum(~truth & ~prediction)
+    fp = np.sum(~truth & prediction)
+    fn = np.sum(truth & ~prediction)
+    return float((tp * tn - fp * fn) / np.sqrt(float((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))))
+
+
+def test_matthews_correlation_on_dataset_matches_numpy() -> None:
+    rng = np.random.default_rng(4)
+    shape = (6, 20, 30)
+    first = rng.random(shape) < 0.4  # noqa: PLR2004
+    # Correlated with first so that the coefficient is non-trivial
+    second = first ^ (rng.random(shape) < 0.2)  # noqa: PLR2004
+    third = rng.random(shape) < 0.5  # noqa: PLR2004
+    dims = ("time", "latitude", "longitude")
+    dataset = xr.Dataset({name: (dims, values) for name, values in (("a", first), ("b", second), ("c", third))}).chunk(
+        {"time": 1}
+    )
+
+    result = MatthewsCorrelationOnDataset(dataset, "diagnostic").execute()
+
+    for name1, values1 in (("a", first), ("b", second), ("c", third)):
+        for name2, values2 in (("a", first), ("b", second), ("c", third)):
+            expected = 1.0 if name1 == name2 else _numpy_matthews_corr_coeff(values1.ravel(), values2.ravel())
+            np.testing.assert_allclose(result.sel(diagnostic1=name1, diagnostic2=name2).item(), expected)
