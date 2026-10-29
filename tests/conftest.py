@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING
 
 import dask.array as da
@@ -80,14 +80,23 @@ def valid_region_for_flat_data() -> "Polygon":
 
 
 @pytest.fixture
-def load_era5_data() -> Callable:
+def load_era5_data() -> Iterator[Callable]:
+    # The HDF5 library bundled with netCDF4 segfaults when the same file, which contains a variable-length string
+    # variable (expver), has multiple handles open at once and they are closed out of order. Close every handle at
+    # the end of the test so that they do not accumulate within an xdist worker.
+    opened: list[xr.Dataset] = []
+
     def _load_era5_data(with_chunks: bool = False) -> Era5Data:
         dataset: xr.Dataset = xr.open_dataset("tests/_static/test_era5_data.nc", engine="netcdf4")
+        opened.append(dataset)
         if with_chunks:
             dataset = dataset.chunk(chunks={"valid_time": 2})
         return Era5Data(dataset)
 
-    return _load_era5_data
+    yield _load_era5_data
+
+    for dataset in opened:
+        dataset.close()
 
 
 def time_window_for_cat_data() -> Limits["np.datetime64"]:
