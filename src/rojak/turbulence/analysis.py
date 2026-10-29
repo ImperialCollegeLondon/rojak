@@ -323,12 +323,9 @@ class DiagnosticHistogramDistribution(PostProcessor[HistogramData]):
             range=(min_and_max[0], min_and_max[1]),
             density=True,
         )
-        return HistogramData(
-            hist_values=h.compute(),
-            bins=bins,
-            mean=da.mean(log_of_diagnostic).compute(),
-            variance=da.var(log_of_diagnostic).compute(),
-        )
+        # Compute together so that the flatten, mask, and log are only evaluated once
+        hist_values, mean, variance = da.compute(h, da.mean(log_of_diagnostic), da.var(log_of_diagnostic))
+        return HistogramData(hist_values=hist_values, bins=bins, mean=mean, variance=variance)
 
     @override
     def execute(self) -> HistogramData:
@@ -694,8 +691,7 @@ class TransformToEDR(PostProcessor[xr.DataArray]):
         # https://stackoverflow.com/a/45384691
         # return exponent_term * (np.sign(self.computed_value()) * (np.abs(self.computed_value()) ** scaling))
         # e^a x^b
-        mapped_index: xr.DataArray = (np.exp(offset) * (unmapped_index**scaling)).persist()
-        return mapped_index
+        return np.exp(offset) * (unmapped_index**scaling)
 
 
 class CorrelationBetweenDiagnostics(PostProcessor[xr.DataArray]):
@@ -783,7 +779,8 @@ class MatthewsCorrelationOnDataset(PostProcessor[xr.DataArray]):
         if not all_dtypes_match(is_dataset, np.bool_):
             raise TypeError("Dataset must contain DataArrays boolean dtypes")
 
-        self._is_dataset = is_dataset.astype(int)
+        # Keep as boolean, as confusion_matrix skips its check that the values are 0 or 1 for boolean arrays
+        self._is_dataset = is_dataset
         self._with_vars = with_vars
 
     @override

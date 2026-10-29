@@ -133,15 +133,17 @@ def received_operating_characteristic(
     zero_array = da.zeros(1)
     true_positive = da.hstack((zero_array, classification_result.true_positives)).persist()  # pyright: ignore[reportAttributeAccessIssue]
     false_positive = da.hstack((zero_array, classification_result.false_positives)).persist()  # pyright: ignore[reportAttributeAccessIssue]
-    thresholds = da.hstack((da.asarray([np.inf]), classification_result.thresholds)).persist()  # pyright: ignore[reportAttributeAccessIssue]
+    thresholds = da.hstack((da.asarray([np.inf]), classification_result.thresholds))  # pyright: ignore[reportAttributeAccessIssue]
 
-    if false_positive[-1] < 0:
+    # Compute the totals once so that the normalised arrays divide by a scalar rather than a lazy array
+    false_positive_total, true_positive_total = da.compute(false_positive[-1], true_positive[-1])
+    if false_positive_total < 0:
         raise ValueError("false positives cannot be negative")
-    false_positive = false_positive / false_positive[-1]
+    false_positive = false_positive / false_positive_total
 
-    if true_positive[-1] < 0:
+    if true_positive_total < 0:
         raise ValueError("true positives cannot be negative")
-    true_positive = true_positive / true_positive[-1]
+    true_positive = true_positive / true_positive_total
 
     return BinaryClassificationResult(
         false_positives=false_positive,
@@ -245,20 +247,23 @@ def binary_classification_curve(
         sorted_truth = sorted_truth == positive_classification_label
 
     diff_values: da.Array = da.diff(sorted_values)
-    if da.any(diff_values > 0).compute():
+    # Compute together so that sorted_values is only traversed once
+    to_compute: list[da.Array] = [da.any(diff_values > 0)]
+    if num_intervals != -1:
+        to_compute.extend([da.nanmin(sorted_values), da.nanmax(sorted_values)])
+    is_not_decreasing, *min_and_max = da.compute(*to_compute)
+    if is_not_decreasing:
         raise ValueError("values must be strictly decreasing")
     diff_values = da.abs(diff_values)
 
-    if num_intervals == -1:
-        minimum_step_size: float = 0.0
-    else:
-        values_min: float = da.nanmin(sorted_values).compute()
-        values_max: float = da.nanmax(sorted_values).compute()
-        minimum_step_size: float = np.abs(values_max - values_min) / num_intervals
+    minimum_step_size: float = (
+        0.0 if num_intervals == -1 else float(np.abs(min_and_max[1] - min_and_max[0]) / num_intervals)
+    )
 
     # As the values would be from the turbulence diagnostics, they are continuous
     # To reduce the data, use step_size to determine the minimum difference between two data points
-    bucketed_value_indices = da.nonzero(diff_values > minimum_step_size)[0].compute_chunk_sizes()
+    # Persist first so that computing the chunk sizes doesn't discard the values, which would then be recomputed
+    bucketed_value_indices = da.nonzero(diff_values > minimum_step_size)[0].persist().compute_chunk_sizes()
     # ^ computing chunks here means that the subsequent dask arrays have a known number of chunks
     threshold_indices = da.hstack((bucketed_value_indices, da.asarray([sorted_truth.size - 1]))).persist()
 
@@ -574,7 +579,13 @@ def _confusion_matrix_coo_reduction(truth: da.Array, prediction: da.Array) -> "N
     def on_chunk(x_chunk: np.ndarray, **kwargs) -> np.ndarray:  # noqa: ANN003,ARG001
         truth_chunk: np.ndarray = x_chunk[0, :]
         pred_chunk: np.ndarray = x_chunk[1, :]
-        return COO((truth_chunk, pred_chunk), np.ones_like(truth_chunk), shape=(2, 2)).todense()
+        # Cast coordinates to integers as COO treats boolean coordinates as a mask, and count using int64 as the
+        # counts would otherwise share the dtype of the input and overflow (e.g. int8)
+        return COO(
+            (truth_chunk.astype(np.intp), pred_chunk.astype(np.intp)),
+            np.ones(truth_chunk.shape, dtype=np.int64),
+            shape=(2, 2),
+        ).todense()
 
     # Kwargs are to comply with the expected function signature of reduction Callable
     def to_aggregate(x_chunk: list[np.ndarray], **kwargs) -> np.ndarray:  # noqa: ANN003,ARG001

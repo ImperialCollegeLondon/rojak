@@ -1,3 +1,5 @@
+import threading
+from collections import Counter
 from typing import TYPE_CHECKING
 
 import dask.dataframe as dd
@@ -8,12 +10,15 @@ import pandas as pd
 import pytest
 import xarray as xr
 import xarray.testing as xrt
+from dask import config as dask_config
+from dask.core import flatten
+from dask.local import get_sync
 
 from rojak.atmosphere.contrails import issr
-from rojak.core.data import CATData, CATPrognosticData, as_geo_dataframe
+from rojak.core.data import CATData, CATPrognosticData, MetData, as_geo_dataframe
 from rojak.core.derivatives import VelocityDerivative
 from rojak.datalib.ecmwf.era5 import Era5Data
-from rojak.datalib.madis.amdar import AcarsAmdarRepository
+from rojak.datalib.madis.amdar import AcarsAmdarRepository, AcarsAmdarTurbulenceData
 from rojak.datalib.ukmo.amdar import UkmoAmdarRepository
 from rojak.orchestrator.configuration import SpatialDomain
 from tests.conftest import generate_array_data, time_coordinate
@@ -353,11 +358,77 @@ def test_instantiate_cat_prognostic_successfully(make_dummy_cat_data):
         ("altitude", "altitude"),
     ],
 )
-def test_getters_on_cat_prognostic_dataset(make_dummy_cat_data, attr_name: str, dataset_name: str):
+@pytest.mark.parametrize("persist", [True, False])
+def test_getters_on_cat_prognostic_dataset(make_dummy_cat_data, attr_name: str, dataset_name: str, persist: bool):
     dummy_data = make_dummy_cat_data({})
-    dataset = CATPrognosticData(dummy_data, 100)
+    dataset = CATPrognosticData(dummy_data, 100, persist=persist)
 
     xrt.assert_equal(getattr(dataset, attr_name)(), dummy_data[dataset_name])
+
+
+def fail_if_computed(*args, **kwargs) -> None:
+    raise AssertionError("Dask computation was triggered")
+
+
+def test_cat_prognostic_data_only_persists_accessed_variable(make_dummy_cat_data) -> None:
+    requested_keys: list[set] = []
+
+    def recording_scheduler(dsk, keys, **kwargs):
+        requested_keys.append(set(flatten(keys)))
+        return get_sync(dsk, keys, **kwargs)
+
+    with dask_config.set(scheduler=recording_scheduler):
+        data = CATPrognosticData(make_dummy_cat_data({}, use_numpy=False), 100)
+        assert requested_keys == [], "Nothing should be loaded on construction"
+
+        u_wind = data.u_wind()
+        assert requested_keys == [set(flatten(u_wind.data.__dask_keys__()))], "Only u wind should be loaded"
+
+        assert data.u_wind() is u_wind
+        assert len(requested_keys) == 1, "u wind should only be loaded once"
+
+
+def test_cat_data_persists_nothing_when_disabled(make_dummy_cat_data) -> None:
+    with dask_config.set(scheduler=fail_if_computed):
+        data = CATData(make_dummy_cat_data({}, use_numpy=False), 100, persist=False)
+        for accessor in [
+            "temperature",
+            "divergence",
+            "geopotential",
+            "specific_humidity",
+            "u_wind",
+            "v_wind",
+            "potential_vorticity",
+            "vorticity",
+            "potential_temperature",
+        ]:
+            getattr(data, accessor)()
+
+
+@pytest.mark.parametrize("persist", [True, False])
+def test_met_data_creates_cat_data_respecting_persist(make_dummy_cat_data, persist: bool) -> None:
+    class DummyMetData(MetData):
+        def __init__(self, dataset: xr.Dataset) -> None:
+            super().__init__(persist=persist)
+            self._dataset = dataset
+
+        def to_clear_air_turbulence_data(self, domain: "SpatialDomain") -> CATData:
+            return self._create_cat_data(self._dataset, 100)
+
+    met_data = DummyMetData(make_dummy_cat_data({}, use_numpy=False))
+    assert met_data.persist == persist
+
+    requested: list = []
+
+    def recording_scheduler(dsk, keys, **kwargs):
+        requested.append(keys)
+        return get_sync(dsk, keys, **kwargs)
+
+    with dask_config.set(scheduler=recording_scheduler):
+        met_data.to_clear_air_turbulence_data(
+            SpatialDomain(minimum_latitude=-90, maximum_latitude=90, minimum_longitude=-180, maximum_longitude=180)
+        ).u_wind()
+    assert bool(requested) == persist
 
 
 def test_time_window_on_cat_prognostic_dataset(make_dummy_cat_data):
@@ -525,6 +596,68 @@ def test_convert_to_amdar_turbulence_data(
     }
 
 
+# Number of times each partition has been read. Module level (rather than a closure) so that dask can deterministically
+# tokenise the function which counts the reads
+_PARTITION_READS: Counter[int] = Counter()
+_PARTITION_READS_LOCK = threading.Lock()
+
+
+def _count_partition_reads(partition: pd.DataFrame, partition_info: dict | None = None) -> pd.DataFrame:
+    if partition_info is not None:
+        with _PARTITION_READS_LOCK:
+            _PARTITION_READS[partition_info["number"]] += 1
+    return partition
+
+
+@pytest.mark.parametrize("concrete_class", [AcarsAmdarRepository, UkmoAmdarRepository])
+def test_convert_to_amdar_turbulence_data_loads_data_once(
+    mocker: "MockerFixture",
+    load_flat_data: pd.DataFrame,
+    concrete_class,
+    valid_region_for_flat_data,
+) -> None:
+    _PARTITION_READS.clear()
+    num_partitions: int = 3
+    loaded = dd.from_pandas(load_flat_data, npartitions=num_partitions).map_partitions(
+        _count_partition_reads, meta=load_flat_data.iloc[:0]
+    )
+    instance = concrete_class("")
+    mocker.patch.object(instance, "load", return_value=loaded)
+
+    instance.to_amdar_turbulence_data(valid_region_for_flat_data, 0.25, [150, 200, 250]).data_frame.compute()
+
+    assert dict(_PARTITION_READS) == dict.fromkeys(range(num_partitions), 1)
+
+
+def test_turbulence_frequency_statistics_in_single_pass() -> None:
+    rng = np.random.default_rng(6)
+    values = rng.lognormal(-3, 1, size=500)
+    values[::7] = np.nan
+    data = pd.DataFrame(dict.fromkeys(AcarsAmdarTurbulenceData.turbulence_column_names(), values))
+
+    # Bypass __init__ as only the data frame is used and the quality control requires geospatial columns
+    acars_data = object.__new__(AcarsAmdarTurbulenceData)
+    acars_data._data_frame = dd.from_pandas(data, npartitions=4)
+
+    num_computes: list[int] = []
+
+    def counting_scheduler(dsk, keys, **kwargs):
+        num_computes.append(1)
+        return get_sync(dsk, keys, **kwargs)
+
+    with dask_config.set(scheduler=counting_scheduler):
+        statistics = acars_data.turbulence_frequency_statistics("maxEDR", 0.1)
+
+    assert len(num_computes) == 1
+    num_observations = int(np.count_nonzero(~np.isnan(values)))
+    num_turb_obs = int(np.sum(values > 0.1))  # noqa: PLR2004
+    assert statistics == {
+        "num_turb_obs": num_turb_obs,
+        "num_observations": num_observations,
+        "frequency": num_turb_obs / num_observations,
+    }
+
+
 def test_ice_super_saturated_regions(load_cat_data) -> None:
     instantiated: CATData = load_cat_data(None)
     np.testing.assert_allclose(
@@ -547,3 +680,25 @@ def test_ice_super_saturated_regions(load_cat_data) -> None:
     )
 
     assert instantiated.ice_supersaturated_regions().name == "issr"
+
+
+def test_acars_edr_distribution_matches_numpy() -> None:
+    rng = np.random.default_rng(5)
+    num_rows: int = 1000
+    max_edr = rng.lognormal(mean=-3, sigma=0.5, size=num_rows)
+    # Non-positive and missing values must be excluded
+    max_edr[::10] = 0
+    max_edr[1::10] = -0.1
+    max_edr[2::10] = np.nan
+    data = pd.DataFrame(
+        {column: rng.random(num_rows) for column in AcarsAmdarTurbulenceData.turbulence_column_names()}
+    ).assign(maxEDR=max_edr)
+
+    # Bypass __init__ as only the data frame is used and the quality control requires geospatial columns
+    acars_data = object.__new__(AcarsAmdarTurbulenceData)
+    acars_data._data_frame = dd.from_pandas(data, npartitions=7)
+    distribution = acars_data.edr_distribution()
+
+    expected = np.log(max_edr[max_edr > 0])
+    np.testing.assert_allclose(distribution.mean, np.mean(expected))
+    np.testing.assert_allclose(distribution.variance, np.var(expected))

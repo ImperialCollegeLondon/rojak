@@ -230,7 +230,7 @@ class AmdarDataHarmoniser:
 
     def has_observation(self) -> xr.DataArray:
         raveled_index: da.Array = self.observations_index_to_grid(IndexingFormat.FLAT)
-        store_into: da.Array = da.zeros(self._grid_prototype.size, dtype=bool).persist()
+        store_into: da.Array = da.zeros(self._grid_prototype.size, dtype=bool)
 
         if raveled_index.size > 0:
             store_into[raveled_index] = True  # pyright:ignore[reportIndexIssue]
@@ -250,7 +250,8 @@ class AmdarDataHarmoniser:
         assert {condition.observed_turbulence_column_name for condition in positive_obs_condition}.issubset(
             self.observational_data.columns
         )
-        raveled_index: da.Array = self.observations_index_to_grid(IndexingFormat.FLAT)
+        # Persist as it is used for each condition
+        raveled_index: da.Array = self.observations_index_to_grid(IndexingFormat.FLAT).persist()
 
         data_vars: dict[str, xr.DataArray] = {}
         for condition in positive_obs_condition:
@@ -279,7 +280,7 @@ class AmdarDataHarmoniser:
             **{
                 self.level_index_column: coords_of_observation.vertical_index,
                 self.lat_index_column: coords_of_observation.latitude_index,
-                self.lon_index_column: coords_of_observation.latitude_index,
+                self.lon_index_column: coords_of_observation.longitude_index,
                 self.time_index_column: coords_of_observation.time_index,
             }
         )
@@ -325,7 +326,7 @@ def metric_based_aggregation(
         if binary_classification is None:
             return -1
 
-        tss: NDArray = binary_classification.true_positives_rate + binary_classification.false_positives_rate - 1
+        tss: NDArray = binary_classification.true_positives_rate - binary_classification.false_positives_rate
         return tss.max()
 
     def auc_from_cumsum(on_group: "pd.Series") -> float:
@@ -514,7 +515,7 @@ class DiagnosticsAmdarVerification:
         elif trigger_reset_index:
             data_frame = data_frame.reset_index(drop=True)
 
-        return data_frame.persist()
+        return data_frame
 
     def _retrieve_index_column_values(
         self,
@@ -548,10 +549,12 @@ class DiagnosticsAmdarVerification:
         data_frame = data_frame.map_partitions(
             lambda df: df.assign(
                 **{
+                    # Assign by position as the returned series has a default index, which does not align with
+                    # the index of the partition (e.g. the grid box index)
                     col_name_mapping[col_name]: map_index_to_coordinate_value(
                         df[col_name],
                         prototype_array[col_name_mapping[col_name]].to_numpy(),
-                    )
+                    ).to_numpy()
                     for col_name in index_columns
                 },
             ),
@@ -574,7 +577,7 @@ class DiagnosticsAmdarVerification:
         minimum_columns: list[str] = [*groupby_columns, turbulence_col]
         num_obs = target_data[minimum_columns].groupby(groupby_columns).count()
         num_obs = self._retrieve_grouped_columns(num_obs, groupby_columns, True)
-        return num_obs.rename(columns={turbulence_col: "num_obs"})
+        return num_obs.rename(columns={turbulence_col: "num_obs"}).persist()
 
     def _spatial_data_grouping(
         self,

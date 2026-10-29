@@ -597,10 +597,11 @@ class AcarsAmdarTurbulenceData(AmdarTurbulenceData):
         assert set(self.data_frame.columns).issuperset(self.turbulence_column_names())
         assert "maxEDR" in set(self.data_frame.columns)
 
-        max_edr: da.Array = self.data_frame["maxEDR"].to_dask_array(lengths=True, optimize=True).persist()
+        max_edr: da.Array = self.data_frame["maxEDR"].to_dask_array(lengths=True, optimize=True)
         # Filter out data which is < 0 as that will return np.inf which make mean and variance inf
-        max_edr: da.Array = max_edr[max_edr > 0].compute_chunk_sizes()  # pyright: ignore[reportAttributeAccessIssue]
-        log_edr: da.Array = da.log(max_edr).persist()
+        log_edr: da.Array = da.log(max_edr[max_edr > 0])  # pyright: ignore[reportAttributeAccessIssue]
         assert log_edr.ndim == 1
 
-        return DistributionParameters(float(da.nanmean(log_edr).compute()), float(da.nanvar(log_edr).compute()))
+        # Compute together so that the filtering and log are only evaluated once
+        mean, variance = da.compute(da.nanmean(log_edr), da.nanvar(log_edr))
+        return DistributionParameters(float(mean), float(variance))
