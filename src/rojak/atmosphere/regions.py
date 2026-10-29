@@ -1,10 +1,9 @@
+import warnings
 from collections.abc import Callable, Sequence
 from enum import StrEnum
 from typing import Any, assert_never, cast
 
 import numpy as np
-import pyproj
-import scipy.interpolate as si
 import scipy.ndimage as ndi
 import xarray as xr
 from numba import guvectorize, int8, njit, vectorize
@@ -667,7 +666,7 @@ def __identify_extrema_locations(
         latitude_dim_name=lat_dim_name,
         longitude_dim_name=lon_dim_name,
         **filter_kwargs,
-    ).persist()
+    )
     extrema_locations: xr.DataArray = target_data == filter_applied
     if extrema_threshold_value is not None:
         extrema_locations = extrema_locations & (
@@ -876,6 +875,13 @@ def _apply_and_combine_on_n_extrema_groups(
         ``0 / 1 / 2`` encoding of :func:`_stack_extrema`.
     """
     num_extrema_in_group = target_ds["n_extrema"].values[0]
+    if num_extrema_in_group == 0:
+        # Nothing to stack, so skip _stack_extrema and build the empty (time, new_dim, lat, lon) result directly.
+        #   Slicing time to zero length also avoids dask's reshape failing to merge a zero-length dim with a
+        #   multi-chunk dim in the stack below
+        empty_regions = target_ds["filtered"].isel(time=slice(0, 0)).astype(np.int8)
+        return empty_regions.expand_dims({new_dim_name: 0}, axis=1).stack(n_extrema=(new_dim_name, "time"))
+
     extrema_regions: xr.DataArray = xr.apply_ufunc(
         _stack_extrema,
         target_ds["extrema_locations"],
@@ -958,13 +964,17 @@ def identify_and_stack_circular_extrema(
           ``n_extrema`` dimension.
 
         Pixel values follow the ``0 / 1 / 2`` encoding described in
-        :func:`_stack_extrema`.
+        :func:`_stack_extrema`. If no extrema are identified, ``n_extrema``
+        has size ``0``.
 
     Raises:
         ValueError: If ``target_data`` is not 3D.
         ValueError: If the dimensions of ``target_data`` do not match the
             specified ``lat_dim_name``, ``lon_dim_name``, and
             ``time_dim_name``.
+
+    Warns:
+        UserWarning: If no extrema are identified in ``target_data``.
     """
     if target_data.ndim != 3:  # noqa: PLR2004
         raise ValueError("Target data must be 3D")
@@ -987,7 +997,7 @@ def identify_and_stack_circular_extrema(
     )
 
     # Count how many extrema are in a given point in time
-    n_composite_dim = extrema_locations.sum(dim=["longitude", "latitude"]).compute().values
+    n_composite_dim = extrema_locations.sum(dim=[lon_dim_name, lat_dim_name]).compute().values
     # Create a dataset so that both arrays can be used at the GroupBy stage
     extrema_ds = xr.Dataset(
         data_vars={"filtered": filter_applied, "extrema_locations": extrema_locations},
@@ -1000,7 +1010,26 @@ def identify_and_stack_circular_extrema(
 
     # Add new `n_extrema` coord that is attached to the existing time dimension - ensure that when the data is split
     #   in the GroupBy, the information about the tiem is still there.
-    extrema_ds = extrema_ds.assign_coords({extrema_global_idx_dim: ("time", n_composite_dim)})
+    extrema_ds = extrema_ds.assign_coords({extrema_global_idx_dim: (time_dim_name, n_composite_dim)})
+
+    has_extrema = n_composite_dim > 0
+    # If no time step has any extrema, there is nothing to stack. Return an empty array with the same dims and coords
+    #   as the stacked output, and warn so that the empty result is not silent
+    if not has_extrema.any():
+        warnings.warn("No extrema identified in target_data, returning an empty array", stacklevel=2)
+        empty_regions = filter_applied.isel({time_dim_name: slice(0, 0)}).astype(np.int8)
+        return (
+            empty_regions.rename({time_dim_name: extrema_global_idx_dim})
+            .drop_vars(extrema_global_idx_dim)
+            .transpose(lat_dim_name, lon_dim_name, extrema_global_idx_dim)
+            .assign_coords(
+                n_extrema=np.arange(0),
+                time=(extrema_global_idx_dim, target_data[time_dim_name].values[:0]),
+            )
+        )
+
+    # Drop time steps without extrema as they contribute nothing to the stack
+    extrema_ds = extrema_ds.isel({time_dim_name: has_extrema})
 
     # groupby("n_extrema"): This ensures that each item in a group only has a fixed number of extrema. This allows for
     #                       xr.apply_ufunc() to be used as each iteration over the non-lat-lon dim results in the array
@@ -1023,265 +1052,8 @@ def identify_and_stack_circular_extrema(
             new_dim_name=extrema_group_idx_dim,
         )
         .sortby(time_dim_name)
-    ).persist()
+    )
     time_values = n_extrema_indexed[time_dim_name].values
     return n_extrema_indexed.drop_vars([extrema_global_idx_dim, extrema_group_idx_dim, time_dim_name]).assign_coords(
         n_extrema=np.arange(time_values.size), time=(extrema_global_idx_dim, time_values)
     )  # pyright: ignore[reportReturnType]
-
-
-def _project_data_about_extrema(
-    extrema_mask: np.ndarray,
-    data_values: np.ndarray,
-    *,
-    lats: np.ndarray,
-    lons: np.ndarray,
-    max_km_extent: float,
-    grid_km_spacing: float,
-    int_for_center: int = 2,
-    lat_lon_buffer: float = 0.5,
-) -> np.ndarray:
-    """Re-project a 2D data field onto a km-scale Cartesian grid centred on an extremum.
-
-    Locates the extremum centre in ``extrema_mask``, constructs a WGS-84 orthographic projection
-    (:class:`pyproj.Proj`) anchored at that centre, and interpolates ``data_values`` from its native lat/lon grid
-    onto a regular ``(y_km, x_km)`` Cartesian grid using bilinear interpolation via
-    :func:`scipy.interpolate.griddata`.
-
-    The re-projection pipeline is:
-
-    1. Identify the centre pixel (value == ``int_for_center``) in ``extrema_mask``.
-    2. Build a symmetric km output grid spanning ``[-max_km_extent, +max_km_extent]``.
-    3. Use the inverse orthographic projection to find which lat/lon points fall within the output grid extent
-       (plus ``lat_lon_buffer``).
-    4. Use the forward projection to convert those native lat/lon points to km coordinates.
-    5. Interpolate the native data onto the regular km grid with :func:`scipy.interpolate.griddata`.
-
-    Intended to be called via :func:`xarray.apply_ufunc` with ``vectorize=True`` so that it operates on a single
-    ``(lat, lon)`` slice at a time.
-
-    Args:
-        extrema_mask (numpy.ndarray): Mask array of shape ``(lat, lon)`` and dtype ``int8``, using the
-            ``0 / 1 / 2`` encoding produced by :func:`_stack_extrema`. The pixel with value
-            ``int_for_center`` is taken as the extremum centre.
-        data_values (numpy.ndarray): Geophysical field to re-project, of shape ``(lat, lon)``
-            (e.g. geopotential height, wind speed).
-        lats (numpy.ndarray): 1D array of latitude values in degrees, corresponding to axis 0 of
-            ``extrema_mask`` and ``data_values``.
-        lons (numpy.ndarray): 1D array of longitude values in degrees, corresponding to axis 1 of ``extrema_mask``
-            and ``data_values``.
-        max_km_extent (float): Half-width of the output Cartesian grid in kilometres. The grid spans
-            ``[-max_km_extent, +max_km_extent]`` in both x and y.
-        grid_km_spacing (float): Spacing between output grid points in kilometres.
-        int_for_center (int): Pixel value in ``extrema_mask`` that identifies the extremum centre.
-            Defaults to ``2``.
-        lat_lon_buffer (float): Extra margin in degrees added when subsetting the input lat/lon arrays before
-            interpolation, to avoid edge artefacts near the projection boundary. Defaults to ``0.5``.
-
-    Returns:
-        numpy.ndarray: Data field interpolated onto the symmetric km grid, of shape ``(n_km, n_km)`` where
-        ``n_km = len(np.arange(-max_km_extent, max_km_extent + 1, grid_km_spacing))``.
-        Returns an array filled with ``NaN`` if no extremum centre is found in ``extrema_mask``.
-
-    Raises:
-        ValueError: If more than one extremum centre pixel (i.e. pixels equal to ``int_for_center``) is found in
-        ``extrema_mask``.
-    """
-    km_coords = np.arange(-max_km_extent, max_km_extent + 1, grid_km_spacing)
-    n_km = len(km_coords)
-
-    # Identify the centres of extrema
-    lat_indices, lon_indices = np.nonzero(extrema_mask == int_for_center)
-    if len(lat_indices) == 0:
-        return np.full((n_km, n_km), np.nan)
-
-    if len(lat_indices) != 1:
-        raise ValueError("There should only be one extrema per 2D slice")
-
-    # lat is axis 0, lon is axis 1 -> due to order of input_core_dims
-    centre_lat = float(lats[lat_indices[0]])
-    centre_lon = float(lons[lon_indices[0]])
-
-    # km grid that we want to map the data onto
-    x_km_mesh, y_km_mesh = np.meshgrid(km_coords, km_coords)
-
-    # Inverse projection to find what lat/lon indices are within range
-    ortho = pyproj.Proj(proj="ortho", lat_0=centre_lat, lon_0=centre_lon, units="km", ellps="WGS84")
-    new_lons, new_lats = ortho(x_km_mesh, y_km_mesh, inverse=True)
-
-    lat_mask = (lats >= new_lats.min() - lat_lon_buffer) & (lats <= new_lats.max() + lat_lon_buffer)
-    lon_mask = (lons >= new_lons.min() - lat_lon_buffer) & (lons <= new_lons.max() + lat_lon_buffer)
-    lats_within = lats[lat_mask]
-    lons_within = lons[lon_mask]
-
-    # data_masked = np.where(extrema_mask > 0, data_values, np.nan)
-    data_within = data_values[np.ix_(lat_mask, lon_mask)]
-
-    # Forward projection identify what these data points are in km so that scipy.griddata() can use to to interpolate
-    # to our desired grid system
-    lon_grid, lat_grid = np.meshgrid(lons_within, lats_within)
-    x_km_within, y_km_within = ortho(lon_grid, lat_grid)
-
-    return si.griddata(
-        points=(x_km_within.ravel(), y_km_within.ravel()),
-        values=data_within.ravel(),
-        xi=(x_km_mesh.ravel(), y_km_mesh.ravel()),
-        method="linear",
-    ).reshape(n_km, n_km)
-
-
-def composite_about_extrema(
-    target_data: xr.DataArray,
-    extrema_data: xr.DataArray,
-    *,
-    time_dim_name: str = "time",
-    num_extrema_dim: str = "n_extrema",
-    lat_dim_name: str = "latitude",
-    lon_dim_name: str = "longitude",
-    vert_dim_name: str | None = None,
-    max_km_extent: float = 2000,
-    grid_km_spacing: float = 25,
-    int_for_center: int = 2,
-    is_only_extrema_region: bool = False,
-) -> xr.DataArray:
-    """Composite a geophysical field onto a common km-scale grid centred on each extremum.
-
-    For every extremum recorded in ``extrema_data``, the corresponding timestep of ``target_data`` is extracted and
-    re-projected onto a regular Cartesian grid (in km) centred on that extremum using a WGS-84 orthographic
-    projection. The result is a stack of re-projected fields - one per extremum - that can subsequently be averaged
-    to produce a mean composite structure.
-
-    Optionally supports a vertical dimension, in which case the re-projection is applied independently at each
-    level via :func:`xarray.apply_ufunc` with ``vectorize=True``.
-
-    Args:
-        target_data (xr.DataArray): Geophysical field to composite. Must contain at minimum the dimensions
-            ``lat_dim_name``, ``lon_dim_name``, and ``time_dim_name``. If ``vert_dim_name`` is provided, that
-            dimension must also be present.
-        extrema_data (xr.DataArray): Per-extremum mask array, as returned by
-            :func:`identify_and_stack_circular_extrema`. Must contain: 1) Dimensions ``num_extrema_dim``,
-            ``lat_dim_name``, ``lon_dim_name``, and 2) a ``time`` coordinate indexed by ``num_extrema_dim`` that
-            maps each extremum to its source timestamp in ``target_data``.
-        time_dim_name (str): Name of the time dimension in ``target_data`` and the time coordinate in
-            ``extrema_data``.
-            Defaults to ``"time"``.
-        num_extrema_dim (str): Name of the dimension in ``extrema_data`` that indexes individual extrema.
-            Defaults to ``"n_extrema"``.
-        lat_dim_name (str): Name of the latitude dimension.
-            Defaults to ``"latitude"``.
-        lon_dim_name (str): Name of the longitude dimension.
-            Defaults to ``"longitude"``.
-        vert_dim_name (str, optional): Name of the vertical dimension in ``target_data`` (e.g. ``"level"``).
-            If ``None``, the input is treated as purely 2D in space. Defaults to ``None``.
-        max_km_extent (float): Half-width of the output Cartesian grid in kilometres. The grid spans
-            ``[-max_km_extent, +max_km_extent]`` in both x and y. Defaults to ``2000``.
-        grid_km_spacing (float): Spacing between output grid points in kilometres. Defaults to ``25``.
-        int_for_center (int): Pixel value in ``extrema_data`` that marks an extremum centre.
-            Forwarded to :func:`_project_data_about_extrema`. Defaults to ``2``.
-        is_only_extrema_region (bool): If ``True``, pixels in ``target_data`` that fall outside the labelled
-            extremum region (i.e. where ``extrema_data == 0``) are masked to ``NaN`` before compositing.
-            Defaults to ``False``.
-
-    Returns:
-        xr.DataArray: Composited field with dimensions
-        ``(n_extrema, [vert_dim_name,] y_km, x_km)`` and coordinates:
-
-        - ``n_extrema`` - integer index for each extremum.
-        - ``time`` - source timestamp of each extremum, attached to
-          ``n_extrema``.
-        - ``y_km``, ``x_km`` - symmetric kilometre-coordinate arrays spanning
-          ``[-max_km_extent, +max_km_extent]`` with spacing
-          ``grid_km_spacing``.
-        - ``vert_dim_name`` - vertical coordinate values, if applicable.
-
-    Raises:
-        ValueError: If ``target_data`` or ``extrema_data`` do not contain the required latitude and longitude
-            dimensions.
-        ValueError: If ``vert_dim_name`` is specified but absent from ``target_data``.
-        ValueError: If ``num_extrema_dim`` is absent from ``extrema_data``.
-        ValueError: If ``time_dim_name`` is absent from ``target_data`` or from the coordinates of ``extrema_data``.
-        ValueError: If ``num_extrema_dim`` is not a dimension of ``extrema_data[time_dim_name]``.
-    """
-    if not set(target_data.dims).issuperset({lat_dim_name, lon_dim_name}) or not set(extrema_data.dims).issuperset(
-        {lat_dim_name, lon_dim_name}
-    ):
-        raise ValueError("Dimensions of target_data and extrema_data do not contain latitude and longitude dims")
-
-    if vert_dim_name is not None and vert_dim_name not in target_data.dims:
-        raise ValueError(f"Expected '{vert_dim_name}' to be present in target_data")
-
-    if num_extrema_dim not in extrema_data.dims:
-        raise ValueError(f"Expected '{num_extrema_dim}' to be in {extrema_data.dims}")
-
-    if time_dim_name not in target_data.dims:
-        raise ValueError(f"Expected '{time_dim_name}' to be present in target_data")
-
-    if time_dim_name not in extrema_data.coords:
-        raise ValueError(f"Expected '{time_dim_name}' to be present in extrema_data coords")
-
-    if num_extrema_dim not in extrema_data[time_dim_name].dims:
-        raise ValueError(f"Expected '{num_extrema_dim}' to be in extrema_data[time_dim_name].dims")
-
-    target_with_extrema_dim: xr.DataArray = (
-        target_data.sel(indexers={time_dim_name: extrema_data[time_dim_name].values})
-        .assign_coords(coords={time_dim_name: extrema_data[num_extrema_dim].values})
-        .rename({time_dim_name: num_extrema_dim})
-    )
-    if is_only_extrema_region:
-        target_with_extrema_dim = target_with_extrema_dim.where(extrema_data > 0)
-    extrema_times = extrema_data[time_dim_name].values
-
-    # Ensure that dimensions are in the same order for the apply_ufunc() method
-    if vert_dim_name is not None:
-        target_with_extrema_dim = target_with_extrema_dim.transpose(
-            num_extrema_dim, vert_dim_name, lat_dim_name, lon_dim_name
-        )
-        if vert_dim_name not in extrema_data.dims:
-            extrema_data = extrema_data.expand_dims({vert_dim_name: target_data[vert_dim_name]})
-        extrema_data = extrema_data.transpose(num_extrema_dim, vert_dim_name, lat_dim_name, lon_dim_name)
-    else:
-        target_with_extrema_dim = target_with_extrema_dim.transpose(num_extrema_dim, lat_dim_name, lon_dim_name)
-        extrema_data = extrema_data.transpose(num_extrema_dim, lat_dim_name, lon_dim_name)
-
-    km_coords = np.arange(-max_km_extent, max_km_extent + 1, grid_km_spacing)
-    n_km = len(km_coords)
-
-    composited_data: xr.DataArray = xr.apply_ufunc(
-        _project_data_about_extrema,
-        extrema_data,
-        target_with_extrema_dim,
-        kwargs={
-            "lats": target_data[lat_dim_name].values,
-            "lons": target_data[lon_dim_name].values,
-            "max_km_extent": max_km_extent,
-            "grid_km_spacing": grid_km_spacing,
-            "int_for_center": int_for_center,
-        },
-        input_core_dims=[
-            [lat_dim_name, lon_dim_name],  # mask
-            [lat_dim_name, lon_dim_name],  # field
-        ],
-        output_core_dims=[
-            ["y_km", "x_km"],
-        ],
-        dask="parallelized",
-        vectorize=True,
-        output_dtypes=[target_data.dtype],
-        dask_gufunc_kwargs={
-            "output_sizes": {
-                "y_km": n_km,
-                "x_km": n_km,
-            }
-        },
-    )
-
-    coords = {
-        "n_extrema": extrema_data["n_extrema"],
-        "time": ("n_extrema", extrema_times),
-        "y_km": km_coords,
-        "x_km": km_coords,
-    }
-    if vert_dim_name is not None:
-        coords[vert_dim_name] = target_data[vert_dim_name]
-
-    return composited_data.assign_coords(coords)

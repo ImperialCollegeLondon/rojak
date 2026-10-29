@@ -11,18 +11,22 @@ This module provides:
 import copy
 import dataclasses
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Literal, overload
+from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
+import dask.dataframe as dd
 import numpy as np
+import pandas as pd
 import xarray as xr
 from dask.base import is_dask_collection
+from dask.dataframe.dispatch import make_meta
 from scipy.interpolate import RegularGridInterpolator
 
-from rojak.core.constants import GAS_CONSTANT_DRY_AIR, GRAVITATIONAL_ACCELERATION
+from rojak.core.constants import FT_TO_M, GAS_CONSTANT_DRY_AIR, GRAVITATIONAL_ACCELERATION
 from rojak.utilities._compat import deprecated
 from rojak.utilities.types import is_np_array
 
 if TYPE_CHECKING:
+    import dask.array as da
     from numpy.typing import NDArray
 
     from rojak.utilities.types import Coordinate, NumpyOrDataArray
@@ -173,6 +177,8 @@ def altitude_to_pressure_troposphere(altitude: "NumpyOrDataArray") -> "NumpyOrDa
     """
     Convert altitude to pressure for the troposphere
 
+    Please use :py:func:`altitude_to_pressure_icao` for altitudes in both the troposphere and stratosphere.
+
     An implementation of equation 18 from ICAO manual [NACA3182]_
 
     .. math::
@@ -234,6 +240,35 @@ def pressure_to_altitude_stratosphere(pressure: "NumpyOrDataArray") -> "NumpyOrD
     )
 
 
+def altitude_to_pressure_stratosphere(altitude: "NumpyOrDataArray") -> "NumpyOrDataArray":
+    """
+    Convert altitude to pressure for the stratosphere
+
+    Please use :py:func:`altitude_to_pressure_icao` for altitudes in both the troposphere and stratosphere.
+
+    Obtained by rearranging equation 41 from ICAO manual [NACA3182]_, such that it is the inverse of
+    :py:func:`pressure_to_altitude_stratosphere`
+
+    .. math::
+        P = P_0 \\times 10^{n \\log_{10} \\left( \\frac{T^*}{T_0} \\right) - \\text{B} \\left( H - H^* \\right)}
+
+    where :math:`^*` indicates values at the tropopause, :math:`H` is the geopotential height and is treated as
+    equivalent to altitude for engineering purposes (see [NACA3182]_ for details).
+
+    Args:
+        altitude (NumpyOrDataArray): Altitude in m
+
+    Returns:
+        NumpyOrDataArray: Pressure in hPa
+
+    """
+    return _icao_constants.reference_pressure * 10 ** (
+        _icao_constants.n_value
+        * np.log10(_icao_constants.tropopause_temperature / _icao_constants.reference_temperature)
+        - _icao_constants.b_value * (altitude - _icao_constants.tropopause_height)
+    )
+
+
 def pressure_to_altitude_icao(pressure: "NumpyOrDataArray", in_place: bool = False) -> "NumpyOrDataArray":
     """
     Convert pressure to altitude for ICAO standard atmosphere up to 80 km [NACA3182]_
@@ -280,6 +315,87 @@ def pressure_to_altitude_icao(pressure: "NumpyOrDataArray", in_place: bool = Fal
     return pressure
 
 
+def altitude_to_pressure_icao(altitude: "NumpyOrDataArray") -> "NumpyOrDataArray":
+    """
+    Convert altitude to pressure for ICAO standard atmosphere [NACA3182]_
+
+    This is the inverse of :py:func:`pressure_to_altitude_icao`. Altitudes below the tropopause height, :math:`H^*`,
+    are converted using :py:func:`altitude_to_pressure_troposphere` and the remaining altitudes are converted using
+    :py:func:`altitude_to_pressure_stratosphere`.
+
+    Unlike :py:func:`pressure_to_altitude_icao`, the conversion is never in-place as the altitude is often an integer
+    array which cannot store the pressure. It also supports multidimensional and dask-backed arrays, with the latter
+    remaining lazy.
+
+    Args:
+        altitude (NumpyOrDataArray): Altitude in m. Any ``NaN`` values remain ``NaN``.
+
+    Returns:
+        NumpyOrDataArray: Pressure in hPa, of the same shape as ``altitude``. If ``altitude`` is a
+        :class:`xarray.DataArray`, its coordinates, attributes and name are retained.
+
+    Examples
+    --------
+
+    >>> altitude_to_pressure_icao(np.array([0, 5000, 11000, 15000]))
+    array([1013.25      ,  540.19717375,  226.31981252,  120.43472736])
+    """
+    is_within_troposphere: NumpyOrDataArray = altitude < _icao_constants.tropopause_height
+    # Each formula is only evaluated for the altitudes within its layer (the others are NaN), as the troposphere
+    # formula results in invalid values when evaluated high in the stratosphere (above ~44 km)
+    pressure_within_troposphere: NumpyOrDataArray = altitude_to_pressure_troposphere(
+        xr.where(is_within_troposphere, altitude, np.nan, keep_attrs=True)
+    )
+    pressure_within_stratosphere: NumpyOrDataArray = altitude_to_pressure_stratosphere(
+        xr.where(is_within_troposphere, np.nan, altitude, keep_attrs=True)
+    )
+    return xr.where(is_within_troposphere, pressure_within_troposphere, pressure_within_stratosphere, keep_attrs=True)
+
+
+def _pandas_altitude_in_ft_to_pressure[T: (pd.Series, pd.DataFrame)](altitude: T) -> T:
+    """Convert a pandas object of altitudes in ft to pressure in hPa, retaining its index and name/columns"""
+    pressure = np.asarray(altitude_to_pressure_icao(altitude.to_numpy() * FT_TO_M))
+    if isinstance(altitude, pd.Series):
+        return pd.Series(pressure, index=altitude.index, name=altitude.name)
+    return pd.DataFrame(pressure, index=altitude.index, columns=altitude.columns)
+
+
+def altitude_in_ft_to_pressure[
+    T: (np.ndarray, xr.DataArray, da.Array, pd.Series, pd.DataFrame, dd.Series, dd.DataFrame)
+](
+    altitude: T,
+) -> T:
+    """
+    Convert altitude in ft to pressure in hPa for ICAO standard atmosphere [NACA3182]_
+
+    The altitude is converted to m and passed to :py:func:`altitude_to_pressure_icao`. Dask-backed inputs (i.e.
+    :class:`dask.array.Array`, dask-backed :class:`xarray.DataArray`, :class:`dask.dataframe.Series` and
+    :class:`dask.dataframe.DataFrame`) remain lazy.
+
+    Args:
+        altitude: Altitude in ft. For a dataframe, every column is converted.
+
+    Returns:
+        Pressure in hPa, of the same type and shape as ``altitude``. The index and name (or columns) of pandas/dask
+        dataframe objects, and the coordinates, attributes and name of a :class:`xarray.DataArray` are retained.
+
+    Examples
+    --------
+
+    >>> ddf["pressure_level"] = altitude_in_ft_to_pressure(ddf["altitude"])  # doctest: +SKIP
+    """
+    if isinstance(altitude, (pd.Series, pd.DataFrame)):
+        return _pandas_altitude_in_ft_to_pressure(altitude)
+
+    if isinstance(altitude, (dd.Series, dd.DataFrame)):
+        return altitude.map_partitions(
+            _pandas_altitude_in_ft_to_pressure, meta=_pandas_altitude_in_ft_to_pressure(make_meta(altitude))
+        )
+
+    return cast("T", altitude_to_pressure_icao(altitude * FT_TO_M))
+
+
+@deprecated("Use scipy.interpolate.RegularGridInterpolator or the xarray interp() method instead")
 def bilinear_interpolation(
     longitude: "NDArray",
     latitude: "NDArray",
@@ -288,6 +404,9 @@ def bilinear_interpolation(
 ) -> "NDArray":
     """
     Bilinear interpolation using 4 points
+
+    .. deprecated::
+        Use :class:`scipy.interpolate.RegularGridInterpolator` or :meth:`xarray.DataArray.interp` instead.
 
     Args:
         longitude:
