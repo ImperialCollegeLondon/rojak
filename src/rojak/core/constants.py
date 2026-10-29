@@ -30,6 +30,7 @@ GAS_CONSTANT_VAPOUR: Final[float] = 461.51  # R_v: J / (K kg)
 ABSOLUTE_ZERO: Final[float] = -273.15  # C
 # https://physics.nist.gov/cgi-bin/cuu/Value?gn
 EARTH_AVG_RADIUS: float = 6371008.7714  # m
+FT_TO_M: Final[float] = 0.3048
 
 
 class ClimatologicalEDRConstants(NamedTuple):

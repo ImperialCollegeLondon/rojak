@@ -13,13 +13,11 @@ from rojak.atmosphere.regions import (
     ExtremaKind,
     _apply_and_combine_on_n_extrema_groups,
     _parent_region_mask,
-    _project_data_about_extrema,
     _region_labeller,
     _stack_extrema,
     apply_extrema_filter,
     chebyshev_distance_from_a_to_b,
     circular_footprint,
-    composite_about_extrema,
     distance_from_a_to_b,
     euclidean_distance_from_a_to_b,
     find_parent_region_of_intersection,
@@ -35,6 +33,8 @@ from rojak.orchestrator.configuration import JetStreamAlgorithms, TurbulenceDiag
 from rojak.turbulence.diagnostic import DiagnosticFactory
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from pytest_mock import MockerFixture
 
 
@@ -110,7 +110,7 @@ TI1_THRESHOLD: float = 1.3947336218633176e-10
 
 
 @pytest.fixture
-def get_is_ti1_turb(load_cat_data) -> xr.DataArray:
+def get_is_ti1_turb(load_cat_data: "Callable") -> xr.DataArray:
     return (
         DiagnosticFactory(load_cat_data(None, with_chunks=True)).create(TurbulenceDiagnostics.TI1).computed_value
         > TI1_THRESHOLD
@@ -118,7 +118,7 @@ def get_is_ti1_turb(load_cat_data) -> xr.DataArray:
 
 
 @pytest.fixture
-def get_js_regions(load_cat_data) -> xr.DataArray:
+def get_js_regions(load_cat_data: "Callable") -> xr.DataArray:
     return (
         JetStreamAlgorithmFactory(load_cat_data(None, with_chunks=True))
         .create(JetStreamAlgorithms.ALPHA_VEL_KOCH)
@@ -274,7 +274,7 @@ def test_distance_a_to_b_inverse_not_equiv(
 
 def test_great_circle_distance_from_a_to_b_equiv_in_multi_dim(
     get_is_ti1_turb: xr.DataArray, get_js_regions: xr.DataArray
-):
+) -> None:
     js_regions = get_js_regions
     turb_regions = get_is_ti1_turb
     computed_distance: xr.DataArray = shortest_haversine_distance_from_a_to_b(
@@ -302,7 +302,7 @@ def test_great_circle_distance_from_a_to_b_equiv_in_multi_dim(
 @pytest.mark.parametrize("mask_by", [True, False])
 @pytest.mark.parametrize("all_present", [True, False])
 def test_shortest_and_vertical_distance_to_positive_trivial(
-    all_present: bool, mask_by: bool, distance_mode: DistanceMode, make_dummy_cat_data
+    all_present: bool, mask_by: bool, distance_mode: DistanceMode, make_dummy_cat_data: "Callable"
 ) -> None:
     dummy_data = make_dummy_cat_data({})
     dummy_array: xr.DataArray = (
@@ -396,7 +396,7 @@ class TestVerticalDistanceToPositive:
         result = vertical_distance_to_positive(all_false)
         assert np.all(np.isinf(result.to_numpy()))
 
-    def test_returns_zero_for_true_positions(self, boolean_data_array: xr.DataArray):
+    def test_returns_zero_for_true_positions(self, boolean_data_array: xr.DataArray) -> None:
         """Test that positions with True return distance of 0.
 
         Generated test did not have correct assertion logic for xarray.DataArray.
@@ -511,7 +511,7 @@ class TestCircularFootprint:
         assert footprint.shape == (3, 3)
 
     @pytest.mark.parametrize("radius", [1, 2, 5, 10, 24])
-    def test_symmetry(self, radius) -> None:
+    def test_symmetry(self, radius: int) -> None:
         """Footprint should be symmetric along both axes."""
         footprint = circular_footprint(radius)
         np.testing.assert_array_equal(footprint, footprint[::-1])
@@ -520,16 +520,16 @@ class TestCircularFootprint:
 
 class TestApplyExtremaFilter:
     @pytest.fixture
-    def get_dummy_array(self, make_dummy_cat_data) -> xr.DataArray:
+    def get_dummy_array(self, make_dummy_cat_data: "Callable") -> xr.DataArray:
         dummy_data: xr.DataArray = make_dummy_cat_data(None, use_numpy=False, rng_seed=42)["temperature"]
         return dummy_data.isel(pressure_level=0)
 
-    def test_fails_without_specifying_size_or_footprint(self, get_dummy_array) -> None:
+    def test_fails_without_specifying_size_or_footprint(self, get_dummy_array: xr.DataArray) -> None:
         dummy_data = get_dummy_array
         with pytest.raises(RuntimeError, match="no footprint provided"):
             _ = apply_extrema_filter(dummy_data, ExtremaKind.MAXIMA).compute()
 
-    def test_output_shape_dtype_dims_coords_preserved(self, get_dummy_array) -> None:
+    def test_output_shape_dtype_dims_coords_preserved(self, get_dummy_array: xr.DataArray) -> None:
         dummy_data = get_dummy_array
         result = apply_extrema_filter(dummy_data, ExtremaKind.MAXIMA, size=10)
 
@@ -562,7 +562,7 @@ class TestApplyExtremaFilter:
     @pytest.mark.parametrize(
         "filter_kwargs", [{"size": 2}, {"footprint": np.ones((1, 1)), "axes": (0, 1)}, {"size": 2, "mode": "wrap"}]
     )
-    def test_minima_filter_values_lte_input(self, get_dummy_array, filter_kwargs: dict) -> None:
+    def test_minima_filter_values_lte_input(self, get_dummy_array: xr.DataArray, filter_kwargs: dict) -> None:
         """Minimum filter output should always be <= input values."""
         result = apply_extrema_filter(get_dummy_array, ExtremaKind.MINIMA, **filter_kwargs)
         assert (result <= get_dummy_array).all()
@@ -609,7 +609,7 @@ class TestApplyExtremaFilter:
         with pytest.raises(ValueError, match="longitude"):
             apply_extrema_filter(data, ExtremaKind.MAXIMA, size=3).compute()
 
-    def test_custom_dim_names(self, get_dummy_array) -> None:
+    def test_custom_dim_names(self, get_dummy_array: xr.DataArray) -> None:
         renamed_array = get_dummy_array.rename({"latitude": "lat", "longitude": "lon"})
         result = apply_extrema_filter(
             renamed_array,
@@ -815,7 +815,9 @@ class TestStackExtrema:
         filtered[8:13, 18:23] = 5.0  # region around the extremum
         return filtered
 
-    def test_output_shape_single_extremum_and_dtype_int8(self, simple_extrema_mask, simple_filtered):
+    def test_output_shape_single_extremum_and_dtype_int8(
+        self, simple_extrema_mask: np.ndarray, simple_filtered: np.ndarray
+    ) -> None:
         """
         Output shape should be (n_extrema, lat, lon) where n_extrema equals the number of True values in
         extrema_locations.
@@ -829,7 +831,7 @@ class TestStackExtrema:
         )
         assert result.dtype == np.int8
 
-    def test_centre_value_is_2(self, simple_extrema_mask, simple_filtered):
+    def test_centre_value_is_2(self, simple_extrema_mask: np.ndarray, simple_filtered: np.ndarray) -> None:
         """
         The exact location of each extremum (where extrema_locations is True) must have a value of 2 in the output.
         """
@@ -838,7 +840,7 @@ class TestStackExtrema:
         for i, (lat_idx, lon_idx) in enumerate(indices):
             assert result[i, lat_idx, lon_idx] == self.peak_location_value
 
-    def test_region_values_are_1(self, simple_extrema_mask, simple_filtered):
+    def test_region_values_are_1(self, simple_extrema_mask: np.ndarray, simple_filtered: np.ndarray) -> None:
         """
         Points that share the same label value as the extremum but are not the centre should have a value of 1.
         """
@@ -851,13 +853,13 @@ class TestStackExtrema:
         region_not_centre = region_mask & ~centre_mask
         assert np.all(result[0][region_not_centre])
 
-    def test_non_region_values_are_0(self, simple_extrema_mask, simple_filtered):
+    def test_non_region_values_are_0(self, simple_extrema_mask: np.ndarray, simple_filtered: np.ndarray) -> None:
         """Points outside the extremum region should have a value of 0."""
         result = _stack_extrema(simple_extrema_mask, simple_filtered)
         outside_region: np.ndarray = simple_filtered != simple_filtered[10, 20]
         assert not np.any(result[0][outside_region])
 
-    def test_multiple_extrema_produces_correct_slices(self):
+    def test_multiple_extrema_produces_correct_slices(self) -> None:
         """
         With multiple extrema, each slice should correspond to exactly
         one extremum with its own region and centre.
@@ -882,7 +884,7 @@ class TestStackExtrema:
         assert result[0, 50, 100] == 0
         assert result[1, 10, 20] == 0
 
-    def test_no_extrema_returns_empty(self):
+    def test_no_extrema_returns_empty(self) -> None:
         """
         When extrema_locations has no True values, output should have zero slices along the first dimension.
         """
@@ -915,7 +917,7 @@ class TestApplyAndCombineOnNExtremaGroups:
                 "time": time,
                 "latitude": lat,
                 "longitude": lon,
-                "n_extrema": ("time", np.arange(n_time, dtype=int)),
+                "n_extrema": ("time", np.ones(n_time, dtype=int)),
             },
         )
 
@@ -938,10 +940,22 @@ class TestApplyAndCombineOnNExtremaGroups:
         assert "time" not in result.dims
         assert "time" in result.coords
 
+    def test_zero_extrema_group_short_circuits(self, mocker: "MockerFixture") -> None:
+        mock_fn = mocker.patch("rojak.atmosphere.regions._stack_extrema")
+        ds = self._make_simple_group_dataset().chunk({"time": 1})
+        ds = ds.assign_coords(n_extrema=("time", np.zeros(ds.sizes["time"], dtype=int)))
+        result = _apply_and_combine_on_n_extrema_groups(
+            ds,
+            lat_dim_name="latitude",
+            lon_dim_name="longitude",
+            new_dim_name="extrema_count",
+        )
+        mock_fn.assert_not_called()
 
-@pytest.fixture
-def load_mslp_data() -> xr.DataArray:
-    return xr.open_dataset("tests/_static/test_mslp.nc", engine="h5netcdf")["msl"]
+        assert isinstance(result, xr.DataArray)
+        assert result.dtype == np.int8
+        assert result.sizes == {"latitude": 161, "longitude": 441, "n_extrema": 0}
+        assert "time" in result.coords
 
 
 class TestIdentifyAndStackCircularExtrema:
@@ -978,208 +992,45 @@ class TestIdentifyAndStackCircularExtrema:
         # Check time axis is sorted, i.e. increasing
         assert (np.diff(result["time"]) >= 0).all()
 
-
-class TestProjectDataAboutExtrema:
-    target_shape: tuple[int, int] = (161, 441)
-    lats: np.ndarray = np.linspace(65.0, 25.0, 161)
-    lons: np.ndarray = np.linspace(-100.0, 10.0, 441)
-
-    def test_output_shape_is_n_km_by_n_km(self) -> None:
-        mask = np.zeros(self.target_shape, dtype=np.int8)
-        mask[10, 20] = 2
-        mask[8:13, 18:23] = 1
-        field = np.random.default_rng(42).random(self.target_shape)
-
-        result = _project_data_about_extrema(
-            mask,
-            field,
-            lats=self.lats,
-            lons=self.lons,
-            max_km_extent=500,
-            grid_km_spacing=50,
-        )
-        n_km = len(np.arange(-500, 501, 50))
-        assert result.shape == (n_km, n_km)
-
-    def test_returns_nan_when_no_centre(self) -> None:
-        result = _project_data_about_extrema(
-            np.zeros(self.target_shape, dtype=np.int8),
-            np.ones(self.target_shape),
-            lats=self.lats,
-            lons=self.lons,
-            max_km_extent=500,
-            grid_km_spacing=50,
-        )
-        assert np.all(np.isnan(result))
-
-    def test_raises_if_multiple_centres(self) -> None:
-        mask = np.zeros(self.target_shape, dtype=np.int8)
-        mask[10, 20] = 2
-        mask[50, 100] = 2  # second centre — invalid
-        field = np.ones(self.target_shape)
-
-        with pytest.raises(ValueError, match="There should only be one extrema"):
-            _project_data_about_extrema(
-                mask,
-                field,
-                lats=self.lats,
-                lons=self.lons,
-                max_km_extent=500,
-                grid_km_spacing=50,
-            )
-
-    def test_centre_of_output_is_not_nan(self, load_mslp_data) -> None:
-        msl_shape = load_mslp_data.isel(time=0).shape
-        mask = np.zeros(msl_shape, dtype=np.int8)
-        mask[80, 200] = 2  # centre of the domain
-        mask[78:83, 218:223] = 1
-
-        result = _project_data_about_extrema(
-            mask,
-            load_mslp_data.isel(time=0).values,
-            lats=load_mslp_data["latitude"].values,
-            lons=load_mslp_data["longitude"].values,
-            max_km_extent=1000,
-            grid_km_spacing=25,
-        )
-        centre_idx = result.shape[0] // 2
-        assert not np.isnan(result[centre_idx, centre_idx])
-
-    def test_custom_int_for_center(self, load_mslp_data) -> None:
-        msl_shape = load_mslp_data.isel(time=0).shape
-        mask = np.zeros(msl_shape, dtype=np.int8)
-        mask[80, 200] = 9  # centre of the domain
-        mask[78:83, 218:223] = 1
-
-        result = _project_data_about_extrema(
-            mask,
-            load_mslp_data.isel(time=0).values,
-            lats=load_mslp_data["latitude"].values,
-            lons=load_mslp_data["longitude"].values,
-            max_km_extent=1000,
-            grid_km_spacing=25,
-            int_for_center=9,
-        )
-        assert result.shape[0] > 0
-        assert not np.all(np.isnan(result))
-
-
-class TestCompositeAboutExtrema:
-    target_shape: tuple[int, int] = (161, 441)
-    lats: np.ndarray = np.linspace(65.0, 25.0, 161)
-    lons: np.ndarray = np.linspace(-100.0, 10.0, 441)
-    time: np.ndarray = np.array(
-        ["2025-12-29T00:00", "2025-12-29T06:00", "2025-12-29T12:00", "2025-12-29T18:00"], dtype="datetime64[h]"
-    )
-
-    @pytest.fixture
-    def dummy_target_data(self) -> xr.DataArray:
-        lat_grid, lon_grid = np.meshgrid(self.lats, self.lons, indexing="ij")
-        data = np.stack([lat_grid + lon_grid] * len(self.time), axis=0)
-        return xr.DataArray(
+    def test_zero_extrema_group_spanning_multiple_time_chunks(self) -> None:
+        """Group with no extrema must stack when its timesteps lie in different dask chunks."""
+        rng = np.random.default_rng(0)
+        data = rng.normal(100000, 500, (8, 40, 50))
+        # No minima below the threshold at these timesteps. The zero extrema group is larger than a time chunk, so it
+        #   spans multiple chunks
+        data[[1, 4, 6]] += 5000
+        target = xr.DataArray(
             data,
-            dims=["time", "latitude", "longitude"],
+            dims=("time", "latitude", "longitude"),
             coords={
-                "time": self.time,
-                "latitude": self.lats,
-                "longitude": self.lons,
+                "time": np.arange(8),
+                "latitude": np.linspace(60, 0, 40),
+                "longitude": np.linspace(-40, 40, 50),
             },
         )
 
-    @pytest.fixture
-    def dummy_extrema_data(self) -> xr.DataArray:
-        n_extrema = len(self.time)
-        data = np.zeros((n_extrema, self.target_shape[0], self.target_shape[1]), dtype=np.int8)
-
-        for i in range(n_extrema):
-            data[i, 8:13, 18:23] = 1  # region
-            data[i, 10, 20] = 2  # centre
-
-        return xr.DataArray(
-            data,
-            dims=["n_extrema", "latitude", "longitude"],
-            coords={
-                "n_extrema": np.arange(n_extrema),
-                "time": ("n_extrema", self.time),
-                "latitude": self.lats,
-                "longitude": self.lons,
-            },
+        expected = identify_and_stack_circular_extrema(
+            target, ExtremaKind.MINIMA, extrema_threshold_value=100000, footprint_radius=5
         )
+        result = identify_and_stack_circular_extrema(
+            target.chunk({"time": 2}), ExtremaKind.MINIMA, extrema_threshold_value=100000, footprint_radius=5
+        ).compute()
 
-    def test_raises_if_lat_lon_missing_from_target(self, dummy_extrema_data) -> None:
-        bad_target = xr.DataArray(
-            np.ones((4, 10)),
-            dims=["time", "x"],
-            coords={"time": self.time},
-        )
-        with pytest.raises(ValueError, match="do not contain latitude and longitude"):
-            composite_about_extrema(bad_target, dummy_extrema_data)
+        xr.testing.assert_equal(result, expected)
+        assert not np.isin([1, 4, 6], result["time"]).any()
 
-    def test_raises_if_vert_dim_not_in_target(self, dummy_target_data, dummy_extrema_data):
-        with pytest.raises(ValueError, match="Expected 'pressure_level' to be present in target_data"):
-            composite_about_extrema(dummy_target_data, dummy_extrema_data, vert_dim_name="pressure_level")
+    def test_no_extrema_returns_empty_stack(self) -> None:
+        rng = np.random.default_rng(0)
+        target = xr.DataArray(
+            rng.normal(100000, 500, (4, 40, 50)),
+            dims=("time", "latitude", "longitude"),
+            coords={"time": np.arange(4), "latitude": np.linspace(60, 0, 40), "longitude": np.linspace(-40, 40, 50)},
+        ).chunk({"time": 1})
+        # Threshold is below every value, so no minima qualify
+        with pytest.warns(UserWarning, match="No extrema identified"):
+            result = identify_and_stack_circular_extrema(
+                target, ExtremaKind.MINIMA, extrema_threshold_value=0, footprint_radius=5
+            ).compute()
 
-    def test_raises_if_n_extrema_not_in_extrema_data(self, dummy_target_data, dummy_extrema_data):
-        bad_extrema = dummy_extrema_data.rename({"n_extrema": "wrong_dim"})
-        with pytest.raises(ValueError, match="Expected 'n_extrema' to be in"):
-            composite_about_extrema(dummy_target_data, bad_extrema)
-
-    def test_raises_if_time_not_in_target(self, dummy_target_data, dummy_extrema_data):
-        bad_target = dummy_target_data.rename({"time": "wrong_time"})
-        with pytest.raises(ValueError, match="Expected 'time' to be present in target_data"):
-            composite_about_extrema(bad_target, dummy_extrema_data)
-
-    def test_raises_if_time_not_in_extrema_coords(self, dummy_target_data, dummy_extrema_data):
-        bad_extrema = dummy_extrema_data.drop_vars("time")
-        with pytest.raises(ValueError, match="Expected 'time' to be present in extrema_data coords"):
-            composite_about_extrema(dummy_target_data, bad_extrema)
-
-    def test_on_mslp_data(self, load_mslp_data) -> None:
-        extrema_data = identify_and_stack_circular_extrema(
-            load_mslp_data, ExtremaKind.MINIMA, extrema_threshold_value=100000
-        )
-        result = composite_about_extrema(load_mslp_data, extrema_data)
-
-        # Check basic properties of the result
-        assert isinstance(result, xr.DataArray)
-        assert "y_km" in result.dims
-        assert "x_km" in result.dims
+        assert result.sizes == {"latitude": 40, "longitude": 50, "n_extrema": 0}
         assert "time" in result.coords
-        assert "n_extrema" in result["time"].dims
-
-        # Check km_coords match the defaults for the composite function
-        expected = np.arange(-2000, 2001, 25)
-        np.testing.assert_array_equal(result["y_km"].values, expected)
-        np.testing.assert_array_equal(result["x_km"].values, expected)
-
-        # Obtained from manually inspecting the data
-        num_minima_in_mslp: int = 22
-        assert result["n_extrema"].size == num_minima_in_mslp
-
-        # Taking the mean over `n_extrema` should not result in any NaNs
-        msl_composite_mean = result.mean(dim="n_extrema", skipna=True) / 100
-        assert not np.isnan(msl_composite_mean).any()
-
-    def test_is_only_extrema_region_applies_where(self, dummy_target_data, dummy_extrema_data, mocker: "MockerFixture"):
-        mock_where = mocker.patch.object(xr.DataArray, "where")
-        composite_about_extrema(dummy_target_data, dummy_extrema_data, is_only_extrema_region=True)
-
-        mock_where.assert_called_once()
-
-    def test_is_only_extrema_region_false_does_not_apply_where(
-        self, dummy_target_data, dummy_extrema_data, mocker: "MockerFixture"
-    ):
-        mock_where = mocker.patch.object(xr.DataArray, "where", wraps=xr.DataArray.where)
-        composite_about_extrema(dummy_target_data, dummy_extrema_data, is_only_extrema_region=False)
-        mock_where.assert_not_called()
-
-    def test_with_vertical_dimension(self, dummy_target_data, dummy_extrema_data, mocker: "MockerFixture"):
-        pressure = np.array([500.0, 850.0])
-        target_4d = dummy_target_data.expand_dims({"pressure_level": pressure})
-        result = composite_about_extrema(
-            target_4d,
-            dummy_extrema_data,
-            vert_dim_name="pressure_level",
-        )
-        assert "pressure_level" in result.coords
-        np.testing.assert_array_equal(result["pressure_level"], pressure)

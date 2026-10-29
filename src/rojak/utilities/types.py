@@ -14,7 +14,7 @@
 
 import functools
 from collections.abc import Hashable, Sequence
-from typing import NamedTuple, Protocol, Self, TypeGuard
+from typing import TYPE_CHECKING, NamedTuple, Protocol, Self, TypeGuard
 
 import numpy as np
 import numpy.typing as npt
@@ -26,8 +26,14 @@ from rojak.utilities._compat import TypeIs
 
 NumpyOrDataArray = npt.NDArray | xr.DataArray
 
+if TYPE_CHECKING:
+    import pandas as pd
+
 
 type DiagnosticName = str
+# Type alias workaround to prevent importing pd such that ruff throws
+# false positives when linting for pandas
+type PandasDataFrame = pd.DataFrame
 
 
 class DistributionParameters(NamedTuple):
