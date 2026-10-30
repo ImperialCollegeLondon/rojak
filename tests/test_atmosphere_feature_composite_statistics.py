@@ -1,4 +1,4 @@
-"""Tests for the impact statistics and bootstrap of the feature composite (``_statistics``, phase 1).
+"""Tests for the impact statistics of the feature composite (``_statistics``, phase 1).
 
 Phase 1 covers the traffic ratio, and the probability, relative risk and odds ratio of each event. The expected values
 are computed by hand from the 2x2 table
@@ -13,13 +13,13 @@ are computed by hand from the 2x2 table
 and one bin reuses the aspirin/placebo table of Agresti (2022) that the doctests of ``rojak.turbulence.metrics`` use.
 """
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 
 import numpy as np
 import pytest
 import xarray as xr
 
-from rojak.atmosphere.feature_composite._statistics import bootstrap, impact_statistics
+from rojak.atmosphere.feature_composite._statistics import impact_statistics
 
 TRAFFIC_VARIABLES: frozenset[str] = frozenset({"traffic_per_centre", "traffic_per_control", "traffic_ratio"})
 
@@ -139,10 +139,6 @@ def _random_counts(n_chunks: int = 40, seed: int = 42) -> xr.Dataset:
         events={"mog": (rng.binomial(feature_n_obs, 0.2), rng.binomial(control_n_obs, 0.1))},
         control_labels=["obs-7D", "obs+7D"],
     )
-
-
-def _total_feature_n_obs(counts: xr.Dataset) -> xr.Dataset:
-    return xr.Dataset({"total": counts["feature_n_obs"].sum("chunk")})
 
 
 class TestImpactStatisticsHandComputed:
@@ -455,164 +451,3 @@ class TestImpactStatisticsLazy:
 
         for name, variable in result.data_vars.items():
             assert variable.chunks is None, name
-
-
-class TestBootstrap:
-    def test_same_seed_gives_same_result(self) -> None:
-        counts = _random_counts()
-
-        first = bootstrap(counts, impact_statistics, n_samples=50, seed=7)
-        second = bootstrap(counts, impact_statistics, n_samples=50, seed=7)
-
-        xr.testing.assert_identical(first, second)
-
-    def test_different_seeds_give_different_results(self) -> None:
-        counts = _random_counts()
-
-        first = bootstrap(counts, _total_feature_n_obs, n_samples=50, seed=7)
-        second = bootstrap(counts, _total_feature_n_obs, n_samples=50, seed=8)
-
-        assert not np.allclose(first["total"].to_numpy(), second["total"].to_numpy())
-
-    def test_identical_chunks_give_zero_width_intervals(self) -> None:
-        one_chunk = _random_counts(n_chunks=1)
-        counts = xr.concat([one_chunk] * 10, dim="chunk").assign_coords(chunk=np.arange(10))
-
-        result = bootstrap(counts, impact_statistics, n_samples=50, seed=0)
-
-        for name, variable in result.data_vars.items():
-            values = variable.to_numpy()
-            assert np.isfinite(values).all(), name
-            width = variable.max("quantile") - variable.min("quantile")
-            assert np.allclose(width.to_numpy(), 0.0, rtol=0, atol=1e-9), name
-
-    def test_median_of_sum_is_close_to_full_sample_sum(self) -> None:
-        counts = _random_counts()
-        full_sum = counts["feature_n_obs"].sum("chunk")
-
-        result = bootstrap(counts, _total_feature_n_obs, n_samples=500, quantiles=(0.025, 0.5, 0.975), seed=42)
-
-        total = result["total"]
-        np.testing.assert_allclose(total.sel(quantile=0.5).to_numpy(), full_sum.to_numpy(), rtol=0.02)
-        assert (total.sel(quantile=0.025) <= full_sum).all()
-        assert (total.sel(quantile=0.975) >= full_sum).all()
-
-    def test_output_dims_are_quantile_and_statistic_dims(self) -> None:
-        counts = _random_counts()
-        quantiles = (0.05, 0.5, 0.95)
-
-        result = bootstrap(counts, impact_statistics, n_samples=20, quantiles=quantiles, seed=0)
-        statistic = impact_statistics(counts)
-
-        assert set(result.data_vars) == set(statistic.data_vars)
-        for name, variable in result.data_vars.items():
-            assert set(variable.dims) == {"quantile", *statistic[name].dims}, name
-        np.testing.assert_allclose(result["quantile"].to_numpy(), quantiles)
-        assert result["control"].to_numpy().tolist() == ["obs-7D", "obs+7D"]
-
-    def test_default_quantiles(self) -> None:
-        result = bootstrap(_random_counts(), _total_feature_n_obs, n_samples=20, seed=0)
-
-        np.testing.assert_allclose(result["quantile"].to_numpy(), [0.025, 0.5, 0.975])
-
-    def test_quantiles_zero_and_one_are_allowed(self) -> None:
-        result = bootstrap(_random_counts(), _total_feature_n_obs, n_samples=20, quantiles=(0.0, 1.0), seed=0)
-
-        np.testing.assert_allclose(result["quantile"].to_numpy(), [0.0, 1.0])
-        assert (result["total"].sel(quantile=0.0) <= result["total"].sel(quantile=1.0)).all()
-
-    def test_statistic_is_applied_to_each_sample(self) -> None:
-        calls: list[xr.Dataset] = []
-
-        def statistic(counts: xr.Dataset) -> xr.Dataset:
-            calls.append(counts)
-            return _total_feature_n_obs(counts)
-
-        n_samples = 25
-
-        bootstrap(_random_counts(), statistic, n_samples=n_samples, seed=0)
-
-        assert len(calls) == n_samples
-
-    def test_resamples_whole_chunks_only(self) -> None:
-        # Every value encodes its chunk, control and bin, so a resampled chunk can be traced back to the original:
-        # the same chunk must be drawn for every variable, and control and bins must be untouched
-        n_chunks, n_control, n_y, n_x = 10, 2, 2, 3
-        chunk, control, y, x = np.ogrid[:n_chunks, :n_control, :n_y, :n_x]
-        original_control_n_obs = 1000 * chunk + 100 * control + 10 * y + x
-        original_feature_n_obs = original_control_n_obs[:, 0] + 0.5
-        original_n_controls = 10 * chunk[:, :, 0, 0] + control[:, :, 0, 0]
-        counts = _counts(
-            feature_n_obs=original_feature_n_obs,
-            n_centres=np.arange(n_chunks),
-            control_n_obs=original_control_n_obs,
-            n_controls=original_n_controls,
-            control_labels=["obs-7D", "obs+7D"],
-        )
-        samples: list[xr.Dataset] = []
-
-        def statistic(sample: xr.Dataset) -> xr.Dataset:
-            samples.append(sample)
-            return _total_feature_n_obs(sample)
-
-        bootstrap(counts, statistic, n_samples=25, seed=3)
-
-        assert samples
-        drew_a_chunk_twice = False
-        for sample in samples:
-            assert dict(sample.sizes) == dict(counts.sizes)
-            assert sample["control"].to_numpy().tolist() == ["obs-7D", "obs+7D"]
-            np.testing.assert_array_equal(sample["y_km"].to_numpy(), counts["y_km"].to_numpy())
-            np.testing.assert_array_equal(sample["x_km"].to_numpy(), counts["x_km"].to_numpy())
-            drawn = sample["n_centres"].to_numpy().astype(int)
-            np.testing.assert_array_equal(sample["feature_n_obs"].to_numpy(), original_feature_n_obs[drawn])
-            np.testing.assert_array_equal(sample["control_n_obs"].to_numpy(), original_control_n_obs[drawn])
-            np.testing.assert_array_equal(sample["n_controls"].to_numpy(), original_n_controls[drawn])
-            drew_a_chunk_twice = drew_a_chunk_twice or len(set(drawn.tolist())) < n_chunks
-        # With replacement: across 25 samples of 10 chunks, some chunk is drawn twice
-        assert drew_a_chunk_twice
-
-    def test_ratio_invariant_to_chunk_weights_has_zero_width(self) -> None:
-        # Per chunk, control_n_obs = n_controls * pattern, so sum(control_n_obs) / sum(n_controls) = pattern for any
-        # draw of chunks, provided the same chunks are drawn for both variables and control and bins are not resampled
-        rng = np.random.default_rng(42)
-        n_chunks = 12
-        pattern = rng.uniform(1.0, 5.0, size=(2, 2, 3))
-        n_controls = rng.integers(1, 20, size=(n_chunks, 2)).astype(float)
-        counts = _counts(
-            feature_n_obs=rng.poisson(50, size=(n_chunks, 2, 3)),
-            n_centres=np.ones(n_chunks),
-            control_n_obs=n_controls[:, :, None, None] * pattern,
-            n_controls=n_controls,
-        )
-
-        def per_control(sample: xr.Dataset) -> xr.Dataset:
-            return xr.Dataset({"ratio": sample["control_n_obs"].sum("chunk") / sample["n_controls"].sum("chunk")})
-
-        result = bootstrap(counts, per_control, n_samples=30, seed=1)
-
-        expected = xr.DataArray(pattern, dims=("control", "y_km", "x_km"))
-        for quantile in result["quantile"].to_numpy():
-            np.testing.assert_allclose(
-                result["ratio"].sel(quantile=quantile).transpose("control", "y_km", "x_km").to_numpy(),
-                expected.to_numpy(),
-                rtol=1e-12,
-            )
-
-    @pytest.mark.parametrize("n_samples", [0, -1])
-    def test_n_samples_below_one_raises_value_error(self, n_samples: int) -> None:
-        with pytest.raises(ValueError, match="n_samples"):
-            bootstrap(_random_counts(), _total_feature_n_obs, n_samples=n_samples, seed=0)
-
-    @pytest.mark.parametrize("quantiles", [(-0.1,), (1.1,), (0.025, 1.5), (-0.5, 0.5)])
-    def test_quantiles_outside_unit_interval_raise_value_error(self, quantiles: tuple[float, ...]) -> None:
-        with pytest.raises(ValueError, match="quantile"):
-            bootstrap(_random_counts(), _total_feature_n_obs, n_samples=10, quantiles=quantiles, seed=0)
-
-    def test_statistic_type_is_generic(self) -> None:
-        # Anything with the signature counts -> Dataset works, not just impact_statistics
-        statistic: Callable[[xr.Dataset], xr.Dataset] = _total_feature_n_obs
-
-        result = bootstrap(_random_counts(), statistic, n_samples=10, seed=0)
-
-        assert set(result.data_vars) == {"total"}

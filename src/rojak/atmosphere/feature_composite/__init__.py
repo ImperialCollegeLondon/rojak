@@ -17,7 +17,7 @@ The parts of a composite:
 - **Bins** count the pairs in each centre's km frame: :meth:`BinSpec.grid` for a 2D ``(y_km, x_km)`` grid.
 - **Controls** pair the same centres with observations from another time: :class:`ControlDesign`.
 - **Statistics** come from the counts after they are computed: :func:`impact_statistics` for the traffic ratio, the
-  relative risk and the odds ratio, and :func:`bootstrap` for intervals of any of them.
+  relative risk and the odds ratio.
 
 :func:`composite_observations_about_features` builds the dask graph and returns lazy counts per time chunk. With
 ``return_pairs=True``, it also returns the centre and pair tables, whose columns are named by :class:`Column`::
@@ -30,7 +30,6 @@ The parts of a composite:
         controls=[ControlDesign("obs-7D", observation_offset=np.timedelta64(-7, "D"))],
     ).compute()
     impact = impact_statistics(counts, min_count=20)
-    intervals = bootstrap(counts, impact_statistics, n_samples=500)
 
 To add a new kind of feature or pairing, see :mod:`rojak.atmosphere.feature_composite.extension`.
 """
@@ -41,7 +40,7 @@ from rojak.atmosphere.feature_composite._controls import ControlDesign
 from rojak.atmosphere.feature_composite._pairing import DistancePairing, LabelledRegionPairing
 from rojak.atmosphere.feature_composite._pipeline import composite_observations_about_features
 from rojak.atmosphere.feature_composite._point_features import ExtremaPointFeature
-from rojak.atmosphere.feature_composite._statistics import bootstrap, impact_statistics
+from rojak.atmosphere.feature_composite._statistics import impact_statistics
 
 __all__ = [
     "BinSpec",
@@ -50,7 +49,6 @@ __all__ = [
     "DistancePairing",
     "ExtremaPointFeature",
     "LabelledRegionPairing",
-    "bootstrap",
     "composite_observations_about_features",
     "impact_statistics",
 ]

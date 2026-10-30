@@ -40,7 +40,6 @@ PACKAGE_EXPORTS: tuple[str, ...] = (
     "BinSpec",
     "ControlDesign",
     "impact_statistics",
-    "bootstrap",
     "Column",
 )
 EXTENSION_EXPORTS: tuple[str, ...] = (

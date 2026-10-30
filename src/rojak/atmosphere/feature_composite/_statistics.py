@@ -1,20 +1,15 @@
-"""Impact statistics from the per-chunk counts of the feature composite, and a generic chunk bootstrap.
+"""Impact statistics from the per-chunk counts of the feature composite.
 
 The pipeline returns lazy per-chunk counts. Statistics are derived from them eagerly, after compute: summed over chunks
 they are small arrays of bins, and the dask optimiser fails on the fully lazy version (decision D8).
 
-Deferred to phase 4: Cohen's h, the attributable fractions, excess events per centre and the standardised anomaly.
+Deferred to phase 4: Cohen's h, the attributable fractions and excess events per centre.
 """
-
-from typing import TYPE_CHECKING
 
 import numpy as np
 import xarray as xr
 
 from rojak.turbulence.metrics import ContingencyTable, odds_ratio_from_table, relative_risk_from_table
-
-if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
 
 # Variables of the per-chunk counts (section 2 of the plan) read here
 _FEATURE_PREFIX: str = "feature_n_"
@@ -116,51 +111,3 @@ def _event_names(counts: xr.Dataset) -> list[str]:
 def _divide_or_nan(numerator: xr.DataArray, denominator: xr.DataArray) -> xr.DataArray:
     """``numerator / denominator``, NaN where the denominator is zero rather than infinite."""
     return numerator / denominator.where(denominator != 0)
-
-
-def bootstrap(
-    counts: xr.Dataset,
-    statistic: "Callable[[xr.Dataset], xr.Dataset]",
-    *,
-    n_samples: int = 1000,
-    quantiles: "Sequence[float]" = (0.025, 0.5, 0.975),
-    seed: int | None = None,
-) -> xr.Dataset:
-    """Quantiles of any statistic of the counts, from a block bootstrap over the chunks.
-
-    Observations in the same chunk are not independent: they come from the same flights and the same features. The
-    chunks are therefore the independent unit, and each sample draws ``n_chunks`` whole chunks with replacement. The
-    same draw is used for every variable, so the counts of a chunk stay together, and every other dimension
-    (``control``, the bins) is left untouched. Features that last longer than a chunk are still split between chunks,
-    so chunks that are long compared to the life of a feature give more conservative intervals.
-
-    ``statistic`` is called once per sample, on a resampled Dataset with the same dimensions and sizes as ``counts``,
-    so it may be any function of the counts, e.g. :func:`impact_statistics` or a ``functools.partial`` of it.
-
-    Args:
-        counts (xarray.Dataset): Per-chunk counts with a ``chunk`` dimension, as returned by the pipeline. Computed once
-            here if lazy, rather than once per sample.
-        statistic (Callable[[xarray.Dataset], xarray.Dataset]): Function from counts to the statistics to bootstrap.
-        n_samples (int): Number of bootstrap samples. At least 1. Memory scales as ``n_samples`` times the size of one
-            result of ``statistic``.
-        quantiles (Sequence[float]): Quantiles to return, each within [0, 1].
-        seed (int | None): Seed of :func:`numpy.random.default_rng`. ``None`` draws a fresh seed.
-
-    Returns:
-        xarray.Dataset: The quantiles of each variable of ``statistic`` over the samples, with a ``quantile``
-        dimension in addition to the dimensions of the variable.
-
-    Raises:
-        ValueError: If ``n_samples`` is below 1 or a quantile is outside [0, 1].
-    """
-    if n_samples < 1:
-        raise ValueError(f"n_samples must be at least 1, but is {n_samples}")
-    outside = [quantile for quantile in quantiles if not 0 <= quantile <= 1]
-    if outside:
-        raise ValueError(f"Every quantile must be within [0, 1], but these are not: {outside}")
-
-    counts = counts.compute()
-    rng = np.random.default_rng(seed)
-    n_chunks = counts.sizes[_CHUNK]
-    samples = [statistic(counts.isel({_CHUNK: rng.integers(0, n_chunks, size=n_chunks)})) for _ in range(n_samples)]
-    return xr.concat(samples, dim="sample").quantile(list(quantiles), dim="sample")

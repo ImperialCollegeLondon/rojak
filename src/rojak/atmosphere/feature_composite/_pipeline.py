@@ -162,12 +162,14 @@ def _count_controls(
         lat_column=parameters.lat_column,
         lon_column=parameters.lon_column,
     )
+
     n_obs: list[np.ndarray] = []
     n_controls: list[int] = []
     for design in parameters.controls:
         valid_centre_ids = valid.loc[valid[Column.CONTROL] == design.label, Column.CENTRE_ID]
         is_kept = (pairs[Column.CONTROL] == design.label) & pairs[Column.CENTRE_ID].isin(valid_centre_ids)
         n_obs.append(count_pairs(pairs[is_kept], bins))
+
         n_controls.append(len(valid_centre_ids))
     return np.stack(n_obs), np.array(n_controls, dtype=np.int64)
 
@@ -236,8 +238,7 @@ def composite_observations_about_features(
     the columns and dtypes of the returned tables (see
     :class:`~rojak.atmosphere.feature_composite._feature.FeatureTabulator`), which touches no real data. Compute the
     result, then derive statistics from it with
-    :func:`~rojak.atmosphere.feature_composite._statistics.impact_statistics` and
-    :func:`~rojak.atmosphere.feature_composite._statistics.bootstrap`.
+    :func:`~rojak.atmosphere.feature_composite._statistics.impact_statistics`.
 
     Args:
         feature (FeatureSource): The feature to composite about, e.g. lows.
