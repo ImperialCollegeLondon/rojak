@@ -11,6 +11,7 @@ from dask.base import is_dask_collection
 from dask.highlevelgraph import HighLevelGraph
 
 import rojak.core.derivatives as _derivatives_mod
+import rojak.turbulence.diagnostic as _diagnostic_mod
 from rojak.core.data import CATData
 from rojak.core.derivatives import VelocityDerivative, get_projection_correction_factors
 from rojak.orchestrator.configuration import (
@@ -550,3 +551,200 @@ class TestPhase02LazyRecipes:
         assert richardson_keys.issubset(ncsu1_keys), (
             "Richardson task keys missing from NCSU1 graph — shared dependency is not deduplicated"
         )
+
+
+DATASET_TARGETS = [
+    TurbulenceDiagnostics.WIND_SPEED,
+    TurbulenceDiagnostics.DEF,
+    TurbulenceDiagnostics.RICHARDSON,
+    TurbulenceDiagnostics.NCSU1,
+]
+
+
+def _precomputed_dataset() -> xr.Dataset:
+    """A numpy-backed Dataset with one variable per entry of ``DATASET_TARGETS``, standing in for a zarr load"""
+    rng = np.random.default_rng(42)
+    dims = ("latitude", "longitude", "time", "pressure_level")
+    coords = {
+        "latitude": np.linspace(-10.0, 10.0, 3),
+        "longitude": np.linspace(-10.0, 10.0, 3),
+        "time": np.array(["2018-08-01T00", "2018-08-01T06"], dtype="datetime64[h]"),
+        "pressure_level": np.array([200.0, 225.0, 250.0]),
+    }
+    return xr.Dataset(
+        {
+            diagnostic.value: xr.DataArray(rng.random((3, 3, 2, 3)), dims=dims, coords=coords)
+            for diagnostic in DATASET_TARGETS
+        }
+    )
+
+
+class TestDatasetBackedSuite:
+    """
+    :class:`DiagnosticSuite` materialises its diagnostics as one :class:`xarray.Dataset`.
+
+    :meth:`DiagnosticSuite.from_factory` and :meth:`DiagnosticSuite.from_dataset` replace the
+    ``singledispatchmethod`` ``__init__`` and the ``LoadedFromZarr`` wrapper.
+    """
+
+    @pytest.fixture
+    def scheduler_calls(self, monkeypatch: pytest.MonkeyPatch) -> "list[str]":
+        """
+        Records every ``Client.compute``, ``Client.get`` and ``Client.persist`` call while the fixture is active
+
+        Duplicates the fixture of the same name in :class:`TestPhase02LazyRecipes`, which is scoped to that class.
+        """
+        calls: list[str] = []
+
+        def record(name: str, original: "Callable[..., Any]") -> "Callable[..., Any]":
+            def counting(self: distributed.Client, *args: "Any", **kwargs: "Any") -> "Any":
+                calls.append(name)
+                return original(self, *args, **kwargs)
+
+            return counting
+
+        for method_name in ("compute", "get", "persist"):
+            original: Callable[..., Any] = getattr(distributed.Client, method_name)
+            monkeypatch.setattr(distributed.Client, method_name, record(method_name, original))
+        return calls
+
+    def test_from_factory_returns_dataset_backed_suite(self) -> None:
+        factory = DiagnosticFactory(make_synthetic_cat_data(persist=False, chunks={"time": 1}))
+
+        suite = DiagnosticSuite.from_factory(factory, DATASET_TARGETS, persist=False)
+
+        assert isinstance(suite.dataset, xr.Dataset)
+
+    def test_dataset_has_one_data_variable_per_requested_diagnostic(self) -> None:
+        factory = DiagnosticFactory(make_synthetic_cat_data(persist=False, chunks={"time": 1}))
+
+        suite = DiagnosticSuite.from_factory(factory, DATASET_TARGETS, persist=False)
+
+        assert set(suite.dataset.data_vars) == {diagnostic.value for diagnostic in DATASET_TARGETS}
+
+    @pytest.mark.parametrize("diagnostic", DATASET_TARGETS, ids=lambda d: d.name)
+    def test_dataset_variable_matches_independently_computed_diagnostic(
+        self,
+        diagnostic: TurbulenceDiagnostics,
+    ) -> None:
+        suite = DiagnosticSuite.from_factory(
+            DiagnosticFactory(make_synthetic_cat_data(persist=False, chunks={"time": 1})),
+            DATASET_TARGETS,
+            persist=False,
+        )
+        expected = (
+            DiagnosticFactory(make_synthetic_cat_data(persist=False, chunks={"time": 1}))
+            .create(diagnostic)
+            .computed_value.compute()
+        )
+
+        actual = suite.dataset[diagnostic.value].transpose(*expected.dims).compute()
+
+        np.testing.assert_allclose(actual.values, expected.values, rtol=1e-6)
+
+    def test_from_dataset_exposes_supplied_dataset(self) -> None:
+        supplied = _precomputed_dataset()
+
+        suite = DiagnosticSuite.from_dataset(supplied, DATASET_TARGETS)
+
+        xr.testing.assert_identical(suite.dataset, supplied)
+
+    def test_from_dataset_suite_has_no_diagnostic_recipes(self) -> None:
+        suite = DiagnosticSuite.from_dataset(_precomputed_dataset(), DATASET_TARGETS)
+
+        assert suite._diagnostics == {}
+
+    def test_loaded_from_zarr_removed(self) -> None:
+        assert not hasattr(_diagnostic_mod, "LoadedFromZarr"), "LoadedFromZarr should have been deleted"
+
+    def test_diagnostic_names_returns_list_of_str(self) -> None:
+        factory = DiagnosticFactory(make_synthetic_cat_data(persist=False, chunks={"time": 1}))
+        suite = DiagnosticSuite.from_factory(factory, DATASET_TARGETS, persist=False)
+
+        names: list[str] = suite.diagnostic_names()
+
+        assert isinstance(names, list)
+        assert all(isinstance(name, str) for name in names)
+        assert sorted(names) == sorted(diagnostic.value for diagnostic in DATASET_TARGETS)
+
+    def test_computed_values_as_dict_matches_dataset_data_vars(self) -> None:
+        factory = DiagnosticFactory(make_synthetic_cat_data(persist=False, chunks={"time": 1}))
+        suite = DiagnosticSuite.from_factory(factory, DATASET_TARGETS, persist=False)
+
+        values: dict[str, xr.DataArray] = suite.computed_values_as_dict()
+
+        assert set(values) == {diagnostic.value for diagnostic in DATASET_TARGETS}
+        for name, value in values.items():
+            assert isinstance(value, xr.DataArray)
+            xr.testing.assert_equal(value, suite.dataset[name])
+
+    def test_as_dataset_returns_same_object_as_dataset(self) -> None:
+        factory = DiagnosticFactory(make_synthetic_cat_data(persist=False, chunks={"time": 1}))
+        suite = DiagnosticSuite.from_factory(factory, DATASET_TARGETS, persist=False)
+
+        assert suite.as_dataset() is suite.dataset
+
+    def test_load_from_zarr_round_trip_matches_original(self, tmp_path: Path) -> None:
+        factory = DiagnosticFactory(make_synthetic_cat_data(persist=False, chunks={"time": 1}))
+        original = DiagnosticSuite.from_factory(factory, DATASET_TARGETS, persist=False)
+        zarr_store = original.export_as_zarr(tmp_path)
+        zarr_store.close()
+
+        loaded = DiagnosticSuite.load_from_zarr(tmp_path, DATASET_TARGETS)
+
+        assert isinstance(loaded.dataset, xr.Dataset)
+        assert set(loaded.dataset.data_vars) == set(original.dataset.data_vars)
+        for name in original.dataset.data_vars:
+            xr.testing.assert_equal(loaded.dataset[name], original.dataset[name])
+
+    def test_persist_false_dataset_is_dask_backed(self) -> None:
+        factory = DiagnosticFactory(make_synthetic_cat_data(persist=False, chunks={"time": 1}))
+
+        suite = DiagnosticSuite.from_factory(factory, DATASET_TARGETS, persist=False)
+
+        assert all(is_dask_collection(variable.data) for variable in suite.dataset.data_vars.values())
+
+    def test_building_from_factory_submits_nothing_to_scheduler(
+        self,
+        client: distributed.Client,
+        scheduler_calls: "list[str]",
+    ) -> None:
+        assert isinstance(client, distributed.Client)  # activates distributed routing
+        factory = DiagnosticFactory(make_synthetic_cat_data(persist=False, chunks={"time": 1}))
+
+        DiagnosticSuite.from_factory(factory, DATASET_TARGETS)
+
+        assert scheduler_calls == []
+
+    def test_reading_dataset_persists_full_suite_exactly_once(
+        self,
+        client: distributed.Client,
+        scheduler_calls: "list[str]",
+    ) -> None:
+        assert isinstance(client, distributed.Client)  # activates distributed routing
+        factory = DiagnosticFactory(make_synthetic_cat_data(persist=False, chunks={"time": 1}))
+        suite = DiagnosticSuite.from_factory(factory, DATASET_TARGETS)
+
+        _ = suite.dataset
+        _ = suite.dataset
+
+        assert scheduler_calls.count("persist") == 1
+
+    def test_mismatched_grids_raise_rather_than_silently_padding(self) -> None:
+        # dataset property uses join="exact" so any mismatch raises loudly.
+        # Test this directly: two arrays with different latitude coords must raise.
+        rng = np.random.default_rng(0)
+        coords_a = {"latitude": np.array([0.0, 1.0]), "pressure_level": np.array([200.0])}
+        coords_b = {"latitude": np.array([0.0, 2.0]), "pressure_level": np.array([200.0])}
+        a = xr.DataArray(rng.random((2, 1)), dims=["latitude", "pressure_level"], coords=coords_a, name="a")
+        b = xr.DataArray(rng.random((2, 1)), dims=["latitude", "pressure_level"], coords=coords_b, name="b")
+
+        with pytest.raises((ValueError, xr.MergeError)):
+            xr.merge([a, b], join="exact", compat="no_conflicts")
+
+    def test_from_dataset_raises_when_requested_diagnostic_is_absent(self) -> None:
+        supplied = _precomputed_dataset()  # only has DATASET_TARGETS variables
+        absent = [TurbulenceDiagnostics.BROWN1]  # not in _precomputed_dataset()
+
+        with pytest.raises(ValueError, match="brown1"):
+            DiagnosticSuite.from_dataset(supplied, absent)

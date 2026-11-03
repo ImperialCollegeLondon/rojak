@@ -572,7 +572,7 @@ class EvaluationStage:
                 if thresholds is None:
                     raise ValueError("Thresholds must be present to compute Matthews correlation")
                 matthews_correlation: xr.DataArray = MatthewsCorrelationOnThresholdedDiagnostics(
-                    suite.as_dataset(), self._config.severities, thresholds, self._config.threshold_mode
+                    suite.dataset, self._config.severities, thresholds, self._config.threshold_mode
                 ).execute()
                 chained_names: str = chain_diagnostic_names(suite.diagnostic_names())
                 # False positive by pyright - StoreLike inlcudes Path
@@ -584,7 +584,7 @@ class EvaluationStage:
                 )
                 for level in self._config.pressure_levels:
                     matthews_correlation_on_level: xr.DataArray = MatthewsCorrelationOnThresholdedDiagnostics(
-                        suite.as_dataset(),
+                        suite.dataset,
                         self._config.severities,
                         thresholds,
                         self._config.threshold_mode,
@@ -798,7 +798,7 @@ class DiagnosticsAmdarLauncher:
 
         if self._validation_conditions:
             logger.info("Starting validation of diagnostics with amdar data")
-            verifier = DiagnosticsAmdarVerification(harmoniser, diagnostic_suite.as_dataset())
+            verifier = DiagnosticsAmdarVerification(harmoniser, diagnostic_suite.dataset)
             chained_names: str = chain_diagnostic_names(diagnostic_suite.diagnostic_names())
 
             if self._group_by_strategy is not None:
