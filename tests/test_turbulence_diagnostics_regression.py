@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 import xarray as xr
 from dask.base import compute as dask_compute
+from dask.base import is_dask_collection
 from dask.highlevelgraph import HighLevelGraph
 
 import rojak.core.derivatives as _derivatives_mod
@@ -18,6 +19,7 @@ from rojak.orchestrator.configuration import (
     TurbulenceThresholdMode,
     TurbulenceThresholds,
 )
+from rojak.turbulence.analysis import TurbulentRegionsBySeverity
 from rojak.turbulence.calculations import altitude_derivative_on_pressure_level
 from rojak.turbulence.diagnostic import (
     CalibrationDiagnosticSuite,
@@ -47,10 +49,8 @@ CHUNKINGS = [TIME_CHUNKED, LAT_LON_CHUNKED]
 
 # The synthetic fixture has 4 pressure levels (full set).
 FIXTURE_PRESSURE_LEVELS = [175.0, 200.0, 225.0, 250.0]
-# PRESSURE_LEVELS is the subset used for TurbulentRegionsBySeverity.  ColsonPanofsky lives on
-# pressure_level[1:] so it is missing 175.0 pre-Phase 02.  Phase 02 adds an explicit reindex;
-# at that point this constant can be extended back to FIXTURE_PRESSURE_LEVELS.
-PRESSURE_LEVELS = [200.0, 225.0, 250.0]
+# PRESSURE_LEVELS is the subset used for TurbulentRegionsBySeverity.
+PRESSURE_LEVELS = FIXTURE_PRESSURE_LEVELS
 SEVERITIES = [TurbulenceSeverity.LIGHT, TurbulenceSeverity.MODERATE, TurbulenceSeverity.SEVERE]
 # Percentiles (0-100) of the calibration distribution at which each severity starts
 PERCENTILE_CONFIG = TurbulenceThresholds(light=90.0, moderate=95.0, severe=99.0)
@@ -320,7 +320,7 @@ class TestTaskCountHarness:
 
 
 class TestPhase01Memoisation:
-    """Phase 01: memoise projection factors and d(geopotential)/dp, which are otherwise rebuilt per diagnostic"""
+    """Memoisation of projection factors and d(geopotential)/dp, which are otherwise rebuilt per diagnostic"""
 
     def test_projection_correction_factors_returns_same_object_for_same_inputs(self) -> None:
         latitude = xr.DataArray(np.linspace(-30.0, 30.0, 8), dims="latitude")
@@ -376,3 +376,177 @@ class TestPhase01Memoisation:
         DiagnosticSuite(DiagnosticFactory(load_cat_data(None, with_chunks=True)), ALL_DIAGNOSTICS)
 
         assert len(_derivatives_mod._PROJECTION_CACHE) == 1
+
+
+class TestPhase02LazyRecipes:
+    """Lazy diagnostic recipes, factory memoisation, and explicit CP NaN at the first pressure level"""
+
+    @pytest.fixture
+    def scheduler_calls(self, monkeypatch: pytest.MonkeyPatch) -> "list[str]":
+        """
+        Records every ``Client.compute``, ``Client.get`` and ``Client.persist`` call while the fixture is active
+
+        ``persist`` is counted as well as ``compute`` and ``get``: :attr:`Diagnostic.computed_value` persists, and the
+        existing ``scheduler_submissions`` fixture does not see it, so it would report zero submissions for a suite
+        that persists every dependency.
+        """
+        calls: list[str] = []
+
+        def record(name: str, original: "Callable[..., Any]") -> "Callable[..., Any]":
+            def counting(self: distributed.Client, *args: "Any", **kwargs: "Any") -> "Any":
+                calls.append(name)
+                return original(self, *args, **kwargs)
+
+            return counting
+
+        for method_name in ("compute", "get", "persist"):
+            original: Callable[..., Any] = getattr(distributed.Client, method_name)
+            monkeypatch.setattr(distributed.Client, method_name, record(method_name, original))
+        return calls
+
+    def test_lazy_value_is_dask_backed(self) -> None:
+        cat_data = make_synthetic_cat_data(chunks={"time": 1})
+        diagnostic = DiagnosticFactory(cat_data).create(TurbulenceDiagnostics.RICHARDSON)
+
+        assert is_dask_collection(diagnostic.lazy_value)
+
+    def test_lazy_value_returns_same_object_on_repeated_call(self) -> None:
+        diagnostic = DiagnosticFactory(make_synthetic_cat_data()).create(TurbulenceDiagnostics.RICHARDSON)
+
+        assert diagnostic.lazy_value is diagnostic.lazy_value
+
+    def test_computed_value_still_works_after_lazy_value_added(self) -> None:
+        diagnostic = DiagnosticFactory(make_synthetic_cat_data()).create(TurbulenceDiagnostics.RICHARDSON)
+
+        assert isinstance(diagnostic.computed_value, xr.DataArray)
+
+    def test_suite_construction_does_not_trigger_compute(self) -> None:
+        factory = DiagnosticFactory(make_synthetic_cat_data(chunks={"time": 1}))
+        suite = DiagnosticSuite(factory, ALL_DIAGNOSTICS)
+
+        for name, diagnostic in suite._diagnostics.items():
+            assert is_dask_collection(diagnostic.lazy_value), f"{name} was computed during suite construction"
+
+    def test_factory_create_returns_same_instance_for_same_diagnostic(self) -> None:
+        factory = DiagnosticFactory(make_synthetic_cat_data())
+
+        assert factory.create(TurbulenceDiagnostics.RICHARDSON) is factory.create(TurbulenceDiagnostics.RICHARDSON)
+
+    def test_factory_create_returns_different_instance_for_different_diagnostics(self) -> None:
+        factory = DiagnosticFactory(make_synthetic_cat_data())
+
+        assert factory.create(TurbulenceDiagnostics.RICHARDSON) is not factory.create(
+            TurbulenceDiagnostics.NEGATIVE_RICHARDSON
+        )
+
+    def test_suite_construction_triggers_zero_scheduler_submissions(
+        self,
+        client: distributed.Client,
+        scheduler_calls: "list[str]",
+    ) -> None:
+        # Use persist=False so that CATData._variable() does not call Client.persist on first
+        # field access — we want to count submissions from the diagnostic recipe building only.
+        assert isinstance(client, distributed.Client)  # activates distributed routing
+        factory = DiagnosticFactory(make_synthetic_cat_data(persist=False, chunks={"time": 1}))
+
+        DiagnosticSuite(factory, ALL_DIAGNOSTICS)
+
+        assert len(scheduler_calls) == 0
+
+    def test_colson_panofsky_output_has_nan_at_first_pressure_level(self) -> None:
+        cp = DiagnosticFactory(make_synthetic_cat_data()).create(TurbulenceDiagnostics.COLSON_PANOFSKY)
+        value = cp.computed_value.compute()
+        first_level = FIXTURE_PRESSURE_LEVELS[0]
+
+        assert first_level in value["pressure_level"].values, "CP must reindex to the full pressure grid"
+        assert value.sel(pressure_level=first_level).isnull().all()
+
+    def test_turbulent_regions_with_nan_diagnostic_values_are_nan_not_false(self) -> None:
+        rng = np.random.default_rng(42)
+        shape = (3, 3, 2, len(PRESSURE_LEVELS))
+        dims = ("latitude", "longitude", "time", "pressure_level")
+        coords = {
+            "latitude": np.linspace(-10.0, 10.0, 3),
+            "longitude": np.linspace(-10.0, 10.0, 3),
+            "time": np.array(["2018-08-01T00", "2018-08-01T06"], dtype="datetime64[h]"),
+            "pressure_level": np.array(PRESSURE_LEVELS),
+        }
+        values = rng.random(shape) * 2.0
+        values[0, 0, 0, 0] = np.nan
+        values[2, 1, 1, 2] = np.nan
+        diagnostic = xr.DataArray(values, dims=dims, coords=coords)
+        severities = [TurbulenceSeverity.LIGHT, TurbulenceSeverity.MODERATE]
+        thresholds = TurbulenceThresholds(light=0.0, moderate=1.0, severe=2.0)
+
+        regions = TurbulentRegionsBySeverity(
+            diagnostic, PRESSURE_LEVELS, severities, thresholds, TurbulenceThresholdMode.BOUNDED
+        ).execute()
+
+        assert isinstance(regions, xr.DataArray)
+        nan_points = np.isnan(values)
+        for severity in severities:
+            region = regions.sel(severity=severity)
+            np.testing.assert_array_equal(region.isnull().transpose(*dims).values, nan_points)
+
+    def test_turbulent_regions_match_brute_force_on_finite_values(self) -> None:
+        rng = np.random.default_rng(42)
+        shape = (3, 3, 2, len(PRESSURE_LEVELS))
+        dims = ("latitude", "longitude", "time", "pressure_level")
+        coords = {
+            "latitude": np.linspace(-10.0, 10.0, 3),
+            "longitude": np.linspace(-10.0, 10.0, 3),
+            "time": np.array(["2018-08-01T00", "2018-08-01T06"], dtype="datetime64[h]"),
+            "pressure_level": np.array(PRESSURE_LEVELS),
+        }
+        values = rng.random(shape) * 2.0
+        diagnostic = xr.DataArray(values, dims=dims, coords=coords)
+        severities = [TurbulenceSeverity.LIGHT, TurbulenceSeverity.MODERATE]
+        thresholds = TurbulenceThresholds(light=0.0, moderate=1.0, severe=2.0)
+
+        regions = TurbulentRegionsBySeverity(
+            diagnostic, PRESSURE_LEVELS, severities, thresholds, TurbulenceThresholdMode.BOUNDED
+        ).execute()
+
+        assert isinstance(regions, xr.DataArray)
+        bounds = {TurbulenceSeverity.LIGHT: (0.0, 1.0), TurbulenceSeverity.MODERATE: (1.0, 2.0)}
+        for severity in severities:
+            lower, upper = bounds[severity]
+            expected = (values >= lower) & (values < upper)
+            actual = regions.sel(severity=severity).transpose(*dims).values
+            np.testing.assert_array_equal(actual.astype(bool), expected)
+
+    def test_set_computed_overrides_computed_value_without_touching_lazy_value(self) -> None:
+        # set_computed lets a loader inject a pre-loaded array as computed_value without
+        # touching the lazy recipe — lazy_value stays intact for any downstream that still needs it.
+        factory = DiagnosticFactory(make_synthetic_cat_data(persist=False, chunks={"time": 1}))
+        diagnostic = factory.create(TurbulenceDiagnostics.WIND_SPEED)
+
+        lazy_before = diagnostic.lazy_value
+        assert is_dask_collection(lazy_before)
+
+        injected = xr.DataArray([1.0, 2.0], dims=["pressure_level"])
+        diagnostic.set_computed(injected)
+
+        assert diagnostic.computed_value is injected
+        assert diagnostic.lazy_value is lazy_before
+
+    def test_shared_dependency_task_keys_are_identical_across_consumers(self) -> None:
+        # Richardson is shared between GradientRichardson (RICHARDSON) and Ncsu1 (NCSU1) via
+        # lazy_value.  Both consumers must reference the exact same dask task keys so that a
+        # single dask.compute() over all diagnostics executes Richardson only once.
+        factory = DiagnosticFactory(make_synthetic_cat_data(persist=False, chunks={"time": 1}))
+        richardson = factory.create(TurbulenceDiagnostics.RICHARDSON)
+        ncsu1 = factory.create(TurbulenceDiagnostics.NCSU1)
+
+        richardson_graph = richardson.lazy_value.__dask_graph__()
+        ncsu1_graph = ncsu1.lazy_value.__dask_graph__()
+        assert richardson_graph is not None
+        assert ncsu1_graph is not None
+
+        richardson_keys = set(richardson_graph)
+        ncsu1_keys = set(ncsu1_graph)
+
+        # Every task that builds Richardson must also appear unchanged in NCSU1's graph.
+        assert richardson_keys.issubset(ncsu1_keys), (
+            "Richardson task keys missing from NCSU1 graph — shared dependency is not deduplicated"
+        )
