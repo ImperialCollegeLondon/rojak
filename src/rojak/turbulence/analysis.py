@@ -508,7 +508,11 @@ class TurbulentRegionsBySeverity(PostProcessor[xr.DataArray | list[xr.DataArray]
     @override
     def execute(self) -> xr.DataArray | list[xr.DataArray] | xr.DataTree:
         """
-        Compute the boolean turbulent region mask for each severity in ``self._severities``
+        Compute the turbulent region mask for each severity in ``self._severities``
+
+        The mask is ``1.0`` (True) where the diagnostic lies within the severity's bounds, ``0.0`` (False) where it
+        lies outside them, and NaN where the diagnostic itself is NaN, so that missing values are not reported as
+        "no turbulence".
 
         Returns:
             If ``self._has_parent`` is ``False``, a single DataArray with the masks concatenated along a new
@@ -517,9 +521,11 @@ class TurbulentRegionsBySeverity(PostProcessor[xr.DataArray | list[xr.DataArray]
         by_severity = []
         for severity in self._severities:
             bounds: Limits[float] = self._thresholds.get_bounds(severity, self._threshold_mode)
-            this_severity: xr.DataArray = (self._computed_diagnostic >= bounds.lower) & (
+            is_in_range: xr.DataArray = (self._computed_diagnostic >= bounds.lower) & (
                 self._computed_diagnostic < bounds.upper
             )
+            # Comparisons with NaN are False, so propagate NaN explicitly rather than reporting it as out of range
+            this_severity: xr.DataArray = xr.where(self._computed_diagnostic.notnull(), is_in_range, np.nan)
             by_severity.append(this_severity if self._has_parent else this_severity.compute())
         return by_severity if self._has_parent else xr.concat(by_severity, xr.Variable("severity", self._severities))
 
