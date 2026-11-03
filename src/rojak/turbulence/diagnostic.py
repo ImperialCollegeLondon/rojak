@@ -93,6 +93,7 @@ class Diagnostic(ABC):
 
     _name: "DiagnosticName"
     _computed_value: xr.DataArray | None = None
+    _lazy_value: xr.DataArray | None = None
 
     def __init__(self, name: "DiagnosticName") -> None:
         """
@@ -111,16 +112,41 @@ class Diagnostic(ABC):
         return self._name
 
     @property
+    def lazy_value(self) -> xr.DataArray:
+        """
+        The diagnostic's value as an unevaluated recipe
+
+        Built via :meth:`_compute` on first access and renamed to :attr:`name`, then cached so that repeated accesses
+        return the same object. Unlike :attr:`computed_value`, nothing is persisted, so accessing it never triggers
+        computation for dask-backed inputs.
+        """
+        if self._lazy_value is None:
+            self._lazy_value = self._compute().rename(self.name)
+        return self._lazy_value
+
+    @property
     def computed_value(self) -> xr.DataArray:
         """
         The diagnostic's computed value
 
-        Computed lazily via :meth:`_compute` on first access, then cached (renamed to :attr:`name` and persisted)
-        so that subsequent accesses do not recompute it.
+        :attr:`lazy_value` persisted on first access, then cached so that subsequent accesses do not recompute it.
         """
         if self._computed_value is None:
-            self._computed_value = self._compute().rename(self.name).persist()
+            self._computed_value = self.lazy_value.persist()
         return self._computed_value
+
+    def set_computed(self, value: xr.DataArray) -> None:
+        """
+        Supply an already-computed value, so that :attr:`computed_value` returns it instead of persisting
+
+        This only affects :attr:`computed_value`. :attr:`lazy_value` always builds the recipe from :meth:`_compute`
+        regardless of what this method has injected, so callers must not wire ``lazy_value`` into downstream graphs
+        after calling this method and expect the pre-loaded data to propagate.
+
+        Args:
+            value: The diagnostic's computed value
+        """
+        self._computed_value = value
 
     def to_zarr(self, output_base_dir: "Path", *, file_name: str | None = None) -> None:
         """
@@ -613,6 +639,7 @@ class ColsonPanofsky(Diagnostic):
     _u_wind: xr.DataArray
     _v_wind: xr.DataArray
     _geopotential: xr.DataArray
+    _full_pressure_level: xr.DataArray
 
     def __init__(
         self,
@@ -623,6 +650,7 @@ class ColsonPanofsky(Diagnostic):
         geopotential: xr.DataArray,
     ) -> None:
         super().__init__(TurbulenceDiagnostics.COLSON_PANOFSKY)
+        self._full_pressure_level = geopotential["pressure_level"]
         # !!! IMPT: Reduces dimension by 1
         # Want the minuend (i.e. label=upper) as we're looking at the distance between grid points (delta z)
         self._length_scale = altitude.diff("pressure_level", label="upper")
@@ -641,7 +669,10 @@ class ColsonPanofsky(Diagnostic):
             is_abs_velocities=True,
             is_vws_squared=True,
         )
-        return vws * np.square(self._length_scale) * self._richardson_term
+        result = vws * np.square(self._length_scale) * self._richardson_term
+        # The vertical differencing in __init__ leaves the result on pressure_level[1:]. Reindex explicitly so the
+        # missing first level is a visible NaN slice, rather than being silently NaN-padded by a Dataset outer join.
+        return result.reindex(pressure_level=self._full_pressure_level.values)
 
 
 class UBF(Diagnostic):
@@ -1346,16 +1377,19 @@ class DiagnosticFactory:
     """
 
     _data: "CATData"
+    _cache: dict[TurbulenceDiagnostics, Diagnostic]
 
     def __init__(self, data: "CATData") -> None:
         self._data = data
+        self._cache = {}
 
-    def create(self, diagnostic: TurbulenceDiagnostics) -> Diagnostic:  # noqa: PLR0911, PLR0912
+    def create(self, diagnostic: TurbulenceDiagnostics) -> Diagnostic:
         """
         Construct the :class:`Diagnostic` instance for the requested turbulence diagnostic
 
-        Any diagnostics that ``diagnostic`` itself depends on (e.g. :class:`GradientRichardson` for
-        :class:`Ncsu1`) are constructed (and computed) recursively as needed.
+        Instances are cached per factory, so repeated calls for the same ``diagnostic`` return the same object. Any
+        diagnostics that ``diagnostic`` itself depends on (e.g. :class:`GradientRichardson` for :class:`Ncsu1`) are
+        constructed recursively and consumed through their :attr:`Diagnostic.lazy_value`, so nothing is computed.
 
         Args:
             diagnostic: Turbulence diagnostic to construct
@@ -1363,6 +1397,12 @@ class DiagnosticFactory:
         Returns:
             Instance of the :class:`Diagnostic` subclass corresponding to ``diagnostic``, built from ``self._data``
         """
+        if diagnostic not in self._cache:
+            self._cache[diagnostic] = self._build(diagnostic)
+        return self._cache[diagnostic]
+
+    def _build(self, diagnostic: TurbulenceDiagnostics) -> Diagnostic:  # noqa: PLR0911, PLR0912
+        """Construct a new, uncached :class:`Diagnostic` for ``diagnostic``; see :meth:`create`"""
         match diagnostic:
             case TurbulenceDiagnostics.F2D:
                 return Frontogenesis2D(
@@ -1406,7 +1446,7 @@ class DiagnosticFactory:
                 return Ncsu1(
                     self._data.u_wind(),
                     self._data.v_wind(),
-                    richardson.computed_value,
+                    richardson.lazy_value,
                     self._data.velocity_derivatives(),
                     self._data.vorticity(),
                 )
@@ -1416,7 +1456,7 @@ class DiagnosticFactory:
                     self._data.u_wind(),
                     self._data.v_wind(),
                     self._data.altitude(),
-                    richardson.computed_value,
+                    richardson.lazy_value,
                     self._data.geopotential(),
                 )
             case TurbulenceDiagnostics.UBF:
@@ -1435,8 +1475,8 @@ class DiagnosticFactory:
                 vws: Diagnostic = self.create(TurbulenceDiagnostics.VWS)
                 brunt_vaisala: Diagnostic = self.create(TurbulenceDiagnostics.BRUNT_VAISALA)
                 return GradientRichardson(
-                    vws.computed_value,
-                    brunt_vaisala.computed_value,
+                    vws.lazy_value,
+                    brunt_vaisala.lazy_value,
                     is_negative=diagnostic == TurbulenceDiagnostics.NEGATIVE_RICHARDSON,
                 )
             case TurbulenceDiagnostics.WIND_SPEED:
@@ -1475,7 +1515,7 @@ class DiagnosticFactory:
                     self._data.u_wind(),
                     self._data.v_wind(),
                     self._data.geopotential(),
-                    brown1.computed_value,
+                    brown1.lazy_value,
                 )
             case TurbulenceDiagnostics.NVA:
                 return NegativeVorticityAdvection(self._data.u_wind(), self._data.v_wind(), self._data.vorticity())
