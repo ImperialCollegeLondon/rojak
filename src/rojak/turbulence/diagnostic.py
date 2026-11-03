@@ -31,8 +31,7 @@ all diagnostics in the suite.
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Generator, Mapping
-from functools import singledispatchmethod
-from typing import TYPE_CHECKING, assert_never, override
+from typing import TYPE_CHECKING, Self, assert_never, override
 
 import numpy as np
 import xarray as xr
@@ -163,22 +162,6 @@ class Diagnostic(ABC):
             mode="w",
             zarr_format=2,
         )
-
-
-class LoadedFromZarr(Diagnostic):
-    """
-    A :class:`Diagnostic` wrapping a value that has already been computed (e.g. reloaded from a zarr store),
-    rather than one computed from raw meteorological fields
-    """
-
-    def __init__(self, name: str, computed_value: xr.DataArray) -> None:
-        super().__init__(name)
-        self._computed_value = computed_value
-
-    @override
-    def _compute(self) -> xr.DataArray:
-        assert self._computed_value is not None
-        return self._computed_value
 
 
 class Frontogenesis3D(Diagnostic):
@@ -1536,44 +1519,109 @@ class DiagnosticSuite:
     """
     A collection of computed turbulence diagnostics
 
-    The diagnostics can either be freshly computed via a :class:`DiagnosticFactory`, or reloaded from an
-    :class:`xarray.Dataset` (e.g. as read back from zarr by :meth:`load_from_zarr`) containing already-computed
-    values.
+    All diagnostics are held as the data variables of one :class:`xarray.Dataset` (see :attr:`dataset`). Build a
+    suite either from a :class:`DiagnosticFactory` (:meth:`from_factory`, or the constructor), which merges the
+    diagnostics' lazy recipes so that shared dependencies are computed once, or from a Dataset of already-computed
+    values (:meth:`from_dataset`, e.g. as read back from zarr by :meth:`load_from_zarr`).
+
+    Args:
+        factory: Factory used to construct each of ``diagnostics``
+        diagnostics: Turbulence diagnostics to include in the suite
+        persist: Whether :attr:`dataset` persists the merged diagnostics on first access. If ``False``, the dataset
+            stays lazy and the caller decides when to compute it.
     """
 
     _diagnostics: dict["DiagnosticName", Diagnostic]
+    _dataset: xr.Dataset | None
+    _persist: bool
 
-    @singledispatchmethod
-    def __init__(self, _factory: DiagnosticFactory | xr.Dataset, _diagnostics: list[TurbulenceDiagnostics]) -> None:
+    def __init__(
+        self,
+        factory: DiagnosticFactory,
+        diagnostics: list[TurbulenceDiagnostics],
+        *,
+        persist: bool = True,
+    ) -> None:
+        self._dataset = None
+        self._persist = persist
+        self._diagnostics = {str(diagnostic): factory.create(diagnostic) for diagnostic in diagnostics}
+
+    @classmethod
+    def from_factory(
+        cls,
+        factory: DiagnosticFactory,
+        diagnostics: list[TurbulenceDiagnostics],
+        *,
+        persist: bool = True,
+    ) -> "DiagnosticSuite":
         """
+        Construct a suite whose diagnostics are built by ``factory``
+
+        Nothing is computed here; the diagnostics are merged into :attr:`dataset` on first access.
+
         Args:
-            _factory: Either a :class:`DiagnosticFactory` to compute ``_diagnostics`` from, or a Dataset of
-                already-computed diagnostic values
-            _diagnostics: Turbulence diagnostics to include in the suite
+            factory: Factory used to construct each of ``diagnostics``
+            diagnostics: Turbulence diagnostics to include in the suite
+            persist: Whether :attr:`dataset` persists the merged diagnostics on first access
+
+        Returns:
+            Suite backed by the diagnostics' lazy recipes
+        """
+        return cls(factory, diagnostics, persist=persist)
+
+    @classmethod
+    def from_dataset(cls, ds: xr.Dataset, diagnostics: list[TurbulenceDiagnostics]) -> "DiagnosticSuite":
+        """
+        Construct a suite from a Dataset of already-computed diagnostic values
+
+        Args:
+            ds: Dataset with one data variable per diagnostic, named after the diagnostic
+            diagnostics: Diagnostics to take from ``ds``. Variables of ``ds`` not listed here are dropped.
+
+        Returns:
+            Suite whose :attr:`dataset` is the selected variables of ``ds``, used as-is (it is not persisted)
 
         Raises:
-            TypeError: If ``_factory`` is not a :class:`DiagnosticFactory` or :class:`xarray.Dataset`
+            ValueError: If any of ``diagnostics`` is not a data variable of ``ds``
+
+        Note:
+            This method (and the inherited :meth:`load_from_zarr`) must **not** be called on
+            :class:`EvaluationDiagnosticSuite`. That subclass stores additional state
+            (``_severities``, ``_pressure_levels``, ``_probability_thresholds``, etc.) that is
+            only set by its ``__init__``; bypassing ``__init__`` via ``cls.__new__`` leaves those
+            attributes unset and any call to :attr:`~EvaluationDiagnosticSuite.probabilities`,
+            :meth:`~EvaluationDiagnosticSuite.compute_turbulent_regions`, etc. will raise
+            ``AttributeError``.  Construct :class:`EvaluationDiagnosticSuite` directly instead.
         """
-        raise TypeError("factory must be an instance of DiagnosticFactory or None")
+        names = [str(diagnostic) for diagnostic in diagnostics]
+        missing = [name for name in names if name not in ds.data_vars]
+        if missing:
+            raise ValueError(f"Dataset has no variables for diagnostics {missing}; remove them from the targets")
 
-    @__init__.register(DiagnosticFactory)
-    def _(self, factory: DiagnosticFactory, diagnostics: list[TurbulenceDiagnostics]) -> None:
-        """Construct each diagnostic in ``diagnostics`` via ``factory``"""
-        self._diagnostics: dict[DiagnosticName, Diagnostic] = {
-            str(diagnostic): factory.create(diagnostic)
-            for diagnostic in diagnostics  # TurbulenceDiagnostic
-        }
+        # Bypass __init__, which builds diagnostics from a factory: here the values already exist
+        instance: Self = cls.__new__(cls)
+        instance._diagnostics = {}
+        instance._dataset = ds[names]
+        instance._persist = False
+        return instance
 
-    @__init__.register(xr.Dataset)
-    def _(self, factory: xr.Dataset, diagnostics: list[TurbulenceDiagnostics]) -> None:
-        """Wrap each of ``diagnostics``'s already-computed values in ``factory`` as a :class:`LoadedFromZarr`"""
-        target_diagnostics: set[TurbulenceDiagnostics] = set(diagnostics)
-        assert target_diagnostics.issubset(factory.keys())
-        self._diagnostics: dict[DiagnosticName, Diagnostic] = {
-            str(name): LoadedFromZarr(str(name), computed_diagnostic)
-            for (name, computed_diagnostic) in factory.items()
-            if name in target_diagnostics
-        }
+    @property
+    def dataset(self) -> xr.Dataset:
+        """
+        Every diagnostic in the suite as one Dataset, with one data variable per diagnostic
+
+        For a factory-built suite, the diagnostics' lazy values are merged on first access, persisted if the suite
+        was constructed with ``persist=True``, and cached. Merging uses ``join="exact"``, so diagnostics whose
+        coordinates disagree raise rather than being silently aligned and NaN-padded.
+        """
+        if self._dataset is None:
+            ds = xr.merge(
+                [diagnostic.lazy_value for diagnostic in self._diagnostics.values()],
+                join="exact",
+                compat="no_conflicts",
+            )
+            self._dataset = ds.persist() if self._persist else ds
+        return self._dataset
 
     def computed_values(
         self,
@@ -1587,39 +1635,27 @@ class DiagnosticSuite:
                 is shown.
 
         Yields:
-            Tuple of diagnostic name and its computed value
+            Tuple of diagnostic name and its value in :attr:`dataset`
         """
-        for name, diagnostic in (
-            track(self._diagnostics.items(), description=progress_description)
-            if progress_description
-            else self._diagnostics.items()
-        ):  # DiagnosticName, Diagnostic
-            yield name, diagnostic.computed_value
+        items = self.dataset.data_vars.items()
+        for name, value in track(items, description=progress_description) if progress_description else items:
+            yield str(name), value
 
     def computed_values_as_dict(self) -> dict[str, "xr.DataArray"]:
-        """Same as :meth:`computed_values`, collected eagerly into a dict (without a progress bar)"""
-        return dict(self.computed_values(""))
+        """Each diagnostic's value in :attr:`dataset`, keyed by diagnostic name"""
+        return {str(name): value for name, value in self.dataset.data_vars.items()}
 
     def diagnostic_names(self) -> list["DiagnosticName"]:
         """Names of the diagnostics in the suite"""
-        return list(self._diagnostics.keys())
+        return [str(name) for name in self.dataset.data_vars]
 
     def get_prototype_computed_diagnostic(self) -> xr.DataArray:
         """An arbitrary diagnostic's computed value, used where any one diagnostic's shape/coords will do"""
-        _, prototype = next(self.computed_values(""))
-        return prototype
+        return next(iter(self.dataset.data_vars.values()))
 
     def as_dataset(self) -> xr.Dataset:
-        """
-        Combine every diagnostic's computed value into a single Dataset
-
-        Returns:
-            Dataset with one data variable per diagnostic, using the coordinates of an arbitrary diagnostic (see
-            :meth:`get_prototype_computed_diagnostic`)
-        """
-        return xr.Dataset(
-            data_vars=self.computed_values_as_dict(), coords=self.get_prototype_computed_diagnostic().coords
-        )
+        """Same as :attr:`dataset`"""
+        return self.dataset
 
     @classmethod
     def load_from_zarr(
@@ -1639,14 +1675,16 @@ class DiagnosticSuite:
         Raises:
             FileNotFoundError: If ``path`` does not exist
             NotADirectoryError: If ``path`` is not a directory
+            ValueError: If any of ``target_diagnostics`` is not stored at ``path``
         """
         if not path.exists():
             raise FileNotFoundError(f"{path} does not exist")
         if not path.is_dir():
             raise NotADirectoryError(f"{path} is not a directory")
 
-        return DiagnosticSuite(
-            xr.open_zarr(path, **(open_zarr_kwargs if open_zarr_kwargs is not None else {})), target_diagnostics
+        return cls.from_dataset(
+            xr.open_zarr(path, **(open_zarr_kwargs if open_zarr_kwargs is not None else {})),
+            target_diagnostics,
         )
 
     def export_as_zarr(
@@ -1681,7 +1719,7 @@ class DiagnosticSuite:
         # Two false positive by pyright - 1) xr.Dataset has the method to_zarr(), and 2) StoreLike inlcudes Path
         # See https://docs.xarray.dev/en/v2026.02.0/generated/xarray.Dataset.to_zarr.html
         # See https://zarr.readthedocs.io/en/v3.1.5/api/zarr/storage/#zarr.storage.StoreLike
-        return self.as_dataset().to_zarr(store=output_path, mode="w", zarr_format=zarr_format, **to_zarr_kwargs)  # pyright: ignore[reportCallIssue, reportArgumentType]
+        return self.dataset.to_zarr(store=output_path, mode="w", zarr_format=zarr_format, **to_zarr_kwargs)  # pyright: ignore[reportCallIssue, reportArgumentType]
 
 
 class CalibrationDiagnosticSuite(DiagnosticSuite):
@@ -1689,11 +1727,6 @@ class CalibrationDiagnosticSuite(DiagnosticSuite):
     A :class:`DiagnosticSuite` computed on a calibration dataset, used to derive severity thresholds and EDR
     distribution parameters for an :class:`EvaluationDiagnosticSuite`
     """
-
-    # I think the pyright warning is a false positive?
-    def __init__(self, factory: DiagnosticFactory | xr.Dataset, diagnostics: list[TurbulenceDiagnostics]) -> None:  # pyright: ignore [reportIncompatibleVariableOverride]
-        """See :meth:`DiagnosticSuite.__init__`"""
-        super().__init__(factory, diagnostics)
 
     def compute_thresholds(
         self,
@@ -1755,8 +1788,7 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
     _threshold_mode: TurbulenceThresholdMode | None
     _distribution_parameters: Mapping["DiagnosticName", "DistributionParameters"] | None
 
-    # I think the pyright warning is a false positive?
-    def __init__(  # pyright: ignore [reportIncompatibleVariableOverride]
+    def __init__(
         self,
         factory: DiagnosticFactory,
         diagnostics: list[TurbulenceDiagnostics],
