@@ -9,14 +9,16 @@ import xarray as xr
 from dask.base import compute as dask_compute
 from dask.highlevelgraph import HighLevelGraph
 
+import rojak.core.derivatives as _derivatives_mod
 from rojak.core.data import CATData
-from rojak.core.derivatives import VelocityDerivative
+from rojak.core.derivatives import VelocityDerivative, get_projection_correction_factors
 from rojak.orchestrator.configuration import (
     TurbulenceDiagnostics,
     TurbulenceSeverity,
     TurbulenceThresholdMode,
     TurbulenceThresholds,
 )
+from rojak.turbulence.calculations import altitude_derivative_on_pressure_level
 from rojak.turbulence.diagnostic import (
     CalibrationDiagnosticSuite,
     DiagnosticFactory,
@@ -315,3 +317,62 @@ class TestTaskCountHarness:
 
         assert all(isinstance(result, xr.DataArray) for result in results)
         assert len(scheduler_submissions) == baseline["round_trip_submissions"]
+
+
+class TestPhase01Memoisation:
+    """Phase 01: memoise projection factors and d(geopotential)/dp, which are otherwise rebuilt per diagnostic"""
+
+    def test_projection_correction_factors_returns_same_object_for_same_inputs(self) -> None:
+        latitude = xr.DataArray(np.linspace(-30.0, 30.0, 8), dims="latitude")
+        longitude = xr.DataArray(np.linspace(-30.0, 30.0, 8), dims="longitude")
+
+        first = get_projection_correction_factors(latitude, longitude, use_dask=True)
+        second = get_projection_correction_factors(latitude, longitude, use_dask=True)
+
+        assert first.parallel_scale is second.parallel_scale
+        assert first.meridional_scale is second.meridional_scale
+
+    def test_projection_correction_factors_returns_different_object_for_different_inputs(self) -> None:
+        longitude = xr.DataArray(np.linspace(-30.0, 30.0, 8), dims="longitude")
+        first_latitude = xr.DataArray(np.linspace(-30.0, 30.0, 8), dims="latitude")
+        second_latitude = xr.DataArray(np.linspace(-20.0, 40.0, 8), dims="latitude")
+
+        first = get_projection_correction_factors(first_latitude, longitude, use_dask=True)
+        second = get_projection_correction_factors(second_latitude, longitude, use_dask=True)
+
+        assert first.parallel_scale is not second.parallel_scale
+        assert first.meridional_scale is not second.meridional_scale
+        assert not np.allclose(first.meridional_scale.values, second.meridional_scale.values)
+
+    def test_cat_data_d_geopotential_d_pressure_returns_same_object(self) -> None:
+        cat_data = make_synthetic_cat_data()
+
+        assert cat_data.d_geopotential_d_pressure() is cat_data.d_geopotential_d_pressure()
+
+    def test_cat_data_d_geopotential_d_pressure_matches_manual_computation(self) -> None:
+        cat_data = make_synthetic_cat_data()
+
+        expected = cat_data.geopotential().differentiate("pressure_level").compute()
+        actual = cat_data.d_geopotential_d_pressure().compute()
+
+        xr.testing.assert_allclose(actual, expected, rtol=1e-6)
+
+    def test_altitude_derivative_precomputed_d_geopotential_d_p_matches_computed(self) -> None:
+        """Passing d_geopotential_d_p must give the same result as letting the function compute it."""
+        cat_data = make_synthetic_cat_data()
+        u = cat_data.u_wind()
+        geo = cat_data.geopotential()
+        precomputed = cat_data.d_geopotential_d_pressure()
+
+        without = altitude_derivative_on_pressure_level(u, geo).compute()
+        with_pre = altitude_derivative_on_pressure_level(u, geo, d_geopotential_d_p=precomputed).compute()
+
+        xr.testing.assert_allclose(without, with_pre, rtol=1e-6)
+
+    def test_projection_cache_has_one_entry_after_full_suite(self, load_cat_data: "Callable") -> None:
+        # All 28 diagnostics share the same lat/lon grid, so the cache should contain exactly
+        # one entry after suite construction regardless of how many call sites exist.
+        _derivatives_mod._PROJECTION_CACHE.clear()
+        DiagnosticSuite(DiagnosticFactory(load_cat_data(None, with_chunks=True)), ALL_DIAGNOSTICS)
+
+        assert len(_derivatives_mod._PROJECTION_CACHE) == 1

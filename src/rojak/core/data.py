@@ -303,6 +303,7 @@ class CATData(CATPrognosticData):
     _velocity_derivatives: dict[VelocityDerivative, xr.DataArray] | None = None
     _shear_deformation: xr.DataArray | None = None
     _stretching_deformation: xr.DataArray | None = None
+    _d_geopotential_d_pressure: xr.DataArray | None = None
 
     def __init__(self, dataset: xr.Dataset, pressure_level_prefix: float, *, persist: bool = True) -> None:
         """See :meth:`CATPrognosticData.__init__`"""
@@ -315,6 +316,17 @@ class CATData(CATPrognosticData):
                 turb_calc.potential_temperature(self.temperature(), self.temperature()["pressure_level"])
             )
         return self._potential_temperature
+
+    def d_geopotential_d_pressure(self) -> xr.DataArray:
+        """
+        Derivative of geopotential w.r.t. pressure level
+
+        This is the denominator shared by every altitude derivative, see
+        :func:`rojak.turbulence.calculations.altitude_derivative_on_pressure_level`.
+        """
+        if self._d_geopotential_d_pressure is None:
+            self._d_geopotential_d_pressure = self._maybe_persist(self.geopotential().differentiate("pressure_level"))
+        return self._d_geopotential_d_pressure
 
     def velocity_derivatives(self) -> dict[VelocityDerivative, xr.DataArray]:
         """All four horizontal velocity derivatives, see :func:`rojak.core.derivatives.vector_derivatives`"""
