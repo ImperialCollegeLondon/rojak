@@ -46,6 +46,7 @@ from rojak.core.derivatives import (
     spatial_gradient,
     spatial_laplacian,
 )
+from rojak.core.indexing import concat_new_dim
 from rojak.orchestrator.configuration import (
     TurbulenceDiagnostics,
     TurbulenceSeverity,
@@ -1973,7 +1974,9 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
                 self._probability_thresholds[name],
                 self._threshold_mode,
             ).execute()
-            regions[name] = xr.concat(regions_by_severity, xr.Variable("severity", self._severities)).compute()
+            regions[name] = concat_new_dim(
+                regions_by_severity, dim_name="severity", dim_values=self._severities
+            ).compute()
 
         return regions
 

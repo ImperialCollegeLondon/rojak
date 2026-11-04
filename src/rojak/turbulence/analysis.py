@@ -49,6 +49,7 @@ from rich.progress import track
 
 from rojak.core.analysis import PostProcessor
 from rojak.core.constants import SHARMAN_17_CLIMATOLOGICAL_PARAMETER
+from rojak.core.indexing import concat_new_dim
 from rojak.orchestrator.configuration import (
     RelationshipBetweenTypes,
     TurbulenceSeverity,
@@ -593,7 +594,7 @@ class TurbulenceProbabilityBySeverity(_EvaluationPostProcessor):
         """
         by_severity: list[xr.DataArray] = self._components["turbulent_regions"].execute()
         probabilities = [this_severity.mean(dim="time") * 100 for this_severity in by_severity]
-        return xr.concat(probabilities, xr.Variable("severity", self._severities))
+        return concat_new_dim(probabilities, dim_name="severity", dim_values=self._severities)
 
 
 class ComputeDistributionParametersForEDR(PostProcessor[DistributionParameters]):
@@ -916,7 +917,9 @@ class MatthewsCorrelationOnThresholdedDiagnostics(PostProcessor[xr.DataArray]):
                 MatthewsCorrelationOnDataset(threshold_applied, "diagnostic").execute()
             )
 
-        return xr.concat(correlation_across_severities, "severity").assign_coords(coords={"severity": self._severities})
+        return concat_new_dim(
+            correlation_across_severities, dim_name="severity", dim_values=self._severities
+        ).assign_coords(coords={"severity": self._severities})
 
 
 class Hemisphere(StrEnum):
