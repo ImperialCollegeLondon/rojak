@@ -35,7 +35,9 @@ from typing import TYPE_CHECKING, Self, assert_never, override
 
 import numpy as np
 import xarray as xr
+from dask.base import compute as dask_compute
 from dask.base import is_dask_collection
+from dask.base import persist as dask_persist
 from rich.progress import track
 
 from rojak.core.derivatives import (
@@ -1744,9 +1746,19 @@ class CalibrationDiagnosticSuite(DiagnosticSuite):
         Returns:
             Mapping from diagnostic name to its computed :class:`TurbulenceThresholds`
         """
-        return {
-            name: TurbulenceIntensityThresholds(percentile_config, diagnostic).execute()
+        processors = {
+            name: TurbulenceIntensityThresholds(percentile_config, diagnostic)
             for name, diagnostic in self.computed_values("Computing thresholds")  # DiagnosticName, xr.DataArray
+        }
+        if not is_dask_collection(self.dataset):
+            # numpy-backed: execute() uses exact numpy percentiles rather than dask's tdigest approximation
+            return {name: processor.execute() for name, processor in processors.items()}
+
+        # One scheduler round trip for every diagnostic, rather than one per diagnostic
+        computed = dask_compute(*(processor.prepare() for processor in processors.values()))
+        return {
+            name: processor.finalise(result)
+            for (name, processor), result in zip(processors.items(), computed, strict=True)
         }
 
     def compute_distribution_parameters(self) -> Mapping["DiagnosticName", "HistogramData"]:
@@ -1758,11 +1770,20 @@ class CalibrationDiagnosticSuite(DiagnosticSuite):
         Returns:
             Mapping from diagnostic name to its computed :class:`~rojak.turbulence.analysis.HistogramData`
         """
-        return {
-            name: DiagnosticHistogramDistribution(diagnostic).execute()
+        processors = {
+            name: DiagnosticHistogramDistribution(diagnostic)
             for name, diagnostic in self.computed_values(
                 "Computing distribution parameters",
             )  # DiagnosticName, xr.DataArray
+        }
+        if not is_dask_collection(self.dataset):
+            return {name: processor.execute() for name, processor in processors.items()}
+
+        # One scheduler round trip for every diagnostic, rather than one per diagnostic
+        computed_dist_params = dask_compute(*(processor.prepare() for processor in processors.values()))
+        return {
+            name: processor.finalise(result)
+            for (name, processor), result in zip(processors.items(), computed_dist_params, strict=True)
         }
 
 
@@ -1823,7 +1844,10 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
             KeyError: If ``distribution_parameters`` or ``probability_thresholds`` is provided but is missing an
                 entry for one of the diagnostics in the suite
         """
-        super().__init__(factory, diagnostics)
+        # persist=False: each output method (probabilities, compute_turbulent_regions, edr) does its own
+        # batched materialisation, so pre-persisting the shared diagnostic dataset would be a wasted
+        # extra scheduler call.
+        super().__init__(factory, diagnostics, persist=False)
         self._severities = severities
         self._pressure_levels = pressure_levels
         self._threshold_mode = threshold_mode
@@ -1856,20 +1880,23 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
                 or self._threshold_mode is None
             ):
                 raise ValueError("Probability of encountering turbulence of a given severity needs more inputs")
-            self._probabilities = {
+            lazy_probabilities = {
                 name: TurbulenceProbabilityBySeverity(
                     diagnostic,
                     self._pressure_levels,
                     self._severities,
                     self._probability_thresholds[name],
                     self._threshold_mode,
-                )
-                .execute()
-                .persist()
+                ).execute()
                 for name, diagnostic in self.computed_values(
                     "Computing probability of encountering turbulence of a given severity",
                 )
             }
+            # Persist every diagnostic's probabilities together: one scheduler call rather than one per diagnostic.
+            # dask_persist on DataArrays avoids xr.Dataset construction (which triggers N coordinate-equality checks).
+            names = list(lazy_probabilities.keys())
+            persisted = dask_persist(*lazy_probabilities.values())
+            self._probabilities = dict(zip(names, persisted, strict=True))
             return self._probabilities
 
         return self._probabilities
@@ -1965,7 +1992,7 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
         ):
             raise ValueError("Identifying turbulent regions of a given severity needs more inputs")
 
-        regions = {}
+        lazy_regions: dict[DiagnosticName, xr.DataArray] = {}
         for name, diagnostic in self.computed_values("Computing turbulent regions"):
             regions_by_severity = TurbulentRegionsBySeverity(
                 diagnostic,
@@ -1974,11 +2001,13 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
                 self._probability_thresholds[name],
                 self._threshold_mode,
             ).execute()
-            regions[name] = concat_new_dim(
-                regions_by_severity, dim_name="severity", dim_values=self._severities
-            ).compute()
+            lazy_regions[name] = concat_new_dim(regions_by_severity, dim_name="severity", dim_values=self._severities)
 
-        return regions
+        # Compute every diagnostic's regions together: one scheduler round trip rather than one per diagnostic.
+        # dask_compute on DataArrays avoids xr.Dataset construction (which triggers N coordinate-equality checks).
+        names = list(lazy_regions.keys())
+        computed = dask_compute(*lazy_regions.values())
+        return dict(zip(names, computed, strict=True))
 
     @property
     def pressure_levels(self) -> list[float] | None:

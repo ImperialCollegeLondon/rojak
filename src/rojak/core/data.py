@@ -214,7 +214,17 @@ class CATPrognosticData:
         if not set(dataset.coords.keys()).issuperset(self.required_coords):
             missing_coords = self.required_coords - dataset.coords.keys()
             raise ValueError(f"Attempting to instantiate CATPrognosticData with missing coords: {missing_coords}")
-        self._dataset = dataset.sortby("time")
+        sorted_dataset = dataset.sortby("time")
+        # Materialise any dask-backed dimension coordinates so that downstream arithmetic on DataArrays from
+        # this dataset does not trigger N scheduler round-trips for coordinate equality checks.  Dimension
+        # coordinates are always small (a few hundred elements at most), so the upfront compute is negligible.
+        # Pass the computed DataArray (not bare .values) so that non-index coordinates keep their dims.
+        dask_coords = {
+            name: coord.compute(scheduler="synchronous")
+            for name, coord in sorted_dataset.coords.items()
+            if isinstance(coord.data, da.Array)
+        }
+        self._dataset = sorted_dataset.assign_coords(dask_coords) if dask_coords else sorted_dataset
         self._pressure_level_prefix = pressure_level_prefix
         self._persist = persist
         self._persisted_variables = {}

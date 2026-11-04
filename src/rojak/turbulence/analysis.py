@@ -139,7 +139,7 @@ class TurbulenceIntensityThresholds(PostProcessor[TurbulenceThresholds]):
             Lazy diagnostic value at each configured percentile. Pass ``dask.compute(prepare())[0]`` to
             :meth:`finalise`.
         """
-        flattened_array = da.asarray(self._computed_diagnostic, chunks="auto").flatten()
+        flattened_array = da.asarray(self._computed_diagnostic.data).flatten()
         # Must use tdigest method as internal dask version gives incorrect results
         return da.percentile(flattened_array, self._target_percentiles(), internal_method="tdigest")
 
@@ -325,7 +325,7 @@ class DiagnosticHistogramDistribution(PostProcessor[HistogramData]):
             Lazy, flattened log of the positive diagnostic values. Pass ``dask.compute(prepare())[0]`` to
             :meth:`finalise`.
         """
-        flattened_array = da.asarray(self._computed_diagnostic).flatten()
+        flattened_array = da.asarray(self._computed_diagnostic.data).flatten()
         return da.log(flattened_array[flattened_array > 0])
 
     def finalise(self, log_of_diagnostic: NDArray) -> HistogramData:

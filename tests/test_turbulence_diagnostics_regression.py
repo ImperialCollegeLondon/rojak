@@ -1048,3 +1048,175 @@ class TestTurbulentRegionsBySeverityLazy:
             expected = ((values >= lower) & (values < upper)).mean(axis=2) * 100
             actual = probabilities.sel(severity=severity).transpose("latitude", "longitude", "pressure_level").values
             np.testing.assert_allclose(actual, expected, rtol=1e-10)
+
+
+def _round_trips(calls: list[str]) -> int:
+    """
+    Scheduler round-trips for ``compute``-style reductions
+
+    ``dask.compute`` routes through ``Client.get`` when a distributed client is active, so ``DataArray.compute()`` is
+    recorded as ``get``, not ``compute``. Both are counted here; ``persist`` is counted separately.
+    """
+    return calls.count("compute") + calls.count("get")
+
+
+def _assert_values_match(actual: xr.DataArray, expected: xr.DataArray, *, exact: bool) -> None:
+    """Compare two DataArrays by value, ignoring the dimension order of ``expected``"""
+    expected = expected.transpose(*actual.dims)
+    if exact:
+        np.testing.assert_array_equal(actual.values, expected.values)
+    else:
+        np.testing.assert_allclose(actual.values, expected.values, rtol=1e-10)
+
+
+class TestBatchedCalibration:
+    """
+    Calibration and evaluation reductions batch every diagnostic into one scheduler round-trip per method
+
+    Values are checked against the per-diagnostic ``execute()`` path, which is unchanged by the batching.
+    """
+
+    @pytest.fixture
+    def scheduler_calls(self, monkeypatch: pytest.MonkeyPatch) -> "list[str]":
+        """Records every ``Client.compute``, ``Client.get`` and ``Client.persist`` call while the fixture is active"""
+        calls: list[str] = []
+
+        def record(name: str, original: "Callable[..., Any]") -> "Callable[..., Any]":
+            def counting(self: distributed.Client, *args: "Any", **kwargs: "Any") -> "Any":
+                calls.append(name)
+                return original(self, *args, **kwargs)
+
+            return counting
+
+        for method_name in ("compute", "get", "persist"):
+            original: Callable[..., Any] = getattr(distributed.Client, method_name)
+            monkeypatch.setattr(distributed.Client, method_name, record(method_name, original))
+        return calls
+
+    @pytest.mark.parametrize("chunks", CHUNKINGS)
+    def test_compute_thresholds_issues_one_round_trip(
+        self,
+        client: distributed.Client,
+        scheduler_calls: "list[str]",
+        chunks: dict[str, int],
+    ) -> None:
+        assert isinstance(client, distributed.Client)  # activates distributed routing
+        suite = _calibration_suite(chunks)
+
+        suite.compute_thresholds(PERCENTILE_CONFIG)
+
+        assert _round_trips(scheduler_calls) == 1
+
+    @pytest.mark.parametrize("chunks", CHUNKINGS)
+    def test_compute_distribution_parameters_issues_one_round_trip(
+        self,
+        client: distributed.Client,
+        scheduler_calls: "list[str]",
+        chunks: dict[str, int],
+    ) -> None:
+        assert isinstance(client, distributed.Client)  # activates distributed routing
+        suite = _calibration_suite(chunks)
+
+        suite.compute_distribution_parameters()
+
+        assert _round_trips(scheduler_calls) == 1
+
+    @pytest.mark.parametrize("chunks", CHUNKINGS)
+    def test_probabilities_issues_one_persist(
+        self,
+        client: distributed.Client,
+        scheduler_calls: "list[str]",
+        chunks: dict[str, int],
+    ) -> None:
+        assert isinstance(client, distributed.Client)  # activates distributed routing
+        suite = _evaluation_suite(chunks)
+        scheduler_calls.clear()  # _evaluation_suite computes calibration thresholds; not part of the count
+
+        _ = suite.probabilities
+
+        assert scheduler_calls.count("persist") == 1
+
+    @pytest.mark.parametrize("chunks", CHUNKINGS)
+    def test_compute_turbulent_regions_issues_one_round_trip(
+        self,
+        client: distributed.Client,
+        scheduler_calls: "list[str]",
+        chunks: dict[str, int],
+    ) -> None:
+        assert isinstance(client, distributed.Client)  # activates distributed routing
+        suite = _evaluation_suite(chunks)
+        scheduler_calls.clear()  # _evaluation_suite computes calibration thresholds; not part of the count
+
+        suite.compute_turbulent_regions()
+
+        assert _round_trips(scheduler_calls) == 1
+
+    @pytest.mark.parametrize("chunks", CHUNKINGS)
+    def test_compute_thresholds_values_match_per_diagnostic_execute(self, chunks: dict[str, int]) -> None:
+        batched = _calibration_suite(chunks).compute_thresholds(PERCENTILE_CONFIG)
+        factory = DiagnosticFactory(make_synthetic_cat_data(chunks=chunks))
+
+        assert len(batched) == len(ALL_DIAGNOSTICS)
+        for diagnostic_name in ALL_DIAGNOSTICS:
+            diagnostic = factory.create(diagnostic_name).computed_value
+            reference = TurbulenceIntensityThresholds(PERCENTILE_CONFIG, diagnostic).execute()
+            actual = batched[diagnostic_name]
+            assert actual.light == pytest.approx(reference.light, rel=1e-12)
+            assert actual.moderate == pytest.approx(reference.moderate, rel=1e-12)
+            assert actual.severe == pytest.approx(reference.severe, rel=1e-12)
+
+    @pytest.mark.parametrize("chunks", CHUNKINGS)
+    def test_compute_distribution_parameters_values_match_per_diagnostic_execute(self, chunks: dict[str, int]) -> None:
+        batched = _calibration_suite(chunks).compute_distribution_parameters()
+        factory = DiagnosticFactory(make_synthetic_cat_data(chunks=chunks))
+
+        assert len(batched) == len(ALL_DIAGNOSTICS)
+        for diagnostic_name in ALL_DIAGNOSTICS:
+            diagnostic = factory.create(diagnostic_name).computed_value
+            reference = DiagnosticHistogramDistribution(diagnostic).execute()
+            actual = batched[diagnostic_name]
+            assert actual.mean == pytest.approx(reference.mean, rel=1e-12)
+            assert actual.variance == pytest.approx(reference.variance, rel=1e-12)
+            np.testing.assert_allclose(actual.hist_values, reference.hist_values, rtol=1e-10)
+            np.testing.assert_allclose(actual.bins, reference.bins, rtol=1e-10)
+
+    @pytest.mark.parametrize("chunks", CHUNKINGS)
+    def test_probabilities_values_match_per_diagnostic_execute(self, chunks: dict[str, int]) -> None:
+        thresholds = _calibration_suite(chunks).compute_thresholds(PERCENTILE_CONFIG)
+        batched = _evaluation_suite(chunks).probabilities
+        factory = DiagnosticFactory(make_synthetic_cat_data(chunks=chunks))
+
+        assert len(batched) == len(ALL_DIAGNOSTICS)
+        for diagnostic_name in ALL_DIAGNOSTICS:
+            diagnostic = factory.create(diagnostic_name).computed_value
+            reference = (
+                TurbulenceProbabilityBySeverity(
+                    diagnostic,
+                    PRESSURE_LEVELS,
+                    SEVERITIES,
+                    thresholds[diagnostic_name],
+                    TurbulenceThresholdMode.BOUNDED,
+                )
+                .execute()
+                .compute()
+            )
+            _assert_values_match(batched[diagnostic_name], reference, exact=False)
+
+    @pytest.mark.parametrize("chunks", CHUNKINGS)
+    def test_compute_turbulent_regions_values_match_per_diagnostic_execute(self, chunks: dict[str, int]) -> None:
+        thresholds = _calibration_suite(chunks).compute_thresholds(PERCENTILE_CONFIG)
+        batched = _evaluation_suite(chunks).compute_turbulent_regions()
+        factory = DiagnosticFactory(make_synthetic_cat_data(chunks=chunks))
+
+        assert len(batched) == len(ALL_DIAGNOSTICS)
+        for diagnostic_name in ALL_DIAGNOSTICS:
+            diagnostic = factory.create(diagnostic_name).computed_value
+            per_severity = TurbulentRegionsBySeverity(
+                diagnostic,
+                PRESSURE_LEVELS,
+                SEVERITIES,
+                thresholds[diagnostic_name],
+                TurbulenceThresholdMode.BOUNDED,
+            ).execute()
+            reference = xr.concat(per_severity, xr.Variable("severity", SEVERITIES)).compute()
+            _assert_values_match(batched[diagnostic_name], reference, exact=True)
