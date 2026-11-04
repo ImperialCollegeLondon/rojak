@@ -66,6 +66,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_CHUNKS: Mapping[str, int | str] = {"time": "auto", "pressure_level": -1, "latitude": -1, "longitude": -1}
+"""
+Recommended dask chunking for gridded meteorological data: chunk along ``time`` only
+
+Keeping each horizontal slice and each vertical column in a single chunk means that :func:`dask.array.gradient` needs
+no halo exchange between chunks, that vertical derivatives along ``pressure_level`` never span chunks, and that the
+``flatten`` used by the calibration post-processors in :mod:`rojak.turbulence.analysis` stays blockwise instead of
+becoming a full shuffle.
+"""
+
 
 class Date(NamedTuple):
     """A single calendar date, as used by :class:`DataRetriever`"""
@@ -469,7 +479,8 @@ def load_from_folder(
         path_to_folder: Directory containing the data files
         glob_pattern: Glob pattern (relative to ``path_to_folder``) matching the files to load. Defaults to
             ``"*.nc"``.
-        chunks: Dask chunking to use, passed to :func:`xarray.open_mfdataset`. Must not be ``None``.
+        chunks: Dask chunking to use, passed to :func:`xarray.open_mfdataset`. Must not be ``None``;
+            :data:`DEFAULT_CHUNKS` is the recommended value.
         engine: Backend engine used to read the files. Defaults to ``"netcdf4"``.
         is_decoded: Whether to decode coordinates, CF conventions, and timedeltas on load. Defaults to ``True``.
         **open_kwargs: Additional keyword arguments passed to :func:`xarray.open_mfdataset`, see
