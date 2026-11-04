@@ -377,6 +377,37 @@ class HorizontalTemperatureGradient(Diagnostic):
         return magnitude_of_geospatial_gradient(self._temperature)
 
 
+def _wind_direction_pressure_gradient(direction: xr.DataArray) -> xr.DataArray:
+    """
+    Gradient of wind direction along ``pressure_level``, taking the wrap-around of angles into account
+
+    Args:
+        direction: Wind direction in radians with a ``pressure_level`` dimension, numpy- or dask-backed
+
+    Returns:
+        The gradient with respect to pressure, with the same dims, coords and dtype as ``direction``
+    """
+    pressure_levels: np.ndarray = direction["pressure_level"].data
+    z_axis: int = direction.get_axis_num("pressure_level")
+    if not is_dask_collection(direction.data):
+        return direction.copy(data=angles_gradient(direction.values, z_axis, coord_values=pressure_levels))
+
+    # np.gradient needs every block to hold whole pressure_level columns, so it is a core dim kept in one chunk.
+    # Rechunk the data alone: DataArray.chunk would also chunk numpy-backed coords such as altitude
+    whole_columns: xr.DataArray = direction.copy(data=direction.data.rechunk({z_axis: -1}))
+    return xr.apply_ufunc(
+        angles_gradient,
+        whole_columns,
+        input_core_dims=[["pressure_level"]],
+        output_core_dims=[["pressure_level"]],
+        # apply_ufunc moves core dims to the last axis
+        kwargs={"coord_values": pressure_levels, "target_axis": -1},
+        dask="parallelized",
+        # Inference fails: dask probes with a 1-element array, which is too short for np.gradient
+        output_dtypes=[direction.dtype],
+    ).transpose(*direction.dims)
+
+
 class Endlich(Diagnostic):
     """
     Endlich CAT Diagnostic
@@ -409,25 +440,7 @@ class Endlich(Diagnostic):
 
     @override
     def _compute(self) -> xr.DataArray:
-        values_in_z_axis: np.ndarray = self._u_wind["pressure_level"].data
-        z_axis: int = self._u_wind.get_axis_num("pressure_level")
-
-        if is_dask_collection(self._u_wind):
-            d_direction_d_p: xr.DataArray = xr.apply_ufunc(
-                angles_gradient,
-                self._wind_direction,
-                kwargs={"coord_values": values_in_z_axis, "target_axis": z_axis},
-                dask="parallelized",
-                output_dtypes=[np.float32],
-            )
-        else:
-            d_direction_d_p_values: np.ndarray = angles_gradient(
-                self._wind_direction.values,
-                z_axis,
-                coord_values=values_in_z_axis,
-            )
-            d_direction_d_p: xr.DataArray = self._wind_direction.copy(data=d_direction_d_p_values)
-
+        d_direction_d_p: xr.DataArray = _wind_direction_pressure_gradient(self._wind_direction)
         d_direction_d_z: xr.DataArray = (
             GRAVITATIONAL_ACCELERATION * d_direction_d_p / self._geopotential.differentiate("pressure_level")
         )
@@ -992,21 +1005,7 @@ class DirectionalShear(Diagnostic):
 
     @override
     def _compute(self) -> xr.DataArray:
-        direction: xr.DataArray = wind_direction(self._u_wind, self._v_wind)
-        z_axis: int = self._u_wind.get_axis_num("pressure_level")
-        values_in_z_axis: np.ndarray = self._u_wind["pressure_level"].data
-        if is_dask_collection(self._u_wind):
-            directional_shear: xr.DataArray = xr.apply_ufunc(
-                angles_gradient,
-                direction,
-                kwargs={"coord_values": values_in_z_axis, "target_axis": z_axis},
-                dask="parallelized",
-                output_dtypes=[np.float32],
-            )
-        else:
-            directional_shear: xr.DataArray = direction.copy(
-                data=angles_gradient(direction.values, z_axis, values_in_z_axis),
-            )
+        directional_shear: xr.DataArray = _wind_direction_pressure_gradient(wind_direction(self._u_wind, self._v_wind))
         d_direction_d_z: xr.DataArray = (
             GRAVITATIONAL_ACCELERATION * directional_shear / self._geopotential.differentiate("pressure_level")
         )

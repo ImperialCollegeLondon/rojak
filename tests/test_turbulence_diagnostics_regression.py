@@ -28,7 +28,7 @@ from rojak.turbulence.analysis import (
     TurbulenceProbabilityBySeverity,
     TurbulentRegionsBySeverity,
 )
-from rojak.turbulence.calculations import altitude_derivative_on_pressure_level
+from rojak.turbulence.calculations import altitude_derivative_on_pressure_level, wind_direction
 from rojak.turbulence.diagnostic import (
     CalibrationDiagnosticSuite,
     DiagnosticFactory,
@@ -259,6 +259,48 @@ class TestDiagnosticGoldens:
         _assert_flat_matches(expected, _flatten_dataarrays(regions))
 
 
+ANGLE_GRADIENT_DIAGNOSTICS = [TurbulenceDiagnostics.ENDLICH, TurbulenceDiagnostics.DIRECTIONAL_SHEAR]
+# Splits the 4 pressure levels across 2 chunks, so a blockwise np.gradient would see half a column per block
+PRESSURE_LEVEL_CHUNKED = {"time": 1, "pressure_level": 2, "latitude": -1, "longitude": -1}
+
+
+class TestAngleGradientChunking:
+    """The wind-direction gradient must not depend on how ``pressure_level`` is chunked"""
+
+    @pytest.mark.parametrize("diagnostic", ANGLE_GRADIENT_DIAGNOSTICS, ids=lambda d: d.name)
+    def test_pressure_level_chunked_matches_golden(self, diagnostic: TurbulenceDiagnostics) -> None:
+        with np.load(GOLDEN_DIR / f"{diagnostic.value}.npz") as archive:
+            expected = xr.DataArray(archive["values"], dims=tuple(archive["dims"].tolist()))
+
+        data = make_synthetic_cat_data(chunks=PRESSURE_LEVEL_CHUNKED)
+        actual = DiagnosticFactory(data).create(diagnostic).computed_value
+
+        assert is_dask_collection(actual)
+        xr.testing.assert_allclose(actual.drop_vars(list(actual.coords)).compute(), expected, rtol=1e-4)
+
+    @pytest.mark.parametrize("diagnostic", ANGLE_GRADIENT_DIAGNOSTICS, ids=lambda d: d.name)
+    def test_pressure_level_chunked_matches_numpy(self, diagnostic: TurbulenceDiagnostics) -> None:
+        expected = DiagnosticFactory(make_synthetic_cat_data()).create(diagnostic).computed_value
+        data = make_synthetic_cat_data(chunks=PRESSURE_LEVEL_CHUNKED)
+        actual = DiagnosticFactory(data).create(diagnostic).computed_value
+
+        xr.testing.assert_allclose(actual.compute(), expected)
+
+    def test_gradient_keeps_layout_and_dtype_when_pressure_level_is_not_last(self) -> None:
+        data = make_synthetic_cat_data()
+        direction = wind_direction(data.u_wind(), data.v_wind()).transpose(
+            "pressure_level", "latitude", "longitude", "time"
+        )
+        expected = _diagnostic_mod._wind_direction_pressure_gradient(direction)
+
+        actual = _diagnostic_mod._wind_direction_pressure_gradient(direction.chunk({"pressure_level": 2}))
+
+        assert actual.dims == direction.dims
+        # Checked lazily: dask reports the declared dtype, whatever the blocks compute to
+        assert actual.dtype == direction.dtype == np.float64
+        xr.testing.assert_allclose(actual.compute(), expected)
+
+
 class TestTaskCountHarness:
     @pytest.fixture
     def scheduler_submissions(self, monkeypatch: pytest.MonkeyPatch) -> "list[str]":
@@ -327,7 +369,7 @@ class TestTaskCountHarness:
         assert len(scheduler_submissions) == baseline["round_trip_submissions"]
 
 
-class TestPhase01Memoisation:
+class TestMemoisation:
     """Memoisation of projection factors and d(geopotential)/dp, which are otherwise rebuilt per diagnostic"""
 
     def test_projection_correction_factors_returns_same_object_for_same_inputs(self) -> None:
@@ -386,7 +428,7 @@ class TestPhase01Memoisation:
         assert len(_derivatives_mod._PROJECTION_CACHE) == 1
 
 
-class TestPhase02LazyRecipes:
+class TestLazyRecipes:
     """Lazy diagnostic recipes, factory memoisation, and explicit CP NaN at the first pressure level"""
 
     @pytest.fixture
@@ -599,7 +641,7 @@ class TestDatasetBackedSuite:
         """
         Records every ``Client.compute``, ``Client.get`` and ``Client.persist`` call while the fixture is active
 
-        Duplicates the fixture of the same name in :class:`TestPhase02LazyRecipes`, which is scoped to that class.
+        Duplicates the fixture of the same name in :class:`TestLazyRecipes`, which is scoped to that class.
         """
         calls: list[str] = []
 
@@ -757,10 +799,6 @@ class TestDatasetBackedSuite:
             DiagnosticSuite.from_dataset(supplied, absent)
 
 
-# ---------------------------------------------------------------------------
-# Phase 04: build_lazy_collection()/build_result() split on post-processors, and lazy TurbulentRegionsBySeverity
-# ---------------------------------------------------------------------------
-
 _FIELD_DIMS = ("latitude", "longitude", "time", "pressure_level")
 TWO_SEVERITIES = [TurbulenceSeverity.LIGHT, TurbulenceSeverity.MODERATE]
 TWO_SEVERITY_BOUNDS = {TurbulenceSeverity.LIGHT: (0.0, 1.0), TurbulenceSeverity.MODERATE: (1.0, 2.0)}
@@ -777,7 +815,7 @@ def _field_coords() -> dict[str, np.ndarray]:
 
 
 def _dask_field(values: np.ndarray) -> xr.DataArray:
-    """Dask-backed (latitude, longitude, time, pressure_level) DataArray with the Phase 04 test grid"""
+    """Dask-backed (latitude, longitude, time, pressure_level) DataArray on the small post-processor test grid"""
     return xr.DataArray(da.from_array(values, chunks=(2, 2, 1, 2)), dims=_FIELD_DIMS, coords=_field_coords())  # pyright: ignore[reportArgumentType]
 
 
