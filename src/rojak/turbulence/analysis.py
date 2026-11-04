@@ -42,7 +42,6 @@ import dask.array as da
 import numpy as np
 import xarray as xr
 from dask.base import is_dask_collection
-from numpy.typing import NDArray
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 from rich.progress import track
 
@@ -74,6 +73,8 @@ from rojak.utilities.types import (
 )
 
 if TYPE_CHECKING:
+    from numpy.typing import NDArray
+
     from rojak.atmosphere.jet_stream import AlphaVelField
     from rojak.utilities.types import DiagnosticName
 
@@ -102,7 +103,7 @@ class TurbulenceIntensityThresholds(BatchPostProcessor[TurbulenceThresholds]):
         self._percentile_config = threshold_config
         self._computed_diagnostic = computed_diagnostic
 
-    def _target_percentiles(self) -> NDArray[np.float64]:
+    def _target_percentiles(self) -> "NDArray[np.float64]":
         """Percentiles (in the range [0, 100]) of the severities that have one configured, in severity order"""
         return np.asarray(
             [item for item in self._percentile_config.all_severities if item is not None], dtype=np.float64
@@ -144,7 +145,7 @@ class TurbulenceIntensityThresholds(BatchPostProcessor[TurbulenceThresholds]):
         return da.percentile(flattened_array, self._target_percentiles(), internal_method="tdigest")
 
     @override
-    def build_result(self, computed: NDArray) -> TurbulenceThresholds:
+    def build_result(self, computed: "NDArray") -> TurbulenceThresholds:
         """
         Build the thresholds from the computed percentiles
 
@@ -331,7 +332,7 @@ class DiagnosticHistogramDistribution(BatchPostProcessor[HistogramData]):
         return da.log(flattened_array[flattened_array > 0])
 
     @override
-    def build_result(self, computed: NDArray) -> HistogramData:
+    def build_result(self, computed: "NDArray") -> HistogramData:
         """
         Build the histogram from the computed log of the positive diagnostic values
 
@@ -642,7 +643,7 @@ class ComputeDistributionParametersForEDR(BatchPostProcessor[DistributionParamet
         )
 
     @override
-    def build_result(self, computed: NDArray) -> DistributionParameters:
+    def build_result(self, computed: "NDArray") -> DistributionParameters:
         """
         Build the distribution parameters from the computed statistics
 
