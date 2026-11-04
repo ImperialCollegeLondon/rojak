@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import dask.array as da
 import distributed
 import numpy as np
 import pytest
@@ -20,7 +21,13 @@ from rojak.orchestrator.configuration import (
     TurbulenceThresholdMode,
     TurbulenceThresholds,
 )
-from rojak.turbulence.analysis import TurbulentRegionsBySeverity
+from rojak.turbulence.analysis import (
+    ComputeDistributionParametersForEDR,
+    DiagnosticHistogramDistribution,
+    TurbulenceIntensityThresholds,
+    TurbulenceProbabilityBySeverity,
+    TurbulentRegionsBySeverity,
+)
 from rojak.turbulence.calculations import altitude_derivative_on_pressure_level
 from rojak.turbulence.diagnostic import (
     CalibrationDiagnosticSuite,
@@ -479,11 +486,11 @@ class TestPhase02LazyRecipes:
         severities = [TurbulenceSeverity.LIGHT, TurbulenceSeverity.MODERATE]
         thresholds = TurbulenceThresholds(light=0.0, moderate=1.0, severe=2.0)
 
-        regions = TurbulentRegionsBySeverity(
+        by_severity = TurbulentRegionsBySeverity(
             diagnostic, PRESSURE_LEVELS, severities, thresholds, TurbulenceThresholdMode.BOUNDED
         ).execute()
+        regions = xr.concat(by_severity, xr.Variable("severity", severities)).compute()
 
-        assert isinstance(regions, xr.DataArray)
         nan_points = np.isnan(values)
         for severity in severities:
             region = regions.sel(severity=severity)
@@ -504,11 +511,11 @@ class TestPhase02LazyRecipes:
         severities = [TurbulenceSeverity.LIGHT, TurbulenceSeverity.MODERATE]
         thresholds = TurbulenceThresholds(light=0.0, moderate=1.0, severe=2.0)
 
-        regions = TurbulentRegionsBySeverity(
+        by_severity = TurbulentRegionsBySeverity(
             diagnostic, PRESSURE_LEVELS, severities, thresholds, TurbulenceThresholdMode.BOUNDED
         ).execute()
+        regions = xr.concat(by_severity, xr.Variable("severity", severities)).compute()
 
-        assert isinstance(regions, xr.DataArray)
         bounds = {TurbulenceSeverity.LIGHT: (0.0, 1.0), TurbulenceSeverity.MODERATE: (1.0, 2.0)}
         for severity in severities:
             lower, upper = bounds[severity]
@@ -748,3 +755,296 @@ class TestDatasetBackedSuite:
 
         with pytest.raises(ValueError, match="brown1"):
             DiagnosticSuite.from_dataset(supplied, absent)
+
+
+# ---------------------------------------------------------------------------
+# Phase 04: prepare()/finalise() split on post-processors, and lazy TurbulentRegionsBySeverity
+# ---------------------------------------------------------------------------
+
+_FIELD_DIMS = ("latitude", "longitude", "time", "pressure_level")
+TWO_SEVERITIES = [TurbulenceSeverity.LIGHT, TurbulenceSeverity.MODERATE]
+TWO_SEVERITY_BOUNDS = {TurbulenceSeverity.LIGHT: (0.0, 1.0), TurbulenceSeverity.MODERATE: (1.0, 2.0)}
+REGION_THRESHOLDS = TurbulenceThresholds(light=0.0, moderate=1.0, severe=2.0)
+
+
+def _field_coords() -> dict[str, np.ndarray]:
+    return {
+        "latitude": np.linspace(-10.0, 10.0, 3),
+        "longitude": np.linspace(-10.0, 10.0, 3),
+        "time": np.array(["2018-08-01T00", "2018-08-01T06"], dtype="datetime64[h]"),
+        "pressure_level": np.array(PRESSURE_LEVELS),
+    }
+
+
+def _dask_field(values: np.ndarray) -> xr.DataArray:
+    """Dask-backed (latitude, longitude, time, pressure_level) DataArray with the Phase 04 test grid"""
+    return xr.DataArray(da.from_array(values, chunks=(2, 2, 1, 2)), dims=_FIELD_DIMS, coords=_field_coords())  # pyright: ignore[reportArgumentType]
+
+
+def _calibration_values() -> np.ndarray:
+    """Seeded calibration values including a negative and a zero, which the log-based statistics must exclude"""
+    values = np.random.default_rng(42).random((3, 3, 2, len(PRESSURE_LEVELS))) * 2.0
+    values[0, 0, 0, 0] = -0.5
+    values[1, 2, 1, 3] = 0.0
+    return values
+
+
+def _region_values(*, with_nan: bool) -> np.ndarray:
+    values = np.random.default_rng(42).random((3, 3, 2, len(PRESSURE_LEVELS))) * 2.0
+    if with_nan:
+        values[0, 0, 0, 0] = np.nan
+        values[2, 1, 1, 2] = np.nan
+    return values
+
+
+def _brute_force_region_masks(values: np.ndarray) -> list[np.ndarray]:
+    """
+    Per-severity masks in ``(latitude, longitude, time, pressure_level)`` order: 1.0 inside the severity's bounds,
+    0.0 outside them, and NaN wherever the diagnostic itself is NaN
+    """
+    masks: list[np.ndarray] = []
+    for severity in TWO_SEVERITIES:
+        lower, upper = TWO_SEVERITY_BOUNDS[severity]
+        mask = ((values >= lower) & (values < upper)).astype(float)
+        mask[np.isnan(values)] = np.nan
+        masks.append(mask)
+    return masks
+
+
+def _as_tuple(thresholds: TurbulenceThresholds) -> tuple[float, float, float]:
+    assert thresholds.light is not None
+    assert thresholds.moderate is not None
+    assert thresholds.severe is not None
+    return (thresholds.light, thresholds.moderate, thresholds.severe)
+
+
+def _assert_histograms_match(actual: "HistogramData", expected: "HistogramData") -> None:
+    np.testing.assert_allclose(actual.hist_values, expected.hist_values, rtol=1e-10)
+    np.testing.assert_allclose(actual.bins, expected.bins, rtol=1e-10)
+    assert actual.mean == pytest.approx(expected.mean, rel=1e-10)
+    assert actual.variance == pytest.approx(expected.variance, rel=1e-10)
+
+
+@pytest.fixture
+def forbid_compute(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Makes any ``compute`` on an xarray or dask array raise, so that building a graph is shown to be lazy"""
+
+    def forbidden(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("graph construction must not compute")
+
+    monkeypatch.setattr(xr.DataArray, "compute", forbidden)
+    monkeypatch.setattr(da.Array, "compute", forbidden)
+
+
+class TestIntensityThresholdsPrepareFinalise:
+    """``TurbulenceIntensityThresholds`` exposes the raw dask percentiles from ``prepare()``"""
+
+    def test_prepare_returns_dask_collection(self) -> None:
+        processor = TurbulenceIntensityThresholds(PERCENTILE_CONFIG, _dask_field(_calibration_values()))
+
+        assert is_dask_collection(processor.prepare())
+
+    def test_prepare_triggers_no_compute(self, forbid_compute: None) -> None:
+        processor = TurbulenceIntensityThresholds(PERCENTILE_CONFIG, _dask_field(_calibration_values()))
+
+        assert is_dask_collection(processor.prepare())
+
+    def test_finalise_of_computed_prepare_matches_execute(self) -> None:
+        processor = TurbulenceIntensityThresholds(PERCENTILE_CONFIG, _dask_field(_calibration_values()))
+
+        from_prepare = processor.finalise(dask_compute(processor.prepare())[0])
+        from_execute = processor.execute()
+
+        assert _as_tuple(from_prepare) == pytest.approx(_as_tuple(from_execute))
+
+    def test_execute_still_matches_numpy_percentiles(self) -> None:
+        values = _calibration_values()
+        processor = TurbulenceIntensityThresholds(PERCENTILE_CONFIG, _dask_field(values))
+
+        actual = processor.execute()
+
+        expected = np.percentile(values, [90.0, 95.0, 99.0])
+        np.testing.assert_allclose(_as_tuple(actual), expected, rtol=5e-2)  # tdigest is approximate
+
+
+class TestHistogramPrepareFinalise:
+    """``DiagnosticHistogramDistribution`` exposes its dask collections from ``prepare()``"""
+
+    def test_prepare_returns_dask_collection(self) -> None:
+        processor = DiagnosticHistogramDistribution(_dask_field(_calibration_values()))
+
+        assert is_dask_collection(processor.prepare())
+
+    def test_prepare_triggers_no_compute(self, forbid_compute: None) -> None:
+        processor = DiagnosticHistogramDistribution(_dask_field(_calibration_values()))
+
+        assert is_dask_collection(processor.prepare())
+
+    def test_finalise_of_computed_prepare_matches_execute(self) -> None:
+        processor = DiagnosticHistogramDistribution(_dask_field(_calibration_values()))
+
+        from_prepare = processor.finalise(dask_compute(processor.prepare())[0])
+        from_execute = processor.execute()
+
+        _assert_histograms_match(from_prepare, from_execute)
+
+    def test_execute_still_matches_numpy_histogram_of_log_positive_values(self) -> None:
+        values = _calibration_values()
+        processor = DiagnosticHistogramDistribution(_dask_field(values))
+
+        actual = processor.execute()
+
+        log_positive = np.log(values[values > 0])
+        expected_hist, expected_bins = np.histogram(
+            log_positive,
+            bins=50,
+            range=(float(log_positive.min()), float(log_positive.max())),
+            density=True,
+        )
+        np.testing.assert_allclose(actual.hist_values, expected_hist, rtol=1e-6, atol=1e-12)
+        np.testing.assert_allclose(actual.bins, expected_bins, rtol=1e-6)
+        assert actual.mean == pytest.approx(float(log_positive.mean()), rel=1e-6)
+        assert actual.variance == pytest.approx(float(log_positive.var()), rel=1e-6)
+
+
+class TestDistributionParametersPrepareFinalise:
+    """``ComputeDistributionParametersForEDR`` exposes its lazy dask collections from ``prepare()``"""
+
+    def test_prepare_returns_dask_collection(self) -> None:
+        processor = ComputeDistributionParametersForEDR(_dask_field(_calibration_values()))
+
+        assert is_dask_collection(processor.prepare())
+
+    def test_prepare_triggers_no_compute(self, forbid_compute: None) -> None:
+        processor = ComputeDistributionParametersForEDR(_dask_field(_calibration_values()))
+
+        assert is_dask_collection(processor.prepare())
+
+    def test_finalise_of_computed_prepare_matches_execute(self) -> None:
+        processor = ComputeDistributionParametersForEDR(_dask_field(_calibration_values()))
+
+        from_prepare = processor.finalise(dask_compute(processor.prepare())[0])
+        from_execute = processor.execute()
+
+        assert from_prepare.mean == pytest.approx(from_execute.mean, rel=1e-12)
+        assert from_prepare.variance == pytest.approx(from_execute.variance, rel=1e-12)
+
+    def test_execute_matches_brute_force_mean_and_variance_of_log_positive_values(self) -> None:
+        values = _calibration_values()
+        processor = ComputeDistributionParametersForEDR(_dask_field(values))
+
+        actual = processor.execute()
+
+        log_positive = np.log(values[values > 0])
+        assert actual.mean == pytest.approx(float(log_positive.mean()), rel=1e-10)
+        assert actual.variance == pytest.approx(float(log_positive.var()), rel=1e-10)
+
+
+class TestTurbulentRegionsBySeverityLazy:
+    """
+    ``TurbulentRegionsBySeverity.execute()`` always returns the lazy per-severity list; callers concatenate and compute
+    """
+
+    def test_has_parent_class_attribute_removed(self) -> None:
+        assert not hasattr(TurbulentRegionsBySeverity, "_has_parent")
+
+    def test_has_parent_not_set_on_instances(self) -> None:
+        regions = TurbulentRegionsBySeverity(
+            _dask_field(_region_values(with_nan=False)),
+            PRESSURE_LEVELS,
+            TWO_SEVERITIES,
+            REGION_THRESHOLDS,
+            TurbulenceThresholdMode.BOUNDED,
+        )
+
+        assert not hasattr(regions, "_has_parent")
+
+    def test_has_parent_kwarg_is_rejected(self) -> None:
+        extra: dict[str, Any] = {"has_parent": True}
+
+        with pytest.raises(TypeError):
+            TurbulentRegionsBySeverity(
+                _dask_field(_region_values(with_nan=False)),
+                PRESSURE_LEVELS,
+                TWO_SEVERITIES,
+                REGION_THRESHOLDS,
+                TurbulenceThresholdMode.BOUNDED,
+                **extra,
+            )
+
+    def test_execute_returns_list(self) -> None:
+        regions = TurbulentRegionsBySeverity(
+            _dask_field(_region_values(with_nan=False)),
+            PRESSURE_LEVELS,
+            TWO_SEVERITIES,
+            REGION_THRESHOLDS,
+            TurbulenceThresholdMode.BOUNDED,
+        )
+
+        result = regions.execute()
+
+        assert isinstance(result, list)
+        assert len(result) == len(TWO_SEVERITIES)
+
+    def test_execute_list_elements_are_lazy_dask_collections(self) -> None:
+        regions = TurbulentRegionsBySeverity(
+            _dask_field(_region_values(with_nan=False)),
+            PRESSURE_LEVELS,
+            TWO_SEVERITIES,
+            REGION_THRESHOLDS,
+            TurbulenceThresholdMode.BOUNDED,
+        )
+
+        result = regions.execute()
+
+        assert isinstance(result, list)
+        assert all(isinstance(item, xr.DataArray) and is_dask_collection(item) for item in result)
+
+    def test_execute_triggers_no_compute(self, forbid_compute: None) -> None:
+        regions = TurbulentRegionsBySeverity(
+            _dask_field(_region_values(with_nan=True)),
+            PRESSURE_LEVELS,
+            TWO_SEVERITIES,
+            REGION_THRESHOLDS,
+            TurbulenceThresholdMode.BOUNDED,
+        )
+
+        result = regions.execute()
+
+        assert isinstance(result, list)
+
+    @pytest.mark.parametrize("with_nan", [False, True], ids=["finite", "with_nan"])
+    def test_concatenated_lazy_result_matches_brute_force(self, with_nan: bool) -> None:
+        values = _region_values(with_nan=with_nan)
+        regions = TurbulentRegionsBySeverity(
+            _dask_field(values),
+            PRESSURE_LEVELS,
+            TWO_SEVERITIES,
+            REGION_THRESHOLDS,
+            TurbulenceThresholdMode.BOUNDED,
+        )
+
+        result = regions.execute()
+        assert isinstance(result, list)
+        concatenated = xr.concat(result, xr.Variable("severity", TWO_SEVERITIES)).compute()
+
+        expected = _brute_force_region_masks(values)
+        for index, severity in enumerate(TWO_SEVERITIES):
+            actual = concatenated.sel(severity=severity).transpose(*_FIELD_DIMS).values
+            np.testing.assert_array_equal(actual, expected[index])
+
+    def test_probability_by_severity_still_matches_brute_force(self) -> None:
+        values = _region_values(with_nan=False)
+        probabilities = TurbulenceProbabilityBySeverity(
+            _dask_field(values),
+            PRESSURE_LEVELS,
+            TWO_SEVERITIES,
+            REGION_THRESHOLDS,
+            TurbulenceThresholdMode.BOUNDED,
+        ).execute()
+
+        for _index, severity in enumerate(TWO_SEVERITIES):
+            lower, upper = TWO_SEVERITY_BOUNDS[severity]
+            expected = ((values >= lower) & (values < upper)).mean(axis=2) * 100
+            actual = probabilities.sel(severity=severity).transpose("latitude", "longitude", "pressure_level").values
+            np.testing.assert_allclose(actual, expected, rtol=1e-10)
