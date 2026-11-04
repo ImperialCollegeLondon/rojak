@@ -1755,10 +1755,10 @@ class CalibrationDiagnosticSuite(DiagnosticSuite):
             return {name: processor.execute() for name, processor in processors.items()}
 
         # One scheduler round trip for every diagnostic, rather than one per diagnostic
-        computed = dask_compute(*(processor.prepare() for processor in processors.values()))
+        computed_thresholds = dask_compute(*(processor.build_lazy_collection() for processor in processors.values()))
         return {
-            name: processor.finalise(result)
-            for (name, processor), result in zip(processors.items(), computed, strict=True)
+            name: processor.build_result(result)
+            for (name, processor), result in zip(processors.items(), computed_thresholds, strict=True)
         }
 
     def compute_distribution_parameters(self) -> Mapping["DiagnosticName", "HistogramData"]:
@@ -1780,9 +1780,9 @@ class CalibrationDiagnosticSuite(DiagnosticSuite):
             return {name: processor.execute() for name, processor in processors.items()}
 
         # One scheduler round trip for every diagnostic, rather than one per diagnostic
-        computed_dist_params = dask_compute(*(processor.prepare() for processor in processors.values()))
+        computed_dist_params = dask_compute(*(processor.build_lazy_collection() for processor in processors.values()))
         return {
-            name: processor.finalise(result)
+            name: processor.build_result(result)
             for (name, processor), result in zip(processors.items(), computed_dist_params, strict=True)
         }
 
@@ -1895,8 +1895,8 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
             # Persist every diagnostic's probabilities together: one scheduler call rather than one per diagnostic.
             # dask_persist on DataArrays avoids xr.Dataset construction (which triggers N coordinate-equality checks).
             names = list(lazy_probabilities.keys())
-            persisted = dask_persist(*lazy_probabilities.values())
-            self._probabilities = dict(zip(names, persisted, strict=True))
+            persisted_probabilities = dask_persist(*lazy_probabilities.values())
+            self._probabilities = dict(zip(names, persisted_probabilities, strict=True))
             return self._probabilities
 
         return self._probabilities
@@ -2006,8 +2006,8 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
         # Compute every diagnostic's regions together: one scheduler round trip rather than one per diagnostic.
         # dask_compute on DataArrays avoids xr.Dataset construction (which triggers N coordinate-equality checks).
         names = list(lazy_regions.keys())
-        computed = dask_compute(*lazy_regions.values())
-        return dict(zip(names, computed, strict=True))
+        computed_regions = dask_compute(*lazy_regions.values())
+        return dict(zip(names, computed_regions, strict=True))
 
     @property
     def pressure_levels(self) -> list[float] | None:

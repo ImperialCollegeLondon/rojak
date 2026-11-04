@@ -758,7 +758,7 @@ class TestDatasetBackedSuite:
 
 
 # ---------------------------------------------------------------------------
-# Phase 04: prepare()/finalise() split on post-processors, and lazy TurbulentRegionsBySeverity
+# Phase 04: build_lazy_collection()/build_result() split on post-processors, and lazy TurbulentRegionsBySeverity
 # ---------------------------------------------------------------------------
 
 _FIELD_DIMS = ("latitude", "longitude", "time", "pressure_level")
@@ -837,25 +837,25 @@ def forbid_compute(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class TestIntensityThresholdsPrepareFinalise:
-    """``TurbulenceIntensityThresholds`` exposes the raw dask percentiles from ``prepare()``"""
+    """``TurbulenceIntensityThresholds`` exposes the raw dask percentiles from ``build_lazy_collection()``"""
 
-    def test_prepare_returns_dask_collection(self) -> None:
+    def test_build_lazy_collection_returns_dask_collection(self) -> None:
         processor = TurbulenceIntensityThresholds(PERCENTILE_CONFIG, _dask_field(_calibration_values()))
 
-        assert is_dask_collection(processor.prepare())
+        assert is_dask_collection(processor.build_lazy_collection())
 
-    def test_prepare_triggers_no_compute(self, forbid_compute: None) -> None:
+    def test_build_lazy_collection_triggers_no_compute(self, forbid_compute: None) -> None:
         processor = TurbulenceIntensityThresholds(PERCENTILE_CONFIG, _dask_field(_calibration_values()))
 
-        assert is_dask_collection(processor.prepare())
+        assert is_dask_collection(processor.build_lazy_collection())
 
-    def test_finalise_of_computed_prepare_matches_execute(self) -> None:
+    def test_build_result_of_computed_collection_matches_execute(self) -> None:
         processor = TurbulenceIntensityThresholds(PERCENTILE_CONFIG, _dask_field(_calibration_values()))
 
-        from_prepare = processor.finalise(dask_compute(processor.prepare())[0])
+        from_split = processor.build_result(dask_compute(processor.build_lazy_collection())[0])
         from_execute = processor.execute()
 
-        assert _as_tuple(from_prepare) == pytest.approx(_as_tuple(from_execute))
+        assert _as_tuple(from_split) == pytest.approx(_as_tuple(from_execute))
 
     def test_execute_still_matches_numpy_percentiles(self) -> None:
         values = _calibration_values()
@@ -868,25 +868,25 @@ class TestIntensityThresholdsPrepareFinalise:
 
 
 class TestHistogramPrepareFinalise:
-    """``DiagnosticHistogramDistribution`` exposes its dask collections from ``prepare()``"""
+    """``DiagnosticHistogramDistribution`` exposes its dask collections from ``build_lazy_collection()``"""
 
-    def test_prepare_returns_dask_collection(self) -> None:
+    def test_build_lazy_collection_returns_dask_collection(self) -> None:
         processor = DiagnosticHistogramDistribution(_dask_field(_calibration_values()))
 
-        assert is_dask_collection(processor.prepare())
+        assert is_dask_collection(processor.build_lazy_collection())
 
-    def test_prepare_triggers_no_compute(self, forbid_compute: None) -> None:
+    def test_build_lazy_collection_triggers_no_compute(self, forbid_compute: None) -> None:
         processor = DiagnosticHistogramDistribution(_dask_field(_calibration_values()))
 
-        assert is_dask_collection(processor.prepare())
+        assert is_dask_collection(processor.build_lazy_collection())
 
-    def test_finalise_of_computed_prepare_matches_execute(self) -> None:
+    def test_build_result_of_computed_collection_matches_execute(self) -> None:
         processor = DiagnosticHistogramDistribution(_dask_field(_calibration_values()))
 
-        from_prepare = processor.finalise(dask_compute(processor.prepare())[0])
+        from_split = processor.build_result(dask_compute(processor.build_lazy_collection())[0])
         from_execute = processor.execute()
 
-        _assert_histograms_match(from_prepare, from_execute)
+        _assert_histograms_match(from_split, from_execute)
 
     def test_execute_still_matches_numpy_histogram_of_log_positive_values(self) -> None:
         values = _calibration_values()
@@ -908,26 +908,26 @@ class TestHistogramPrepareFinalise:
 
 
 class TestDistributionParametersPrepareFinalise:
-    """``ComputeDistributionParametersForEDR`` exposes its lazy dask collections from ``prepare()``"""
+    """``ComputeDistributionParametersForEDR`` exposes its lazy dask collections from ``build_lazy_collection()``"""
 
-    def test_prepare_returns_dask_collection(self) -> None:
+    def test_build_lazy_collection_returns_dask_collection(self) -> None:
         processor = ComputeDistributionParametersForEDR(_dask_field(_calibration_values()))
 
-        assert is_dask_collection(processor.prepare())
+        assert is_dask_collection(processor.build_lazy_collection())
 
-    def test_prepare_triggers_no_compute(self, forbid_compute: None) -> None:
+    def test_build_lazy_collection_triggers_no_compute(self, forbid_compute: None) -> None:
         processor = ComputeDistributionParametersForEDR(_dask_field(_calibration_values()))
 
-        assert is_dask_collection(processor.prepare())
+        assert is_dask_collection(processor.build_lazy_collection())
 
-    def test_finalise_of_computed_prepare_matches_execute(self) -> None:
+    def test_build_result_of_computed_collection_matches_execute(self) -> None:
         processor = ComputeDistributionParametersForEDR(_dask_field(_calibration_values()))
 
-        from_prepare = processor.finalise(dask_compute(processor.prepare())[0])
+        from_split = processor.build_result(dask_compute(processor.build_lazy_collection())[0])
         from_execute = processor.execute()
 
-        assert from_prepare.mean == pytest.approx(from_execute.mean, rel=1e-12)
-        assert from_prepare.variance == pytest.approx(from_execute.variance, rel=1e-12)
+        assert from_split.mean == pytest.approx(from_execute.mean, rel=1e-12)
+        assert from_split.variance == pytest.approx(from_execute.variance, rel=1e-12)
 
     def test_execute_matches_brute_force_mean_and_variance_of_log_positive_values(self) -> None:
         values = _calibration_values()

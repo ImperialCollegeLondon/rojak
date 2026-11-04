@@ -41,13 +41,12 @@ from typing import TYPE_CHECKING, Any, assert_never, override
 import dask.array as da
 import numpy as np
 import xarray as xr
-from dask.base import compute as dask_compute
 from dask.base import is_dask_collection
 from numpy.typing import NDArray
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 from rich.progress import track
 
-from rojak.core.analysis import PostProcessor
+from rojak.core.analysis import BatchPostProcessor, PostProcessor
 from rojak.core.constants import SHARMAN_17_CLIMATOLOGICAL_PARAMETER
 from rojak.core.indexing import concat_new_dim
 from rojak.orchestrator.configuration import (
@@ -82,7 +81,7 @@ type IntensityName = str
 type IntensityValues = dict[IntensityName, float]
 
 
-class TurbulenceIntensityThresholds(PostProcessor[TurbulenceThresholds]):
+class TurbulenceIntensityThresholds(BatchPostProcessor[TurbulenceThresholds]):
     """
     Computes threshold diagnostic value for each turbulence intensity using percentiles
 
@@ -131,25 +130,27 @@ class TurbulenceIntensityThresholds(PostProcessor[TurbulenceThresholds]):
                 new_index += 1
         return new_list
 
-    def prepare(self) -> da.Array:
+    @override
+    def build_lazy_collection(self) -> da.Array:
         """
         Build the lazy percentile computation without computing it
 
         Returns:
-            Lazy diagnostic value at each configured percentile. Pass ``dask.compute(prepare())[0]`` to
-            :meth:`finalise`.
+            Lazy diagnostic value at each configured percentile. Pass ``dask.compute(build_lazy_collection())[0]``
+            to :meth:`build_result`.
         """
         flattened_array = da.asarray(self._computed_diagnostic.data).flatten()
         # Must use tdigest method as internal dask version gives incorrect results
         return da.percentile(flattened_array, self._target_percentiles(), internal_method="tdigest")
 
-    def finalise(self, not_none_percentiles: NDArray) -> TurbulenceThresholds:
+    @override
+    def build_result(self, computed: NDArray) -> TurbulenceThresholds:
         """
         Build the thresholds from the computed percentiles
 
         Args:
-            not_none_percentiles: Diagnostic value at each configured (non-``None``) percentile, in severity
-                order, i.e. the computed result of :meth:`prepare`
+            computed: Diagnostic value at each configured (non-``None``) percentile, in severity order,
+                i.e. the materialised result of :meth:`build_lazy_collection`
 
         Returns:
             :class:`TurbulenceThresholds` with the computed threshold for each severity
@@ -157,7 +158,7 @@ class TurbulenceIntensityThresholds(PostProcessor[TurbulenceThresholds]):
         mapping_to_severity = self._find_index_without_nones()
         return TurbulenceThresholds(
             **{
-                str(severity): index_map if index_map is None else not_none_percentiles[index_map]
+                str(severity): index_map if index_map is None else computed[index_map]
                 for index_map, severity in zip(
                     mapping_to_severity,
                     TurbulenceSeverity.get_in_ascending_order(),
@@ -172,15 +173,15 @@ class TurbulenceIntensityThresholds(PostProcessor[TurbulenceThresholds]):
         """
         Compute the percentile-based threshold value for each configured turbulence severity
 
-        A dask-backed diagnostic is computed through :meth:`prepare` and :meth:`finalise`; a numpy-backed one uses
-        exact numpy percentiles.
+        A dask-backed diagnostic is computed through :meth:`build_lazy_collection` and :meth:`build_result`; a
+        numpy-backed one uses exact numpy percentiles.
 
         Returns:
             :class:`TurbulenceThresholds` with the computed threshold for each severity
         """
         if is_dask_collection(self._computed_diagnostic):
-            return self.finalise(dask_compute(self.prepare())[0])
-        return self.finalise(np.percentile(self._computed_diagnostic.stack(all=[...]), self._target_percentiles()))
+            return super().execute()
+        return self.build_result(np.percentile(self._computed_diagnostic.stack(all=[...]), self._target_percentiles()))
 
 
 @pydantic_dataclass
@@ -294,7 +295,7 @@ class HistogramData:
         return hash((self.hist_values, self.bins, self.mean, self.variance))
 
 
-class DiagnosticHistogramDistribution(PostProcessor[HistogramData]):
+class DiagnosticHistogramDistribution(BatchPostProcessor[HistogramData]):
     """
     Computes histogram bins for log-normal distribution of turbulence diagnostics.
 
@@ -314,38 +315,40 @@ class DiagnosticHistogramDistribution(PostProcessor[HistogramData]):
         if num_hist_bins is not None:
             self._NUM_HIST_BINS = num_hist_bins
 
-    def prepare(self) -> da.Array:
+    @override
+    def build_lazy_collection(self) -> da.Array:
         """
         Build the lazy log of the strictly positive diagnostic values without computing it
 
         The histogram range depends on the minimum and maximum of these values, so the histogram itself is built in
-        :meth:`finalise` once they are known.
+        :meth:`build_result` once they are known.
 
         Returns:
-            Lazy, flattened log of the positive diagnostic values. Pass ``dask.compute(prepare())[0]`` to
-            :meth:`finalise`.
+            Lazy, flattened log of the positive diagnostic values. Pass
+            ``dask.compute(build_lazy_collection())[0]`` to :meth:`build_result`.
         """
         flattened_array = da.asarray(self._computed_diagnostic.data).flatten()
         return da.log(flattened_array[flattened_array > 0])
 
-    def finalise(self, log_of_diagnostic: NDArray) -> HistogramData:
+    @override
+    def build_result(self, computed: NDArray) -> HistogramData:
         """
         Build the histogram from the computed log of the positive diagnostic values
 
         Args:
-            log_of_diagnostic: Flattened log of the strictly positive diagnostic values, i.e. the computed result of
-                :meth:`prepare`
+            computed: Flattened log of the strictly positive diagnostic values, i.e. the materialised result
+                of :meth:`build_lazy_collection`
 
         Returns:
             :class:`HistogramData` of the log-transformed diagnostic values
         """
         h, bins = np.histogram(
-            log_of_diagnostic,
+            computed,
             bins=self._NUM_HIST_BINS,
-            range=(float(np.min(log_of_diagnostic)), float(np.max(log_of_diagnostic))),
+            range=(float(np.min(computed)), float(np.max(computed))),
             density=True,
         )
-        return HistogramData(h, bins, float(np.mean(log_of_diagnostic)), float(np.var(log_of_diagnostic)))
+        return HistogramData(h, bins, float(np.mean(computed)), float(np.var(computed)))
 
     @override
     def execute(self) -> HistogramData:
@@ -358,9 +361,9 @@ class DiagnosticHistogramDistribution(PostProcessor[HistogramData]):
             :class:`HistogramData` of the log-transformed diagnostic values
         """
         if is_dask_collection(self._computed_diagnostic):
-            return self.finalise(dask_compute(self.prepare())[0])
+            return super().execute()
         flattened_array = np.ravel(self._computed_diagnostic.values)
-        return self.finalise(np.log(flattened_array[flattened_array > 0]))
+        return self.build_result(np.log(flattened_array[flattened_array > 0]))
 
 
 # ABSTRACTION MIGHT NOT BE NECESSARY. REMOVE IN FUTURE IF IT ISN'T
@@ -597,7 +600,7 @@ class TurbulenceProbabilityBySeverity(_EvaluationPostProcessor):
         return concat_new_dim(probabilities, dim_name="severity", dim_values=self._severities)
 
 
-class ComputeDistributionParametersForEDR(PostProcessor[DistributionParameters]):
+class ComputeDistributionParametersForEDR(BatchPostProcessor[DistributionParameters]):
     """
     Computes the mean and variance of the log-normal distribution of a turbulence diagnostic's values
 
@@ -614,7 +617,8 @@ class ComputeDistributionParametersForEDR(PostProcessor[DistributionParameters])
         super().__init__()
         self._computed_diagnostic = computed_diagnostic
 
-    def prepare(self) -> da.Array:
+    @override
+    def build_lazy_collection(self) -> da.Array:
         """
         Build the lazy mean and variance of the log of the (positive) diagnostic values without computing them
 
@@ -622,7 +626,8 @@ class ComputeDistributionParametersForEDR(PostProcessor[DistributionParameters])
         into one collection so that they are computed in a single pass over the data.
 
         Returns:
-            Lazy array of ``[mean, variance]``. Pass ``dask.compute(prepare())[0]`` to :meth:`finalise`.
+            Lazy array of ``[mean, variance]``. Pass ``dask.compute(build_lazy_collection())[0]`` to
+            :meth:`build_result`.
         """
         only_positive: xr.DataArray = self._computed_diagnostic.where(self._computed_diagnostic > 0, other=np.nan)
         # False positive by pyright as it doesn't recognise np.log as an xr ufunc
@@ -636,30 +641,19 @@ class ComputeDistributionParametersForEDR(PostProcessor[DistributionParameters])
             ]
         )
 
-    def finalise(self, mean_and_variance: NDArray) -> DistributionParameters:
+    @override
+    def build_result(self, computed: NDArray) -> DistributionParameters:
         """
         Build the distribution parameters from the computed statistics
 
         Args:
-            mean_and_variance: ``[mean, variance]`` of the log-transformed diagnostic values, i.e. the computed
-                result of :meth:`prepare`
+            computed: ``[mean, variance]`` of the log-transformed diagnostic values, i.e. the materialised
+                result of :meth:`build_lazy_collection`
 
         Returns:
             Mean and variance of the log-transformed diagnostic values
         """
-        return DistributionParameters(mean=float(mean_and_variance[0]), variance=float(mean_and_variance[1]))
-
-    @override
-    def execute(self) -> DistributionParameters:
-        """
-        Compute the mean and variance of the log of the (positive) diagnostic values
-
-        Values that are not strictly positive are excluded prior to taking the log.
-
-        Returns:
-            Mean and variance of the log-transformed diagnostic values
-        """
-        return self.finalise(dask_compute(self.prepare())[0])
+        return DistributionParameters(mean=float(computed[0]), variance=float(computed[1]))
 
 
 class TransformToEDR(PostProcessor[xr.DataArray]):
