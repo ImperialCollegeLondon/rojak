@@ -1966,15 +1966,14 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
 
         regions = {}
         for name, diagnostic in self.computed_values("Computing turbulent regions"):
-            regions_for_diagnostic = TurbulentRegionsBySeverity(
+            regions_by_severity = TurbulentRegionsBySeverity(
                 diagnostic,
                 self._pressure_levels,
                 self._severities,
                 self._probability_thresholds[name],
                 self._threshold_mode,
             ).execute()
-            assert isinstance(regions_for_diagnostic, xr.DataArray)
-            regions[name] = regions_for_diagnostic
+            regions[name] = xr.concat(regions_by_severity, xr.Variable("severity", self._severities)).compute()
 
         return regions
 

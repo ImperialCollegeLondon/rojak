@@ -41,6 +41,7 @@ from typing import TYPE_CHECKING, Any, assert_never, override
 import dask.array as da
 import numpy as np
 import xarray as xr
+from dask.base import compute as dask_compute
 from dask.base import is_dask_collection
 from numpy.typing import NDArray
 from pydantic.dataclasses import dataclass as pydantic_dataclass
@@ -101,22 +102,11 @@ class TurbulenceIntensityThresholds(PostProcessor[TurbulenceThresholds]):
         self._percentile_config = threshold_config
         self._computed_diagnostic = computed_diagnostic
 
-    def _compute_percentiles(self, target_percentiles: NDArray) -> NDArray:
-        """
-        Compute the value of ``self._computed_diagnostic`` at the given percentiles
-
-        Args:
-            target_percentiles: Percentiles (in the range [0, 100]) to compute
-
-        Returns:
-            Diagnostic value at each of the ``target_percentiles``
-        """
-        if is_dask_collection(self._computed_diagnostic):
-            # flattened_array = da.asarray(self._computed_diagnostic.data, chunks="auto").flatten()
-            flattened_array = da.asarray(self._computed_diagnostic, chunks="auto").flatten()
-            # Must use tdigest method as internal dask version gives incorrect results
-            return da.percentile(flattened_array, target_percentiles, internal_method="tdigest").compute()
-        return np.percentile(self._computed_diagnostic.stack(all=[...]), target_percentiles)
+    def _target_percentiles(self) -> NDArray[np.float64]:
+        """Percentiles (in the range [0, 100]) of the severities that have one configured, in severity order"""
+        return np.asarray(
+            [item for item in self._percentile_config.all_severities if item is not None], dtype=np.float64
+        )
 
     def _find_index_without_nones(self) -> list[int | None]:
         """
@@ -140,18 +130,29 @@ class TurbulenceIntensityThresholds(PostProcessor[TurbulenceThresholds]):
                 new_index += 1
         return new_list
 
-    @override
-    def execute(self) -> TurbulenceThresholds:
+    def prepare(self) -> da.Array:
         """
-        Compute the percentile-based threshold value for each configured turbulence severity
+        Build the lazy percentile computation without computing it
+
+        Returns:
+            Lazy diagnostic value at each configured percentile. Pass ``dask.compute(prepare())[0]`` to
+            :meth:`finalise`.
+        """
+        flattened_array = da.asarray(self._computed_diagnostic, chunks="auto").flatten()
+        # Must use tdigest method as internal dask version gives incorrect results
+        return da.percentile(flattened_array, self._target_percentiles(), internal_method="tdigest")
+
+    def finalise(self, not_none_percentiles: NDArray) -> TurbulenceThresholds:
+        """
+        Build the thresholds from the computed percentiles
+
+        Args:
+            not_none_percentiles: Diagnostic value at each configured (non-``None``) percentile, in severity
+                order, i.e. the computed result of :meth:`prepare`
 
         Returns:
             :class:`TurbulenceThresholds` with the computed threshold for each severity
         """
-        not_none_mask = [index for index, item in enumerate(self._percentile_config.all_severities) if item is not None]
-        not_none_percentiles = self._compute_percentiles(
-            np.asarray(self._percentile_config.all_severities, dtype=np.float64)[not_none_mask],
-        )
         mapping_to_severity = self._find_index_without_nones()
         return TurbulenceThresholds(
             **{
@@ -164,6 +165,21 @@ class TurbulenceIntensityThresholds(PostProcessor[TurbulenceThresholds]):
             },
             _all_severities=[],
         )
+
+    @override
+    def execute(self) -> TurbulenceThresholds:
+        """
+        Compute the percentile-based threshold value for each configured turbulence severity
+
+        A dask-backed diagnostic is computed through :meth:`prepare` and :meth:`finalise`; a numpy-backed one uses
+        exact numpy percentiles.
+
+        Returns:
+            :class:`TurbulenceThresholds` with the computed threshold for each severity
+        """
+        if is_dask_collection(self._computed_diagnostic):
+            return self.finalise(dask_compute(self.prepare())[0])
+        return self.finalise(np.percentile(self._computed_diagnostic.stack(all=[...]), self._target_percentiles()))
 
 
 @pydantic_dataclass
@@ -297,35 +313,38 @@ class DiagnosticHistogramDistribution(PostProcessor[HistogramData]):
         if num_hist_bins is not None:
             self._NUM_HIST_BINS = num_hist_bins
 
-    def _serial_execution(self) -> HistogramData:
-        """Numpy implementation of :func:`execute`"""
-        flattened_array = self._computed_diagnostic.stack(all=[...])
-        flattened_array = flattened_array[flattened_array > 0]
-        log_of_diagnostic = np.log(flattened_array)
-        min_and_max = np.percentile(log_of_diagnostic, [0, 100])
+    def prepare(self) -> da.Array:
+        """
+        Build the lazy log of the strictly positive diagnostic values without computing it
+
+        The histogram range depends on the minimum and maximum of these values, so the histogram itself is built in
+        :meth:`finalise` once they are known.
+
+        Returns:
+            Lazy, flattened log of the positive diagnostic values. Pass ``dask.compute(prepare())[0]`` to
+            :meth:`finalise`.
+        """
+        flattened_array = da.asarray(self._computed_diagnostic).flatten()
+        return da.log(flattened_array[flattened_array > 0])
+
+    def finalise(self, log_of_diagnostic: NDArray) -> HistogramData:
+        """
+        Build the histogram from the computed log of the positive diagnostic values
+
+        Args:
+            log_of_diagnostic: Flattened log of the strictly positive diagnostic values, i.e. the computed result of
+                :meth:`prepare`
+
+        Returns:
+            :class:`HistogramData` of the log-transformed diagnostic values
+        """
         h, bins = np.histogram(
             log_of_diagnostic,
             bins=self._NUM_HIST_BINS,
-            range=(float(min_and_max[0]), float(min_and_max[1])),
+            range=(float(np.min(log_of_diagnostic)), float(np.max(log_of_diagnostic))),
             density=True,
         )
         return HistogramData(h, bins, float(np.mean(log_of_diagnostic)), float(np.var(log_of_diagnostic)))
-
-    def _parallel_execution(self) -> HistogramData:
-        """Dask implementation of :func:`execute`"""
-        flattened_array = da.asarray(self._computed_diagnostic).flatten()
-        flattened_array = flattened_array[flattened_array > 0]
-        log_of_diagnostic = da.log(flattened_array)
-        min_and_max = da.percentile(log_of_diagnostic, [0, 100], internal_method="tdigest").compute()
-        h, bins = da.histogram(  # pyright: ignore [reportGeneralTypeIssues]
-            log_of_diagnostic,
-            bins=self._NUM_HIST_BINS,
-            range=(min_and_max[0], min_and_max[1]),
-            density=True,
-        )
-        # Compute together so that the flatten, mask, and log are only evaluated once
-        hist_values, mean, variance = da.compute(h, da.mean(log_of_diagnostic), da.var(log_of_diagnostic))
-        return HistogramData(hist_values=hist_values, bins=bins, mean=mean, variance=variance)
 
     @override
     def execute(self) -> HistogramData:
@@ -338,8 +357,9 @@ class DiagnosticHistogramDistribution(PostProcessor[HistogramData]):
             :class:`HistogramData` of the log-transformed diagnostic values
         """
         if is_dask_collection(self._computed_diagnostic):
-            return self._parallel_execution()
-        return self._serial_execution()
+            return self.finalise(dask_compute(self.prepare())[0])
+        flattened_array = np.ravel(self._computed_diagnostic.values)
+        return self.finalise(np.log(flattened_array[flattened_array > 0]))
 
 
 # ABSTRACTION MIGHT NOT BE NECESSARY. REMOVE IN FUTURE IF IT ISN'T
@@ -463,7 +483,7 @@ class TurbulentRegionFromThreshold(PostProcessor[xr.DataArray | xr.Dataset]):
         raise AssertionError("Unreachable")
 
 
-class TurbulentRegionsBySeverity(PostProcessor[xr.DataArray | list[xr.DataArray] | xr.DataTree]):
+class TurbulentRegionsBySeverity(PostProcessor[list[xr.DataArray]]):
     """
     Computes turbulent regions by severity for a given turbulence diagnostic
 
@@ -476,7 +496,6 @@ class TurbulentRegionsBySeverity(PostProcessor[xr.DataArray | list[xr.DataArray]
     _severities: list["TurbulenceSeverity"]
     _thresholds: "TurbulenceThresholds"
     _threshold_mode: "TurbulenceThresholdMode"
-    _has_parent: bool = False
 
     def __init__(
         self,
@@ -485,7 +504,6 @@ class TurbulentRegionsBySeverity(PostProcessor[xr.DataArray | list[xr.DataArray]
         severities: list["TurbulenceSeverity"],
         thresholds: "TurbulenceThresholds",
         threshold_mode: "TurbulenceThresholdMode",
-        has_parent: bool = False,
     ) -> None:
         """
         Args:
@@ -494,31 +512,28 @@ class TurbulentRegionsBySeverity(PostProcessor[xr.DataArray | list[xr.DataArray]
             severities: Turbulence severities to compute the boolean mask for
             thresholds: Thresholds used to determine each severity
             threshold_mode: Whether the thresholds are bounded intervals or lower bounds
-            has_parent: If ``True``, results for each severity are returned lazily (uncomputed) as a list rather
-                than concatenated and computed. Set when this post processor is used as a component of another
-                post processor (e.g. :class:`TurbulenceProbabilityBySeverity`). Defaults to ``False``.
         """
         super().__init__()
         self._computed_diagnostic = computed_diagnostic.sel(pressure_level=pressure_levels)
         self._severities = severities
         self._thresholds = thresholds
         self._threshold_mode = threshold_mode
-        self._has_parent = has_parent
 
     @override
-    def execute(self) -> xr.DataArray | list[xr.DataArray] | xr.DataTree:
+    def execute(self) -> list[xr.DataArray]:
         """
-        Compute the turbulent region mask for each severity in ``self._severities``
+        Build the turbulent region mask for each severity in ``self._severities``, without computing them
 
         The mask is ``1.0`` (True) where the diagnostic lies within the severity's bounds, ``0.0`` (False) where it
         lies outside them, and NaN where the diagnostic itself is NaN, so that missing values are not reported as
         "no turbulence".
 
         Returns:
-            If ``self._has_parent`` is ``False``, a single DataArray with the masks concatenated along a new
-            ``severity`` dimension. Otherwise, an uncomputed list of DataArrays, one per severity.
+            One mask per severity, in the order of ``self._severities``. These are lazy if the diagnostic is
+            dask-backed; to obtain a single DataArray, concatenate them along
+            ``xr.Variable("severity", severities)``.
         """
-        by_severity = []
+        by_severity: list[xr.DataArray] = []
         for severity in self._severities:
             bounds: Limits[float] = self._thresholds.get_bounds(severity, self._threshold_mode)
             is_in_range: xr.DataArray = (self._computed_diagnostic >= bounds.lower) & (
@@ -526,8 +541,8 @@ class TurbulentRegionsBySeverity(PostProcessor[xr.DataArray | list[xr.DataArray]
             )
             # Comparisons with NaN are False, so propagate NaN explicitly rather than reporting it as out of range
             this_severity: xr.DataArray = xr.where(self._computed_diagnostic.notnull(), is_in_range, np.nan)
-            by_severity.append(this_severity if self._has_parent else this_severity.compute())
-        return by_severity if self._has_parent else xr.concat(by_severity, xr.Variable("severity", self._severities))
+            by_severity.append(this_severity)
+        return by_severity
 
 
 class TurbulenceProbabilityBySeverity(_EvaluationPostProcessor):
@@ -562,7 +577,6 @@ class TurbulenceProbabilityBySeverity(_EvaluationPostProcessor):
                     severities,
                     thresholds,
                     threshold_mode,
-                    has_parent=True,
                 ),
             },
         )
@@ -577,10 +591,8 @@ class TurbulenceProbabilityBySeverity(_EvaluationPostProcessor):
         Returns:
             DataArray of probabilities (in percent) with a ``severity`` dimension
         """
-        by_severity: list[xr.DataArray] | xr.DataArray = self._components["turbulent_regions"].execute()
-        assert isinstance(by_severity, list)
+        by_severity: list[xr.DataArray] = self._components["turbulent_regions"].execute()
         probabilities = [this_severity.mean(dim="time") * 100 for this_severity in by_severity]
-        # hmmm.... I'm not sure if this will behave the way I expect with the new dimension
         return xr.concat(probabilities, xr.Variable("severity", self._severities))
 
 
@@ -601,6 +613,41 @@ class ComputeDistributionParametersForEDR(PostProcessor[DistributionParameters])
         super().__init__()
         self._computed_diagnostic = computed_diagnostic
 
+    def prepare(self) -> da.Array:
+        """
+        Build the lazy mean and variance of the log of the (positive) diagnostic values without computing them
+
+        Values that are not strictly positive are excluded prior to taking the log. The two statistics are stacked
+        into one collection so that they are computed in a single pass over the data.
+
+        Returns:
+            Lazy array of ``[mean, variance]``. Pass ``dask.compute(prepare())[0]`` to :meth:`finalise`.
+        """
+        only_positive: xr.DataArray = self._computed_diagnostic.where(self._computed_diagnostic > 0, other=np.nan)
+        # False positive by pyright as it doesn't recognise np.log as an xr ufunc
+        log_of_diagnostic: xr.DataArray = np.log(only_positive)  # pyright: ignore[reportAssignmentType]
+        # dim=None => reduce over all dimensions
+        # See https://docs.xarray.dev/en/v2026.02.0/generated/xarray.DataArray.mean.html
+        return da.stack(
+            [
+                da.asarray(log_of_diagnostic.mean(dim=None, skipna=True).data),
+                da.asarray(log_of_diagnostic.var(dim=None, skipna=True).data),
+            ]
+        )
+
+    def finalise(self, mean_and_variance: NDArray) -> DistributionParameters:
+        """
+        Build the distribution parameters from the computed statistics
+
+        Args:
+            mean_and_variance: ``[mean, variance]`` of the log-transformed diagnostic values, i.e. the computed
+                result of :meth:`prepare`
+
+        Returns:
+            Mean and variance of the log-transformed diagnostic values
+        """
+        return DistributionParameters(mean=float(mean_and_variance[0]), variance=float(mean_and_variance[1]))
+
     @override
     def execute(self) -> DistributionParameters:
         """
@@ -611,15 +658,7 @@ class ComputeDistributionParametersForEDR(PostProcessor[DistributionParameters])
         Returns:
             Mean and variance of the log-transformed diagnostic values
         """
-        only_positive: xr.DataArray = self._computed_diagnostic.where(self._computed_diagnostic > 0, other=np.nan)
-        # False positive by pyright as it doesn't recognise np.log as an xr ufunc
-        log_of_diagnostic: xr.DataArray = np.log(only_positive)  # pyright: ignore[reportAssignmentType]
-        # dim=None => reduce over all dimensions
-        # See https://docs.xarray.dev/en/v2026.02.0/generated/xarray.DataArray.mean.html
-        return DistributionParameters(
-            mean=float(log_of_diagnostic.mean(dim=None, skipna=True).compute()),
-            variance=float(log_of_diagnostic.var(dim=None, skipna=True).compute()),
-        )
+        return self.finalise(dask_compute(self.prepare())[0])
 
 
 class TransformToEDR(PostProcessor[xr.DataArray]):
