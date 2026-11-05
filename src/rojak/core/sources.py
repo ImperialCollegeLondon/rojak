@@ -37,9 +37,11 @@ other options via ``storage_options``.
 import datetime as dt
 import logging
 from enum import StrEnum
+from enum import property as enum_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, assert_never
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, assert_never, overload
 
+import dask.dataframe as dd
 import fsspec
 import pandas as pd
 import xarray as xr
@@ -52,6 +54,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from fsspec import AbstractFileSystem
+    from pandas.api.typing import SeriesGroupBy
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +139,51 @@ class FilesLocation(_BaseLocation):
         return self
 
 
+class MeteorologicalSeason(StrEnum):
+    """
+    Three-month meteorological season
+
+    Each season is named after its months, so December, January and February are grouped as ``djf``, with
+    December belonging to the season that ends in the following year.
+    """
+
+    DJF = "djf"
+    MAM = "mam"
+    JJA = "jja"
+    SON = "son"
+
+    @enum_property
+    def as_int(self) -> int:
+        """Season number in calendar order, from ``1`` for :attr:`DJF` to ``4`` for :attr:`SON`"""
+        return {
+            MeteorologicalSeason.DJF: 1,
+            MeteorologicalSeason.MAM: 2,
+            MeteorologicalSeason.JJA: 3,
+            MeteorologicalSeason.SON: 4,
+        }[self]
+
+
+@overload
+def _to_season(time_col: pd.DatetimeIndex) -> pd.Index: ...
+@overload
+def _to_season(time_col: pd.Series) -> pd.Series: ...
+
+
+def _to_season(time_col: pd.Series | pd.DatetimeIndex) -> pd.Series | pd.Index:
+    """
+    Meteorological season each time falls in, as a season number
+
+    Args:
+        time_col: Times to map onto their season
+
+    Returns:
+        Season number of each time, matching :attr:`MeteorologicalSeason.as_int`. A :class:`pandas.Series` input
+        gives a :class:`pandas.Series`, a :class:`pandas.DatetimeIndex` gives a :class:`pandas.Index`
+    """
+    month = time_col.dt.month if isinstance(time_col, pd.Series) else time_col.month
+    return (month % 12 + 3) // 3
+
+
 class TemplateLocation(_BaseLocation):
     """
     Files under :attr:`root` named by :attr:`template` formatted with each time step in :attr:`time_window`
@@ -154,6 +202,9 @@ class TemplateLocation(_BaseLocation):
     on_missing: Literal["raise", "skip"] = Field(
         default="raise", description="What to do if a file produced by the template does not exist"
     )
+    season: MeteorologicalSeason | None = Field(
+        default=None, description="Meteorological season within time window", repr=True
+    )
 
     @model_validator(mode="after")
     def check_template_and_window(self) -> Self:
@@ -167,7 +218,16 @@ class TemplateLocation(_BaseLocation):
 
     def time_steps(self) -> pd.DatetimeIndex:
         """Time steps in :attr:`time_window` (inclusive) at :attr:`frequency`"""
-        return pd.date_range(self.time_window.lower, self.time_window.upper, freq=self.frequency)
+        target_times: pd.DatetimeIndex = pd.date_range(
+            self.time_window.lower, self.time_window.upper, freq=self.frequency
+        )
+        if self.season is not None:
+            target_times = target_times[_to_season(target_times) == self.season.as_int]
+
+        if len(target_times) == 0:
+            raise ValueError("No times found within time_windows")
+
+        return target_times
 
 
 class ZarrLocation(_BaseLocation):
@@ -176,6 +236,137 @@ class ZarrLocation(_BaseLocation):
     type: Literal["zarr"] = "zarr"
     store: str = Field(description="Zarr store (local path or fsspec URL)", repr=True)
     consolidated: bool | None = Field(default=None, description="Whether the store has consolidated metadata")
+
+
+def _construct_seasonal_filter(
+    time_window: Limits[dt.datetime],
+    *,
+    time_column: str,
+    season: MeteorologicalSeason,
+) -> list[list[tuple[str, str, Any]]]:
+    """
+    Construct a pyarrow filter selecting the months of a meteorological season within a time window
+
+    Each contiguous run of in-season months becomes one half-open ``[start, end)`` period, clipped to the
+    (inclusive) time window, so the periods never extend beyond what the window itself selects.
+
+    Args:
+        time_window: Inclusive time window to select within
+        time_column: Name of the column holding the time values
+        season: Meteorological season to select
+
+    Returns:
+        Disjunctive normal form filter, one inner list per seasonal period. Empty if the window contains no
+        month of the season
+    """
+    # Enforce entire month of lower bound is included so partially covered months are found. Lower bound is enforced
+    # by clipping through the `where` method. `normalize` drops the time of day, which `date_range` would
+    # otherwise carry into every month start, shifting each seasonal boundary by that amount
+    first_month_start = pd.Timestamp(time_window.lower).normalize().replace(day=1)
+    month_starts = pd.date_range(first_month_start, time_window.upper, freq="MS")
+    in_season = pd.Series(_to_season(month_starts) == season.as_int, index=month_starts)
+
+    # When there is a change in season, the value will be true, so the `cumsum()` will increase indicating a
+    # change in season while grouping together adjacent months of the season
+    adjacent_seasonal_months: pd.Series = (in_season != in_season.shift()).cumsum()
+    # Group all dates associated with the same season together
+    seasonal_months: SeriesGroupBy = in_season[in_season].index.to_series().groupby(adjacent_seasonal_months[in_season])
+
+    # To yield the start and end date of each seasonal period
+    start_of_season: pd.DatetimeIndex = pd.DatetimeIndex(seasonal_months.min())
+    end_of_season: pd.DatetimeIndex = pd.DatetimeIndex(seasonal_months.max()) + pd.DateOffset(months=1)
+
+    # Clip to time_window
+    inclusive_lower = pd.Timestamp(time_window.lower)
+    exclusive_upper = pd.Timestamp(time_window.upper + dt.timedelta(days=1))
+    start_of_season = start_of_season.where(start_of_season >= inclusive_lower, other=inclusive_lower)
+    end_of_season = end_of_season.where(end_of_season < exclusive_upper, other=exclusive_upper)
+
+    # Adjacent months:      Grouped together in a tuple => AND (&) condition
+    # Non-adjacent months:  Added through list comprehension => OR (|) condition
+    return [
+        [(time_column, ">=", start), (time_column, "<", end)]
+        for start, end in zip(start_of_season, end_of_season, strict=True)
+    ]
+
+
+class ParquetLocation(_BaseLocation):
+    """
+    A single parquet file, :attr:`file_name`, under :attr:`root`
+
+    :attr:`time_window` and :attr:`season` are not applied by this class. They are turned into a pyarrow filter
+    by :meth:`time_filter`, which the reader passes down so that rows outside the selection are never read.
+    """
+
+    type: Literal["parquet"] = "parquet"
+    root: str = Field(description="Directory (local path or fsspec URL) containing parquet files", repr=True)
+    file_name: str = Field(description="Parquet file name", repr=True)
+    time_window: Limits[dt.datetime] | None = Field(
+        default=None, description="Inclusive time window to load (used for filtering)", repr=True
+    )
+    season: MeteorologicalSeason | None = Field(
+        default=None, description="Meteorological season within time window (used for filtering)", repr=True
+    )
+    time_column: str | None = Field(
+        default=None,
+        description="Column name to load time window from. Must be specified if time_window is specified",
+        repr=True,
+    )
+
+    @model_validator(mode="after")
+    def check_window_and_season(self) -> Self:
+        """
+        Validate that the filtering options agree with one another, and that a local :attr:`root` exists
+
+        Raises:
+            ValueError: If :attr:`time_window` is decreasing or is given without a :attr:`time_column`, if
+                :attr:`season` is given without a :attr:`time_window`, or if the window holds no month of the
+                season, which would otherwise leave nothing to filter on
+        """
+        if self.time_window is not None:
+            if self.time_window.lower > self.time_window.upper:
+                raise ValueError("Time window must be increasing from lower to upper")
+            if self.time_column is None:
+                raise ValueError("Time column must be specified to filter by time_window")
+
+        if self.season is not None:
+            if self.time_window is None:
+                raise ValueError("Time window must be specified to select by season")
+
+            assert self.time_column is not None  # will be true as time_window is not None
+            # implicit: self.time_window is not None and self.time_column is not None
+            # Fail early if there are no seasons within the time windows
+            if not _construct_seasonal_filter(self.time_window, time_column=self.time_column, season=self.season):
+                raise ValueError(f"Time window contains no {self.season} months")
+
+        self._check_local_root_is_dir(self.root)
+        return self
+
+    # NOTE: For now assume that the only filter that will be applied when loading data is a time filter
+    #       When needed (YAGNI), add in the functionality to have any kind of filter passed in.
+    def time_filter(self) -> list[tuple[str, str, Any]] | list[list[tuple[str, str, Any]]] | None:
+        """
+        pyarrow filter selecting :attr:`time_window` and, where given, :attr:`season`
+
+        Returns:
+            ``None`` when there is no :attr:`time_window` to filter on. For a window on its own, a list of
+            predicates to be ANDed together. For a window and a :attr:`season`, one such list per seasonal
+            period, to be ORed together, as described in :func:`_construct_seasonal_filter`
+        """
+        if self.time_window is None:
+            return None
+
+        assert self.time_column is not None  # should always be true due to the model_validator
+
+        if self.season is not None:
+            return _construct_seasonal_filter(self.time_window, time_column=self.time_column, season=self.season)
+
+        # self.time_window is an inclusive time window. To ensure that the entirety of the last day is kept,
+        # a non-inclusive inequality is used on the day after the upper limit
+        return [
+            (self.time_column, "<", self.time_window.upper + dt.timedelta(days=1)),
+            (self.time_column, ">=", self.time_window.lower),
+        ]
 
 
 DataLocation = Annotated[FilesLocation | TemplateLocation | ZarrLocation, Field(discriminator="type")]
@@ -290,3 +481,34 @@ def open_dataset(
             return xr.open_mfdataset(to_open, **(mfdataset_kwargs | open_kwargs))
         case _ as unreachable:
             assert_never(unreachable)
+
+
+def open_dataframe(
+    location: ParquetLocation,
+    **read_kwargs: Any,  # noqa: ANN401
+) -> dd.DataFrame:
+    """
+    Lazily open ``location`` as a single dask dataframe
+
+    The location's :meth:`ParquetLocation.time_filter` is pushed down to pyarrow, so row groups outside the
+    time window and season are never read. As for :func:`open_dataset`, the root is an fsspec URL path, so
+    local paths and remote URLs are handled the same way, with :attr:`storage_options` carrying any
+    credentials the remote filesystem needs.
+
+    Only :class:`ParquetLocation` is supported, as it is the only tabular location rojak has. Deferred until
+    there is a second one: dispatching on the location type, as :func:`open_dataset` does.
+
+    Args:
+        location: Where the dataframe lives
+        **read_kwargs: Additional keyword arguments passed to :func:`dask.dataframe.read_parquet`, e.g.
+            ``columns=[...]`` to read a subset of the columns. These take precedence over rojak's defaults,
+            including the pushed-down ``filters``
+
+    Returns:
+        Lazily loaded dataframe
+    """
+    read_parquet_kwargs: dict[str, Any] = {
+        "filters": location.time_filter(),
+        "storage_options": location.storage_options or None,
+    }
+    return dd.read_parquet(f"{location.root.rstrip('/')}/{location.file_name}", **(read_parquet_kwargs | read_kwargs))
