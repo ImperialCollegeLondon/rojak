@@ -41,6 +41,7 @@ from enum import property as enum_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, assert_never, overload
 
+import dask.dataframe as dd
 import fsspec
 import pandas as pd
 import xarray as xr
@@ -480,3 +481,34 @@ def open_dataset(
             return xr.open_mfdataset(to_open, **(mfdataset_kwargs | open_kwargs))
         case _ as unreachable:
             assert_never(unreachable)
+
+
+def open_dataframe(
+    location: ParquetLocation,
+    **read_kwargs: Any,  # noqa: ANN401
+) -> dd.DataFrame:
+    """
+    Lazily open ``location`` as a single dask dataframe
+
+    The location's :meth:`ParquetLocation.time_filter` is pushed down to pyarrow, so row groups outside the
+    time window and season are never read. As for :func:`open_dataset`, the root is an fsspec URL path, so
+    local paths and remote URLs are handled the same way, with :attr:`storage_options` carrying any
+    credentials the remote filesystem needs.
+
+    Only :class:`ParquetLocation` is supported, as it is the only tabular location rojak has. Deferred until
+    there is a second one: dispatching on the location type, as :func:`open_dataset` does.
+
+    Args:
+        location: Where the dataframe lives
+        **read_kwargs: Additional keyword arguments passed to :func:`dask.dataframe.read_parquet`, e.g.
+            ``columns=[...]`` to read a subset of the columns. These take precedence over rojak's defaults,
+            including the pushed-down ``filters``
+
+    Returns:
+        Lazily loaded dataframe
+    """
+    read_parquet_kwargs: dict[str, Any] = {
+        "filters": location.time_filter(),
+        "storage_options": location.storage_options or None,
+    }
+    return dd.read_parquet(f"{location.root.rstrip('/')}/{location.file_name}", **(read_parquet_kwargs | read_kwargs))

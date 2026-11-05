@@ -3,6 +3,7 @@ from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+import dask.dataframe as dd
 import fsspec
 import numpy as np
 import pandas as pd
@@ -21,6 +22,7 @@ from rojak.core.sources import (
     ZarrLocation,
     _construct_seasonal_filter,
     is_remote,
+    open_dataframe,
     open_dataset,
     resolve_paths,
 )
@@ -477,3 +479,84 @@ class TestParquetLocationTimeFilter:
         stamps = stamps_for(time_window)
         expected = brute_force(time_window, season, stamps)
         assert np.array_equal(select(location.time_filter(), stamps), expected)
+
+
+# Daily through 2020 and 2021, so that each season covers a known number of rows
+PARQUET_TIMES: pd.DatetimeIndex = pd.date_range("2020-01-01", "2021-12-31", freq="D")
+
+
+@pytest.fixture
+def parquet_file(tmp_path) -> "Path":
+    frame = pd.DataFrame({"time": PARQUET_TIMES, "value": np.arange(len(PARQUET_TIMES), dtype=float)})
+    frame.to_parquet(tmp_path / "data.parquet", index=False)
+    return tmp_path
+
+
+@pytest.fixture
+def remote_parquet_file():
+    fs = fsspec.filesystem("memory")
+    root = "/rojak-test-frames"
+    frame = pd.DataFrame({"time": PARQUET_TIMES, "value": np.arange(len(PARQUET_TIMES), dtype=float)})
+    with fs.open(f"{root}/data.parquet", "wb") as handle:
+        frame.to_parquet(handle, index=False)
+    yield f"memory://{root}"
+    fs.rm(root, recursive=True)
+
+
+class TestOpenDataframe:
+    def test_reads_every_row_without_a_time_window(self, parquet_file) -> None:
+        frame = open_dataframe(ParquetLocation(root=str(parquet_file), file_name="data.parquet"))
+        assert isinstance(frame, dd.DataFrame)  # lazy, so nothing has been read yet
+        assert len(frame.compute()) == len(PARQUET_TIMES)
+
+    def test_pushes_time_window_down_to_the_reader(self, parquet_file) -> None:
+        location = ParquetLocation(
+            root=str(parquet_file),
+            file_name="data.parquet",
+            time_window=window(utc(2020, 3, 1), utc(2020, 3, 31), is_aware=False),
+            time_column="time",
+        )
+        times = open_dataframe(location).compute()["time"]
+        assert times.min() == pd.Timestamp("2020-03-01")
+        assert times.max() == pd.Timestamp("2020-03-31")
+        assert len(times) == 31  # noqa: PLR2004
+
+    def test_pushes_season_down_to_the_reader(self, parquet_file) -> None:
+        location = ParquetLocation(
+            root=str(parquet_file),
+            file_name="data.parquet",
+            time_window=window(utc(2020, 1, 1), utc(2021, 12, 31), is_aware=False),
+            season=MeteorologicalSeason.DJF,
+            time_column="time",
+        )
+        times = open_dataframe(location).compute()["time"]
+        expected = PARQUET_TIMES[((PARQUET_TIMES.month % 12 + 3) // 3) == MeteorologicalSeason.DJF.as_int]
+        assert sorted(times) == list(expected)
+
+    def test_read_kwargs_are_passed_through(self, parquet_file) -> None:
+        frame = open_dataframe(ParquetLocation(root=str(parquet_file), file_name="data.parquet"), columns=["value"])
+        assert list(frame.columns) == ["value"]
+
+    def test_read_kwargs_take_precedence_over_defaults(self, parquet_file) -> None:
+        location = ParquetLocation(
+            root=str(parquet_file),
+            file_name="data.parquet",
+            time_window=window(utc(2020, 3, 1), utc(2020, 3, 31), is_aware=False),
+            time_column="time",
+        )
+        assert len(open_dataframe(location, filters=None).compute()) == len(PARQUET_TIMES)
+
+    def test_reads_from_a_remote_location(self, remote_parquet_file) -> None:
+        location = ParquetLocation(
+            root=remote_parquet_file,
+            file_name="data.parquet",
+            time_window=window(utc(2021, 7, 1), utc(2021, 7, 31), is_aware=False),
+            time_column="time",
+        )
+        times = open_dataframe(location).compute()["time"]
+        assert len(times) == 31  # noqa: PLR2004
+        assert times.min() == pd.Timestamp("2021-07-01")
+
+    def test_trailing_slash_in_root_does_not_break_the_path(self, parquet_file) -> None:
+        location = ParquetLocation(root=f"{parquet_file}/", file_name="data.parquet")
+        assert len(open_dataframe(location).compute()) == len(PARQUET_TIMES)
