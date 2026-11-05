@@ -1,10 +1,11 @@
 import warnings
 from contextlib import nullcontext
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 import fsspec
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
 from pydantic import TypeAdapter, ValidationError
@@ -13,9 +14,12 @@ from rojak.core.data import load_from_folder
 from rojak.core.sources import (
     DataLocation,
     FilesLocation,
+    MeteorologicalSeason,
     NetcdfEngine,
+    ParquetLocation,
     TemplateLocation,
     ZarrLocation,
+    _construct_seasonal_filter,
     is_remote,
     open_dataset,
     resolve_paths,
@@ -208,3 +212,268 @@ def test_open_dataset_open_kwargs_passed_to_open_zarr(tmp_path) -> None:
 def test_load_from_folder_passes_open_kwargs(misaligned_files) -> None:
     with pytest.raises(ValueError, match="join='exact'"):
         load_from_folder(misaligned_files, chunks={}, engine=NetcdfEngine.H5NETCDF, join="exact")
+
+
+def utc(year: int, month: int, day: int, hour: int = 0, minute: int = 0) -> datetime:
+    return datetime(year, month, day, hour, minute, tzinfo=UTC)
+
+
+def naive(moment: datetime) -> datetime:
+    """Drop the timezone, as a time window from configuration is not guaranteed to carry one"""
+    return moment.replace(tzinfo=None)
+
+
+def window(lower: datetime, upper: datetime, *, is_aware: bool = True) -> Limits[datetime]:
+    return Limits(lower, upper) if is_aware else Limits(naive(lower), naive(upper))
+
+
+def ts(value: str) -> pd.Timestamp:
+    return pd.Timestamp(value, tz="UTC")
+
+
+def periods(time_filter) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+    """Inclusive start and exclusive end of each period of a disjunctive normal form filter"""
+    return [(group[0][2], group[1][2]) for group in time_filter]
+
+
+def select(time_filter, timestamps: pd.DatetimeIndex) -> np.ndarray:
+    """Apply a pyarrow filter the way pyarrow would: an OR over groups of ANDed predicates"""
+    groups = time_filter if isinstance(time_filter[0], list) else [time_filter]
+    matched = np.zeros(len(timestamps), dtype=bool)
+    for group in groups:
+        in_group = np.ones(len(timestamps), dtype=bool)
+        for _, operator, value in group:
+            in_group &= (timestamps >= value) if operator == ">=" else (timestamps < value)
+        matched |= in_group
+    return matched
+
+
+def brute_force(window_to_select: Limits[datetime], season: MeteorologicalSeason | None, stamps) -> np.ndarray:
+    """Independent check: a timestamp is kept if it is within the inclusive window and in the season"""
+    kept = (stamps >= pd.Timestamp(window_to_select.lower)) & (
+        stamps < pd.Timestamp(window_to_select.upper + timedelta(days=1))
+    )
+    if season is not None:
+        kept &= ((stamps.month % 12 + 3) // 3) == season.as_int
+    return kept
+
+
+# Three-hourly so that a boundary shifted by a time of day is visible
+SEASONAL_STAMPS: pd.DatetimeIndex = pd.date_range("2019-10-01", "2022-06-01", freq="3h", tz="UTC")
+NAIVE_SEASONAL_STAMPS: pd.DatetimeIndex = SEASONAL_STAMPS.tz_localize(None)
+
+
+def stamps_for(time_window: Limits[datetime]) -> pd.DatetimeIndex:
+    """Timestamps to filter, matching the awareness of the window: the two cannot be compared otherwise"""
+    return SEASONAL_STAMPS if time_window.lower.tzinfo is not None else NAIVE_SEASONAL_STAMPS
+
+
+class TestConstructSeasonalFilter:
+    def test_groups_adjacent_months_into_one_period(self) -> None:
+        filters = _construct_seasonal_filter(
+            window(utc(2020, 1, 1), utc(2020, 12, 31)), time_column="t", season=MeteorologicalSeason.DJF
+        )
+        # January and February are adjacent, December starts a separate period
+        assert periods(filters) == [
+            (ts("2020-01-01"), ts("2020-03-01")),
+            (ts("2020-12-01"), ts("2021-01-01")),
+        ]
+
+    def test_merges_season_spanning_year_boundary(self) -> None:
+        filters = _construct_seasonal_filter(
+            window(utc(2020, 12, 1), utc(2021, 2, 28)), time_column="t", season=MeteorologicalSeason.DJF
+        )
+        assert periods(filters) == [(ts("2020-12-01"), ts("2021-03-01"))]
+
+    def test_clips_period_to_upper_limit(self) -> None:
+        # Without clipping the December period would run to 2021-02-01, past the window
+        filters = _construct_seasonal_filter(
+            window(utc(2020, 1, 1), utc(2021, 1, 20)), time_column="t", season=MeteorologicalSeason.DJF
+        )
+        assert periods(filters)[-1] == (ts("2020-12-01"), ts("2021-01-21"))
+
+    def test_keeps_partially_covered_first_month(self) -> None:
+        # The window starts mid-January, which is still a DJF month
+        filters = _construct_seasonal_filter(
+            window(utc(2020, 1, 15), utc(2020, 3, 31)), time_column="t", season=MeteorologicalSeason.DJF
+        )
+        assert periods(filters) == [(ts("2020-01-15"), ts("2020-03-01"))]
+
+    def test_time_of_day_does_not_shift_period_boundaries(self) -> None:
+        # A lower limit with a time of day must not carry that time into the month boundaries, which would
+        # leak the first hours of March into DJF and lose them from MAM
+        lower = utc(2020, 1, 1, 6)
+        djf = _construct_seasonal_filter(
+            window(lower, utc(2020, 7, 31)), time_column="t", season=MeteorologicalSeason.DJF
+        )
+        mam = _construct_seasonal_filter(
+            window(lower, utc(2020, 7, 31)), time_column="t", season=MeteorologicalSeason.MAM
+        )
+        assert periods(djf) == [(pd.Timestamp(lower), ts("2020-03-01"))]
+        assert periods(mam) == [(ts("2020-03-01"), ts("2020-06-01"))]
+
+    @pytest.mark.parametrize("is_aware", [True, False], ids=["aware", "naive"])
+    def test_period_bounds_match_window_awareness(self, is_aware: bool) -> None:
+        # A time window parsed from configuration need not carry a timezone, and must behave the same way
+        filters = _construct_seasonal_filter(
+            window(utc(2020, 1, 1, 6), utc(2020, 3, 31), is_aware=is_aware),
+            time_column="t",
+            season=MeteorologicalSeason.DJF,
+        )
+        expected_start = ts("2020-01-01 06:00") if is_aware else pd.Timestamp("2020-01-01 06:00")
+        expected_end = ts("2020-03-01") if is_aware else pd.Timestamp("2020-03-01")
+        assert periods(filters) == [(expected_start, expected_end)]
+
+    def test_empty_when_window_has_no_month_of_season(self) -> None:
+        filters = _construct_seasonal_filter(
+            window(utc(2020, 6, 1), utc(2020, 7, 31)), time_column="t", season=MeteorologicalSeason.DJF
+        )
+        assert filters == []
+
+    def test_uses_time_column_in_every_predicate(self) -> None:
+        filters = _construct_seasonal_filter(
+            window(utc(2020, 1, 1), utc(2020, 12, 31)),
+            time_column="valid_time",
+            season=MeteorologicalSeason.DJF,
+        )
+        assert {column for group in filters for column, _, _ in group} == {"valid_time"}
+        assert {operator for group in filters for _, operator, _ in group} == {">=", "<"}
+
+    @pytest.mark.parametrize("is_aware", [True, False], ids=["aware", "naive"])
+    @pytest.mark.parametrize("season", list(MeteorologicalSeason))
+    @pytest.mark.parametrize(
+        ("lower", "upper"),
+        [
+            pytest.param(utc(2020, 1, 1), utc(2021, 12, 31), id="whole_months"),
+            pytest.param(utc(2020, 1, 15), utc(2021, 12, 31), id="lower_mid_month"),
+            pytest.param(utc(2020, 1, 1), utc(2021, 1, 20), id="upper_mid_month"),
+            pytest.param(utc(2020, 1, 1, 6), utc(2021, 3, 1, 9, 45), id="time_of_day"),
+            pytest.param(utc(2020, 2, 29), utc(2020, 11, 30), id="leap_day_to_month_end"),
+            pytest.param(utc(2019, 11, 1), utc(2022, 3, 1), id="spans_three_winters"),
+        ],
+    )
+    def test_matches_brute_force_selection(self, lower: datetime, upper: datetime, season, is_aware: bool) -> None:
+        selected_window = window(lower, upper, is_aware=is_aware)
+        stamps = stamps_for(selected_window)
+        filters = _construct_seasonal_filter(selected_window, time_column="t", season=season)
+        expected = brute_force(selected_window, season, stamps)
+        assert np.array_equal(select(filters, stamps), expected)
+
+
+class TestParquetLocationValidation:
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            pytest.param(
+                {"time_window": window(utc(2021, 1, 1), utc(2020, 1, 1)), "time_column": "t"},
+                "increasing from lower to upper",
+                id="decreasing_window",
+            ),
+            pytest.param(
+                {"time_window": window(utc(2020, 1, 1), utc(2020, 12, 31))},
+                "Time column must be specified",
+                id="window_without_time_column",
+            ),
+            pytest.param(
+                {"season": MeteorologicalSeason.DJF, "time_column": "t"},
+                "Time window must be specified",
+                id="season_without_window",
+            ),
+            pytest.param(
+                {
+                    "time_window": window(utc(2020, 6, 1), utc(2020, 7, 31)),
+                    "season": MeteorologicalSeason.DJF,
+                    "time_column": "t",
+                },
+                "contains no djf months",
+                id="season_absent_from_window",
+            ),
+            pytest.param(
+                {
+                    "time_window": window(utc(2020, 6, 1), utc(2020, 7, 31), is_aware=False),
+                    "season": MeteorologicalSeason.DJF,
+                    "time_column": "t",
+                },
+                "contains no djf months",
+                id="season_absent_from_naive_window",
+            ),
+        ],
+    )
+    def test_invalid(self, tmp_path, kwargs: dict[str, Any], message: str) -> None:
+        with pytest.raises(ValidationError, match=message):
+            ParquetLocation(root=str(tmp_path), file_name="data.parquet", **kwargs)
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            pytest.param({}, id="no_filtering"),
+            pytest.param(
+                {"time_window": window(utc(2020, 1, 1), utc(2020, 12, 31)), "time_column": "t"},
+                id="window_only",
+            ),
+            pytest.param(
+                {
+                    "time_window": window(utc(2020, 1, 1), utc(2020, 12, 31)),
+                    "season": MeteorologicalSeason.DJF,
+                    "time_column": "t",
+                },
+                id="window_and_season",
+            ),
+            pytest.param(
+                {
+                    "time_window": window(utc(2020, 1, 1), utc(2020, 12, 31), is_aware=False),
+                    "season": MeteorologicalSeason.DJF,
+                    "time_column": "t",
+                },
+                id="naive_window_and_season",
+            ),
+        ],
+    )
+    def test_valid(self, tmp_path, kwargs: dict[str, Any]) -> None:
+        assert ParquetLocation(root=str(tmp_path), file_name="data.parquet", **kwargs).file_name == "data.parquet"
+
+
+class TestParquetLocationTimeFilter:
+    def test_none_without_time_window(self, tmp_path) -> None:
+        assert ParquetLocation(root=str(tmp_path), file_name="data.parquet").time_filter() is None
+
+    def test_window_without_season_keeps_whole_final_day(self, tmp_path) -> None:
+        location = ParquetLocation(
+            root=str(tmp_path),
+            file_name="data.parquet",
+            time_window=window(utc(2020, 1, 1), utc(2020, 3, 31)),
+            time_column="t",
+        )
+        # The window is inclusive, so the exclusive upper predicate is the day after
+        assert location.time_filter() == [
+            ("t", "<", utc(2020, 4, 1)),
+            ("t", ">=", utc(2020, 1, 1)),
+        ]
+
+    def test_season_delegates_to_seasonal_filter(self, tmp_path) -> None:
+        time_window = window(utc(2020, 1, 1), utc(2020, 12, 31))
+        location = ParquetLocation(
+            root=str(tmp_path),
+            file_name="data.parquet",
+            time_window=time_window,
+            season=MeteorologicalSeason.DJF,
+            time_column="t",
+        )
+        assert location.time_filter() == _construct_seasonal_filter(
+            time_window, time_column="t", season=MeteorologicalSeason.DJF
+        )
+
+    @pytest.mark.parametrize("is_aware", [True, False], ids=["aware", "naive"])
+    @pytest.mark.parametrize("season", [None, *MeteorologicalSeason])
+    def test_matches_brute_force_selection(self, tmp_path, season, is_aware: bool) -> None:
+        time_window = window(utc(2020, 1, 15, 18, 30), utc(2021, 12, 31), is_aware=is_aware)
+        location = ParquetLocation(
+            root=str(tmp_path),
+            file_name="data.parquet",
+            time_window=time_window,
+            season=season,
+            time_column="t",
+        )
+        stamps = stamps_for(time_window)
+        expected = brute_force(time_window, season, stamps)
+        assert np.array_equal(select(location.time_filter(), stamps), expected)
