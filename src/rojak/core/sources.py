@@ -53,6 +53,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from fsspec import AbstractFileSystem
+    from pandas.api.typing import SeriesGroupBy
 
 logger = logging.getLogger(__name__)
 
@@ -216,6 +217,114 @@ class ZarrLocation(_BaseLocation):
     type: Literal["zarr"] = "zarr"
     store: str = Field(description="Zarr store (local path or fsspec URL)", repr=True)
     consolidated: bool | None = Field(default=None, description="Whether the store has consolidated metadata")
+
+
+def _construct_seasonal_filter(
+    time_window: Limits[dt.datetime],
+    *,
+    time_column: str,
+    season: MeteorologicalSeason,
+) -> list[list[tuple[str, str, Any]]]:
+    """
+    Construct a pyarrow filter selecting the months of a meteorological season within a time window
+
+    Each contiguous run of in-season months becomes one half-open ``[start, end)`` period, clipped to the
+    (inclusive) time window, so the periods never extend beyond what the window itself selects.
+
+    Args:
+        time_window: Inclusive time window to select within
+        time_column: Name of the column holding the time values
+        season: Meteorological season to select
+
+    Returns:
+        Disjunctive normal form filter, one inner list per seasonal period. Empty if the window contains no
+        month of the season
+    """
+    # Enforce entire month of lower bound is included so partially covered months are found. Lower bound is enforced
+    # by clipping through the `where` method. `normalize` drops the time of day, which `date_range` would
+    # otherwise carry into every month start, shifting each seasonal boundary by that amount
+    first_month_start = pd.Timestamp(time_window.lower).normalize().replace(day=1)
+    month_starts = pd.date_range(first_month_start, time_window.upper, freq="MS")
+    in_season = pd.Series(_to_season(month_starts) == season.as_int, index=month_starts)
+
+    # When there is a change in season, the value will be true, so the `cumsum()` will increase indicating a
+    # change in season while grouping together adjacent months of the season
+    adjacent_seasonal_months: pd.Series = (in_season != in_season.shift()).cumsum()
+    # Group all dates associated with the same season together
+    seasonal_months: SeriesGroupBy = in_season[in_season].index.to_series().groupby(adjacent_seasonal_months[in_season])
+
+    # To yield the start and end date of each seasonal period
+    start_of_season: pd.DatetimeIndex = pd.DatetimeIndex(seasonal_months.min())
+    end_of_season: pd.DatetimeIndex = pd.DatetimeIndex(seasonal_months.max()) + pd.DateOffset(months=1)
+
+    # Clip to time_window
+    inclusive_lower = pd.Timestamp(time_window.lower)
+    exclusive_upper = pd.Timestamp(time_window.upper + dt.timedelta(days=1))
+    start_of_season = start_of_season.where(start_of_season >= inclusive_lower, other=inclusive_lower)
+    end_of_season = end_of_season.where(end_of_season < exclusive_upper, other=exclusive_upper)
+
+    # Adjacent months:      Grouped together in a tuple => AND (&) condition
+    # Non-adjacent months:  Added through list comprehension => OR (|) condition
+    return [
+        [(time_column, ">=", start), (time_column, "<", end)]
+        for start, end in zip(start_of_season, end_of_season, strict=True)
+    ]
+
+
+class ParquetLocation(_BaseLocation):
+    type: Literal["parquet"] = "parquet"
+    root: str = Field(description="Directory (local path or fsspec URL) containing parquet files", repr=True)
+    file_name: str = Field(description="Parquet file name", repr=True)
+    time_window: Limits[dt.datetime] | None = Field(
+        default=None, description="Inclusive time window to load (used for filtering)", repr=True
+    )
+    season: MeteorologicalSeason | None = Field(
+        default=None, description="Meteorological season within time window (used for filtering)", repr=True
+    )
+    time_column: str | None = Field(
+        default=None,
+        description="Column name to load time window from. Must be specified if time_window is specified",
+        repr=True,
+    )
+
+    @model_validator(mode="after")
+    def check_window_and_season(self) -> Self:
+        if self.time_window is not None:
+            if self.time_window.lower > self.time_window.upper:
+                raise ValueError("Time window must be increasing from lower to upper")
+            if self.time_column is None:
+                raise ValueError("Time column must be specified to filter by time_window")
+
+        if self.season is not None:
+            if self.time_window is None:
+                raise ValueError("Time window must be specified to select by season")
+
+            assert self.time_column is not None  # will be true as time_window is not None
+            # implicit: self.time_window is not None and self.time_column is not None
+            # Fail early if there are no seasons within the time windows
+            if not _construct_seasonal_filter(self.time_window, time_column=self.time_column, season=self.season):
+                raise ValueError(f"Time window contains no {self.season} months")
+
+        self._check_local_root_is_dir(self.root)
+        return self
+
+    # NOTE: For now assume that the only filter that will be applied when loading data is a time filter
+    #       When needed (YAGNI), add in the functionality to have any kind of filter passed in.
+    def time_filter(self) -> list[tuple[str, str, Any]] | list[list[tuple[str, str, Any]]] | None:
+        if self.time_window is None:
+            return None
+
+        assert self.time_column is not None  # should always be true due to the model_validator
+
+        if self.season is not None:
+            return _construct_seasonal_filter(self.time_window, time_column=self.time_column, season=self.season)
+
+        # self.time_window is an inclusive time window. To ensure that the entirety of the last day is kept,
+        # a non-inclusive inequality is used on the day after the upper limit
+        return [
+            (self.time_column, "<", self.time_window.upper + dt.timedelta(days=1)),
+            (self.time_column, ">=", self.time_window.lower),
+        ]
 
 
 DataLocation = Annotated[FilesLocation | TemplateLocation | ZarrLocation, Field(discriminator="type")]
