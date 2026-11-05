@@ -139,6 +139,13 @@ class FilesLocation(_BaseLocation):
 
 
 class MeteorologicalSeason(StrEnum):
+    """
+    Three-month meteorological season
+
+    Each season is named after its months, so December, January and February are grouped as ``djf``, with
+    December belonging to the season that ends in the following year.
+    """
+
     DJF = "djf"
     MAM = "mam"
     JJA = "jja"
@@ -146,6 +153,7 @@ class MeteorologicalSeason(StrEnum):
 
     @enum_property
     def as_int(self) -> int:
+        """Season number in calendar order, from ``1`` for :attr:`DJF` to ``4`` for :attr:`SON`"""
         return {
             MeteorologicalSeason.DJF: 1,
             MeteorologicalSeason.MAM: 2,
@@ -161,6 +169,16 @@ def _to_season(time_col: pd.Series) -> pd.Series: ...
 
 
 def _to_season(time_col: pd.Series | pd.DatetimeIndex) -> pd.Series | pd.Index:
+    """
+    Meteorological season each time falls in, as a season number
+
+    Args:
+        time_col: Times to map onto their season
+
+    Returns:
+        Season number of each time, matching :attr:`MeteorologicalSeason.as_int`. A :class:`pandas.Series` input
+        gives a :class:`pandas.Series`, a :class:`pandas.DatetimeIndex` gives a :class:`pandas.Index`
+    """
     month = time_col.dt.month if isinstance(time_col, pd.Series) else time_col.month
     return (month % 12 + 3) // 3
 
@@ -272,6 +290,13 @@ def _construct_seasonal_filter(
 
 
 class ParquetLocation(_BaseLocation):
+    """
+    A single parquet file, :attr:`file_name`, under :attr:`root`
+
+    :attr:`time_window` and :attr:`season` are not applied by this class. They are turned into a pyarrow filter
+    by :meth:`time_filter`, which the reader passes down so that rows outside the selection are never read.
+    """
+
     type: Literal["parquet"] = "parquet"
     root: str = Field(description="Directory (local path or fsspec URL) containing parquet files", repr=True)
     file_name: str = Field(description="Parquet file name", repr=True)
@@ -289,6 +314,14 @@ class ParquetLocation(_BaseLocation):
 
     @model_validator(mode="after")
     def check_window_and_season(self) -> Self:
+        """
+        Validate that the filtering options agree with one another, and that a local :attr:`root` exists
+
+        Raises:
+            ValueError: If :attr:`time_window` is decreasing or is given without a :attr:`time_column`, if
+                :attr:`season` is given without a :attr:`time_window`, or if the window holds no month of the
+                season, which would otherwise leave nothing to filter on
+        """
         if self.time_window is not None:
             if self.time_window.lower > self.time_window.upper:
                 raise ValueError("Time window must be increasing from lower to upper")
@@ -311,6 +344,14 @@ class ParquetLocation(_BaseLocation):
     # NOTE: For now assume that the only filter that will be applied when loading data is a time filter
     #       When needed (YAGNI), add in the functionality to have any kind of filter passed in.
     def time_filter(self) -> list[tuple[str, str, Any]] | list[list[tuple[str, str, Any]]] | None:
+        """
+        pyarrow filter selecting :attr:`time_window` and, where given, :attr:`season`
+
+        Returns:
+            ``None`` when there is no :attr:`time_window` to filter on. For a window on its own, a list of
+            predicates to be ANDed together. For a window and a :attr:`season`, one such list per seasonal
+            period, to be ORed together, as described in :func:`_construct_seasonal_filter`
+        """
         if self.time_window is None:
             return None
 
