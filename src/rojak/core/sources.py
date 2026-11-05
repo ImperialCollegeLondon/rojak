@@ -37,8 +37,9 @@ other options via ``storage_options``.
 import datetime as dt
 import logging
 from enum import StrEnum
+from enum import property as enum_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, assert_never
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, assert_never, overload
 
 import fsspec
 import pandas as pd
@@ -136,6 +137,33 @@ class FilesLocation(_BaseLocation):
         return self
 
 
+class MeteorologicalSeason(StrEnum):
+    DJF = "djf"
+    MAM = "mam"
+    JJA = "jja"
+    SON = "son"
+
+    @enum_property
+    def as_int(self) -> int:
+        return {
+            MeteorologicalSeason.DJF: 1,
+            MeteorologicalSeason.MAM: 2,
+            MeteorologicalSeason.JJA: 3,
+            MeteorologicalSeason.SON: 4,
+        }[self]
+
+
+@overload
+def _to_season(time_col: pd.DatetimeIndex) -> pd.Index: ...
+@overload
+def _to_season(time_col: pd.Series) -> pd.Series: ...
+
+
+def _to_season(time_col: pd.Series | pd.DatetimeIndex) -> pd.Series | pd.Index:
+    month = time_col.dt.month if isinstance(time_col, pd.Series) else time_col.month
+    return (month % 12 + 3) // 3
+
+
 class TemplateLocation(_BaseLocation):
     """
     Files under :attr:`root` named by :attr:`template` formatted with each time step in :attr:`time_window`
@@ -154,6 +182,9 @@ class TemplateLocation(_BaseLocation):
     on_missing: Literal["raise", "skip"] = Field(
         default="raise", description="What to do if a file produced by the template does not exist"
     )
+    season: MeteorologicalSeason | None = Field(
+        default=None, description="Meteorological season within time window", repr=True
+    )
 
     @model_validator(mode="after")
     def check_template_and_window(self) -> Self:
@@ -167,7 +198,16 @@ class TemplateLocation(_BaseLocation):
 
     def time_steps(self) -> pd.DatetimeIndex:
         """Time steps in :attr:`time_window` (inclusive) at :attr:`frequency`"""
-        return pd.date_range(self.time_window.lower, self.time_window.upper, freq=self.frequency)
+        target_times: pd.DatetimeIndex = pd.date_range(
+            self.time_window.lower, self.time_window.upper, freq=self.frequency
+        )
+        if self.season is not None:
+            target_times = target_times[_to_season(target_times) == self.season.as_int]
+
+        if len(target_times) == 0:
+            raise ValueError("No times found within time_windows")
+
+        return target_times
 
 
 class ZarrLocation(_BaseLocation):
