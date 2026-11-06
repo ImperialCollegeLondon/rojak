@@ -13,9 +13,8 @@
 #  limitations under the License.
 
 import functools
-import sys
 from collections.abc import Hashable, Sequence
-from typing import NamedTuple, Protocol, Self, TypeGuard
+from typing import TYPE_CHECKING, NamedTuple, Protocol, Self, TypeGuard
 
 import numpy as np
 import numpy.typing as npt
@@ -23,21 +22,18 @@ import xarray as xr
 from dask import array as da
 from numpy.typing import DTypeLike
 
-if sys.version_info >= (3, 13):
-    from typing import TypeIs
-else:
-    from typing_extensions import TypeIs
+from rojak.utilities._compat import TypeIs
 
 NumpyOrDataArray = npt.NDArray | xr.DataArray
 
-
-class GoHomeYouAreDrunkError(Exception):
-    def __init__(self, message: str) -> None:
-        super().__init__(message)
+if TYPE_CHECKING:
+    import pandas as pd
 
 
-# Limits = NamedTuple("Limits", [("lower", float), ("upper", float)])
 type DiagnosticName = str
+# Type alias workaround to prevent importing pd such that ruff throws
+# false positives when linting for pandas
+type PandasDataFrame = pd.DataFrame
 
 
 class DistributionParameters(NamedTuple):

@@ -228,7 +228,7 @@ def create_multi_turbulence_diagnotics_probability_plot(
     plt.close(fg.fig)
 
 
-def create_configurable_multi_diagnostic_plot(  # noqa: PLR0913
+def create_configurable_multi_diagnostic_plot(
     ds_to_plot: xr.Dataset,
     vars_to_plots: list[str],
     plot_name: str,
@@ -272,7 +272,7 @@ def create_configurable_multi_diagnostic_plot(  # noqa: PLR0913
     plt.close(fg.fig)
 
 
-def create_configurable_zonal_mean_line_plot(  # noqa: PLR0913
+def create_configurable_zonal_mean_line_plot(
     ds_to_plot: xr.Dataset,
     vars_to_plots: list[str],
     plot_name: str,

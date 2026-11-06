@@ -29,3 +29,4 @@
 # (among others).
 tests/_static/test_era5_data.nc filter=lfs diff=lfs merge=lfs -text
 *.png filter=lfs diff=lfs merge=lfs -text
+tests/_static/test_mslp.nc filter=lfs diff=lfs merge=lfs -text

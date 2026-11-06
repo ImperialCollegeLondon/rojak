@@ -1,10 +1,12 @@
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+import numpy as np
 import pytest
 import xarray as xr
 from distributed import Future, futures_of
 
+from rojak.core.data import CATData
 from rojak.orchestrator.configuration import TurbulenceDiagnostics
 from rojak.turbulence.diagnostic import (
     UBF,
@@ -43,8 +45,6 @@ from rojak.turbulence.diagnostic import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from rojak.core.data import CATData
-
 
 @pytest.fixture
 def create_diagnostic_suite(load_cat_data: Callable) -> Callable:
@@ -62,6 +62,36 @@ def create_diagnostic_suite(load_cat_data: Callable) -> Callable:
         )
 
     return _create_diagnostic_suite
+
+
+@pytest.fixture
+def create_dummy_diagnostic_suite(make_dummy_cat_data: Callable) -> Callable:
+    """
+    Build a suite over the small in-memory fixture, for properties that do not depend on the grid
+
+    Building diagnostics from the global ERA5 fixture costs several GB per test in the serial case, where nothing
+    is chunked and so nothing can spill, and that is what sets the test suite's peak memory. Only tests that
+    genuinely need real data should pay for it.
+    """
+
+    def _create_dummy_diagnostic_suite(
+        turbulence_diagnostics: list[TurbulenceDiagnostics],
+        is_parallel: bool,
+        is_calibration: bool,
+    ) -> DiagnosticSuite:
+        cat_data = CATData(
+            make_dummy_cat_data({"pressure_level": np.arange(1.0, 5.0)}, use_numpy=not is_parallel),
+            pressure_level_prefix=100.0,
+            persist=False,
+        )
+        cat_factory = DiagnosticFactory(cat_data)
+        return (
+            CalibrationDiagnosticSuite(cat_factory, turbulence_diagnostics)
+            if is_calibration
+            else DiagnosticSuite(cat_factory, turbulence_diagnostics)
+        )
+
+    return _create_dummy_diagnostic_suite
 
 
 # IMPORTANT: This verifies that the diagnostics can run in a distributed manner. It does NOT currently verify the
@@ -149,21 +179,28 @@ def test_turbulence_diagnostics_serial_and_distributed_are_equivalent(
 
 @pytest.mark.parametrize("is_parallel", [True, False])
 @pytest.mark.parametrize("is_calibration", [True, False])
-def test_diagnostic_names(create_diagnostic_suite: Callable, is_parallel: bool, is_calibration: bool, client) -> None:
-    suite = create_diagnostic_suite([e.value for e in TurbulenceDiagnostics], is_parallel, is_calibration)
+def test_diagnostic_names(
+    create_dummy_diagnostic_suite: Callable, is_parallel: bool, is_calibration: bool, client
+) -> None:
+    # What a suite calls its diagnostics does not depend on the grid, so build all 28 on the in-memory fixture
+    suite = create_dummy_diagnostic_suite(list(TurbulenceDiagnostics), is_parallel, is_calibration)
+
     assert suite.diagnostic_names() == [str(e.value) for e in TurbulenceDiagnostics]
 
 
 @pytest.mark.parametrize("is_parallel", [True, False])
 @pytest.mark.parametrize("is_calibration", [True, False])
-def test_to_and_from_zarr(create_diagnostic_suite, tmp_path_factory, is_calibration: bool, is_parallel: bool) -> None:
+def test_to_and_from_zarr(
+    create_dummy_diagnostic_suite, tmp_path_factory, is_calibration: bool, is_parallel: bool
+) -> None:
+    # A zarr round trip preserves values and coordinates whatever the grid is, so use the in-memory fixture
     target_diagnostics = [
         TurbulenceDiagnostics.DEF,
         TurbulenceDiagnostics.F3D,
         TurbulenceDiagnostics.BROWN2,
         TurbulenceDiagnostics.TI1,
     ]
-    suite: DiagnosticSuite = create_diagnostic_suite(target_diagnostics, is_parallel, is_calibration)
+    suite: DiagnosticSuite = create_dummy_diagnostic_suite(target_diagnostics, is_parallel, is_calibration)
     output_dir: Path = tmp_path_factory.mktemp("as_zarr")
 
     zarr_store = suite.export_as_zarr(output_dir)

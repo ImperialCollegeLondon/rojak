@@ -11,3 +11,9 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+"""
+UK Met Office data source
+
+Implements the :mod:`rojak.core.data` interfaces for loading UK Met Office AMDAR turbulence observations
+(:class:`~rojak.datalib.ukmo.amdar.UkmoAmdarRepository`).
+"""

@@ -11,3 +11,11 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+"""
+ECMWF data source
+
+Implements the :mod:`rojak.core.data` interfaces for downloading
+(:class:`~rojak.datalib.ecmwf.era5.Era5Retriever`) and adapting (:class:`~rojak.datalib.ecmwf.era5.Era5Data`) ERA5
+reanalysis data from the Copernicus Climate Data Store into the :class:`~rojak.core.data.CATData` required by
+:mod:`rojak.turbulence`.
+"""

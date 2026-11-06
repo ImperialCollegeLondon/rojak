@@ -1,6 +1,7 @@
+import warnings
 from collections.abc import Callable, Sequence
 from enum import StrEnum
-from typing import assert_never, cast
+from typing import Any, assert_never, cast
 
 import numpy as np
 import scipy.ndimage as ndi
@@ -518,3 +519,541 @@ def shortest_vertical_distance_from_a_to_b(
     return vertical_distance_to_positive(
         from_feature & to_feature, vertical_coord_name=vertical_coord_name, distance_mode=distance_mode
     )
+
+
+class ExtremaKind(StrEnum):
+    """Enumeration of extrema types for filtering operations.
+
+    Attributes:
+        MINIMA: Represents local minima.
+        MAXIMA: Represents local maxima.
+    """
+
+    MINIMA = "minima"
+    MAXIMA = "maxima"
+
+    def use_less_than_on_threshold(self) -> bool:
+        match self:
+            case ExtremaKind.MINIMA:
+                return True
+            case ExtremaKind.MAXIMA:
+                return False
+            case _ as unreachable:
+                assert_never(unreachable)
+
+
+def apply_extrema_filter(
+    target_data: xr.DataArray,
+    extrema_kind: ExtremaKind,
+    latitude_dim_name: str = "latitude",
+    longitude_dim_name: str = "longitude",
+    **filter_kwargs: Any,  # noqa: ANN401
+) -> xr.DataArray:
+    """Apply a spatial extrema filter to a 3D DataArray.
+
+    Applies either a maximum or minimum filter from :mod:`scipy.ndimage` over the latitude and longitude dimensions of
+    a 3D DataArray, with support for Dask-backed arrays.
+
+    Args:
+        target_data (:class:`xarray.DataArray`): A 3D DataArray to apply the filter to.
+            Must contain the specified latitude and longitude dimensions.
+        extrema_kind (:class:`ExtremaKind`): The type of extrema filter to apply, either
+            :attr:`ExtremaKind.MAXIMA` or :attr:`ExtremaKind.MINIMA`.
+        latitude_dim_name (str): Name of the latitude dimension in ``target_data``.
+            Defaults to ``"latitude"``.
+        longitude_dim_name (str): Name of the longitude dimension in ``target_data``.
+            Defaults to ``"longitude"``.
+        **filter_kwargs: Additional keyword arguments passed to
+            :func:`scipy.ndimage.maximum_filter` or :func:`scipy.ndimage.minimum_filter`.
+
+    Returns:
+        :class:`xarray.DataArray`: A DataArray of the same shape and dtype as
+        ``target_data`` with the extrema filter applied over the latitude and
+        longitude dimensions.
+
+    Raises:
+        ValueError: If ``target_data`` is not 3D.
+        ValueError: If ``target_data`` does not contain the specified latitude and longitude dimensions.
+    """
+    if target_data.ndim != 3:  # noqa: PLR2004
+        raise ValueError("Target data must be 3D")
+
+    if not set(target_data.dims).issuperset({longitude_dim_name, latitude_dim_name}):
+        raise ValueError("Target data must contain the specified longitude and latitude dimensions")
+
+    extrema_func = ndi.maximum_filter if extrema_kind == ExtremaKind.MAXIMA else ndi.minimum_filter
+    return xr.apply_ufunc(
+        extrema_func,
+        target_data,
+        kwargs=filter_kwargs,
+        input_core_dims=[[latitude_dim_name, longitude_dim_name]],
+        output_core_dims=[[latitude_dim_name, longitude_dim_name]],
+        vectorize=True,
+        dask="parallelized",
+        output_dtypes=[target_data.dtype],
+    )
+
+
+def circular_footprint(radius: int) -> np.ndarray:
+    """Create a circular boolean footprint for use with :mod:`scipy` morphological filters.
+
+    Args:
+        radius (int): Radius of the circle in grid points.
+
+    Returns:
+        :class:`numpy.ndarray`: A boolean NumPy ndarray of shape ``(2*radius+1, 2*radius+1)``
+        where ``True`` values represent points within the circle.
+
+    Raises:
+        ValueError: If ``radius`` is :math:`\\leq 0`.
+
+    Example:
+    >>> footprint = circular_footprint(radius=2)
+    >>> footprint.astype(int)
+    array([[0, 0, 1, 0, 0],
+           [0, 1, 1, 1, 0],
+           [1, 1, 1, 1, 1],
+           [0, 1, 1, 1, 0],
+           [0, 0, 1, 0, 0]])
+    """
+    if radius <= 0:
+        raise ValueError("Radius must be positive")
+
+    y, x = np.ogrid[-radius : radius + 1, -radius : radius + 1]
+    return x**2 + y**2 <= radius**2
+
+
+def __extrema_mask_region(
+    extrema_locations: np.ndarray,
+    extrema_filtered: np.ndarray,
+) -> np.ndarray:
+    """Computes mask of extrema regions from an extrema filtered array
+
+    Identifies grid points belonging to extrema regions whose values have been filtered by :func:`apply_extrema_filter`
+
+    Note:
+        This is a private function intended to be used via
+        :func:`xarray.apply_ufunc` within :func:`identify_circular_extrema`.
+
+    Args:
+        extrema_locations (:class:`numpy.ndarray`): A boolean array indicating the locations of local extrema,
+            where ``True`` marks an extremum.
+        extrema_filtered (:class:`numpy.ndarray`): An array of the same shape as ``extrema_locations`` containing
+            the extrema-filtered values.
+
+    Returns:
+        :class:`numpy.ndarray`: A boolean array of the same shape as ``extrema_filtered``, where ``True`` indicates
+        grid points belonging to a qualifying extrema region.
+    """
+    mask_values = extrema_filtered[extrema_locations]
+
+    return (
+        np.isin(extrema_filtered, mask_values) if mask_values.size != 0 else np.zeros_like(extrema_filtered, dtype=bool)
+    )
+
+
+def __identify_extrema_locations(
+    target_data: xr.DataArray,
+    extrema_kind: ExtremaKind,
+    extrema_threshold_value: float | None,
+    lat_dim_name: str,
+    lon_dim_name: str,
+    **filter_kwargs: Any,  # noqa: ANN401
+) -> tuple[xr.DataArray, xr.DataArray]:
+    filter_applied: xr.DataArray = apply_extrema_filter(
+        target_data,
+        extrema_kind,
+        latitude_dim_name=lat_dim_name,
+        longitude_dim_name=lon_dim_name,
+        **filter_kwargs,
+    )
+    extrema_locations: xr.DataArray = target_data == filter_applied
+    if extrema_threshold_value is not None:
+        extrema_locations = extrema_locations & (
+            filter_applied < extrema_threshold_value
+            if extrema_kind.use_less_than_on_threshold()
+            else filter_applied > extrema_threshold_value
+        )
+    return filter_applied, extrema_locations
+
+
+def identify_circular_extrema(
+    target_data: xr.DataArray,
+    extrema_kind: ExtremaKind,
+    extrema_threshold_value: float | None = None,
+    footprint_radius: int = 24,
+    sel_region_indexer: dict | None = None,
+    lat_dim_name: str = "latitude",
+    lon_dim_name: str = "longitude",
+    **filter_kwargs: Any,  # noqa: ANN401
+) -> xr.Dataset:
+    """Identify circular extrema regions in a 3D spatial DataArray.
+
+    Detects local minima or maxima using a circular footprint filter and returns both the point locations of the
+    extrema and the broader regions associated with them, filtered by a threshold condition.
+
+    See Also:
+        - :class:`ExtremaKind`: Enumeration of extrema types.
+        - :func:`apply_extrema_filter`: The underlying extrema filter function.
+        - :func:`circular_footprint`: Generates the circular footprint used for filtering.
+
+    Args:
+        target_data (:class:`xarray.DataArray`): A 3D DataArray to identify extrema in. Must contain the specified
+            latitude and longitude dimensions.
+        extrema_kind (:class:`ExtremaKind`): The type of extrema to identify, either :attr:`ExtremaKind.MAXIMA` or
+            :attr:`ExtremaKind.MINIMA`.
+        extrema_threshold_value (float, optional): The threshold value used to filter extrema regions. Combined with
+            ``is_threshold_less_than`` to determine which extrema are retained.
+            Defaults to ``None``.
+        footprint_radius (int): Radius in grid points of the circular footprint used for the extrema filter.
+            Defaults to ``24``.
+        sel_region_indexer (dict, optional): Optional dictionary of indexers passed to :meth:`xarray.DataArray.sel`
+            to subset ``target_data`` to a specific region before processing. Defaults to ``None``.
+        lat_dim_name (str): Name of the latitude dimension in ``target_data``.
+            Defaults to ``"latitude"``.
+        lon_dim_name (str): Name of the longitude dimension in ``target_data``.
+            Defaults to ``"longitude"``.
+        **filter_kwargs: Additional keyword arguments passed to the underlying
+            scipy filter via :func:`apply_extrema_filter`.
+
+    Returns:
+        :class:`xarray.Dataset`: A Dataset with the same coordinates as ``target_data``
+        containing:
+
+        - **local_extrema** (:class:`xarray.DataArray`): A boolean DataArray indicating the locations of local extrema,
+          where ``True`` marks an extremum.
+        - **extrema_regions** (:class:`xarray.DataArray`): A boolean DataArray indicating grid points belonging to
+          qualifying extrema regions after threshold filtering.
+
+    Raises:
+        ValueError: If ``target_data`` is not 3D.
+        ValueError: If ``target_data`` does not contain the specified latitude and longitude dimensions.
+
+    Example:
+        .. code-block:: python
+
+            result = identify_circular_extrema(
+                target_data=my_data_array,
+                extrema_kind=ExtremaKind.MINIMA,
+                extrema_threshold_value=500.0,
+                footprint_radius=24,
+            )
+            local_extrema = result["local_extrema"]
+            extrema_regions = result["extrema_regions"]
+    """
+    if target_data.ndim != 3:  # noqa: PLR2004
+        raise ValueError("Target data must be 3D")
+
+    if not set(target_data.dims).issuperset({lat_dim_name, lon_dim_name}):
+        raise ValueError("Target data must contain the specified latitude and longitude dimensions")
+
+    if sel_region_indexer is not None:
+        target_data = target_data.sel(indexers=sel_region_indexer)
+
+    filter_applied, extrema_locations = __identify_extrema_locations(
+        target_data,
+        extrema_kind,
+        extrema_threshold_value,
+        lat_dim_name,
+        lon_dim_name,
+        footprint=circular_footprint(radius=footprint_radius),
+        axes=(0, 1),
+        **filter_kwargs,
+    )
+
+    extrema_regions = xr.apply_ufunc(
+        __extrema_mask_region,
+        extrema_locations,
+        filter_applied,
+        input_core_dims=[[lat_dim_name, lon_dim_name], [lat_dim_name, lon_dim_name]],
+        output_core_dims=[[lat_dim_name, lon_dim_name]],
+        vectorize=True,
+        dask="parallelized",
+        output_dtypes=[bool],
+    )
+
+    return xr.Dataset(
+        data_vars={
+            "local_extrema": extrema_locations,
+            "extrema_regions": extrema_regions,
+        },
+        coords=target_data.coords,
+    )
+
+
+def _stack_extrema(
+    extrema_locations: np.ndarray,  # (lat, lon) bool
+    extrema_filtered: np.ndarray,  # (lat, lon) int/float - labelled regions
+) -> np.ndarray:  # (n_extrema, lat, lon) int8
+    """Expand a 2D labelled extrema field into a 3D binary mask stack.
+
+    For each detected extremum, produces a 2D spatial slice in which pixels
+    belonging to that extremum's labelled region are marked ``1`` and the
+    extremum's centre pixel is marked ``2``. All other pixels are ``0``.
+
+    Intended to be called via :func:`xarray.apply_ufunc` with ``vectorize=True``
+    so that it operates on a single ``(lat, lon)`` snapshot at a time.
+
+    Args:
+        extrema_locations (numpy.ndarray): Boolean mask of shape ``(lat, lon)``
+            whose ``True`` entries are the centre points of detected extrema.
+        extrema_filtered (numpy.ndarray): Labelled region array of shape
+            ``(lat, lon)`` - e.g. the output of :func:`scipy.ndimage.label` -
+            where each connected region belonging to an extremum carries a
+            unique non-zero integer label. Pixels outside any region are ``0``.
+
+    Returns:
+        numpy.ndarray: Stacked mask array of shape ``(n_extrema, lat, lon)``
+        and dtype ``int8``. For the ``i``-th extremum:
+
+        - ``0`` - pixel does not belong to this extremum's region.
+        - ``1`` - pixel belongs to this extremum's labelled region.
+        - ``2`` - pixel is the centre of this extremum.
+    """
+    extrema_values = extrema_filtered[extrema_locations]  # (n_extrema,)
+    indices = np.argwhere(extrema_locations)  # (n_extrema, 2)
+    num_extrema: int = len(extrema_values)
+
+    # Vectorised comparison by broadcasting (n_extrema, 1, 1) with (1, lat, lon)
+    # extrema_values[:, None, None] shape: (n_extrema, 1,   1  )
+    # extrema_filtered[None, :, :] shape:  (1,         lat, lon)
+    # result shape:                        (n_extrema, lat, lon)
+    output_array: np.ndarray = (extrema_filtered[None, :, :] == extrema_values[:, None, None]).astype(np.int8)
+
+    # Set extrema centers to be equal to 2
+    output_array[
+        np.arange(num_extrema),  # extrema index
+        indices[:, 0],  # lat indices
+        indices[:, 1],  # lon indices
+    ] = 2
+
+    return output_array
+
+
+def _apply_and_combine_on_n_extrema_groups(
+    target_ds: xr.Dataset,
+    *,
+    lat_dim_name: str,
+    lon_dim_name: str,
+    new_dim_name: str,
+) -> xr.DataArray:
+    """Apply :func:`_stack_extrema` to a group and return a stacked result.
+
+    This is the *apply* step of a split-apply-combine strategy executed via
+    :meth:`xarray.Dataset.groupby` and :meth:`xarray.core.groupby.DatasetGroupBy.map`.
+    Each ``target_ds`` group contains only timesteps that share the same number
+    of extrema, which keeps the output shape of :func:`xarray.apply_ufunc`
+    uniform within the group, a hard requirement for ``dask="parallelized"``.
+
+    After per-timestep expansion, the new extrema index dimension and the
+    ``"time"`` dimension are stacked into a :class:`pandas.MultiIndex` so that
+    xarray's built-in combine logic can concatenate results across groups
+    correctly.
+
+    Args:
+        target_ds (xr.Dataset): A group-slice of the full dataset. Must contain:
+
+            - ``"extrema_locations"`` (:class:`xarray.DataArray`, shape
+              ``(..., lat, lon)``, dtype ``bool``) - centre points of detected
+              extrema.
+            - ``"filtered"`` (:class:`xarray.DataArray`, shape
+              ``(..., lat, lon)``, dtype ``int`` or ``float``) - labelled
+              extrema regions.
+            - ``"n_extrema"`` (scalar coordinate) - the number of extrema
+              present in every timestep of this group.
+
+        lat_dim_name (str): Name of the latitude dimension in ``target_ds``.
+        lon_dim_name (str): Name of the longitude dimension in ``target_ds``.
+        new_dim_name (str): Name assigned to the newly created per-extremum
+            index dimension (e.g. ``"extrema_count"``). Its size equals the
+            number of extrema in this group.
+
+    Returns:
+        xr.DataArray: Expanded mask array stacked along a
+        :class:`pandas.MultiIndex` of ``(new_dim_name, "time")``, exposed
+        under the dimension name ``"n_extrema"``. Pixel values follow the
+        ``0 / 1 / 2`` encoding of :func:`_stack_extrema`.
+    """
+    num_extrema_in_group = target_ds["n_extrema"].values[0]
+    if num_extrema_in_group == 0:
+        # Nothing to stack, so skip _stack_extrema and build the empty (time, new_dim, lat, lon) result directly.
+        #   Slicing time to zero length also avoids dask's reshape failing to merge a zero-length dim with a
+        #   multi-chunk dim in the stack below
+        empty_regions = target_ds["filtered"].isel(time=slice(0, 0)).astype(np.int8)
+        return empty_regions.expand_dims({new_dim_name: 0}, axis=1).stack(n_extrema=(new_dim_name, "time"))
+
+    extrema_regions: xr.DataArray = xr.apply_ufunc(
+        _stack_extrema,
+        target_ds["extrema_locations"],
+        target_ds["filtered"],
+        input_core_dims=[[lat_dim_name, lon_dim_name], [lat_dim_name, lon_dim_name]],
+        output_core_dims=[
+            [new_dim_name, lat_dim_name, lon_dim_name]
+        ],  # create a new dimension which is [0, num_extrema_for_group)
+        vectorize=True,
+        dask="parallelized",
+        output_dtypes=[np.int8],
+        dask_gufunc_kwargs={"output_sizes": {new_dim_name: num_extrema_in_group}},
+    )
+    # Stacking to multi-index allows for the Groupby.map() to combine the datasets. See xarray docs for stacking rules
+    return extrema_regions.stack(n_extrema=(new_dim_name, "time"))
+
+
+def identify_and_stack_circular_extrema(
+    target_data: xr.DataArray,
+    extrema_kind: ExtremaKind,
+    extrema_threshold_value: float | None = None,
+    footprint_radius: int = 24,
+    sel_region_indexer: dict | None = None,
+    lat_dim_name: str = "latitude",
+    lon_dim_name: str = "longitude",
+    time_dim_name: str = "time",
+    **filter_kwargs: Any,  # noqa: ANN401
+) -> xr.DataArray:
+    """Identify circular extrema in a 3D field and return a per-extremum mask stack.
+
+    Detects spatial extrema (minima or maxima) in ``target_data`` using a
+    circular structuring element, labels the connected regions surrounding each
+    extremum, and expands the result so that every detected extremum occupies
+    its own index along a new ``"n_extrema"`` dimension. The output therefore
+    encodes both which grid cells belong to each extremum and when each
+    extremum occurred.
+
+    Processing follows a split-apply-combine pattern to accommodate the
+    variable number of extrema per timestep:
+
+    1. Split - group timesteps by their extrema count so that
+       :func:`xarray.apply_ufunc` always receives arrays of a known, fixed
+       output size.
+    2. Apply - call :func:`_stack_extrema` on each group via
+       :func:`_apply_and_combine_on_n_extrema_groups`.
+    3. Combine - xarray concatenates the groups; results are sorted by
+       time and re-indexed with a flat ``n_extrema`` integer coordinate.
+
+    Args:
+        target_data (xr.DataArray): Three-dimensional input field. Must have
+            exactly the dimensions ``{lat_dim_name, lon_dim_name, time_dim_name}``.
+        extrema_kind (ExtremaKind): Whether to detect minima or maxima.
+            Passed directly to the internal ``__identify_extrema_locations``
+            helper.
+        extrema_threshold_value (float, optional): Minimum absolute value a
+            grid point must exceed to qualify as an extremum. ``None`` disables
+            thresholding. Defaults to ``None``.
+        footprint_radius (int): Radius in grid cells of the circular
+            structuring element used for the morphological extrema filter.
+            Defaults to ``24``.
+        sel_region_indexer (dict, optional): If provided, passed to
+            :meth:`xarray.DataArray.sel` to spatially subset ``target_data``
+            before processing. Defaults to ``None``.
+        lat_dim_name (str): Name of the latitude dimension.
+            Defaults to ``"latitude"``.
+        lon_dim_name (str): Name of the longitude dimension.
+            Defaults to ``"longitude"``.
+        time_dim_name (str): Name of the time dimension.
+            Defaults to ``"time"``.
+        **filter_kwargs (Any): Additional keyword arguments forwarded to
+            ``__identify_extrema_locations`` (e.g. smoothing parameters).
+
+    Returns:
+        xr.DataArray: Array with dimensions
+        ``(n_extrema, lat_dim_name, lon_dim_name)`` and coordinates:
+
+        - ``n_extrema`` - flat integer index ``[0, N)`` where ``N`` is the
+          total number of extrema across all timesteps.
+        - ``time`` - source timestamp of each extremum, attached to the
+          ``n_extrema`` dimension.
+
+        Pixel values follow the ``0 / 1 / 2`` encoding described in
+        :func:`_stack_extrema`. If no extrema are identified, ``n_extrema``
+        has size ``0``.
+
+    Raises:
+        ValueError: If ``target_data`` is not 3D.
+        ValueError: If the dimensions of ``target_data`` do not match the
+            specified ``lat_dim_name``, ``lon_dim_name``, and
+            ``time_dim_name``.
+
+    Warns:
+        UserWarning: If no extrema are identified in ``target_data``.
+    """
+    if target_data.ndim != 3:  # noqa: PLR2004
+        raise ValueError("Target data must be 3D")
+
+    if not set(target_data.dims) == {lat_dim_name, lon_dim_name, time_dim_name}:
+        raise ValueError("Target data must contain the specified time, latitude and longitude dimensions")
+
+    if sel_region_indexer is not None:
+        target_data = target_data.sel(indexers=sel_region_indexer)
+
+    filter_applied, extrema_locations = __identify_extrema_locations(
+        target_data,
+        extrema_kind,
+        extrema_threshold_value,
+        lat_dim_name,
+        lon_dim_name,
+        footprint=circular_footprint(radius=footprint_radius),
+        axes=(0, 1),
+        **filter_kwargs,
+    )
+
+    # Count how many extrema are in a given point in time
+    n_composite_dim = extrema_locations.sum(dim=[lon_dim_name, lat_dim_name]).compute().values
+    # Create a dataset so that both arrays can be used at the GroupBy stage
+    extrema_ds = xr.Dataset(
+        data_vars={"filtered": filter_applied, "extrema_locations": extrema_locations},
+        coords=target_data.coords,
+    )
+
+    # New dim occurs from expanding out the extrema from a single time step
+    extrema_group_idx_dim: str = "extrema_count"
+    extrema_global_idx_dim: str = "n_extrema"
+
+    # Add new `n_extrema` coord that is attached to the existing time dimension - ensure that when the data is split
+    #   in the GroupBy, the information about the tiem is still there.
+    extrema_ds = extrema_ds.assign_coords({extrema_global_idx_dim: (time_dim_name, n_composite_dim)})
+
+    has_extrema = n_composite_dim > 0
+    # If no time step has any extrema, there is nothing to stack. Return an empty array with the same dims and coords
+    #   as the stacked output, and warn so that the empty result is not silent
+    if not has_extrema.any():
+        warnings.warn("No extrema identified in target_data, returning an empty array", stacklevel=2)
+        empty_regions = filter_applied.isel({time_dim_name: slice(0, 0)}).astype(np.int8)
+        return (
+            empty_regions.rename({time_dim_name: extrema_global_idx_dim})
+            .drop_vars(extrema_global_idx_dim)
+            .transpose(lat_dim_name, lon_dim_name, extrema_global_idx_dim)
+            .assign_coords(
+                n_extrema=np.arange(0),
+                time=(extrema_global_idx_dim, target_data[time_dim_name].values[:0]),
+            )
+        )
+
+    # Drop time steps without extrema as they contribute nothing to the stack
+    extrema_ds = extrema_ds.isel({time_dim_name: has_extrema})
+
+    # groupby("n_extrema"): This ensures that each item in a group only has a fixed number of extrema. This allows for
+    #                       xr.apply_ufunc() to be used as each iteration over the non-lat-lon dim results in the array
+    #                       growing by the same amount.
+    #                       This is the "split" in the split-apply-combine strategy
+    # map():                Operation on the GroupBy object which applies a function to each group and concats them
+    #                       together.
+    #                       This method invoked in the "apply" part of the strategy and setting things up so that the
+    #                       xr built-in combine method can assemble the new dataset
+    # sortby():             The groupby results in the data being in a different order. So, this is just to make it
+    #                       consistent with the rest of the data to have time increase linearly
+    # pyright flags that this is xr.Dataset and from the types in the docs it should be. However, the `map()` returns
+    # a xr.DataArray so the output of the `map()` is an xr.DataArray
+    n_extrema_indexed = (
+        extrema_ds.groupby(extrema_global_idx_dim)
+        .map(
+            _apply_and_combine_on_n_extrema_groups,  # pyright: ignore[reportArgumentType]
+            lat_dim_name=lat_dim_name,
+            lon_dim_name=lon_dim_name,
+            new_dim_name=extrema_group_idx_dim,
+        )
+        .sortby(time_dim_name)
+    )
+    time_values = n_extrema_indexed[time_dim_name].values
+    return n_extrema_indexed.drop_vars([extrema_global_idx_dim, extrema_group_idx_dim, time_dim_name]).assign_coords(
+        n_extrema=np.arange(time_values.size), time=(extrema_global_idx_dim, time_values)
+    )  # pyright: ignore[reportReturnType]
