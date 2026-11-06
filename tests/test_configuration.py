@@ -934,6 +934,15 @@ def test_lite_context_defaults_met_data_from_data_dir(tmp_path, extra_fields, ex
     assert context.met_data.engine == "h5netcdf"
 
 
+def test_lite_context_chunks_default_to_time_only_chunking(tmp_path) -> None:
+    fields = lite_context_fields(tmp_path)
+    del fields["chunks"]
+
+    context = BaseTurbulenceContext.model_validate(fields)
+
+    assert context.chunks == {"time": "auto", "pressure_level": -1, "latitude": -1, "longitude": -1}
+
+
 def test_lite_context_rejects_legacy_fields_alongside_met_data(tmp_path) -> None:
     met_data = {"location": {"type": "zarr", "store": "s3://bucket/era5.zarr"}}
     with pytest.raises(InvalidConfigurationError):

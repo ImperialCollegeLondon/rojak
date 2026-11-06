@@ -66,6 +66,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_CHUNKS: Mapping[str, int | str] = {"time": "auto", "pressure_level": -1, "latitude": -1, "longitude": -1}
+"""
+Recommended dask chunking for gridded meteorological data: chunk along ``time`` only
+
+Keeping each horizontal slice and each vertical column in a single chunk means that :func:`dask.array.gradient` needs
+no halo exchange between chunks, that vertical derivatives along ``pressure_level`` never span chunks, and that the
+``flatten`` used by the calibration post-processors in :mod:`rojak.turbulence.analysis` stays blockwise instead of
+becoming a full shuffle.
+"""
+
 
 class Date(NamedTuple):
     """A single calendar date, as used by :class:`DataRetriever`"""
@@ -214,7 +224,17 @@ class CATPrognosticData:
         if not set(dataset.coords.keys()).issuperset(self.required_coords):
             missing_coords = self.required_coords - dataset.coords.keys()
             raise ValueError(f"Attempting to instantiate CATPrognosticData with missing coords: {missing_coords}")
-        self._dataset = dataset.sortby("time")
+        sorted_dataset = dataset.sortby("time")
+        # Materialise any dask-backed dimension coordinates so that downstream arithmetic on DataArrays from
+        # this dataset does not trigger N scheduler round-trips for coordinate equality checks.  Dimension
+        # coordinates are always small (a few hundred elements at most), so the upfront compute is negligible.
+        # Pass the computed DataArray (not bare .values) so that non-index coordinates keep their dims.
+        dask_coords = {
+            name: coord.compute(scheduler="synchronous")
+            for name, coord in sorted_dataset.coords.items()
+            if isinstance(coord.data, da.Array)
+        }
+        self._dataset = sorted_dataset.assign_coords(dask_coords) if dask_coords else sorted_dataset
         self._pressure_level_prefix = pressure_level_prefix
         self._persist = persist
         self._persisted_variables = {}
@@ -303,6 +323,7 @@ class CATData(CATPrognosticData):
     _velocity_derivatives: dict[VelocityDerivative, xr.DataArray] | None = None
     _shear_deformation: xr.DataArray | None = None
     _stretching_deformation: xr.DataArray | None = None
+    _d_geopotential_d_pressure: xr.DataArray | None = None
 
     def __init__(self, dataset: xr.Dataset, pressure_level_prefix: float, *, persist: bool = True) -> None:
         """See :meth:`CATPrognosticData.__init__`"""
@@ -315,6 +336,17 @@ class CATData(CATPrognosticData):
                 turb_calc.potential_temperature(self.temperature(), self.temperature()["pressure_level"])
             )
         return self._potential_temperature
+
+    def d_geopotential_d_pressure(self) -> xr.DataArray:
+        """
+        Derivative of geopotential w.r.t. pressure level
+
+        This is the denominator shared by every altitude derivative, see
+        :func:`rojak.turbulence.calculations.altitude_derivative_on_pressure_level`.
+        """
+        if self._d_geopotential_d_pressure is None:
+            self._d_geopotential_d_pressure = self._maybe_persist(self.geopotential().differentiate("pressure_level"))
+        return self._d_geopotential_d_pressure
 
     def velocity_derivatives(self) -> dict[VelocityDerivative, xr.DataArray]:
         """All four horizontal velocity derivatives, see :func:`rojak.core.derivatives.vector_derivatives`"""
@@ -447,7 +479,8 @@ def load_from_folder(
         path_to_folder: Directory containing the data files
         glob_pattern: Glob pattern (relative to ``path_to_folder``) matching the files to load. Defaults to
             ``"*.nc"``.
-        chunks: Dask chunking to use, passed to :func:`xarray.open_mfdataset`. Must not be ``None``.
+        chunks: Dask chunking to use, passed to :func:`xarray.open_mfdataset`. Must not be ``None``;
+            :data:`DEFAULT_CHUNKS` is the recommended value.
         engine: Backend engine used to read the files. Defaults to ``"netcdf4"``.
         is_decoded: Whether to decode coordinates, CF conventions, and timedeltas on load. Defaults to ``True``.
         **open_kwargs: Additional keyword arguments passed to :func:`xarray.open_mfdataset`, see

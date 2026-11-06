@@ -20,6 +20,7 @@ from typing import Any
 
 from pydantic import DirectoryPath, Field, FilePath, model_validator
 
+from rojak.core.data import DEFAULT_CHUNKS
 from rojak.orchestrator.configuration import (
     BaseConfigModel,
     CreateDirectoryPath,
@@ -54,7 +55,8 @@ class BaseTurbulenceContext(BaseConfigModel):
         frozen=True,
     )
     chunks: dict[str, float | str] = Field(
-        description="How data should be chunked (dask)",
+        default_factory=lambda: dict[str, float | str](DEFAULT_CHUNKS),
+        description="How data should be chunked (dask). Defaults to rojak.core.data.DEFAULT_CHUNKS",
         frozen=True,
         repr=True,
         strict=True,

@@ -31,12 +31,13 @@ all diagnostics in the suite.
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Generator, Mapping
-from functools import singledispatchmethod
-from typing import TYPE_CHECKING, assert_never, override
+from typing import TYPE_CHECKING, Self, assert_never, override
 
 import numpy as np
 import xarray as xr
+from dask.base import compute as dask_compute
 from dask.base import is_dask_collection
+from dask.base import persist as dask_persist
 from rich.progress import track
 
 from rojak.core.derivatives import (
@@ -47,6 +48,7 @@ from rojak.core.derivatives import (
     spatial_gradient,
     spatial_laplacian,
 )
+from rojak.core.indexing import concat_new_dim
 from rojak.orchestrator.configuration import (
     TurbulenceDiagnostics,
     TurbulenceSeverity,
@@ -93,6 +95,7 @@ class Diagnostic(ABC):
 
     _name: "DiagnosticName"
     _computed_value: xr.DataArray | None = None
+    _lazy_value: xr.DataArray | None = None
 
     def __init__(self, name: "DiagnosticName") -> None:
         """
@@ -111,16 +114,41 @@ class Diagnostic(ABC):
         return self._name
 
     @property
+    def lazy_value(self) -> xr.DataArray:
+        """
+        The diagnostic's value as an unevaluated recipe
+
+        Built via :meth:`_compute` on first access and renamed to :attr:`name`, then cached so that repeated accesses
+        return the same object. Unlike :attr:`computed_value`, nothing is persisted, so accessing it never triggers
+        computation for dask-backed inputs.
+        """
+        if self._lazy_value is None:
+            self._lazy_value = self._compute().rename(self.name)
+        return self._lazy_value
+
+    @property
     def computed_value(self) -> xr.DataArray:
         """
         The diagnostic's computed value
 
-        Computed lazily via :meth:`_compute` on first access, then cached (renamed to :attr:`name` and persisted)
-        so that subsequent accesses do not recompute it.
+        :attr:`lazy_value` persisted on first access, then cached so that subsequent accesses do not recompute it.
         """
         if self._computed_value is None:
-            self._computed_value = self._compute().rename(self.name).persist()
+            self._computed_value = self.lazy_value.persist()
         return self._computed_value
+
+    def set_computed(self, value: xr.DataArray) -> None:
+        """
+        Supply an already-computed value, so that :attr:`computed_value` returns it instead of persisting
+
+        This only affects :attr:`computed_value`. :attr:`lazy_value` always builds the recipe from :meth:`_compute`
+        regardless of what this method has injected, so callers must not wire ``lazy_value`` into downstream graphs
+        after calling this method and expect the pre-loaded data to propagate.
+
+        Args:
+            value: The diagnostic's computed value
+        """
+        self._computed_value = value
 
     def to_zarr(self, output_base_dir: "Path", *, file_name: str | None = None) -> None:
         """
@@ -137,22 +165,6 @@ class Diagnostic(ABC):
             mode="w",
             zarr_format=2,
         )
-
-
-class LoadedFromZarr(Diagnostic):
-    """
-    A :class:`Diagnostic` wrapping a value that has already been computed (e.g. reloaded from a zarr store),
-    rather than one computed from raw meteorological fields
-    """
-
-    def __init__(self, name: str, computed_value: xr.DataArray) -> None:
-        super().__init__(name)
-        self._computed_value = computed_value
-
-    @override
-    def _compute(self) -> xr.DataArray:
-        assert self._computed_value is not None
-        return self._computed_value
 
 
 class Frontogenesis3D(Diagnostic):
@@ -254,7 +266,7 @@ class Frontogenesis3D(Diagnostic):
 
         mag_grad_theta: xr.DataArray = np.sqrt(np.square(dtheta_dx) + np.square(dtheta_dy) + np.square(dtheta_dz))  # pyright: ignore[reportAssignmentType]
         # If potential field has no changes, then there will be a division by zero
-        inverse_mag_grad_theta: xr.DataArray = -np.reciprocal(mag_grad_theta, where=mag_grad_theta != 0)  # pyright: ignore[reportAssignmentType]
+        inverse_mag_grad_theta = xr.where(mag_grad_theta != 0, -1.0 / mag_grad_theta, 0.0)
 
         return inverse_mag_grad_theta * (
             self.x_component(dtheta_dx, dtheta_dy)
@@ -328,7 +340,7 @@ class Frontogenesis2D(Diagnostic):
         )
         mag_grad_theta: xr.DataArray = magnitude_of_vector(dtheta["dfdx"], dtheta["dfdy"])
         # If potential field has no changes, then there will be a division by zero
-        inverse_mag_grad_theta: xr.DataArray = -np.reciprocal(mag_grad_theta, where=mag_grad_theta != 0)  # pyright: ignore[reportAssignmentType]
+        inverse_mag_grad_theta = xr.where(mag_grad_theta != 0, -1.0 / mag_grad_theta, 0.0)
 
         return inverse_mag_grad_theta * (
             np.square(dtheta["dfdx"]) * self._du_dx
@@ -365,6 +377,37 @@ class HorizontalTemperatureGradient(Diagnostic):
         return magnitude_of_geospatial_gradient(self._temperature)
 
 
+def _wind_direction_pressure_gradient(direction: xr.DataArray) -> xr.DataArray:
+    """
+    Gradient of wind direction along ``pressure_level``, taking the wrap-around of angles into account
+
+    Args:
+        direction: Wind direction in radians with a ``pressure_level`` dimension, numpy- or dask-backed
+
+    Returns:
+        The gradient with respect to pressure, with the same dims, coords and dtype as ``direction``
+    """
+    pressure_levels: np.ndarray = direction["pressure_level"].data
+    z_axis: int = direction.get_axis_num("pressure_level")
+    if not is_dask_collection(direction.data):
+        return direction.copy(data=angles_gradient(direction.values, z_axis, coord_values=pressure_levels))
+
+    # np.gradient needs every block to hold whole pressure_level columns, so it is a core dim kept in one chunk.
+    # Rechunk the data alone: DataArray.chunk would also chunk numpy-backed coords such as altitude
+    whole_columns: xr.DataArray = direction.copy(data=direction.data.rechunk({z_axis: -1}))
+    return xr.apply_ufunc(
+        angles_gradient,
+        whole_columns,
+        input_core_dims=[["pressure_level"]],
+        output_core_dims=[["pressure_level"]],
+        # apply_ufunc moves core dims to the last axis
+        kwargs={"coord_values": pressure_levels, "target_axis": -1},
+        dask="parallelized",
+        # Inference fails: dask probes with a 1-element array, which is too short for np.gradient
+        output_dtypes=[direction.dtype],
+    ).transpose(*direction.dims)
+
+
 class Endlich(Diagnostic):
     """
     Endlich CAT Diagnostic
@@ -397,25 +440,7 @@ class Endlich(Diagnostic):
 
     @override
     def _compute(self) -> xr.DataArray:
-        values_in_z_axis: np.ndarray = self._u_wind["pressure_level"].data
-        z_axis: int = self._u_wind.get_axis_num("pressure_level")
-
-        if is_dask_collection(self._u_wind):
-            d_direction_d_p: xr.DataArray = xr.apply_ufunc(
-                angles_gradient,
-                self._wind_direction,
-                kwargs={"coord_values": values_in_z_axis, "target_axis": z_axis},
-                dask="parallelized",
-                output_dtypes=[np.float32],
-            )
-        else:
-            d_direction_d_p_values: np.ndarray = angles_gradient(
-                self._wind_direction.values,
-                z_axis,
-                coord_values=values_in_z_axis,
-            )
-            d_direction_d_p: xr.DataArray = self._wind_direction.copy(data=d_direction_d_p_values)
-
+        d_direction_d_p: xr.DataArray = _wind_direction_pressure_gradient(self._wind_direction)
         d_direction_d_z: xr.DataArray = (
             GRAVITATIONAL_ACCELERATION * d_direction_d_p / self._geopotential.differentiate("pressure_level")
         )
@@ -613,6 +638,7 @@ class ColsonPanofsky(Diagnostic):
     _u_wind: xr.DataArray
     _v_wind: xr.DataArray
     _geopotential: xr.DataArray
+    _full_pressure_level: xr.DataArray
 
     def __init__(
         self,
@@ -623,6 +649,7 @@ class ColsonPanofsky(Diagnostic):
         geopotential: xr.DataArray,
     ) -> None:
         super().__init__(TurbulenceDiagnostics.COLSON_PANOFSKY)
+        self._full_pressure_level = geopotential["pressure_level"]
         # !!! IMPT: Reduces dimension by 1
         # Want the minuend (i.e. label=upper) as we're looking at the distance between grid points (delta z)
         self._length_scale = altitude.diff("pressure_level", label="upper")
@@ -641,7 +668,10 @@ class ColsonPanofsky(Diagnostic):
             is_abs_velocities=True,
             is_vws_squared=True,
         )
-        return vws * np.square(self._length_scale) * self._richardson_term
+        result = vws * np.square(self._length_scale) * self._richardson_term
+        # The vertical differencing in __init__ leaves the result on pressure_level[1:]. Reindex explicitly so the
+        # missing first level is a visible NaN slice, rather than being silently NaN-padded by a Dataset outer join.
+        return result.reindex(pressure_level=self._full_pressure_level.values)
 
 
 class UBF(Diagnostic):
@@ -975,21 +1005,7 @@ class DirectionalShear(Diagnostic):
 
     @override
     def _compute(self) -> xr.DataArray:
-        direction: xr.DataArray = wind_direction(self._u_wind, self._v_wind)
-        z_axis: int = self._u_wind.get_axis_num("pressure_level")
-        values_in_z_axis: np.ndarray = self._u_wind["pressure_level"].data
-        if is_dask_collection(self._u_wind):
-            directional_shear: xr.DataArray = xr.apply_ufunc(
-                angles_gradient,
-                direction,
-                kwargs={"coord_values": values_in_z_axis, "target_axis": z_axis},
-                dask="parallelized",
-                output_dtypes=[np.float32],
-            )
-        else:
-            directional_shear: xr.DataArray = direction.copy(
-                data=angles_gradient(direction.values, z_axis, values_in_z_axis),
-            )
+        directional_shear: xr.DataArray = _wind_direction_pressure_gradient(wind_direction(self._u_wind, self._v_wind))
         d_direction_d_z: xr.DataArray = (
             GRAVITATIONAL_ACCELERATION * directional_shear / self._geopotential.differentiate("pressure_level")
         )
@@ -1346,16 +1362,19 @@ class DiagnosticFactory:
     """
 
     _data: "CATData"
+    _cache: dict[TurbulenceDiagnostics, Diagnostic]
 
     def __init__(self, data: "CATData") -> None:
         self._data = data
+        self._cache = {}
 
-    def create(self, diagnostic: TurbulenceDiagnostics) -> Diagnostic:  # noqa: PLR0911, PLR0912
+    def create(self, diagnostic: TurbulenceDiagnostics) -> Diagnostic:
         """
         Construct the :class:`Diagnostic` instance for the requested turbulence diagnostic
 
-        Any diagnostics that ``diagnostic`` itself depends on (e.g. :class:`GradientRichardson` for
-        :class:`Ncsu1`) are constructed (and computed) recursively as needed.
+        Instances are cached per factory, so repeated calls for the same ``diagnostic`` return the same object. Any
+        diagnostics that ``diagnostic`` itself depends on (e.g. :class:`GradientRichardson` for :class:`Ncsu1`) are
+        constructed recursively and consumed through their :attr:`Diagnostic.lazy_value`, so nothing is computed.
 
         Args:
             diagnostic: Turbulence diagnostic to construct
@@ -1363,6 +1382,12 @@ class DiagnosticFactory:
         Returns:
             Instance of the :class:`Diagnostic` subclass corresponding to ``diagnostic``, built from ``self._data``
         """
+        if diagnostic not in self._cache:
+            self._cache[diagnostic] = self._build(diagnostic)
+        return self._cache[diagnostic]
+
+    def _build(self, diagnostic: TurbulenceDiagnostics) -> Diagnostic:  # noqa: PLR0911, PLR0912
+        """Construct a new, uncached :class:`Diagnostic` for ``diagnostic``; see :meth:`create`"""
         match diagnostic:
             case TurbulenceDiagnostics.F2D:
                 return Frontogenesis2D(
@@ -1406,7 +1431,7 @@ class DiagnosticFactory:
                 return Ncsu1(
                     self._data.u_wind(),
                     self._data.v_wind(),
-                    richardson.computed_value,
+                    richardson.lazy_value,
                     self._data.velocity_derivatives(),
                     self._data.vorticity(),
                 )
@@ -1416,7 +1441,7 @@ class DiagnosticFactory:
                     self._data.u_wind(),
                     self._data.v_wind(),
                     self._data.altitude(),
-                    richardson.computed_value,
+                    richardson.lazy_value,
                     self._data.geopotential(),
                 )
             case TurbulenceDiagnostics.UBF:
@@ -1435,8 +1460,8 @@ class DiagnosticFactory:
                 vws: Diagnostic = self.create(TurbulenceDiagnostics.VWS)
                 brunt_vaisala: Diagnostic = self.create(TurbulenceDiagnostics.BRUNT_VAISALA)
                 return GradientRichardson(
-                    vws.computed_value,
-                    brunt_vaisala.computed_value,
+                    vws.lazy_value,
+                    brunt_vaisala.lazy_value,
                     is_negative=diagnostic == TurbulenceDiagnostics.NEGATIVE_RICHARDSON,
                 )
             case TurbulenceDiagnostics.WIND_SPEED:
@@ -1475,7 +1500,7 @@ class DiagnosticFactory:
                     self._data.u_wind(),
                     self._data.v_wind(),
                     self._data.geopotential(),
-                    brown1.computed_value,
+                    brown1.lazy_value,
                 )
             case TurbulenceDiagnostics.NVA:
                 return NegativeVorticityAdvection(self._data.u_wind(), self._data.v_wind(), self._data.vorticity())
@@ -1496,44 +1521,112 @@ class DiagnosticSuite:
     """
     A collection of computed turbulence diagnostics
 
-    The diagnostics can either be freshly computed via a :class:`DiagnosticFactory`, or reloaded from an
-    :class:`xarray.Dataset` (e.g. as read back from zarr by :meth:`load_from_zarr`) containing already-computed
-    values.
+    All diagnostics are held as the data variables of one :class:`xarray.Dataset` (see :attr:`dataset`). Build a
+    suite either from a :class:`DiagnosticFactory` (:meth:`from_factory`, or the constructor), which merges the
+    diagnostics' lazy recipes so that shared dependencies are computed once, or from a Dataset of already-computed
+    values (:meth:`from_dataset`, e.g. as read back from zarr by :meth:`load_from_zarr`).
+
+    Args:
+        factory: Factory used to construct each of ``diagnostics``
+        diagnostics: Turbulence diagnostics to include in the suite
+        persist: Whether :attr:`dataset` persists the merged diagnostics on first access. If ``False``, the dataset
+            stays lazy and the caller decides when to compute it.
     """
 
     _diagnostics: dict["DiagnosticName", Diagnostic]
+    _names: list["DiagnosticName"]
+    _dataset: xr.Dataset | None
+    _persist: bool
 
-    @singledispatchmethod
-    def __init__(self, _factory: DiagnosticFactory | xr.Dataset, _diagnostics: list[TurbulenceDiagnostics]) -> None:
+    def __init__(
+        self,
+        factory: DiagnosticFactory,
+        diagnostics: list[TurbulenceDiagnostics],
+        *,
+        persist: bool = True,
+    ) -> None:
+        self._dataset = None
+        self._persist = persist
+        self._diagnostics = {str(diagnostic): factory.create(diagnostic) for diagnostic in diagnostics}
+        self._names = list(self._diagnostics.keys())
+
+    @classmethod
+    def from_factory(
+        cls,
+        factory: DiagnosticFactory,
+        diagnostics: list[TurbulenceDiagnostics],
+        *,
+        persist: bool = True,
+    ) -> "DiagnosticSuite":
         """
+        Construct a suite whose diagnostics are built by ``factory``
+
+        Nothing is computed here; the diagnostics are merged into :attr:`dataset` on first access.
+
         Args:
-            _factory: Either a :class:`DiagnosticFactory` to compute ``_diagnostics`` from, or a Dataset of
-                already-computed diagnostic values
-            _diagnostics: Turbulence diagnostics to include in the suite
+            factory: Factory used to construct each of ``diagnostics``
+            diagnostics: Turbulence diagnostics to include in the suite
+            persist: Whether :attr:`dataset` persists the merged diagnostics on first access
+
+        Returns:
+            Suite backed by the diagnostics' lazy recipes
+        """
+        return cls(factory, diagnostics, persist=persist)
+
+    @classmethod
+    def from_dataset(cls, ds: xr.Dataset, diagnostics: list[TurbulenceDiagnostics]) -> "DiagnosticSuite":
+        """
+        Construct a suite from a Dataset of already-computed diagnostic values
+
+        Args:
+            ds: Dataset with one data variable per diagnostic, named after the diagnostic
+            diagnostics: Diagnostics to take from ``ds``. Variables of ``ds`` not listed here are dropped.
+
+        Returns:
+            Suite whose :attr:`dataset` is the selected variables of ``ds``, used as-is (it is not persisted)
 
         Raises:
-            TypeError: If ``_factory`` is not a :class:`DiagnosticFactory` or :class:`xarray.Dataset`
+            ValueError: If any of ``diagnostics`` is not a data variable of ``ds``
+
+        Note:
+            This method (and the inherited :meth:`load_from_zarr`) must **not** be called on
+            :class:`EvaluationDiagnosticSuite`. That subclass stores additional state
+            (``_severities``, ``_pressure_levels``, ``_probability_thresholds``, etc.) that is
+            only set by its ``__init__``; bypassing ``__init__`` via ``cls.__new__`` leaves those
+            attributes unset and any call to :attr:`~EvaluationDiagnosticSuite.probabilities`,
+            :meth:`~EvaluationDiagnosticSuite.compute_turbulent_regions`, etc. will raise
+            ``AttributeError``.  Construct :class:`EvaluationDiagnosticSuite` directly instead.
         """
-        raise TypeError("factory must be an instance of DiagnosticFactory or None")
+        names = [str(diagnostic) for diagnostic in diagnostics]
+        missing = [name for name in names if name not in ds.data_vars]
+        if missing:
+            raise ValueError(f"Dataset has no variables for diagnostics {missing}; remove them from the targets")
 
-    @__init__.register(DiagnosticFactory)
-    def _(self, factory: DiagnosticFactory, diagnostics: list[TurbulenceDiagnostics]) -> None:
-        """Construct each diagnostic in ``diagnostics`` via ``factory``"""
-        self._diagnostics: dict[DiagnosticName, Diagnostic] = {
-            str(diagnostic): factory.create(diagnostic)
-            for diagnostic in diagnostics  # TurbulenceDiagnostic
-        }
+        # Bypass __init__, which builds diagnostics from a factory: here the values already exist
+        instance: Self = cls.__new__(cls)
+        instance._diagnostics = {}
+        instance._names = names
+        instance._dataset = ds[names]
+        instance._persist = False
+        return instance
 
-    @__init__.register(xr.Dataset)
-    def _(self, factory: xr.Dataset, diagnostics: list[TurbulenceDiagnostics]) -> None:
-        """Wrap each of ``diagnostics``'s already-computed values in ``factory`` as a :class:`LoadedFromZarr`"""
-        target_diagnostics: set[TurbulenceDiagnostics] = set(diagnostics)
-        assert target_diagnostics.issubset(factory.keys())
-        self._diagnostics: dict[DiagnosticName, Diagnostic] = {
-            str(name): LoadedFromZarr(str(name), computed_diagnostic)
-            for (name, computed_diagnostic) in factory.items()
-            if name in target_diagnostics
-        }
+    @property
+    def dataset(self) -> xr.Dataset:
+        """
+        Every diagnostic in the suite as one Dataset, with one data variable per diagnostic
+
+        For a factory-built suite, the diagnostics' lazy values are merged on first access, persisted if the suite
+        was constructed with ``persist=True``, and cached. Merging uses ``join="exact"``, so diagnostics whose
+        coordinates disagree raise rather than being silently aligned and NaN-padded.
+        """
+        if self._dataset is None:
+            ds = xr.merge(
+                [diagnostic.lazy_value for diagnostic in self._diagnostics.values()],
+                join="exact",
+                compat="no_conflicts",
+            )
+            self._dataset = ds.persist() if self._persist else ds
+        return self._dataset
 
     def computed_values(
         self,
@@ -1547,39 +1640,32 @@ class DiagnosticSuite:
                 is shown.
 
         Yields:
-            Tuple of diagnostic name and its computed value
+            Tuple of diagnostic name and its value in :attr:`dataset`
         """
-        for name, diagnostic in (
-            track(self._diagnostics.items(), description=progress_description)
-            if progress_description
-            else self._diagnostics.items()
-        ):  # DiagnosticName, Diagnostic
-            yield name, diagnostic.computed_value
+        items = self.dataset.data_vars.items()
+        for name, value in track(items, description=progress_description) if progress_description else items:
+            yield str(name), value
 
     def computed_values_as_dict(self) -> dict[str, "xr.DataArray"]:
-        """Same as :meth:`computed_values`, collected eagerly into a dict (without a progress bar)"""
-        return dict(self.computed_values(""))
+        """Each diagnostic's value in :attr:`dataset`, keyed by diagnostic name"""
+        return {str(name): value for name, value in self.dataset.data_vars.items()}
 
     def diagnostic_names(self) -> list["DiagnosticName"]:
-        """Names of the diagnostics in the suite"""
-        return list(self._diagnostics.keys())
+        """
+        Names of the diagnostics in the suite, in the order they were requested
+
+        This reads the names the suite was built with, so that asking what is in the suite never materialises
+        :attr:`dataset`.
+        """
+        return list(self._names)
 
     def get_prototype_computed_diagnostic(self) -> xr.DataArray:
         """An arbitrary diagnostic's computed value, used where any one diagnostic's shape/coords will do"""
-        _, prototype = next(self.computed_values(""))
-        return prototype
+        return next(iter(self.dataset.data_vars.values()))
 
     def as_dataset(self) -> xr.Dataset:
-        """
-        Combine every diagnostic's computed value into a single Dataset
-
-        Returns:
-            Dataset with one data variable per diagnostic, using the coordinates of an arbitrary diagnostic (see
-            :meth:`get_prototype_computed_diagnostic`)
-        """
-        return xr.Dataset(
-            data_vars=self.computed_values_as_dict(), coords=self.get_prototype_computed_diagnostic().coords
-        )
+        """Same as :attr:`dataset`"""
+        return self.dataset
 
     @classmethod
     def load_from_zarr(
@@ -1599,14 +1685,16 @@ class DiagnosticSuite:
         Raises:
             FileNotFoundError: If ``path`` does not exist
             NotADirectoryError: If ``path`` is not a directory
+            ValueError: If any of ``target_diagnostics`` is not stored at ``path``
         """
         if not path.exists():
             raise FileNotFoundError(f"{path} does not exist")
         if not path.is_dir():
             raise NotADirectoryError(f"{path} is not a directory")
 
-        return DiagnosticSuite(
-            xr.open_zarr(path, **(open_zarr_kwargs if open_zarr_kwargs is not None else {})), target_diagnostics
+        return cls.from_dataset(
+            xr.open_zarr(path, **(open_zarr_kwargs if open_zarr_kwargs is not None else {})),
+            target_diagnostics,
         )
 
     def export_as_zarr(
@@ -1641,7 +1729,7 @@ class DiagnosticSuite:
         # Two false positive by pyright - 1) xr.Dataset has the method to_zarr(), and 2) StoreLike inlcudes Path
         # See https://docs.xarray.dev/en/v2026.02.0/generated/xarray.Dataset.to_zarr.html
         # See https://zarr.readthedocs.io/en/v3.1.5/api/zarr/storage/#zarr.storage.StoreLike
-        return self.as_dataset().to_zarr(store=output_path, mode="w", zarr_format=zarr_format, **to_zarr_kwargs)  # pyright: ignore[reportCallIssue, reportArgumentType]
+        return self.dataset.to_zarr(store=output_path, mode="w", zarr_format=zarr_format, **to_zarr_kwargs)  # pyright: ignore[reportCallIssue, reportArgumentType]
 
 
 class CalibrationDiagnosticSuite(DiagnosticSuite):
@@ -1649,11 +1737,6 @@ class CalibrationDiagnosticSuite(DiagnosticSuite):
     A :class:`DiagnosticSuite` computed on a calibration dataset, used to derive severity thresholds and EDR
     distribution parameters for an :class:`EvaluationDiagnosticSuite`
     """
-
-    # I think the pyright warning is a false positive?
-    def __init__(self, factory: DiagnosticFactory | xr.Dataset, diagnostics: list[TurbulenceDiagnostics]) -> None:  # pyright: ignore [reportIncompatibleVariableOverride]
-        """See :meth:`DiagnosticSuite.__init__`"""
-        super().__init__(factory, diagnostics)
 
     def compute_thresholds(
         self,
@@ -1670,9 +1753,19 @@ class CalibrationDiagnosticSuite(DiagnosticSuite):
         Returns:
             Mapping from diagnostic name to its computed :class:`TurbulenceThresholds`
         """
-        return {
-            name: TurbulenceIntensityThresholds(percentile_config, diagnostic).execute()
+        processors = {
+            name: TurbulenceIntensityThresholds(percentile_config, diagnostic)
             for name, diagnostic in self.computed_values("Computing thresholds")  # DiagnosticName, xr.DataArray
+        }
+        if not is_dask_collection(self.dataset):
+            # numpy-backed: execute() uses exact numpy percentiles rather than dask's tdigest approximation
+            return {name: processor.execute() for name, processor in processors.items()}
+
+        # One scheduler round trip for every diagnostic, rather than one per diagnostic
+        computed_thresholds = dask_compute(*(processor.build_lazy_collection() for processor in processors.values()))
+        return {
+            name: processor.build_result(result)
+            for (name, processor), result in zip(processors.items(), computed_thresholds, strict=True)
         }
 
     def compute_distribution_parameters(self) -> Mapping["DiagnosticName", "HistogramData"]:
@@ -1684,11 +1777,28 @@ class CalibrationDiagnosticSuite(DiagnosticSuite):
         Returns:
             Mapping from diagnostic name to its computed :class:`~rojak.turbulence.analysis.HistogramData`
         """
-        return {
-            name: DiagnosticHistogramDistribution(diagnostic).execute()
+        processors = {
+            name: DiagnosticHistogramDistribution(diagnostic)
             for name, diagnostic in self.computed_values(
                 "Computing distribution parameters",
             )  # DiagnosticName, xr.DataArray
+        }
+        if not is_dask_collection(self.dataset):
+            return {name: processor.execute() for name, processor in processors.items()}
+
+        # Two scheduler round trips for the whole suite, rather than two per diagnostic: a histogram cannot be
+        # built until its range is known, so the statistics have to come back before the counts are built.
+        # Both passes return a handful of scalars per diagnostic; the values themselves stay on the workers.
+        statistics = dask_compute(*(processor.build_lazy_collection() for processor in processors.values()))
+        counts = dask_compute(
+            *(
+                processor.build_counts(statistic)
+                for processor, statistic in zip(processors.values(), statistics, strict=True)
+            )
+        )
+        return {
+            name: processor.build_histogram_data(statistic, count)
+            for (name, processor), statistic, count in zip(processors.items(), statistics, counts, strict=True)
         }
 
 
@@ -1715,8 +1825,7 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
     _threshold_mode: TurbulenceThresholdMode | None
     _distribution_parameters: Mapping["DiagnosticName", "DistributionParameters"] | None
 
-    # I think the pyright warning is a false positive?
-    def __init__(  # pyright: ignore [reportIncompatibleVariableOverride]
+    def __init__(
         self,
         factory: DiagnosticFactory,
         diagnostics: list[TurbulenceDiagnostics],
@@ -1750,7 +1859,10 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
             KeyError: If ``distribution_parameters`` or ``probability_thresholds`` is provided but is missing an
                 entry for one of the diagnostics in the suite
         """
-        super().__init__(factory, diagnostics)
+        # persist=False: each output method (probabilities, compute_turbulent_regions, edr) does its own
+        # batched materialisation, so pre-persisting the shared diagnostic dataset would be a wasted
+        # extra scheduler call.
+        super().__init__(factory, diagnostics, persist=False)
         self._severities = severities
         self._pressure_levels = pressure_levels
         self._threshold_mode = threshold_mode
@@ -1783,20 +1895,23 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
                 or self._threshold_mode is None
             ):
                 raise ValueError("Probability of encountering turbulence of a given severity needs more inputs")
-            self._probabilities = {
+            lazy_probabilities = {
                 name: TurbulenceProbabilityBySeverity(
                     diagnostic,
                     self._pressure_levels,
                     self._severities,
                     self._probability_thresholds[name],
                     self._threshold_mode,
-                )
-                .execute()
-                .persist()
+                ).execute()
                 for name, diagnostic in self.computed_values(
                     "Computing probability of encountering turbulence of a given severity",
                 )
             }
+            # Persist every diagnostic's probabilities together: one scheduler call rather than one per diagnostic.
+            # dask_persist on DataArrays avoids xr.Dataset construction (which triggers N coordinate-equality checks).
+            names = list(lazy_probabilities.keys())
+            persisted_probabilities = dask_persist(*lazy_probabilities.values())
+            self._probabilities = dict(zip(names, persisted_probabilities, strict=True))
             return self._probabilities
 
         return self._probabilities
@@ -1892,19 +2007,22 @@ class EvaluationDiagnosticSuite(DiagnosticSuite):
         ):
             raise ValueError("Identifying turbulent regions of a given severity needs more inputs")
 
-        regions = {}
+        lazy_regions: dict[DiagnosticName, xr.DataArray] = {}
         for name, diagnostic in self.computed_values("Computing turbulent regions"):
-            regions_for_diagnostic = TurbulentRegionsBySeverity(
+            regions_by_severity = TurbulentRegionsBySeverity(
                 diagnostic,
                 self._pressure_levels,
                 self._severities,
                 self._probability_thresholds[name],
                 self._threshold_mode,
             ).execute()
-            assert isinstance(regions_for_diagnostic, xr.DataArray)
-            regions[name] = regions_for_diagnostic
+            lazy_regions[name] = concat_new_dim(regions_by_severity, dim_name="severity", dim_values=self._severities)
 
-        return regions
+        # Compute every diagnostic's regions together: one scheduler round trip rather than one per diagnostic.
+        # dask_compute on DataArrays avoids xr.Dataset construction (which triggers N coordinate-equality checks).
+        names = list(lazy_regions.keys())
+        computed_regions = dask_compute(*lazy_regions.values())
+        return dict(zip(names, computed_regions, strict=True))
 
     @property
     def pressure_levels(self) -> list[float] | None:

@@ -36,6 +36,7 @@ import dask.array as da
 import numpy as np
 import xarray as xr
 from dask.base import is_dask_collection
+from dask.base import tokenize as dask_tokenize
 from pyproj import CRS, Geod, Proj
 
 from rojak.core.constants import MAX_LATITUDE, MAX_LONGITUDE
@@ -257,6 +258,11 @@ class ProjectionCorrectionFactors(NamedTuple):
     meridional_scale: xr.DataArray
 
 
+# Lazy (dask) projection factors keyed on a token of the grid, CRS and units. Every spatial derivative on the same grid
+# needs the same factors, so building them once keeps a single copy of their tasks in a diagnostic suite's graph.
+_PROJECTION_CACHE: dict[str, ProjectionCorrectionFactors] = {}
+
+
 # Heavily modified from https://github.com/Unidata/MetPy/blob/6df0cde7893c0f55e44946137263cb322d59aae4/src/metpy/calc/tools.py#L1124
 def get_projection_correction_factors(
     latitude: "xr.DataArray",
@@ -275,7 +281,8 @@ def get_projection_correction_factors(
     Args:
         latitude: 1D array of latitude coordinates
         longitude: 1D array of longitude coordinates
-        use_dask: If ``True``, compute the factors lazily with dask
+        use_dask: If ``True``, compute the factors lazily with dask. The lazy factors are memoised per grid, CRS and
+            units, so repeated calls for the same grid return the same objects and share one set of tasks.
         is_radians: Whether ``latitude``/``longitude`` are in radians. Defaults to ``False`` (degrees).
         crs: Coordinate reference system to compute the scale factors for. Defaults to plain latitude/longitude
             (``"+proj=latlon"``).
@@ -294,26 +301,34 @@ def get_projection_correction_factors(
     if crs is None:
         crs = CRS("+proj=latlon")
 
+    cache_key: str | None = None
     if use_dask:
+        # Tokenize the whole DataArrays (not just their values) so grids that differ only in dimension names or
+        # coordinates do not share an entry, as those end up on the returned DataArrays
+        cache_key = dask_tokenize(latitude, longitude, crs.to_wkt(), is_radians)
+        cached = _PROJECTION_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
         # pyright is drunk. It thinks that the return type is NoReturn so it is not iterable... ¯\_(ツ)_/¯
         lon_grid, lat_grid = da.meshgrid(longitude, latitude)  # pyright: ignore[reportGeneralTypeIssues]
         parallel_scale = da.map_blocks(
             lambda lon, lat: Proj(crs).get_factors(lon, lat, radians=is_radians).parallel_scale,
             lon_grid,
             lat_grid,
-        ).persist()
+        )
         meridional_scale = da.map_blocks(
             lambda lon, lat: Proj(crs).get_factors(lon, lat, radians=is_radians).meridional_scale,
             lon_grid,
             lat_grid,
-        ).persist()
+        )
     else:
         lon_grid, lat_grid = np.meshgrid(longitude, latitude)
         factors = Proj(crs).get_factors(lon_grid, lat_grid, radians=is_radians)
         parallel_scale = factors.parallel_scale
         meridional_scale = factors.meridional_scale
 
-    return ProjectionCorrectionFactors(
+    correction_factors = ProjectionCorrectionFactors(
         xr.DataArray(
             parallel_scale,
             dims=(latitude.dims[0], longitude.dims[-1]),
@@ -327,6 +342,9 @@ def get_projection_correction_factors(
             # coords={"longitude": longitude, "latitude": latitude},
         ),
     )
+    if cache_key is not None:
+        _PROJECTION_CACHE[cache_key] = correction_factors
+    return correction_factors
 
 
 def get_dimension_number(name: str, data_array: "xr.DataArray") -> int:

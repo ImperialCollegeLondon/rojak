@@ -135,6 +135,8 @@ def altitude_derivative_on_pressure_level(
     function: xr.DataArray,
     geopotential: xr.DataArray,
     level_coord_name: str = "pressure_level",
+    *,
+    d_geopotential_d_p: xr.DataArray | None = None,
 ) -> xr.DataArray:
     """
     Derivative w.r.t. altitude for data on pressure level
@@ -152,12 +154,14 @@ def altitude_derivative_on_pressure_level(
 
     Args:
         function: Function to perform derivative on that varies with pressure level
-        geopotential: Geopotential data
+        geopotential: Geopotential data. Only used when ``d_geopotential_d_p`` is ``None``; ignored otherwise.
         level_coord_name: Name of pressure level coordinate
+        d_geopotential_d_p: Precomputed :math:`\\frac{ \\partial \\Phi }{ \\partial p }` (e.g.
+            :meth:`rojak.core.data.CATData.d_geopotential_d_pressure`), so that callers computing several altitude
+            derivatives share it. If ``None``, it is computed from ``geopotential``.
     """
-    return GRAVITATIONAL_ACCELERATION * (
-        function.differentiate(level_coord_name) / geopotential.differentiate(level_coord_name)
-    )
+    dg_dp = d_geopotential_d_p if d_geopotential_d_p is not None else geopotential.differentiate(level_coord_name)
+    return GRAVITATIONAL_ACCELERATION * (function.differentiate(level_coord_name) / dg_dp)
 
 
 # Note: numpy dtype can't be overloaded as it's immutable. Therefore, go via array subclassing
