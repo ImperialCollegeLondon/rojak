@@ -48,7 +48,12 @@ GOLDEN_DIR = Path(__file__).resolve().parent / "_static" / "goldens"
 TASK_COUNT_BASELINE_PATH = GOLDEN_DIR / "task_counts.json"
 
 ALL_DIAGNOSTICS = list(TurbulenceDiagnostics)
-TIME_CHUNKED = pytest.param({"time": 1}, id="time_chunked")
+# DiagnosticHistogramDistribution.build_lazy_collection: minimum, maximum, mean, variance
+NUM_HISTOGRAM_STATISTICS = 4
+# compute_distribution_parameters: the statistics, then the counts over the range they give
+HISTOGRAM_ROUND_TRIPS = 2
+TIME_CHUNKS = {"time": 1}
+TIME_CHUNKED = pytest.param(TIME_CHUNKS, id="time_chunked")
 LAT_LON_CHUNKED = pytest.param(
     {"latitude": -1, "longitude": -1, "time": 1, "pressure_level": -1},
     id="latlon_chunked",
@@ -331,22 +336,23 @@ class TestTaskCountHarness:
         baseline = self._load_baseline()
         assert sorted(baseline["diagnostics"]) == sorted(d.value for d in TurbulenceDiagnostics)
 
-    def test_full_suite_task_count_matches_baseline(self, load_cat_data: "Callable") -> None:
+    def test_full_suite_task_count_matches_baseline(self) -> None:
         baseline = self._load_baseline()
-        factory = DiagnosticFactory(load_cat_data(None, with_chunks=True))
-        suite = DiagnosticSuite(factory, ALL_DIAGNOSTICS)
+        factory = DiagnosticFactory(make_synthetic_cat_data(chunks=TIME_CHUNKS))
+        # persist=False: the baseline pins the size of the *recipe*. A persisted dataset has one task per chunk
+        # per diagnostic whatever the recipe looks like, so counting that would measure nothing.
+        suite = DiagnosticSuite(factory, ALL_DIAGNOSTICS, persist=False)
 
         assert count_tasks(*suite.computed_values_as_dict().values()) == baseline["full_suite_tasks"]
 
     def test_building_suite_submits_baseline_number_of_scheduler_calls(
         self,
         client: distributed.Client,
-        load_cat_data: "Callable",
         scheduler_submissions: "list[str]",
     ) -> None:
         assert isinstance(client, distributed.Client)  # activates distributed routing
         baseline = self._load_baseline()
-        factory = DiagnosticFactory(load_cat_data(None, with_chunks=True))
+        factory = DiagnosticFactory(make_synthetic_cat_data(chunks=TIME_CHUNKS))
 
         DiagnosticSuite(factory, ALL_DIAGNOSTICS)
 
@@ -355,12 +361,11 @@ class TestTaskCountHarness:
     def test_round_trip_submissions_match_baseline(
         self,
         client: distributed.Client,
-        load_cat_data: "Callable",
         scheduler_submissions: "list[str]",
     ) -> None:
         assert isinstance(client, distributed.Client)  # activates distributed routing
         baseline = self._load_baseline()
-        factory = DiagnosticFactory(load_cat_data(None, with_chunks=True))
+        factory = DiagnosticFactory(make_synthetic_cat_data(chunks=TIME_CHUNKS))
         suite = DiagnosticSuite(factory, ALL_DIAGNOSTICS)
 
         results = dask_compute(*suite.computed_values_as_dict().values())
@@ -419,11 +424,11 @@ class TestMemoisation:
 
         xr.testing.assert_allclose(without, with_pre, rtol=1e-6)
 
-    def test_projection_cache_has_one_entry_after_full_suite(self, load_cat_data: "Callable") -> None:
+    def test_projection_cache_has_one_entry_after_full_suite(self) -> None:
         # All 28 diagnostics share the same lat/lon grid, so the cache should contain exactly
         # one entry after suite construction regardless of how many call sites exist.
         _derivatives_mod._PROJECTION_CACHE.clear()
-        DiagnosticSuite(DiagnosticFactory(load_cat_data(None, with_chunks=True)), ALL_DIAGNOSTICS)
+        DiagnosticSuite(DiagnosticFactory(make_synthetic_cat_data(chunks=TIME_CHUNKS)), ALL_DIAGNOSTICS)
 
         assert len(_derivatives_mod._PROJECTION_CACHE) == 1
 
@@ -716,6 +721,26 @@ class TestDatasetBackedSuite:
         assert all(isinstance(name, str) for name in names)
         assert sorted(names) == sorted(diagnostic.value for diagnostic in DATASET_TARGETS)
 
+    def test_diagnostic_names_does_not_materialise_the_dataset(
+        self,
+        client: distributed.Client,
+        scheduler_calls: "list[str]",
+    ) -> None:
+        """
+        Asking what is in the suite must stay free
+
+        Reading the names off ``dataset`` persisted all 28 diagnostics, so a caller that only wanted a file name
+        paid for the whole suite.
+        """
+        assert isinstance(client, distributed.Client)  # activates distributed routing
+        factory = DiagnosticFactory(make_synthetic_cat_data(persist=False, chunks=TIME_CHUNKS))
+        suite = DiagnosticSuite.from_factory(factory, DATASET_TARGETS)
+
+        names = suite.diagnostic_names()
+
+        assert names == [diagnostic.value for diagnostic in DATASET_TARGETS]
+        assert scheduler_calls == []
+
     def test_computed_values_as_dict_matches_dataset_data_vars(self) -> None:
         factory = DiagnosticFactory(make_synthetic_cat_data(persist=False, chunks={"time": 1}))
         suite = DiagnosticSuite.from_factory(factory, DATASET_TARGETS, persist=False)
@@ -918,6 +943,20 @@ class TestHistogramPrepareFinalise:
 
         assert is_dask_collection(processor.build_lazy_collection())
 
+    def test_build_lazy_collection_is_four_scalars_not_the_field(self) -> None:
+        """
+        The batched caller materialises one of these per diagnostic, so it must not carry the values themselves
+
+        Returning the log of every positive value put a full copy of every diagnostic in the client's memory.
+        """
+        field = _dask_field(_calibration_values())
+        processor = DiagnosticHistogramDistribution(field)
+
+        collection = processor.build_lazy_collection()
+
+        assert collection.shape == (NUM_HISTOGRAM_STATISTICS,)
+        assert collection.compute().size == NUM_HISTOGRAM_STATISTICS
+
     def test_build_result_of_computed_collection_matches_execute(self) -> None:
         processor = DiagnosticHistogramDistribution(_dask_field(_calibration_values()))
 
@@ -1023,6 +1062,24 @@ class TestTurbulentRegionsBySeverityLazy:
 
         assert isinstance(result, list)
         assert len(result) == len(TWO_SEVERITIES)
+
+    def test_execute_list_elements_are_float32(self) -> None:
+        """
+        The caller holds one mask per severity per diagnostic, so the narrowest dtype that carries NaN is used
+
+        ``xr.where(..., np.nan)`` on a boolean promotes to float64, doubling every mask.
+        """
+        regions = TurbulentRegionsBySeverity(
+            _dask_field(_region_values(with_nan=True)),
+            PRESSURE_LEVELS,
+            TWO_SEVERITIES,
+            REGION_THRESHOLDS,
+            TurbulenceThresholdMode.BOUNDED,
+        )
+
+        result = regions.execute()
+
+        assert all(item.dtype == np.float32 for item in result)
 
     def test_execute_list_elements_are_lazy_dask_collections(self) -> None:
         regions = TurbulentRegionsBySeverity(
@@ -1146,18 +1203,25 @@ class TestBatchedCalibration:
         assert _round_trips(scheduler_calls) == 1
 
     @pytest.mark.parametrize("chunks", CHUNKINGS)
-    def test_compute_distribution_parameters_issues_one_round_trip(
+    def test_compute_distribution_parameters_issues_two_round_trips(
         self,
         client: distributed.Client,
         scheduler_calls: "list[str]",
         chunks: dict[str, int],
     ) -> None:
+        """
+        Two passes for the whole suite, not two per diagnostic
+
+        A histogram's range is the minimum and maximum of its own values, so the counts cannot be built until the
+        statistics have come back. The alternative — one pass that returns the values themselves — puts every
+        diagnostic's full field in the client's memory at once.
+        """
         assert isinstance(client, distributed.Client)  # activates distributed routing
         suite = _calibration_suite(chunks)
 
         suite.compute_distribution_parameters()
 
-        assert _round_trips(scheduler_calls) == 1
+        assert _round_trips(scheduler_calls) == HISTOGRAM_ROUND_TRIPS
 
     @pytest.mark.parametrize("chunks", CHUNKINGS)
     def test_probabilities_issues_one_persist(
