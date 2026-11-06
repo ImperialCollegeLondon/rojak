@@ -11,9 +11,28 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+"""
+Post-processing analyses for turbulence diagnostics
+
+This module implements :class:`~rojak.core.analysis.PostProcessor` subclasses that turn raw turbulence diagnostic
+values (as computed by :mod:`rojak.turbulence.diagnostic`) into forecasts and skill statistics, namely:
+
+- Threshold-based turbulence detection: computing severity thresholds from percentiles of a calibration dataset
+  (:class:`TurbulenceIntensityThresholds`), applying those thresholds to obtain boolean turbulent regions
+  (:class:`TurbulentRegionFromThreshold`, :class:`TurbulentRegionsBySeverity`), and the resulting probability of
+  encountering each severity (:class:`TurbulenceProbabilityBySeverity`).
+- Mapping raw diagnostic values onto the Eddy Dissipation Rate (EDR) scale, using the log-normal distribution of
+  the diagnostic on a calibration dataset (:class:`DiagnosticHistogramDistribution`,
+  :class:`ComputeDistributionParametersForEDR`, :class:`TransformToEDR`).
+- Correlation between turbulence diagnostics, either globally (:class:`CorrelationBetweenDiagnostics`,
+  :class:`MatthewsCorrelationOnDataset`, :class:`MatthewsCorrelationOnThresholdedDiagnostics`) or stratified by
+  hemisphere and latitudinal region (:class:`LatitudinalCorrelationBetweenDiagnostics`).
+- Association measures (:class:`RelationshipBetween` and its subclasses) between an arbitrary binary feature and
+  turbulence diagnostics, dispatched via :class:`RelationshipBetweenFactory` and applied across every diagnostic in
+  a dataset via :class:`RelationshipBetweenXAndTurbulence`.
+"""
 
 import itertools
-import sys
 from abc import ABC
 from collections.abc import Hashable, Mapping
 from enum import StrEnum
@@ -23,12 +42,12 @@ import dask.array as da
 import numpy as np
 import xarray as xr
 from dask.base import is_dask_collection
-from numpy.typing import NDArray
 from pydantic.dataclasses import dataclass as pydantic_dataclass
 from rich.progress import track
 
-from rojak.core.analysis import PostProcessor
+from rojak.core.analysis import BatchPostProcessor, PostProcessor
 from rojak.core.constants import SHARMAN_17_CLIMATOLOGICAL_PARAMETER
+from rojak.core.indexing import concat_new_dim
 from rojak.orchestrator.configuration import (
     RelationshipBetweenTypes,
     TurbulenceSeverity,
@@ -43,6 +62,7 @@ from rojak.turbulence.metrics import (
     relative_risk,
     sample_odds_ratio,
 )
+from rojak.utilities._compat import TypeIs
 from rojak.utilities.types import (
     DistributionParameters,
     Limits,
@@ -53,19 +73,16 @@ from rojak.utilities.types import (
 )
 
 if TYPE_CHECKING:
+    from numpy.typing import NDArray
+
     from rojak.atmosphere.jet_stream import AlphaVelField
     from rojak.utilities.types import DiagnosticName
-
-if sys.version_info >= (3, 13):
-    from typing import TypeIs
-else:
-    from typing_extensions import TypeIs
 
 type IntensityName = str
 type IntensityValues = dict[IntensityName, float]
 
 
-class TurbulenceIntensityThresholds(PostProcessor[TurbulenceThresholds]):
+class TurbulenceIntensityThresholds(BatchPostProcessor[TurbulenceThresholds]):
     """
     Computes threshold diagnostic value for each turbulence intensity using percentiles
 
@@ -78,18 +95,32 @@ class TurbulenceIntensityThresholds(PostProcessor[TurbulenceThresholds]):
     _computed_diagnostic: xr.DataArray
 
     def __init__(self, threshold_config: TurbulenceThresholds, computed_diagnostic: xr.DataArray) -> None:
+        """
+        Args:
+            threshold_config: Percentile to use for each turbulence severity
+            computed_diagnostic: Computed diagnostic values on the calibration dataset
+        """
         self._percentile_config = threshold_config
         self._computed_diagnostic = computed_diagnostic
 
-    def _compute_percentiles(self, target_percentiles: NDArray) -> NDArray:
-        if is_dask_collection(self._computed_diagnostic):
-            # flattened_array = da.asarray(self._computed_diagnostic.data, chunks="auto").flatten()
-            flattened_array = da.asarray(self._computed_diagnostic, chunks="auto").flatten()
-            # Must use tdigest method as internal dask version gives incorrect results
-            return da.percentile(flattened_array, target_percentiles, internal_method="tdigest").compute()
-        return np.percentile(self._computed_diagnostic.stack(all=[...]), target_percentiles)
+    def _target_percentiles(self) -> "NDArray[np.float64]":
+        """Percentiles (in the range [0, 100]) of the severities that have one configured, in severity order"""
+        return np.asarray(
+            [item for item in self._percentile_config.all_severities if item is not None], dtype=np.float64
+        )
 
     def _find_index_without_nones(self) -> list[int | None]:
+        """
+        Build a mapping from each severity's position in ``TurbulenceThresholds`` to its index in the array of
+        computed (non-``None``) percentiles
+
+        Severities configured with ``None`` (i.e. no percentile to compute) are mapped to ``None`` so that they can
+        be distinguished from severities that do have a computed percentile value.
+
+        Returns:
+            For each severity (in the same order as ``self._percentile_config.all_severities``), either its index
+            into the array of computed percentiles, or ``None`` if that severity has no percentile configured
+        """
         new_index: int = 0
         new_list: list[int | None] = []
         for item in self._percentile_config.all_severities:
@@ -101,15 +132,34 @@ class TurbulenceIntensityThresholds(PostProcessor[TurbulenceThresholds]):
         return new_list
 
     @override
-    def execute(self) -> TurbulenceThresholds:
-        not_none_mask = [index for index, item in enumerate(self._percentile_config.all_severities) if item is not None]
-        not_none_percentiles = self._compute_percentiles(
-            np.asarray(self._percentile_config.all_severities, dtype=np.float64)[not_none_mask],
-        )
+    def build_lazy_collection(self) -> da.Array:
+        """
+        Build the lazy percentile computation without computing it
+
+        Returns:
+            Lazy diagnostic value at each configured percentile. Pass ``dask.compute(build_lazy_collection())[0]``
+            to :meth:`build_result`.
+        """
+        flattened_array = da.asarray(self._computed_diagnostic.data).flatten()
+        # Must use tdigest method as internal dask version gives incorrect results
+        return da.percentile(flattened_array, self._target_percentiles(), internal_method="tdigest")
+
+    @override
+    def build_result(self, computed: "NDArray") -> TurbulenceThresholds:
+        """
+        Build the thresholds from the computed percentiles
+
+        Args:
+            computed: Diagnostic value at each configured (non-``None``) percentile, in severity order,
+                i.e. the materialised result of :meth:`build_lazy_collection`
+
+        Returns:
+            :class:`TurbulenceThresholds` with the computed threshold for each severity
+        """
         mapping_to_severity = self._find_index_without_nones()
         return TurbulenceThresholds(
             **{
-                str(severity): index_map if index_map is None else not_none_percentiles[index_map]
+                str(severity): index_map if index_map is None else computed[index_map]
                 for index_map, severity in zip(
                     mapping_to_severity,
                     TurbulenceSeverity.get_in_ascending_order(),
@@ -119,21 +169,56 @@ class TurbulenceIntensityThresholds(PostProcessor[TurbulenceThresholds]):
             _all_severities=[],
         )
 
+    @override
+    def execute(self) -> TurbulenceThresholds:
+        """
+        Compute the percentile-based threshold value for each configured turbulence severity
+
+        A dask-backed diagnostic is computed through :meth:`build_lazy_collection` and :meth:`build_result`; a
+        numpy-backed one uses exact numpy percentiles.
+
+        Returns:
+            :class:`TurbulenceThresholds` with the computed threshold for each severity
+        """
+        if is_dask_collection(self._computed_diagnostic):
+            return super().execute()
+        return self.build_result(np.percentile(self._computed_diagnostic.stack(all=[...]), self._target_percentiles()))
+
 
 @pydantic_dataclass
 class HistogramData:
+    """
+    Histogram of the log-normal distribution of a turbulence diagnostic's values
+
+    See :class:`DiagnosticHistogramDistribution` for how this is computed. numpy arrays passed into the constructor
+    are converted to lists so that the instance is JSON-serialisable.
+    """
+
     hist_values: list[float]
     bins: list[float]
     mean: float
     variance: float
 
     def __init__(self, hist_values: np.ndarray, bins: np.ndarray, mean: float, variance: float) -> None:
+        """
+        Args:
+            hist_values: Density of each histogram bin
+            bins: Bin edges, of length ``len(hist_values) + 1``
+            mean: Mean of the (logged) diagnostic values the histogram was computed from
+            variance: Variance of the (logged) diagnostic values the histogram was computed from
+        """
         self.hist_values = hist_values.tolist()
         self.bins = bins.tolist()
         self.mean = float(mean)
         self.variance = float(variance)
 
     def as_json_dict(self) -> dict[str, float | list[float]]:
+        """
+        Convert to a plain, JSON-serialisable dictionary
+
+        Returns:
+            Dictionary with ``density``, ``bin_edges``, ``mean``, and ``variance`` keys
+        """
         return {
             "density": self.hist_values,
             "bin_edges": self.bins,
@@ -162,6 +247,15 @@ class HistogramData:
     #     ax.plot(x_coord_values, stats.norm(loc=self.mean, scale=np.sqrt(self.variance)).pdf(x_coord_values))
 
     def filter_insignificant_bins(self, minimum_value: float = 1e-6) -> "HistogramData":
+        """
+        Drop histogram bins whose density is below ``minimum_value``
+
+        Args:
+            minimum_value: Minimum bin density to keep. Defaults to ``1e-6``.
+
+        Returns:
+            New :class:`HistogramData` with insignificant bins removed. ``mean`` and ``variance`` are unchanged.
+        """
         values: np.ndarray = np.asarray(self.hist_values)
         mask: np.ndarray = values >= minimum_value
         return HistogramData(
@@ -173,6 +267,7 @@ class HistogramData:
 
     @override
     def __str__(self) -> str:
+        """String representation of the histogram's data"""
         return (
             f"HistogramData(hist_values={self.hist_values}, bins={self.bins}, "
             f"mean={self.mean}, variance={self.variance})"
@@ -180,10 +275,12 @@ class HistogramData:
 
     @override
     def __repr__(self) -> str:
+        """See :func:`__str__`"""
         return self.__str__()
 
     @override
     def __eq__(self, other: object) -> bool:
+        """Two :class:`HistogramData` are equal if their ``hist_values``, ``bins``, ``mean``, and ``variance`` match"""
         if isinstance(other, HistogramData):
             return (
                 self.hist_values == list(other.hist_values)
@@ -195,71 +292,169 @@ class HistogramData:
 
     @override
     def __hash__(self) -> int:
+        """Hash based on ``hist_values``, ``bins``, ``mean``, and ``variance``"""
         return hash((self.hist_values, self.bins, self.mean, self.variance))
 
 
-class DiagnosticHistogramDistribution(PostProcessor[HistogramData]):
+class DiagnosticHistogramDistribution(BatchPostProcessor[HistogramData]):
     """
     Computes histogram bins for log-normal distribution of turbulence diagnostics.
 
     Implementation of the methodology in [Sharman2017]_ to map the raw diagnostic value into EDR
+
+    A dask-backed diagnostic is reduced in two passes: :meth:`build_lazy_collection` gives the range, mean and
+    variance, and :meth:`build_counts` then bins the values over that range. Both return a handful of numbers, so
+    a caller batching several diagnostics never holds more than one diagnostic's worth of values in its own memory.
     """
 
     _computed_diagnostic: xr.DataArray
     _NUM_HIST_BINS: int = 50
 
     def __init__(self, computed_diagnostic: xr.DataArray, num_hist_bins: int | None = None) -> None:
+        """
+        Args:
+            computed_diagnostic: Computed diagnostic values on the calibration dataset
+            num_hist_bins: Number of histogram bins to use. Defaults to ``50`` if not provided.
+        """
         self._computed_diagnostic = computed_diagnostic
         if num_hist_bins is not None:
             self._NUM_HIST_BINS = num_hist_bins
 
-    def _serial_execution(self) -> HistogramData:
-        flattened_array = self._computed_diagnostic.stack(all=[...])
-        flattened_array = flattened_array[flattened_array > 0]
-        log_of_diagnostic = np.log(flattened_array)
-        min_and_max = np.percentile(log_of_diagnostic, [0, 100])
-        h, bins = np.histogram(
-            log_of_diagnostic,
-            bins=self._NUM_HIST_BINS,
-            range=(float(min_and_max[0]), float(min_and_max[1])),
-            density=True,
-        )
-        return HistogramData(h, bins, float(np.mean(log_of_diagnostic)), float(np.var(log_of_diagnostic)))
+    def _lazy_log_of_positive_values(self) -> da.Array:
+        """Flattened log of the strictly positive diagnostic values, as an uncomputed dask array"""
+        flattened_array = da.asarray(self._computed_diagnostic.data).flatten()
+        return da.log(flattened_array[flattened_array > 0])
 
-    def _parallel_execution(self) -> HistogramData:
-        flattened_array = da.asarray(self._computed_diagnostic).flatten()
-        flattened_array = flattened_array[flattened_array > 0]
-        log_of_diagnostic = da.log(flattened_array)
-        min_and_max = da.percentile(log_of_diagnostic, [0, 100], internal_method="tdigest").compute()
-        h, bins = da.histogram(  # pyright: ignore [reportGeneralTypeIssues]
-            log_of_diagnostic,
+    @override
+    def build_lazy_collection(self) -> da.Array:
+        """
+        Build the lazy summary statistics of the log of the strictly positive diagnostic values
+
+        The histogram's range is the minimum and maximum of those values, so the counts cannot be built until
+        this collection has been materialised; they are a second pass (:meth:`build_counts`) rather than part of
+        this one. Only these four scalars cross back to the client — returning the values themselves would move
+        the whole field into the caller's memory.
+
+        Returns:
+            Lazy ``[minimum, maximum, mean, variance]``. Pass ``dask.compute(build_lazy_collection())[0]`` to
+            :meth:`build_counts` and :meth:`build_result`.
+        """
+        log_of_diagnostic = self._lazy_log_of_positive_values()
+        return da.stack(
+            [
+                log_of_diagnostic.min(),
+                log_of_diagnostic.max(),
+                log_of_diagnostic.mean(),
+                log_of_diagnostic.var(),
+            ]
+        )
+
+    def build_counts(self, statistics: "NDArray") -> da.Array:
+        """
+        Build the lazy histogram counts over the range given by ``statistics``
+
+        Args:
+            statistics: Materialised :meth:`build_lazy_collection`, whose first two entries are the range
+
+        Returns:
+            Lazy histogram counts (density-normalised), of length :attr:`_NUM_HIST_BINS`
+        """
+        counts, _ = da.histogram(  # pyright: ignore [reportGeneralTypeIssues]
+            self._lazy_log_of_positive_values(),
             bins=self._NUM_HIST_BINS,
-            range=(min_and_max[0], min_and_max[1]),
+            range=(float(statistics[0]), float(statistics[1])),
             density=True,
         )
-        return HistogramData(
-            hist_values=h.compute(),
-            bins=bins,
-            mean=da.mean(log_of_diagnostic).compute(),
-            variance=da.var(log_of_diagnostic).compute(),
-        )
+        return counts
+
+    def build_histogram_data(self, statistics: "NDArray", counts: "NDArray") -> HistogramData:
+        """
+        Assemble the result from both passes
+
+        Args:
+            statistics: Materialised :meth:`build_lazy_collection`
+            counts: Materialised :meth:`build_counts`
+
+        Returns:
+            :class:`HistogramData` of the log-transformed diagnostic values
+
+        Note:
+            The bin edges are rebuilt here rather than transferred: both :func:`numpy.histogram` and
+            :func:`dask.array.histogram` space an integer number of bins evenly over ``range``.
+        """
+        bins = np.linspace(float(statistics[0]), float(statistics[1]), self._NUM_HIST_BINS + 1)
+        return HistogramData(counts, bins, float(statistics[2]), float(statistics[3]))
+
+    @override
+    def build_result(self, computed: "NDArray") -> HistogramData:
+        """
+        Build the histogram from the computed statistics, materialising the counts in a second pass
+
+        Args:
+            computed: ``[minimum, maximum, mean, variance]`` of the log of the positive diagnostic values, i.e.
+                the materialised result of :meth:`build_lazy_collection`
+
+        Returns:
+            :class:`HistogramData` of the log-transformed diagnostic values
+        """
+        return self.build_histogram_data(computed, self.build_counts(computed).compute())
 
     @override
     def execute(self) -> HistogramData:
+        """
+        Compute the histogram of the (positive) log of the diagnostic values
+
+        Values that are not strictly positive are excluded prior to taking the log.
+
+        Returns:
+            :class:`HistogramData` of the log-transformed diagnostic values
+        """
         if is_dask_collection(self._computed_diagnostic):
-            return self._parallel_execution()
-        return self._serial_execution()
+            return super().execute()
+        flattened_array = np.ravel(self._computed_diagnostic.values)
+        log_of_diagnostic = np.log(flattened_array[flattened_array > 0])
+        statistics = np.asarray(
+            [
+                np.min(log_of_diagnostic),
+                np.max(log_of_diagnostic),
+                np.mean(log_of_diagnostic),
+                np.var(log_of_diagnostic),
+            ]
+        )
+        counts, _ = np.histogram(
+            log_of_diagnostic,
+            bins=self._NUM_HIST_BINS,
+            range=(float(statistics[0]), float(statistics[1])),
+            density=True,
+        )
+        return self.build_histogram_data(statistics, counts)
 
 
 # ABSTRACTION MIGHT NOT BE NECESSARY. REMOVE IN FUTURE IF IT ISN'T
 class _EvaluationPostProcessor(PostProcessor, ABC):
+    """
+    Base class for post processors that are themselves composed of one or more other :class:`PostProcessor`
+    """
+
     _components: Mapping[str, PostProcessor]
 
     def __init__(self, components: Mapping[str, PostProcessor] | None = None) -> None:
+        """
+        Args:
+            components: Mapping of name to the :class:`PostProcessor` it identifies. Defaults to an empty mapping.
+        """
         self._components = components if components is not None else {}
 
 
 class TurbulentRegionFromThreshold(PostProcessor[xr.DataArray | xr.Dataset]):
+    """
+    Computes a boolean mask of where a turbulence diagnostic falls within a given severity's threshold bounds
+
+    Accepts either a single :class:`xarray.DataArray` with a single :class:`TurbulenceThresholds`, or an
+    :class:`xarray.Dataset` of diagnostics with a mapping from diagnostic name to that diagnostic's
+    :class:`TurbulenceThresholds`.
+    """
+
     _computed_diagnostic: xr.DataArray | xr.Dataset
     _severity: "TurbulenceSeverity"
     _thresholds: "TurbulenceThresholds| Mapping[DiagnosticName, TurbulenceThresholds]"
@@ -274,6 +469,22 @@ class TurbulentRegionFromThreshold(PostProcessor[xr.DataArray | xr.Dataset]):
         /,
         **sel_condition,  # noqa: ANN003
     ) -> None:
+        """
+        Args:
+            computed_diagnostic: Computed diagnostic value(s), either a single DataArray or a Dataset of diagnostics
+            severity: Turbulence severity to compute the boolean mask for
+            thresholds: Threshold(s) to determine ``severity``. Must be a mapping from diagnostic name to
+                :class:`TurbulenceThresholds` if ``computed_diagnostic`` is a Dataset, or a single
+                :class:`TurbulenceThresholds` if it is a DataArray
+            threshold_mode: Whether the thresholds are bounded intervals or lower bounds
+            **sel_condition: Passed to :meth:`xarray.DataArray.sel`/:meth:`xarray.Dataset.sel` to subset
+                ``computed_diagnostic`` before computing the mask
+
+        Raises:
+            TypeError: If ``thresholds`` is not the shape (mapping or single value) expected for the type of
+                ``computed_diagnostic``
+            ValueError: If ``computed_diagnostic`` is a Dataset whose variables are not a subset of ``thresholds``
+        """
         super().__init__()
 
         if is_xr_dataset(computed_diagnostic):
@@ -296,14 +507,36 @@ class TurbulentRegionFromThreshold(PostProcessor[xr.DataArray | xr.Dataset]):
     def _is_mapping(
         threshold: "TurbulenceThresholds | Mapping[DiagnosticName, TurbulenceThresholds]",
     ) -> TypeIs[Mapping["DiagnosticName", "TurbulenceThresholds"]]:
+        """Type guard for whether ``threshold`` is a mapping of diagnostic name to :class:`TurbulenceThresholds`"""
         return isinstance(threshold, Mapping)
 
     def _execute_on_dataarray(self, this_da: xr.DataArray, this_threshold: "TurbulenceThresholds") -> xr.DataArray:
+        """
+        Compute the boolean turbulence mask for a single diagnostic DataArray
+
+        Args:
+            this_da: Computed diagnostic values
+            this_threshold: Thresholds to use for ``this_da``
+
+        Returns:
+            Boolean mask of where ``this_da`` falls within ``self._severity``'s bounds
+        """
         bounds: Limits[float] = this_threshold.get_bounds(self._severity, self._threshold_mode)
         return (this_da >= bounds.lower) & (this_da < bounds.upper)
 
     @override
     def execute(self) -> xr.DataArray | xr.Dataset:
+        """
+        Compute the boolean turbulence mask(s) for ``self._computed_diagnostic``
+
+        Returns:
+            Boolean DataArray if ``self._computed_diagnostic`` is a DataArray, or a Dataset of boolean DataArrays
+            (one per diagnostic) if it is a Dataset
+
+        Raises:
+            AssertionError: If ``self._computed_diagnostic`` and ``self._thresholds`` are an unexpected combination
+                of types (unreachable given the checks performed in :meth:`__init__`)
+        """
         if is_xr_data_array(self._computed_diagnostic) and not self._is_mapping(self._thresholds):
             return self._execute_on_dataarray(self._computed_diagnostic, self._thresholds)
         if is_xr_dataset(self._computed_diagnostic) and self._is_mapping(self._thresholds):
@@ -318,7 +551,7 @@ class TurbulentRegionFromThreshold(PostProcessor[xr.DataArray | xr.Dataset]):
         raise AssertionError("Unreachable")
 
 
-class TurbulentRegionsBySeverity(PostProcessor[xr.DataArray | list[xr.DataArray] | xr.DataTree]):
+class TurbulentRegionsBySeverity(PostProcessor[list[xr.DataArray]]):
     """
     Computes turbulent regions by severity for a given turbulence diagnostic
 
@@ -331,7 +564,6 @@ class TurbulentRegionsBySeverity(PostProcessor[xr.DataArray | list[xr.DataArray]
     _severities: list["TurbulenceSeverity"]
     _thresholds: "TurbulenceThresholds"
     _threshold_mode: "TurbulenceThresholdMode"
-    _has_parent: bool = False
 
     def __init__(
         self,
@@ -340,25 +572,47 @@ class TurbulentRegionsBySeverity(PostProcessor[xr.DataArray | list[xr.DataArray]
         severities: list["TurbulenceSeverity"],
         thresholds: "TurbulenceThresholds",
         threshold_mode: "TurbulenceThresholdMode",
-        has_parent: bool = False,
     ) -> None:
+        """
+        Args:
+            computed_diagnostic: Computed diagnostic values
+            pressure_levels: Pressure levels to compute turbulent regions for
+            severities: Turbulence severities to compute the boolean mask for
+            thresholds: Thresholds used to determine each severity
+            threshold_mode: Whether the thresholds are bounded intervals or lower bounds
+        """
         super().__init__()
         self._computed_diagnostic = computed_diagnostic.sel(pressure_level=pressure_levels)
         self._severities = severities
         self._thresholds = thresholds
         self._threshold_mode = threshold_mode
-        self._has_parent = has_parent
 
     @override
-    def execute(self) -> xr.DataArray | list[xr.DataArray] | xr.DataTree:
-        by_severity = []
+    def execute(self) -> list[xr.DataArray]:
+        """
+        Build the turbulent region mask for each severity in ``self._severities``, without computing them
+
+        The mask is ``1.0`` (True) where the diagnostic lies within the severity's bounds, ``0.0`` (False) where it
+        lies outside them, and NaN where the diagnostic itself is NaN, so that missing values are not reported as
+        "no turbulence".
+
+        Returns:
+            One ``float32`` mask per severity, in the order of ``self._severities``. These are lazy if the
+            diagnostic is dask-backed; to obtain a single DataArray, concatenate them along
+            ``xr.Variable("severity", severities)``.
+        """
+        by_severity: list[xr.DataArray] = []
         for severity in self._severities:
             bounds: Limits[float] = self._thresholds.get_bounds(severity, self._threshold_mode)
-            this_severity: xr.DataArray = (self._computed_diagnostic >= bounds.lower) & (
+            is_in_range: xr.DataArray = (self._computed_diagnostic >= bounds.lower) & (
                 self._computed_diagnostic < bounds.upper
             )
-            by_severity.append(this_severity if self._has_parent else this_severity.compute())
-        return by_severity if self._has_parent else xr.concat(by_severity, xr.Variable("severity", self._severities))
+            # Comparisons with NaN are False, so propagate NaN explicitly rather than reporting it as out of range.
+            # float32 is the narrowest dtype that can carry the NaN; callers hold one mask per severity per
+            # diagnostic, so the float64 that xr.where would promote the boolean to costs twice as much for nothing.
+            this_severity: xr.DataArray = is_in_range.astype(np.float32).where(self._computed_diagnostic.notnull())
+            by_severity.append(this_severity)
+        return by_severity
 
 
 class TurbulenceProbabilityBySeverity(_EvaluationPostProcessor):
@@ -377,6 +631,14 @@ class TurbulenceProbabilityBySeverity(_EvaluationPostProcessor):
         thresholds: "TurbulenceThresholds",
         threshold_mode: "TurbulenceThresholdMode",
     ) -> None:
+        """
+        Args:
+            computed_diagnostic: Computed diagnostic values
+            pressure_levels: Pressure levels to compute the probability for
+            severities: Turbulence severities to compute the probability of encountering
+            thresholds: Thresholds used to determine each severity
+            threshold_mode: Whether the thresholds are bounded intervals or lower bounds
+        """
         super().__init__(
             components={
                 "turbulent_regions": TurbulentRegionsBySeverity(
@@ -385,7 +647,6 @@ class TurbulenceProbabilityBySeverity(_EvaluationPostProcessor):
                     severities,
                     thresholds,
                     threshold_mode,
-                    has_parent=True,
                 ),
             },
         )
@@ -394,31 +655,71 @@ class TurbulenceProbabilityBySeverity(_EvaluationPostProcessor):
 
     @override
     def execute(self) -> xr.DataArray:
-        by_severity: list[xr.DataArray] | xr.DataArray = self._components["turbulent_regions"].execute()
-        assert isinstance(by_severity, list)
+        """
+        Compute the percentage probability of encountering turbulence of each severity, averaged over time
+
+        Returns:
+            DataArray of probabilities (in percent) with a ``severity`` dimension
+        """
+        by_severity: list[xr.DataArray] = self._components["turbulent_regions"].execute()
         probabilities = [this_severity.mean(dim="time") * 100 for this_severity in by_severity]
-        # hmmm.... I'm not sure if this will behave the way I expect with the new dimension
-        return xr.concat(probabilities, xr.Variable("severity", self._severities))
+        return concat_new_dim(probabilities, dim_name="severity", dim_values=self._severities)
 
 
-class ComputeDistributionParametersForEDR(PostProcessor[DistributionParameters]):
+class ComputeDistributionParametersForEDR(BatchPostProcessor[DistributionParameters]):
+    """
+    Computes the mean and variance of the log-normal distribution of a turbulence diagnostic's values
+
+    These parameters are used to map raw diagnostic values onto the EDR scale, see :class:`TransformToEDR`.
+    """
+
     _computed_diagnostic: xr.DataArray
 
     def __init__(self, computed_diagnostic: xr.DataArray) -> None:
+        """
+        Args:
+            computed_diagnostic: Computed diagnostic values on the calibration dataset
+        """
         super().__init__()
         self._computed_diagnostic = computed_diagnostic
 
     @override
-    def execute(self) -> DistributionParameters:
+    def build_lazy_collection(self) -> da.Array:
+        """
+        Build the lazy mean and variance of the log of the (positive) diagnostic values without computing them
+
+        Values that are not strictly positive are excluded prior to taking the log. The two statistics are stacked
+        into one collection so that they are computed in a single pass over the data.
+
+        Returns:
+            Lazy array of ``[mean, variance]``. Pass ``dask.compute(build_lazy_collection())[0]`` to
+            :meth:`build_result`.
+        """
         only_positive: xr.DataArray = self._computed_diagnostic.where(self._computed_diagnostic > 0, other=np.nan)
         # False positive by pyright as it doesn't recognise np.log as an xr ufunc
         log_of_diagnostic: xr.DataArray = np.log(only_positive)  # pyright: ignore[reportAssignmentType]
         # dim=None => reduce over all dimensions
         # See https://docs.xarray.dev/en/v2026.02.0/generated/xarray.DataArray.mean.html
-        return DistributionParameters(
-            mean=float(log_of_diagnostic.mean(dim=None, skipna=True).compute()),
-            variance=float(log_of_diagnostic.var(dim=None, skipna=True).compute()),
+        return da.stack(
+            [
+                da.asarray(log_of_diagnostic.mean(dim=None, skipna=True).data),
+                da.asarray(log_of_diagnostic.var(dim=None, skipna=True).data),
+            ]
         )
+
+    @override
+    def build_result(self, computed: "NDArray") -> DistributionParameters:
+        """
+        Build the distribution parameters from the computed statistics
+
+        Args:
+            computed: ``[mean, variance]`` of the log-transformed diagnostic values, i.e. the materialised
+                result of :meth:`build_lazy_collection`
+
+        Returns:
+            Mean and variance of the log-transformed diagnostic values
+        """
+        return DistributionParameters(mean=float(computed[0]), variance=float(computed[1]))
 
 
 class TransformToEDR(PostProcessor[xr.DataArray]):
@@ -444,6 +745,21 @@ class TransformToEDR(PostProcessor[xr.DataArray]):
         c1: float | None = None,
         c2: float | None = None,
     ) -> None:
+        """
+        Args:
+            computed_diagnostic: Computed diagnostic values to map onto the EDR scale
+            mean: Mean of the log-normal distribution of the diagnostic, as computed on the calibration dataset by
+                :class:`ComputeDistributionParametersForEDR`. If ``None``, it is computed from
+                ``computed_diagnostic`` when :meth:`execute` is called. Must be provided together with ``variance``.
+            variance: Variance of the log-normal distribution of the diagnostic. See ``mean``.
+            c1: Climatological scaling parameter. Defaults to the value in [Sharman2017]_ if omitted together with
+                ``c2``.
+            c2: Climatological scaling parameter. Defaults to the value in [Sharman2017]_ if omitted together with
+                ``c1``.
+
+        Raises:
+            TypeError: If only one of ``c1``/``c2`` is provided
+        """
         super().__init__()
         self._computed_diagnostic = computed_diagnostic
         assert (mean is not None and variance is not None) or (mean is None and variance is None)
@@ -460,6 +776,12 @@ class TransformToEDR(PostProcessor[xr.DataArray]):
 
     @override
     def execute(self) -> xr.DataArray:
+        """
+        Map the diagnostic values onto the EDR scale
+
+        Returns:
+            Diagnostic values transformed into EDR
+        """
         if self._mean is None or self._variance is None:
             distribution_parameters = ComputeDistributionParametersForEDR(self._computed_diagnostic).execute()
             self._mean = distribution_parameters.mean
@@ -475,8 +797,7 @@ class TransformToEDR(PostProcessor[xr.DataArray]):
         # https://stackoverflow.com/a/45384691
         # return exponent_term * (np.sign(self.computed_value()) * (np.abs(self.computed_value()) ** scaling))
         # e^a x^b
-        mapped_index: xr.DataArray = (np.exp(offset) * (unmapped_index**scaling)).persist()
-        return mapped_index
+        return np.exp(offset) * (unmapped_index**scaling)
 
 
 class CorrelationBetweenDiagnostics(PostProcessor[xr.DataArray]):
@@ -495,12 +816,24 @@ class CorrelationBetweenDiagnostics(PostProcessor[xr.DataArray]):
         computed_indices: dict["DiagnosticName", xr.DataArray],
         sel_condition: Mapping[str, Any],
     ) -> None:
+        """
+        Args:
+            computed_indices: Mapping from diagnostic name to its computed values
+            sel_condition: Passed to :meth:`xarray.DataArray.sel` to subset each diagnostic before computing
+                correlations
+        """
         self._computed_indices = computed_indices
         self._diagnostic_names = list(self._computed_indices.keys())
         self._sel_condition = sel_condition
 
     @override
     def execute(self) -> xr.DataArray:
+        """
+        Compute the Pearson correlation coefficient between every pair of diagnostics
+
+        Returns:
+            Symmetric DataArray of correlation coefficients with ``diagnostic1`` and ``diagnostic2`` dimensions
+        """
         num_diagnostics: int = len(self._diagnostic_names)
         corr_btw_diagnostics: xr.DataArray = xr.DataArray(
             data=np.ones((num_diagnostics, num_diagnostics)),
@@ -523,6 +856,12 @@ class CorrelationBetweenDiagnostics(PostProcessor[xr.DataArray]):
 
 
 class MatthewsCorrelationOnDataset(PostProcessor[xr.DataArray]):
+    """
+    Computes the Matthew's Correlation Coefficient between every pair of boolean DataArrays within a Dataset
+
+    See :func:`rojak.turbulence.metrics.matthews_corr_coeff`.
+    """
+
     _is_dataset: xr.Dataset
     _with_vars: str
 
@@ -546,11 +885,19 @@ class MatthewsCorrelationOnDataset(PostProcessor[xr.DataArray]):
         if not all_dtypes_match(is_dataset, np.bool_):
             raise TypeError("Dataset must contain DataArrays boolean dtypes")
 
-        self._is_dataset = is_dataset.astype(int)
+        # Keep as boolean, as confusion_matrix skips its check that the values are 0 or 1 for boolean arrays
+        self._is_dataset = is_dataset
         self._with_vars = with_vars
 
     @override
     def execute(self) -> xr.DataArray:
+        """
+        Compute the Matthew's Correlation Coefficient between every pair of DataArrays in ``self._is_dataset``
+
+        Returns:
+            Symmetric DataArray of correlation coefficients, with dimensions named ``f"{self._with_vars}1"`` and
+            ``f"{self._with_vars}2"``
+        """
         data_array_names = list(self._is_dataset.keys())
         num_data_arrays: int = len(data_array_names)
 
@@ -576,6 +923,14 @@ class MatthewsCorrelationOnDataset(PostProcessor[xr.DataArray]):
 
 
 class MatthewsCorrelationOnThresholdedDiagnostics(PostProcessor[xr.DataArray]):
+    """
+    Computes the Matthew's Correlation Coefficient between diagnostics, thresholded at each turbulence severity
+
+    For each severity, applies :class:`TurbulentRegionFromThreshold` to obtain boolean turbulent regions for every
+    diagnostic in ``diagnostic_indices``, then computes the pairwise Matthew's Correlation Coefficient between
+    those boolean regions using :class:`MatthewsCorrelationOnDataset`.
+    """
+
     _diagnostic_indices: xr.Dataset
     _severities: list["TurbulenceSeverity"]
     _thresholds: "Mapping[DiagnosticName, TurbulenceThresholds]"
@@ -590,6 +945,14 @@ class MatthewsCorrelationOnThresholdedDiagnostics(PostProcessor[xr.DataArray]):
         /,
         **sel_condition,  # noqa: ANN003
     ) -> None:
+        """
+        Args:
+            diagnostic_indices: Dataset of computed diagnostic values
+            severities: Turbulence severities to compute the correlation for
+            thresholds: Mapping from diagnostic name to its :class:`TurbulenceThresholds`
+            threshold_mode: Whether the thresholds are bounded intervals or lower bounds
+            **sel_condition: Passed to :meth:`xarray.Dataset.sel` to subset ``diagnostic_indices``
+        """
         super().__init__()
         self._diagnostic_indices = diagnostic_indices.sel(**sel_condition)
         self._severities = severities
@@ -598,6 +961,12 @@ class MatthewsCorrelationOnThresholdedDiagnostics(PostProcessor[xr.DataArray]):
 
     @override
     def execute(self) -> xr.DataArray:
+        """
+        Compute the Matthew's Correlation Coefficient between diagnostics for each severity
+
+        Returns:
+            DataArray of correlation coefficients with ``diagnostic1``, ``diagnostic2``, and ``severity`` dimensions
+        """
         correlation_across_severities: list[xr.DataArray] = []
         for severity in track(self._severities, "Computing correlation for each severity"):
             threshold_applied = TurbulentRegionFromThreshold(
@@ -608,16 +977,22 @@ class MatthewsCorrelationOnThresholdedDiagnostics(PostProcessor[xr.DataArray]):
                 MatthewsCorrelationOnDataset(threshold_applied, "diagnostic").execute()
             )
 
-        return xr.concat(correlation_across_severities, "severity").assign_coords(coords={"severity": self._severities})
+        return concat_new_dim(
+            correlation_across_severities, dim_name="severity", dim_values=self._severities
+        ).assign_coords(coords={"severity": self._severities})
 
 
 class Hemisphere(StrEnum):
+    """Hemisphere to restrict a latitudinal region to, used by :class:`LatitudinalCorrelationBetweenDiagnostics`"""
+
     GLOBAL = "global"
     NORTH = "north"
     SOUTH = "south"
 
 
 class LatitudinalRegion(StrEnum):
+    """Latitudinal band to restrict data to, used by :class:`LatitudinalCorrelationBetweenDiagnostics`"""
+
     FULL = "full"
     EXTRATROPICS = "extratropics"
     TROPICS = "tropics"
@@ -641,6 +1016,15 @@ class LatitudinalCorrelationBetweenDiagnostics(PostProcessor[xr.DataArray]):
         hemispheres: list[Hemisphere] | None = None,
         regions: list[LatitudinalRegion] | None = None,
     ) -> None:
+        """
+        Args:
+            computed_indices: Mapping from diagnostic name to its computed values
+            sel_condition: Passed to :meth:`xarray.DataArray.sel` to subset each diagnostic before computing
+                correlations
+            hemispheres: Hemispheres to compute the correlation for. Defaults to all of :class:`Hemisphere`.
+            regions: Latitudinal regions to compute the correlation for. Defaults to all of
+                :class:`LatitudinalRegion`.
+        """
         self._computed_indices = computed_indices
         self._diagnostic_names = list(computed_indices.keys())
         if hemispheres is None:
@@ -657,6 +1041,17 @@ class LatitudinalCorrelationBetweenDiagnostics(PostProcessor[xr.DataArray]):
 
     @staticmethod
     def _apply_region_filter(array: xr.DataArray, hemisphere: Hemisphere, region: LatitudinalRegion) -> xr.DataArray:
+        """
+        Restrict ``array`` to the given hemisphere and latitudinal region
+
+        Args:
+            array: DataArray with a ``latitude`` coordinate spanning at least the extratropics of both hemispheres
+            hemisphere: Hemisphere to restrict to
+            region: Latitudinal region (full, tropics, or extratropics) to restrict to, within ``hemisphere``
+
+        Returns:
+            ``array`` filtered to latitudes within ``hemisphere`` and ``region``
+        """
         extratropic_latitudes: Limits[float] = Limits(lower=25, upper=65)
         entire_tropics: Limits[float] = Limits(lower=-25, upper=25)
         half_tropics: Limits[float] = Limits(lower=0, upper=25)
@@ -754,6 +1149,13 @@ class LatitudinalCorrelationBetweenDiagnostics(PostProcessor[xr.DataArray]):
 
     @override
     def execute(self) -> xr.DataArray:
+        """
+        Compute the Pearson correlation coefficient between every pair of diagnostics, for each hemisphere/region
+
+        Returns:
+            Symmetric DataArray of correlation coefficients with ``diagnostic1``, ``diagnostic2``, ``hemisphere``,
+            and ``region`` dimensions
+        """
         possible_coordinates: set[str] = {"latitude", "longitude", "valid_time"}
         remaining_coordinates: list[Hashable] = [
             coord for coord in next(iter(self._computed_indices.values())).dims if coord in possible_coordinates
@@ -804,6 +1206,15 @@ class LatitudinalCorrelationBetweenDiagnostics(PostProcessor[xr.DataArray]):
 
 
 class RelationshipBetween(PostProcessor[xr.DataArray]):
+    """
+    Abstract base class for computing an association measure between two boolean features
+
+    Subclasses implement :meth:`execute` to compute a specific association measure (e.g. Jaccard index, conditional
+    probability, Matthew's Correlation Coefficient, odds ratio, or relative risk) between ``this_feature`` and
+    ``other_feature``. See :class:`RelationshipBetweenFactory` for constructing the appropriate subclass from a
+    :class:`RelationshipBetweenTypes`.
+    """
+
     _this_feature: xr.DataArray
     _other_feature: xr.DataArray
     _sum_over_dim: str | list[str] | None
@@ -811,6 +1222,16 @@ class RelationshipBetween(PostProcessor[xr.DataArray]):
     def __init__(
         self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dim: str | list[str] | None = "time"
     ) -> None:
+        """
+        Args:
+            this_feature: First binary variable
+            other_feature: Second binary variable. Its coordinates must be a subset of ``this_feature``'s.
+            sum_over_dim: Dimension(s) to sum over when computing the contingency table. Defaults to ``"time"``.
+
+        Raises:
+            AssertionError: If ``this_feature`` and ``other_feature`` are not both boolean, or if
+                ``other_feature``'s coordinates are not a subset of ``this_feature``'s
+        """
         assert this_feature.dtype == other_feature.dtype
         assert this_feature.dtype == np.bool_  # For now, require the two to have a boolean dtype
         assert set(this_feature.coords).issuperset(other_feature.coords)
@@ -820,56 +1241,77 @@ class RelationshipBetween(PostProcessor[xr.DataArray]):
         self._sum_over_dim = sum_over_dim
 
     @override
-    def execute(self) -> xr.DataArray: ...
+    def execute(self) -> xr.DataArray:
+        """Compute the association measure between ``self._this_feature`` and ``self._other_feature``, see subclasses"""
+        # Return a dataarray to appease the pyright gods
+        return xr.DataArray()
 
 
 class JaccardIndex(RelationshipBetween):
+    """Jaccard index (see :func:`rojak.turbulence.metrics.jaccard_index_multidim`) between two boolean features"""
+
     def __init__(
         self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str | list[str] | None = "time"
     ) -> None:
+        """See :meth:`RelationshipBetween.__init__`"""
         super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
 
     @override
     def execute(self) -> xr.DataArray:
+        """Compute the Jaccard index between ``self._this_feature`` and ``self._other_feature``"""
         return jaccard_index_multidim(self._this_feature, self._other_feature, self._sum_over_dim)
 
 
 class ProbabilityThisGivenOther(RelationshipBetween):
+    """Conditional probability :math:`P(\\text{this\\_feature} | \\text{other\\_feature})`"""
+
     def __init__(
         self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str | list[str] | None = "time"
     ) -> None:
+        """See :meth:`RelationshipBetween.__init__`"""
         super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
 
     @override
     def execute(self) -> xr.DataArray:
+        """Compute :math:`P(\\text{this\\_feature} | \\text{other\\_feature})` from the contingency table"""
         table = contingency_table(self._this_feature, self._other_feature, sum_over=self._sum_over_dim)
         return table.n_11 / (table.n_11 + table.n_10)
 
 
 class ProbabilityThisGivenNotOther(RelationshipBetween):
+    """Conditional probability :math:`P(\\text{this\\_feature} | \\lnot \\text{other\\_feature})`"""
+
     def __init__(
         self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str | list[str] | None = "time"
     ) -> None:
+        """See :meth:`RelationshipBetween.__init__`"""
         super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
 
     @override
     def execute(self) -> xr.DataArray:
+        """Compute :math:`P(\\text{this\\_feature} | \\lnot \\text{other\\_feature})` from the contingency table"""
         table = contingency_table(self._this_feature, self._other_feature, sum_over=self._sum_over_dim)
         return table.n_01 / (table.n_00 + table.n_01)
 
 
 class MatthewsCorrelation(RelationshipBetween):
+    """Matthew's Correlation Coefficient (see :func:`rojak.turbulence.metrics.matthews_corr_coeff_multidim`)"""
+
     def __init__(
         self, this_feature: xr.DataArray, other_feature: xr.DataArray, sum_over_dims: str | list[str] | None = "time"
     ) -> None:
+        """See :meth:`RelationshipBetween.__init__`"""
         super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
 
     @override
     def execute(self) -> xr.DataArray:
+        """Compute the Matthew's Correlation Coefficient between ``self._this_feature`` and ``self._other_feature``"""
         return matthews_corr_coeff_multidim(self._this_feature, self._other_feature, self._sum_over_dim)
 
 
 class SampleOddsRatio(RelationshipBetween):
+    """Sample odds ratio (see :func:`rojak.turbulence.metrics.sample_odds_ratio`) between two boolean features"""
+
     def __init__(
         self,
         this_feature: xr.DataArray,
@@ -877,15 +1319,25 @@ class SampleOddsRatio(RelationshipBetween):
         sum_over_dims: str | list[str] | None = "time",
         use_log: bool = True,
     ) -> None:
+        """
+        Args:
+            this_feature: First binary variable
+            other_feature: Second binary variable
+            sum_over_dims: Dimension(s) to sum over when computing the contingency table. Defaults to ``"time"``.
+            use_log: If ``True`` (default), computes the natural logarithm of the odds ratio.
+        """
         super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
         self._use_log: bool = use_log
 
     @override
     def execute(self) -> xr.DataArray:
+        """Compute the (log) sample odds ratio between ``self._this_feature`` and ``self._other_feature``"""
         return sample_odds_ratio(self._this_feature, self._other_feature, self._sum_over_dim, use_log=self._use_log)
 
 
 class RelativeRisk(RelationshipBetween):
+    """Relative risk (see :func:`rojak.turbulence.metrics.relative_risk`) between two boolean features"""
+
     def __init__(
         self,
         this_feature: xr.DataArray,
@@ -893,15 +1345,28 @@ class RelativeRisk(RelationshipBetween):
         sum_over_dims: str | list[str] | None = "time",
         use_log: bool = True,
     ) -> None:
+        """
+        Args:
+            this_feature: First binary variable (the exposure)
+            other_feature: Second binary variable (the outcome)
+            sum_over_dims: Dimension(s) to sum over when computing the contingency table. Defaults to ``"time"``.
+            use_log: If ``True`` (default), computes the natural logarithm of the relative risk.
+        """
         super().__init__(this_feature, other_feature, sum_over_dim=sum_over_dims)
         self._use_log: bool = use_log
 
     @override
     def execute(self) -> xr.DataArray:
+        """Compute the (log) relative risk between ``self._this_feature`` and ``self._other_feature``"""
         return relative_risk(self._this_feature, self._other_feature, self._sum_over_dim, use_log=self._use_log)
 
 
 class RelationshipBetweenFactory:
+    """
+    Factory for constructing the :class:`RelationshipBetween` subclass corresponding to a
+    :class:`RelationshipBetweenTypes`
+    """
+
     _this_feature: xr.DataArray
     _other_feature: xr.DataArray
     _sum_over_dim: str | list[str] | None
@@ -914,11 +1379,30 @@ class RelationshipBetweenFactory:
         *,
         sum_over_dim: str | list[str] | None = "time",
     ) -> None:
+        """
+        Args:
+            this_feature: First binary variable
+            other_feature: Second binary variable
+            sum_over_dim: Dimension(s) to sum over when computing the contingency table. Defaults to ``"time"``.
+        """
         self._this_feature = this_feature
         self._other_feature = other_feature
         self._sum_over_dim = sum_over_dim
 
     def create(self, type_of_relationship: RelationshipBetweenTypes, *, use_log: bool = True) -> RelationshipBetween:  # noqa: PLR0911
+        """
+        Construct the :class:`RelationshipBetween` instance for the requested relationship type
+
+        Args:
+            type_of_relationship: Type of association measure to compute
+            use_log: For the odds ratio and relative risk relationship types, whether to compute the natural
+                logarithm. Ignored for other relationship types. Defaults to ``True``.
+
+        Returns:
+            Instance of the :class:`RelationshipBetween` subclass corresponding to ``type_of_relationship``, with
+            ``this_feature``/``other_feature`` in the order implied by ``type_of_relationship`` (e.g.
+            ``PROBABILITY_OTHER_GIVEN_THIS`` swaps the order relative to ``PROBABILITY_THIS_GIVEN_OTHER``)
+        """
         match type_of_relationship:
             case RelationshipBetweenTypes.JACCARD_INDEX:
                 return JaccardIndex(self._this_feature, self._other_feature, sum_over_dims=self._sum_over_dim)
@@ -965,6 +1449,14 @@ class RelationshipBetweenFactory:
 
 
 class RelationshipBetweenXAndTurbulence(PostProcessor[xr.Dataset]):
+    """
+    Computes the association between a feature and every turbulence diagnostic in a Dataset
+
+    For each diagnostic in ``turbulence_diagnostics``, constructs the appropriate :class:`RelationshipBetween` (via
+    :class:`RelationshipBetweenFactory`) between ``other_feature`` and that diagnostic (optionally thresholded first,
+    see ``diagnostic_thresholds``), and collects the results into a Dataset keyed by diagnostic name.
+    """
+
     _other_feature: xr.DataArray
     _turbulence_diagnostics: xr.Dataset
     _relationship_type: RelationshipBetweenTypes
@@ -983,6 +1475,24 @@ class RelationshipBetweenXAndTurbulence(PostProcessor[xr.Dataset]):
         use_log: bool = True,
         sum_over_dim: str | list[str] | None = "time",
     ) -> None:
+        """
+        Args:
+            other_feature: Binary feature to compute the relationship against each turbulence diagnostic
+            turbulence_diagnostics: Dataset of turbulence diagnostics. If ``diagnostic_thresholds`` is not
+                provided, these must already be boolean.
+            relationship_between: Type of association measure to compute for each diagnostic
+            diagnostic_thresholds: Optional mapping from diagnostic name to a threshold value; if provided, each
+                diagnostic is first thresholded (``>=``) to obtain a boolean DataArray. Must be a superset of
+                ``turbulence_diagnostics``'s variable names.
+            feature_name: Name of ``other_feature``, used in the progress bar description. Defaults to
+                ``"feature"``.
+            use_log: Passed to :meth:`RelationshipBetweenFactory.create`. Defaults to ``True``.
+            sum_over_dim: Dimension(s) to sum over when computing the contingency table. Defaults to ``"time"``.
+
+        Raises:
+            AssertionError: If ``diagnostic_thresholds`` is provided but is not a superset of
+                ``turbulence_diagnostics``'s variable names
+        """
         if diagnostic_thresholds is not None:
             assert set(diagnostic_thresholds.keys()).issuperset(turbulence_diagnostics.keys())
 
@@ -996,6 +1506,13 @@ class RelationshipBetweenXAndTurbulence(PostProcessor[xr.Dataset]):
 
     @override
     def execute(self) -> xr.Dataset:
+        """
+        Compute the association measure between ``self._other_feature`` and each turbulence diagnostic
+
+        Returns:
+            Dataset with the same variable names as ``self._turbulence_diagnostics``, each containing the computed
+            association measure
+        """
         return xr.Dataset(
             data_vars={
                 diagnostic_name: RelationshipBetweenFactory(
@@ -1016,6 +1533,11 @@ class RelationshipBetweenXAndTurbulence(PostProcessor[xr.Dataset]):
 
 
 class RelationshipBetweenAlphaVelAndTurbulence(RelationshipBetweenXAndTurbulence):
+    """
+    :class:`RelationshipBetweenXAndTurbulence` specialised to use jet stream regions identified from an
+    :class:`~rojak.atmosphere.jet_stream.AlphaVelField` as the ``other_feature``
+    """
+
     _alpha_vel: "AlphaVelField"
     _turbulence_diagnostics: xr.Dataset
     _relationship_type: RelationshipBetweenTypes
@@ -1028,6 +1550,14 @@ class RelationshipBetweenAlphaVelAndTurbulence(RelationshipBetweenXAndTurbulence
         relationship_between: RelationshipBetweenTypes,
         diagnostic_thresholds: Mapping[str, float] | None = None,
     ) -> None:
+        """
+        Args:
+            alpha_vel: Field used to identify jet stream regions via :meth:`~AlphaVelField.identify_jet_stream`
+            turbulence_diagnostics: Dataset of turbulence diagnostics
+            relationship_between: Type of association measure to compute for each diagnostic
+            diagnostic_thresholds: Optional mapping from diagnostic name to a threshold value; if provided, each
+                diagnostic is first thresholded (``>=``) to obtain a boolean DataArray
+        """
         super().__init__(
             alpha_vel.identify_jet_stream(),
             turbulence_diagnostics,

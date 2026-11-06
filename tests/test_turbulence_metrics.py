@@ -11,6 +11,7 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+import gc
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -21,6 +22,8 @@ import pytest
 
 from rojak.turbulence.metrics import (
     _populate_confusion_matrix,
+    area_under_curve,
+    binary_classification_curve,
     binary_classification_rate_from_cumsum,
     confusion_matrix,
     contingency_table,
@@ -68,6 +71,74 @@ def test_binary_classification_equiv_sklearn_example(as_pandas: bool, client: "C
 def test_binary_classification_rate_from_cumsum_fails(cumsum: np.typing.NDArray, as_pandas: bool) -> None:
     with pytest.raises(ValueError, match="must not be negative"):
         binary_classification_rate_from_cumsum(cumsum if not as_pandas else pd.Series(cumsum))
+
+
+def test_roc_computable_after_inputs_released(client: "Client") -> None:
+    # Regression test for futures of the ROC being cancelled once the (persisted) inputs are no longer referenced.
+    # This mirrors how DiagnosticsAmdarVerification.nearest_value_roc invokes received_operating_characteristic
+    rng = np.random.default_rng(1)
+    num_points: int = 20_000
+    values = np.sort(rng.normal(size=num_points))[::-1].copy()
+    truth = rng.random(num_points) < (1 / (1 + np.exp(-values)))
+    chunks: int = num_points // 7
+
+    results = []
+    for _ in range(3):
+        values_array = da.asarray(values, chunks=chunks).persist()
+        results.append(
+            received_operating_characteristic(
+                da.asarray(truth, chunks=chunks).persist(), values_array, num_intervals=-1
+            )
+        )
+        del values_array
+    gc.collect()
+
+    # As values are continuous and distinct, every point is a threshold
+    expected_tpr = np.concatenate(([0], np.cumsum(truth))) / truth.sum()
+    expected_fpr = np.concatenate(([0], np.cumsum(~truth))) / (~truth).sum()
+    expected_thresholds = np.concatenate(([np.inf], values))
+    for roc in results:
+        fpr, tpr, thresholds = da.compute(roc.false_positives, roc.true_positives, roc.thresholds)
+        np.testing.assert_allclose(fpr, expected_fpr)
+        np.testing.assert_allclose(tpr, expected_tpr)
+        np.testing.assert_equal(thresholds, expected_thresholds)
+        np.testing.assert_allclose(
+            area_under_curve(roc.false_positives, roc.true_positives), np.trapezoid(expected_tpr, expected_fpr)
+        )
+
+
+def test_binary_classification_curve_buckets_by_num_intervals() -> None:
+    rng = np.random.default_rng(2)
+    num_intervals: int = 5
+    # Clusters 10 apart with small jitter => only the jumps between clusters exceed the step size of range / 5
+    values = np.sort(np.concatenate([rng.uniform(0, 0.01, 400) + offset for offset in range(0, 50, 10)]))[::-1].copy()
+    positive_rate: float = 0.3
+    truth = rng.random(values.size) < positive_rate
+
+    step_size = (values.max() - values.min()) / num_intervals
+    expected_indices = np.append(np.nonzero(np.abs(np.diff(values)) > step_size)[0], values.size - 1)
+    assert expected_indices.size == num_intervals  # boundaries between the 5 clusters + final point
+    expected_tp = np.cumsum(truth)[expected_indices]
+
+    result = binary_classification_curve(
+        da.asarray(truth, chunks=300), da.asarray(values, chunks=300), num_intervals=num_intervals
+    )
+    np.testing.assert_equal(result.true_positives.compute(), expected_tp)
+    np.testing.assert_equal(result.false_positives.compute(), 1 + expected_indices - expected_tp)
+    np.testing.assert_equal(result.thresholds.compute(), values[expected_indices])
+
+
+@pytest.mark.parametrize("dtype", [np.bool_, np.int8, np.int64])
+def test_confusion_matrix_counts_do_not_overflow(dtype: type) -> None:
+    # More points per chunk than an int8 can count
+    truth = np.tile([True, True, False, False], 250)
+    prediction = np.tile([True, False, True, False], 250)
+    tn, fp, fn, tp = (
+        confusion_matrix(da.asarray(truth.astype(dtype), chunks=500), da.asarray(prediction.astype(dtype), chunks=500))
+        .ravel()
+        .tolist()
+    )
+    assert (tn, fp, fn, tp) == (250, 250, 250, 250)
 
 
 @pytest.mark.parametrize(

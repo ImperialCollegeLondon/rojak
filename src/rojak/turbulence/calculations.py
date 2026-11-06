@@ -11,6 +11,18 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+"""
+Physical quantities and turbulence-relevant derived fields computed from meteorological data
+
+This module provides standalone functions for computing quantities used to construct clear-air turbulence (CAT)
+diagnostics from raw meteorological fields (wind components, geopotential, temperature, pressure), such as
+deformation (:func:`shearing_deformation`, :func:`stretching_deformation`, :func:`total_deformation`), vorticity
+and potential vorticity (:func:`vertical_component_vorticity`, :func:`absolute_vorticity`,
+:func:`potential_vorticity`), wind-derived quantities (:func:`wind_speed`, :func:`wind_direction`,
+:func:`vertical_wind_shear`), and other atmospheric parameters (:func:`potential_temperature`,
+:func:`coriolis_parameter`, :func:`latitudinal_derivative`). Functions generally operate on
+:class:`xarray.DataArray` inputs and are agnostic to whether the underlying data is a dask or numpy array.
+"""
 
 from __future__ import annotations
 
@@ -123,6 +135,8 @@ def altitude_derivative_on_pressure_level(
     function: xr.DataArray,
     geopotential: xr.DataArray,
     level_coord_name: str = "pressure_level",
+    *,
+    d_geopotential_d_p: xr.DataArray | None = None,
 ) -> xr.DataArray:
     """
     Derivative w.r.t. altitude for data on pressure level
@@ -140,12 +154,14 @@ def altitude_derivative_on_pressure_level(
 
     Args:
         function: Function to perform derivative on that varies with pressure level
-        geopotential: Geopotential data
+        geopotential: Geopotential data. Only used when ``d_geopotential_d_p`` is ``None``; ignored otherwise.
         level_coord_name: Name of pressure level coordinate
+        d_geopotential_d_p: Precomputed :math:`\\frac{ \\partial \\Phi }{ \\partial p }` (e.g.
+            :meth:`rojak.core.data.CATData.d_geopotential_d_pressure`), so that callers computing several altitude
+            derivatives share it. If ``None``, it is computed from ``geopotential``.
     """
-    return GRAVITATIONAL_ACCELERATION * (
-        function.differentiate(level_coord_name) / geopotential.differentiate(level_coord_name)
-    )
+    dg_dp = d_geopotential_d_p if d_geopotential_d_p is not None else geopotential.differentiate(level_coord_name)
+    return GRAVITATIONAL_ACCELERATION * (function.differentiate(level_coord_name) / dg_dp)
 
 
 # Note: numpy dtype can't be overloaded as it's immutable. Therefore, go via array subclassing
@@ -156,10 +172,32 @@ class _WrapAroundAngleArray(np.ndarray):
     """
 
     def __new__(cls, input_array: np.ndarray) -> np.ndarray:
+        """
+        Create a :class:`_WrapAroundAngleArray` view onto an existing numpy array, without copying data
+
+        Args:
+            input_array: Array of angles to view as a :class:`_WrapAroundAngleArray`
+
+        Returns:
+            View of ``input_array`` as a :class:`_WrapAroundAngleArray`
+        """
         # https://numpy.org/doc/stable/user/basics.subclassing.html#slightly-more-realistic-example-attribute-added-to-existing-array
         return np.asarray(input_array).view(cls)
 
     def __sub__(self, other):  # noqa: ANN001, ANN204 # pyright:ignore [reportIncompatibleMethodOverride]
+        """
+        Difference between two arrays of angles, wrapping around so the result is always the smaller angle
+
+        Args:
+            other: Another :class:`_WrapAroundAngleArray` to subtract from ``self``
+
+        Returns:
+            Array of the absolute angular difference, taking the wrap-around (i.e. :math:`2\\pi - |\\Delta|`) when
+            it is smaller than the direct difference
+
+        Raises:
+            TypeError: If ``other`` is not an instance of :class:`_WrapAroundAngleArray`
+        """
         if isinstance(other, self.__class__):
             abs_diff: np.ndarray = np.abs(np.asarray(self) - np.asarray(other))
             remaining_angle: np.ndarray = (2 * np.pi) - abs_diff
@@ -309,7 +347,7 @@ def magnitude_of_geospatial_gradient(
         array: Array to compute geospatial gradient on
         is_squared (optional): If `True`, returns square of the magnitude. Default is `False`.
     """
-    grad = derivatives.spatial_gradient(array, "deg", derivatives.GradientMode.GEOSPATIAL)
+    grad = derivatives.spatial_gradient(array, derivatives.LatLonUnits.DEG, derivatives.GradientMode.GEOSPATIAL)
     return magnitude_of_vector(grad["dfdx"], grad["dfdy"], is_squared=is_squared)
 
 
@@ -328,17 +366,15 @@ def vertical_wind_shear(
 
     .. math::
 
-        \\begin{align}
-        S_{v} &= \\left| \\frac{ \\partial \\mathbf{u} }{ \\partial z }  \\right| \\\\
-            &= \\sqrt{ \\left| \\frac{ \\partial u }{ \\partial z }  \\right|^{2} +
+        S_v = \\left| \\frac{ \\partial u }{ \\partial z }  \\right| \\
+            = \\sqrt{ \\left| \\frac{ \\partial u }{ \\partial z }  \\right|^{2} +
                 \\left|  \\frac{ \\partial v }{ \\partial z } \\right| ^{2} }
-        \\end{align}
 
     Args:
         u_wind: :math:`u` wind component
         v_wind: :math:`v` wind component
         geopotential (optional): Array of geopotential values. If provided, derivative in vertical coordinate will
-            be on altitude (see py:func:`altitude_derivative_on_pressure_level` instead of on pressure level
+            be on altitude (see :py:func:`altitude_derivative_on_pressure_level` instead of on pressure level
         is_abs_velocities (optional): If `True`, uses absolute velocities. Default is `False`.
         is_vws_squared (optional): If `True`, returns square of the wind shear. Default is `False`.
     """

@@ -11,17 +11,32 @@
 #  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
+"""
+Utilities for indexing into and reshaping xarray/dask/pandas coordinate arrays
 
+This module provides standalone helper functions for working with coordinates and indices, namely: building
+direction-aware value slices (:func:`make_value_based_slice`), detecting regular grid spacing
+(:func:`get_regular_grid_spacing`), mapping data values to their nearest coordinate index on regular and irregular
+grids (:func:`nearest_index`, :func:`map_values_to_nearest_coordinate_index`,
+:func:`map_values_to_nearest_index_irregular_grid`) and back
+(:func:`map_index_to_coordinate_value`), reordering a list according to a target order (:func:`map_order`),
+combining an array with shifted copies of itself along a dimension (:func:`shift_and_combine`), masking values with
+NaN (:func:`apply_nan_mask`), and concatenating arrays along a new dimension (:func:`concat_new_dim`).
+"""
+
+import functools
+import operator
 from collections.abc import Callable, Sequence
-from typing import TYPE_CHECKING, Any
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any, assert_never
 
-import dask.array as da
 import numpy as np
 import pandas as pd
 import xarray as xr
 from dask.base import is_dask_collection
 
 if TYPE_CHECKING:
+    import dask.array as da
     import dask.dataframe as dd
     from numpy.typing import NDArray
 
@@ -50,7 +65,7 @@ def make_value_based_slice(coordinate: Sequence, min_value: float | None, max_va
 
 def get_regular_grid_spacing[T: np.number | np.inexact | np.datetime64 | np.timedelta64](
     array: "NDArray[T]",
-) -> None | T:
+) -> T | None:
     """
     Determines if array has a regular grid spacing
 
@@ -91,15 +106,127 @@ def get_regular_grid_spacing[T: np.number | np.inexact | np.datetime64 | np.time
     return None
 
 
+class NearestTieBreakConvention(StrEnum):
+    """Convention for breaking ties when a value is exactly halfway between two coordinate values"""
+
+    LOWER = "lower"
+    UPPER = "upper"
+
+    def get_operator(self) -> Callable:
+        # <= ties towards lower_index (smaller value), < ties towards upper_index (larger value)
+        match self:
+            case NearestTieBreakConvention.LOWER:
+                return operator.le
+            case NearestTieBreakConvention.UPPER:
+                return operator.lt
+            case _ as unreachable:
+                assert_never(unreachable)
+
+
+def nearest_index(
+    coordinate: "NDArray",
+    values: "NDArray",
+    *,
+    tie_break_convention: NearestTieBreakConvention = NearestTieBreakConvention.UPPER,
+) -> "NDArray[np.intp]":
+    """
+    Compute the index of the value in ``coordinate`` that is closest to each of ``values``
+
+    ``coordinate`` does not need to be regularly spaced or sorted. It is sorted once and each value is located with a
+    binary search, so it costs :math:`O((n + m) \\log m)` for :math:`n` values and :math:`m` coordinate values.
+
+    Ties (i.e. values exactly halfway between two coordinate values) are broken according to
+    ``tie_break_convention``. With :attr:`NearestTieBreakConvention.UPPER` (the default), ties are broken towards the
+    larger coordinate value, consistent with :meth:`pandas.Index.get_indexer` and :meth:`xarray.DataArray.sel` with
+    ``method="nearest"``. With :attr:`NearestTieBreakConvention.LOWER`, ties are broken towards the smaller coordinate
+    value. Values outside of the range of ``coordinate`` map to the index of its minimum or maximum. Missing values
+    (``NaN`` or ``NaT``) map to index ``0``.
+
+    Args:
+        coordinate: 1D array which is to be indexed into
+        values: Values to find the closest index in ``coordinate`` of
+        tie_break_convention: Convention used to break ties. Defaults to
+            :attr:`NearestTieBreakConvention.UPPER`
+
+    Returns:
+        Array of the same shape as ``values`` with the index in ``coordinate`` that each value is closest to
+
+    >>> nearest_index(np.array([0.0, 10.0, 20.0]), np.array([-5.0, 4.0, 6.0, 25.0]))
+    array([0, 0, 1, 2])
+    >>> nearest_index(np.array([20.0, 10.0, 0.0]), np.array([-5.0, 4.0, 6.0, 25.0]))
+    array([2, 2, 1, 0])
+    >>> nearest_index(np.array([10.0, 0.0, 30.0, 20.0]), np.array([1.0, 12.0, 27.0]))
+    array([1, 0, 2])
+
+    Ties are broken towards the larger coordinate value
+
+    >>> nearest_index(np.array([0.0, 10.0, 20.0]), np.array([5.0, 15.0]))
+    array([1, 2])
+    >>> nearest_index(np.array([20.0, 10.0, 0.0]), np.array([5.0, 15.0]))
+    array([1, 0])
+    """
+    coordinate = np.asarray(coordinate)
+    values = np.asarray(values)
+
+    if coordinate.ndim != 1:
+        raise ValueError(f"Coordinate must be 1D not {coordinate.ndim}D")
+    if coordinate.size == 1:
+        return np.zeros(values.shape, dtype=np.intp)
+
+    coord_sort_order: np.ndarray = np.argsort(coordinate, kind="stable")
+    sorted_coordinate: np.ndarray = coordinate[coord_sort_order]
+
+    # Positions in sorted_cordinate to compare against closest upper/lower neighbours to determine which is the nearest
+    # coordinate index
+    upper_index: np.ndarray = np.clip(np.searchsorted(sorted_coordinate, values), 1, sorted_coordinate.size - 1)
+    lower_index: np.ndarray = upper_index - 1
+
+    tie_break_operator = tie_break_convention.get_operator()
+    nearest_in_sorted_coord: np.ndarray = np.where(
+        tie_break_operator(values - sorted_coordinate[lower_index], sorted_coordinate[upper_index] - values),
+        lower_index,
+        upper_index,
+    )
+
+    nearest_in_coordinate: np.ndarray = coord_sort_order[nearest_in_sorted_coord]
+    nearest_in_coordinate[np.isnan(values)] = 0
+
+    return nearest_in_coordinate
+
+
 def map_values_to_nearest_index_irregular_grid(
-    series: "dd.Series | pd.Series", coordinate: "NDArray"
+    series: "dd.Series | pd.Series",
+    coordinate: "NDArray",
+    *,
+    tie_breaker: NearestTieBreakConvention = NearestTieBreakConvention.LOWER,
 ) -> "da.Array | NDArray":
-    parent_package = da if is_dask_collection(series) else np
-    array: da.Array | NDArray = series.to_dask_array(lengths=True) if is_dask_collection(series) else series.to_numpy()
-    return parent_package.abs(array[:, np.newaxis] - coordinate).argmin(axis=1)
+    """
+    Compute the closest index in ``coordinate`` that each value in ``series`` corresponds to
+
+    Unlike :func:`map_values_to_nearest_coordinate_index`, this does not require ``coordinate`` to be a regular grid
+    or even sorted. See :func:`nearest_index` for details, including how ties are broken.
+
+    Args:
+        series: Data which corresponds to a given value in the coordinate array and needs to be mapped to the
+            closest index in the coordinate array
+        coordinate: 1D array which is to be indexed into
+
+    Returns:
+        Array of the closest index in ``coordinate`` that each value in ``series`` maps to. If ``series`` is a dask
+        series, this is a lazy dask array.
+
+    >>> import pandas as pd
+    >>> map_values_to_nearest_index_irregular_grid(pd.Series([1.0, 12.0, 27.0]), np.array([10.0, 0.0, 30.0, 20.0]))
+    array([1, 0, 2])
+    """
+    if is_dask_collection(series):
+        return series.to_dask_array(lengths=True).map_blocks(
+            functools.partial(nearest_index, coordinate, tie_break_convention=tie_breaker), dtype=np.intp
+        )
+    return nearest_index(coordinate, series.to_numpy(), tie_break_convention=tie_breaker)
 
 
-def map_values_to_nearest_coordinate_index[T: np.datetime64 | np.number | np.inexact](
+def map_values_to_nearest_coordinate_index[T: (np.datetime64, np.number, np.inexact)](
     series: "dd.Series | pd.Series",
     coordinate: "NDArray[T]",
     valid_window: np.timedelta64 | np.number | np.inexact | None = None,
@@ -157,7 +284,13 @@ def map_values_to_nearest_coordinate_index[T: np.datetime64 | np.number | np.ine
     if valid_window is None:
         if series.min() < coordinate.min() or series.max() > coordinate.max():
             raise ValueError("Values in series must be within the range of the coordinate")
-    elif series.min() < coordinate.min() - valid_window or series.max() > coordinate.max() + valid_window:
+    elif series.min() < coordinate.min() - valid_window or series.max() > coordinate.max() + valid_window:  # pyright: ignore[reportOperatorIssue]
+        # pyright CI flags this as an issue due to the possible combinations, e.g. datetime64[Any]* and number[Any, Any]
+        # or datetime64[Any]* and inexact[Any, Any]
+        # I don't know how to specify in the python typing that np.datetime64 must correspond to the timedelta64 and
+        # the np.number to the np.number (in valid_window), etc
+        # This is an edge case that would be hit by the user if they don't give the correct "units" of input. I defer
+        # this bug to when we get there.
         raise ValueError("Values in series must be within the window of the coordinate")
 
     # Regular grid => monotonic function (in fact, it should be stricter)
@@ -185,7 +318,7 @@ def map_index_to_coordinate_value(
     """
     Retrieve original value based on index
 
-    This function is the inverse of :py:func`map_values_to_nearest_coordinate_index`
+    This function is the inverse of :py:func:`map_values_to_nearest_coordinate_index`
 
     Args:
         indices: Indices of the values to map
@@ -249,6 +382,39 @@ def shift_and_combine[T: (xr.Dataset, xr.DataArray)](
     offset_end: int = 1,
     shift_fill: Any = np.nan,  # noqa: ANN401
 ) -> T:
+    """
+    Combine each element along ``shift_dim`` with the elements ``offset_start`` before and ``offset_end`` after it
+
+    ``target_array`` is shifted forward by ``offset_start`` and backward by ``offset_end`` along ``shift_dim``, and
+    the two shifted copies are combined element-wise using ``combine_func``. The result is that, at each position,
+    the value at ``offset_start`` before it is combined with the value at ``offset_end`` after it. The boundary
+    positions which would have required data outside of ``target_array`` (and were therefore filled with
+    ``shift_fill``) are trimmed from the result.
+
+    With the default ``combine_func`` (logical OR), this is useful for e.g. dilating a boolean mask along
+    ``shift_dim`` so that a value is also marked True if either of its neighbours (at the given offsets) is True.
+
+    Args:
+        target_array: Array to shift and combine
+        combine_func: Function used to combine the two shifted copies of ``target_array``. Defaults to logical OR.
+        shift_dim: Coordinate/dimension to shift along. Defaults to ``"pressure_level"``.
+        offset_start: Number of positions to look before each element. Must be non-negative. Defaults to ``1``.
+        offset_end: Number of positions to look after each element. Must be non-negative. Defaults to ``1``.
+        shift_fill: Fill value used at the boundary introduced by shifting, before it is trimmed away. Defaults to
+            ``np.nan``.
+
+    Returns:
+        ``target_array`` combined with its shifted copies, with the invalid boundary positions removed
+
+    Raises:
+        ValueError: If ``offset_start`` or ``offset_end`` is negative, or if ``shift_dim`` is not a coordinate of
+            ``target_array``
+
+    >>> import xarray as xr
+    >>> array = xr.DataArray([False, False, True, False, False], dims="x", coords={"x": [0, 1, 2, 3, 4]})
+    >>> shift_and_combine(array, shift_dim="x").values
+    array([ True, False,  True])
+    """
     if offset_start < 0:
         raise ValueError("Start offset (i.e. start shift amount) must be non-negative")
     if offset_end < 0:
@@ -270,11 +436,34 @@ def shift_and_combine[T: (xr.Dataset, xr.DataArray)](
 
 
 def apply_nan_mask[T: (xr.Dataset, xr.DataArray)](target_array: T, nan_mask: T, drop: bool = False) -> T:
+    """
+    Replace values in ``target_array`` with NaN wherever ``nan_mask`` is True
+
+    Args:
+        target_array: Array to mask
+        nan_mask: Boolean array of where to set values to NaN. Must be broadcastable against ``target_array``.
+        drop: If ``True``, drop the masked-out values (via :meth:`xarray.DataArray.where`'s ``drop`` argument)
+            instead of just replacing them with NaN. Defaults to ``False``.
+
+    Returns:
+        ``target_array`` with values masked by NaN wherever ``nan_mask`` is True
+    """
     return target_array.where(~nan_mask, other=np.nan, drop=drop)
 
 
 def concat_new_dim[T: (xr.Dataset, xr.DataArray, xr.DataTree)](
     targets: Sequence[T], *, dim_name: str, dim_values: Sequence[Any]
 ) -> T:
+    """
+    Concatenate a sequence of arrays along a new dimension
+
+    Args:
+        targets: Arrays to concatenate. Must all share the same dimensions/shape.
+        dim_name: Name of the new dimension to concatenate along
+        dim_values: Coordinate values for the new dimension, one per element of ``targets``
+
+    Returns:
+        ``targets`` concatenated along a new ``dim_name`` dimension, with coordinate values ``dim_values``
+    """
     # False positives from pyright
     return xr.concat(objs=targets, dim=xr.Variable(dims=dim_name, data=dim_values))  # pyright: ignore[reportArgumentType, reportCallIssue]

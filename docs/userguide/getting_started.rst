@@ -89,7 +89,11 @@ The analysis through the CLI tool is controlled through a yaml configuration fil
       phases:
         calibration_phases:
           calibration_config:
-            calibration_data_dir: <path_to_meteorological_calibration_data>
+            calibration_data:
+              data_source: era5
+              location:
+                type: files
+                root: <path_to_meteorological_calibration_data>
             diagnostic_distribution_file_path: null
             percentile_thresholds:
               light: 97.0
@@ -108,7 +112,11 @@ The analysis through the CLI tool is controlled through a yaml configuration fil
             - correlation_between_probabilities
             - correlation_between_edr
           evaluation_config:
-            evaluation_data_dir: <path_to_meteorological_evaluation_data>
+            evaluation_data:
+              data_source: era5
+              location:
+                type: files
+                root: <path_to_meteorological_evaluation_data>
 
 .. code-block::
 
@@ -125,9 +133,63 @@ Running ``rojak`` with the above command and configuration file would,
 
 #. The turbulence analyses require two set of data - calibration and evaluation. The calibration phase is used to determine the threshold values for determining the turbulence intensity and the distribution of diagnostics to map it to EDR. In the example configuration, ``turbulence_config.phases.calibration_phases.phases`` specifies two phases: thresholds and histogram. Since the threshold phase is specified, the percentiles used to compute the thresholds must be too.
 #. The evaluation phases specified will use the output of the calibration phases
+#. The meteorological data for each stage is described by ``calibration_data`` and ``evaluation_data`` (see :ref:`met_data_location` below). In this example, every ``*.nc`` file in each directory is loaded.
 
 For more details on what can be specified and the various options for the configuration file, see :py:mod:`rojak.orchestrator.configuration`.
 
+.. _met_data_location:
+
+Specifying Where Meteorological Data Lives
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``calibration_data`` and ``evaluation_data`` are both a :py:class:`rojak.orchestrator.configuration.MeteorologyConfig`, which describes what the data is and where it lives,
+
+* ``data_source``: Which provider the data comes from, and thus how it is read (see :py:class:`rojak.orchestrator.configuration.MetDataSource`). Defaults to ``era5``.
+* ``location``: Where the data lives. The ``type`` key selects one of the options below (see :py:mod:`rojak.core.sources`).
+* ``engine``: The engine used to read netCDF files (ignored for zarr). Defaults to ``h5netcdf``.
+* ``open_kwargs``: Any additional keyword arguments passed to :py:func:`xarray.open_mfdataset` (or :py:func:`xarray.open_zarr` for zarr stores). For example, ``open_kwargs: {join: exact}`` raises an error if the files' coordinates do not line up instead of filling the gaps with ``NaN``.
+
+There are three types of location,
+
+``files`` (:py:class:`rojak.core.sources.FilesLocation`)
+    Every file under ``root`` matching ``glob_pattern`` (defaults to ``*.nc``). For example, to load every netCDF file in all the sub-directories,
+
+    .. code-block:: yaml
+
+        location:
+          type: files
+          root: ~/met_data/era5
+          glob_pattern: "**/*.nc"
+
+``template`` (:py:class:`rojak.core.sources.TemplateLocation`)
+    Selects files by time rather than by folder layout. Each file name is given by formatting ``template`` with every time step in ``time_window``, stepping by ``frequency`` (a pandas frequency string, defaults to ``1D``). By default, a missing file raises an error. Setting ``on_missing: skip`` skips over them instead. For example, to load the daily files for January 2024,
+
+    .. code-block:: yaml
+
+        location:
+          type: template
+          root: ~/met_data/era5
+          template: "{time:%Y}/{time:%m}/{time:%Y-%m-%d}.nc"
+          time_window:
+            lower: 2024-01-01T00:00:00Z
+            upper: 2024-01-31T00:00:00Z
+
+``zarr`` (:py:class:`rojak.core.sources.ZarrLocation`)
+    A single zarr store,
+
+    .. code-block:: yaml
+
+        location:
+          type: zarr
+          store: s3://my-bucket/era5.zarr
+          storage_options:
+            anon: true
+
+The ``root`` and ``store`` can be a local path or an `fsspec <https://filesystem-spec.readthedocs.io/>`__ URL (e.g. ``s3://``, ``gs://``, ``https://``). Remote data requires the corresponding fsspec implementation to be installed (e.g. ``s3fs`` for ``s3://``), and any credentials or other options can be provided through ``storage_options``. Remote netCDF files can only be read with the ``h5netcdf`` engine.
+
+.. note::
+
+    Configuration files from earlier versions of ``rojak`` which use ``calibration_data_dir`` and ``evaluation_data_dir`` are still accepted. They are equivalent to a ``files`` location with that directory as the ``root`` and the ``netcdf4`` engine.
 
 Retrieving Data
 -------------------------------------------------

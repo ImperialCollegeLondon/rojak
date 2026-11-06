@@ -10,7 +10,7 @@ This example will enable you to generate plots, like in :numref:`turbulence-perc
 
 .. _turbulence-percentage:
 
-.. figure:: _static/multi_diagnostic_f3d_ti1_on_200_light.png
+.. figure:: ../_static/multi_diagnostic_f3d_ti1_on_200_light.png
     :align: center
 
     Probability of encountering light turbulence during the months December, January, February from 2018 to 2024 at 200 hPa for the three-dimensional frontogenesis (F3D) and turbulence index 1 (TI1) diagnostics.
@@ -56,10 +56,11 @@ In this configuration file,
 4. *Line 16*: Is a list of the turbulence diagnostics which the analysis is to be performed on. Each item in the list must be an string from the :py:class:`enum.StrEnum` class :py:class:`rojak.orchestrator.configuration.TurbulenceDiagnostics`
 5. *Line 19*: Defines which phases to run and corresponds to the class :py:class:`rojak.orchestrator.configuration.TurbulencePhases`
 6. *Line 20*: Specifies what should occur during the calibration phase. If applicable, where the calibration data is stored. This corresponds to the :py:class:`rojak.orchestrator.configuration.TurbulenceCalibrationPhases` class.
-7. *Line 21*: Contains the required configuration for the calibration phase, such as where the data is stored in ``calibration_data_dir``. This corresponds to the :py:class:`rojak.orchestrator.configuration.TurbulenceCalibrationConfig`. As the thresholds phase is specified in line 29, the percentile thresholds for a given turbulence intensity needs to be provided.
-8. *Line 29*: Specifies which phases to run during the calibration phase this corresponds to the :py:class:`enum.StrEnum` :py:class:`rojak.orchestrator.configuration.TurbulenceCalibrationPhaseOption`
-9. *Line 32*: Contains the required configuration for the evaluation phase, this corresponds to the :py:class:`rojak.orchestrator.configuration.TurbulenceEvaluationConfig`
-10. *Line 33*: Specifies which phases to run during the evaluation phase this corresponds to the :py:class:`enum.StrEnum` :py:class:`rojak.orchestrator.configuration.TurbulenceEvaluationPhaseOption`. As ``"probabilities"`` has been specified, it will use the percentile thresholds computed threshold for the turbulence diagnostics during the calibration phase. The option ``"edr"`` will perform the mapping to EDR values using the distribution computed during the calibration phase.
+7. *Line 21*: Contains the required configuration for the calibration phase. This corresponds to the :py:class:`rojak.orchestrator.configuration.TurbulenceCalibrationConfig`. As the thresholds phase is specified in line 32, the percentile thresholds for a given turbulence intensity needs to be provided.
+8. *Line 22*: Specifies where the calibration data is stored. Here, it is every ``*.nc`` file in the folder the data was downloaded to. This corresponds to the :py:class:`rojak.orchestrator.configuration.MeteorologyConfig`. See :ref:`met_data_location` for the other ways the data can be specified (e.g. selecting files by time, zarr stores, or data on cloud storage).
+9. *Line 32*: Specifies which phases to run during the calibration phase this corresponds to the :py:class:`enum.StrEnum` :py:class:`rojak.orchestrator.configuration.TurbulenceCalibrationPhaseOption`
+10. *Line 35*: Contains the required configuration for the evaluation phase, this corresponds to the :py:class:`rojak.orchestrator.configuration.TurbulenceEvaluationConfig`
+11. *Line 36*: Specifies which phases to run during the evaluation phase this corresponds to the :py:class:`enum.StrEnum` :py:class:`rojak.orchestrator.configuration.TurbulenceEvaluationPhaseOption`. As ``"probabilities"`` has been specified, it will use the percentile thresholds computed threshold for the turbulence diagnostics during the calibration phase. The option ``"edr"`` will perform the mapping to EDR values using the distribution computed during the calibration phase.
 
 
 .. code-block:: yaml
@@ -88,7 +89,10 @@ In this configuration file,
         phases:
             calibration_phases:
                 calibration_config:
-                    calibration_data_dir: met_data/met_data/era5/calibration_data
+                    calibration_data:
+                        location:
+                            type: files
+                            root: met_data/era5/calibration_data
                     percentile_thresholds:
                         light: 97.0
                         light_to_moderate: 99.1
@@ -103,7 +107,10 @@ In this configuration file,
                     - probabilities
                     - edr
                 evaluation_config:
-                    evaluation_data_dir: met_data/met_data/era5/evaluation_data
+                    evaluation_data:
+                        location:
+                            type: files
+                            root: met_data/era5/evaluation_data
 
 This configuration can be launched using the command below,
 
@@ -128,7 +135,7 @@ The method shown below is the least involved, thus has the least room for custom
 
 .. _edr-snapshot-fig:
 
-.. figure:: _static/multi_edr_f3d_ti1.png
+.. figure:: ../_static/multi_edr_f3d_ti1.png
     :align: center
 
     6-hour forecast of eddy dissipation rate (EDR) at 200 hPa for the three-dimensional frontogenesis (F3D) and turbulence index 1 (TI1) on the 1st of December 2024 at 00:00
@@ -162,14 +169,20 @@ the domain can be limited (like in :numref:`edr-snapshot-fig`) by specifying it 
         phases:
             calibration_phases:
                 calibration_config:
-                    calibration_data_dir: met_data/met_data/era5/calibration_data
+                    calibration_data:
+                        location:
+                            type: files
+                            root: met_data/era5/calibration_data
                 phases:
                     - histogram
             evaluation_phases:
                 phases:
                     - edr
                 evaluation_config:
-                    evaluation_data_dir: met_data/era5/met_data/evaluation_data
+                    evaluation_data:
+                        location:
+                            type: files
+                            root: met_data/era5/evaluation_data
 
 .. note::
 
