@@ -42,6 +42,31 @@ def wrap_longitude_offset(lons: np.ndarray, relative_to: float) -> np.ndarray:
     return (lons - relative_to + 180) % 360 - 180
 
 
+def orthographic_projection(centre_lat: float, centre_lon: float) -> pyproj.Proj:
+    """WGS-84 orthographic projection in km, anchored at a centre.
+
+    This is the single definition of the km-scale Cartesian frame about a centre, so that every re-projection about a
+    point uses the same geometry. The centre maps to ``(0, 0)``; points on the far side of the globe are not visible
+    and map to ``inf``.
+
+    Args:
+        centre_lat (float): Latitude of the centre in degrees.
+        centre_lon (float): Longitude of the centre in degrees. Can be in either ``[-180, 180)`` or ``[0, 360)``.
+
+    Returns:
+        pyproj.Proj: Projection from ``(lon, lat)`` in degrees to ``(x, y)`` in km (``inverse=True`` for the reverse).
+
+    Examples
+    --------
+
+    >>> ortho = orthographic_projection(50.0, 10.0)
+    >>> x_km, y_km = ortho(10.0, 50.0)
+    >>> bool(np.isclose(x_km, 0.0) and np.isclose(y_km, 0.0))
+    True
+    """
+    return pyproj.Proj(proj="ortho", lat_0=centre_lat, lon_0=centre_lon, units="km", ellps="WGS84")
+
+
 def project_about_centre(
     data_values: np.ndarray,
     km_coords: np.ndarray,
@@ -54,9 +79,9 @@ def project_about_centre(
 ) -> np.ndarray:
     """Re-project a 2D data field onto a km-scale Cartesian grid centred on a given latitude and longitude.
 
-    Constructs a WGS-84 orthographic projection (:class:`pyproj.Proj`) anchored at the centre and interpolates
-    ``data_values`` from its native lat/lon grid onto a regular ``(y_km, x_km)`` Cartesian grid using linear
-    interpolation via :func:`scipy.interpolate.griddata`. This is the shared implementation used by
+    Constructs a WGS-84 orthographic projection anchored at the centre (see :func:`orthographic_projection`) and
+    interpolates ``data_values`` from its native lat/lon grid onto a regular ``(y_km, x_km)`` Cartesian grid using
+    linear interpolation via :func:`scipy.interpolate.griddata`. This is the shared implementation used by
     :func:`_project_data_about_extrema` and :func:`~rojak.atmosphere.compositing._composite_block_about_points`.
 
     The re-projection pipeline is:
@@ -93,7 +118,7 @@ def project_about_centre(
     x_km_mesh, y_km_mesh = np.meshgrid(km_coords, km_coords)
 
     # Inverse projection to find what lat/lon indices are within range
-    ortho = pyproj.Proj(proj="ortho", lat_0=centre_lat, lon_0=centre_lon, units="km", ellps="WGS84")
+    ortho = orthographic_projection(centre_lat, centre_lon)
     new_lons, new_lats = ortho(x_km_mesh, y_km_mesh, inverse=True)
 
     lat_mask = (lats >= new_lats.min() - lat_lon_buffer) & (lats <= new_lats.max() + lat_lon_buffer)
@@ -239,7 +264,7 @@ def bilinear_project_about_centre(
         ``(y_km, x_km)``. Points of the km grid that lie outside of the input data are ``NaN``.
     """
     x_km_mesh, y_km_mesh = np.meshgrid(km_coords, km_coords)
-    ortho: pyproj.Proj = pyproj.Proj(proj="ortho", lat_0=centre_lat, lon_0=centre_lon, units="km", ellps="WGS84")
+    ortho: pyproj.Proj = orthographic_projection(centre_lat, centre_lon)
     new_lons, new_lats = ortho(x_km_mesh, y_km_mesh, inverse=True)
     return bilinear_about_point(
         data_values,

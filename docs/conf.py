@@ -42,6 +42,12 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 # See https://github.com/sphinx-doc/sphinx/issues/6800
 autosummary_generate = True
 
+# Respect a module's own `__all__` instead of documenting every public name found by `dir()`.
+# Only `utilities/_compat.py` and `atmosphere/feature_composite/{__init__,extension}.py` define
+# `__all__` today, so this only curates their generated pages; every other module has no
+# `__all__` and keeps documenting every public member, as before.
+autosummary_ignore_module_all = False
+
 autoclass_content = "class"
 autodoc_member_order = "groupwise"
 autodoc_typehints = "description"
