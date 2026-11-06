@@ -301,6 +301,10 @@ class DiagnosticHistogramDistribution(BatchPostProcessor[HistogramData]):
     Computes histogram bins for log-normal distribution of turbulence diagnostics.
 
     Implementation of the methodology in [Sharman2017]_ to map the raw diagnostic value into EDR
+
+    A dask-backed diagnostic is reduced in two passes: :meth:`build_lazy_collection` gives the range, mean and
+    variance, and :meth:`build_counts` then bins the values over that range. Both return a handful of numbers, so
+    a caller batching several diagnostics never holds more than one diagnostic's worth of values in its own memory.
     """
 
     _computed_diagnostic: xr.DataArray
@@ -316,40 +320,84 @@ class DiagnosticHistogramDistribution(BatchPostProcessor[HistogramData]):
         if num_hist_bins is not None:
             self._NUM_HIST_BINS = num_hist_bins
 
-    @override
-    def build_lazy_collection(self) -> da.Array:
-        """
-        Build the lazy log of the strictly positive diagnostic values without computing it
-
-        The histogram range depends on the minimum and maximum of these values, so the histogram itself is built in
-        :meth:`build_result` once they are known.
-
-        Returns:
-            Lazy, flattened log of the positive diagnostic values. Pass
-            ``dask.compute(build_lazy_collection())[0]`` to :meth:`build_result`.
-        """
+    def _lazy_log_of_positive_values(self) -> da.Array:
+        """Flattened log of the strictly positive diagnostic values, as an uncomputed dask array"""
         flattened_array = da.asarray(self._computed_diagnostic.data).flatten()
         return da.log(flattened_array[flattened_array > 0])
 
     @override
-    def build_result(self, computed: "NDArray") -> HistogramData:
+    def build_lazy_collection(self) -> da.Array:
         """
-        Build the histogram from the computed log of the positive diagnostic values
+        Build the lazy summary statistics of the log of the strictly positive diagnostic values
+
+        The histogram's range is the minimum and maximum of those values, so the counts cannot be built until
+        this collection has been materialised; they are a second pass (:meth:`build_counts`) rather than part of
+        this one. Only these four scalars cross back to the client — returning the values themselves would move
+        the whole field into the caller's memory.
+
+        Returns:
+            Lazy ``[minimum, maximum, mean, variance]``. Pass ``dask.compute(build_lazy_collection())[0]`` to
+            :meth:`build_counts` and :meth:`build_result`.
+        """
+        log_of_diagnostic = self._lazy_log_of_positive_values()
+        return da.stack(
+            [
+                log_of_diagnostic.min(),
+                log_of_diagnostic.max(),
+                log_of_diagnostic.mean(),
+                log_of_diagnostic.var(),
+            ]
+        )
+
+    def build_counts(self, statistics: "NDArray") -> da.Array:
+        """
+        Build the lazy histogram counts over the range given by ``statistics``
 
         Args:
-            computed: Flattened log of the strictly positive diagnostic values, i.e. the materialised result
-                of :meth:`build_lazy_collection`
+            statistics: Materialised :meth:`build_lazy_collection`, whose first two entries are the range
+
+        Returns:
+            Lazy histogram counts (density-normalised), of length :attr:`_NUM_HIST_BINS`
+        """
+        counts, _ = da.histogram(  # pyright: ignore [reportGeneralTypeIssues]
+            self._lazy_log_of_positive_values(),
+            bins=self._NUM_HIST_BINS,
+            range=(float(statistics[0]), float(statistics[1])),
+            density=True,
+        )
+        return counts
+
+    def build_histogram_data(self, statistics: "NDArray", counts: "NDArray") -> HistogramData:
+        """
+        Assemble the result from both passes
+
+        Args:
+            statistics: Materialised :meth:`build_lazy_collection`
+            counts: Materialised :meth:`build_counts`
+
+        Returns:
+            :class:`HistogramData` of the log-transformed diagnostic values
+
+        Note:
+            The bin edges are rebuilt here rather than transferred: both :func:`numpy.histogram` and
+            :func:`dask.array.histogram` space an integer number of bins evenly over ``range``.
+        """
+        bins = np.linspace(float(statistics[0]), float(statistics[1]), self._NUM_HIST_BINS + 1)
+        return HistogramData(counts, bins, float(statistics[2]), float(statistics[3]))
+
+    @override
+    def build_result(self, computed: "NDArray") -> HistogramData:
+        """
+        Build the histogram from the computed statistics, materialising the counts in a second pass
+
+        Args:
+            computed: ``[minimum, maximum, mean, variance]`` of the log of the positive diagnostic values, i.e.
+                the materialised result of :meth:`build_lazy_collection`
 
         Returns:
             :class:`HistogramData` of the log-transformed diagnostic values
         """
-        h, bins = np.histogram(
-            computed,
-            bins=self._NUM_HIST_BINS,
-            range=(float(np.min(computed)), float(np.max(computed))),
-            density=True,
-        )
-        return HistogramData(h, bins, float(np.mean(computed)), float(np.var(computed)))
+        return self.build_histogram_data(computed, self.build_counts(computed).compute())
 
     @override
     def execute(self) -> HistogramData:
@@ -364,7 +412,22 @@ class DiagnosticHistogramDistribution(BatchPostProcessor[HistogramData]):
         if is_dask_collection(self._computed_diagnostic):
             return super().execute()
         flattened_array = np.ravel(self._computed_diagnostic.values)
-        return self.build_result(np.log(flattened_array[flattened_array > 0]))
+        log_of_diagnostic = np.log(flattened_array[flattened_array > 0])
+        statistics = np.asarray(
+            [
+                np.min(log_of_diagnostic),
+                np.max(log_of_diagnostic),
+                np.mean(log_of_diagnostic),
+                np.var(log_of_diagnostic),
+            ]
+        )
+        counts, _ = np.histogram(
+            log_of_diagnostic,
+            bins=self._NUM_HIST_BINS,
+            range=(float(statistics[0]), float(statistics[1])),
+            density=True,
+        )
+        return self.build_histogram_data(statistics, counts)
 
 
 # ABSTRACTION MIGHT NOT BE NECESSARY. REMOVE IN FUTURE IF IT ISN'T
@@ -534,8 +597,8 @@ class TurbulentRegionsBySeverity(PostProcessor[list[xr.DataArray]]):
         "no turbulence".
 
         Returns:
-            One mask per severity, in the order of ``self._severities``. These are lazy if the diagnostic is
-            dask-backed; to obtain a single DataArray, concatenate them along
+            One ``float32`` mask per severity, in the order of ``self._severities``. These are lazy if the
+            diagnostic is dask-backed; to obtain a single DataArray, concatenate them along
             ``xr.Variable("severity", severities)``.
         """
         by_severity: list[xr.DataArray] = []
@@ -544,8 +607,10 @@ class TurbulentRegionsBySeverity(PostProcessor[list[xr.DataArray]]):
             is_in_range: xr.DataArray = (self._computed_diagnostic >= bounds.lower) & (
                 self._computed_diagnostic < bounds.upper
             )
-            # Comparisons with NaN are False, so propagate NaN explicitly rather than reporting it as out of range
-            this_severity: xr.DataArray = xr.where(self._computed_diagnostic.notnull(), is_in_range, np.nan)
+            # Comparisons with NaN are False, so propagate NaN explicitly rather than reporting it as out of range.
+            # float32 is the narrowest dtype that can carry the NaN; callers hold one mask per severity per
+            # diagnostic, so the float64 that xr.where would promote the boolean to costs twice as much for nothing.
+            this_severity: xr.DataArray = is_in_range.astype(np.float32).where(self._computed_diagnostic.notnull())
             by_severity.append(this_severity)
         return by_severity
 

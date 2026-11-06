@@ -1534,6 +1534,7 @@ class DiagnosticSuite:
     """
 
     _diagnostics: dict["DiagnosticName", Diagnostic]
+    _names: list["DiagnosticName"]
     _dataset: xr.Dataset | None
     _persist: bool
 
@@ -1547,6 +1548,7 @@ class DiagnosticSuite:
         self._dataset = None
         self._persist = persist
         self._diagnostics = {str(diagnostic): factory.create(diagnostic) for diagnostic in diagnostics}
+        self._names = list(self._diagnostics.keys())
 
     @classmethod
     def from_factory(
@@ -1603,6 +1605,7 @@ class DiagnosticSuite:
         # Bypass __init__, which builds diagnostics from a factory: here the values already exist
         instance: Self = cls.__new__(cls)
         instance._diagnostics = {}
+        instance._names = names
         instance._dataset = ds[names]
         instance._persist = False
         return instance
@@ -1648,8 +1651,13 @@ class DiagnosticSuite:
         return {str(name): value for name, value in self.dataset.data_vars.items()}
 
     def diagnostic_names(self) -> list["DiagnosticName"]:
-        """Names of the diagnostics in the suite"""
-        return [str(name) for name in self.dataset.data_vars]
+        """
+        Names of the diagnostics in the suite, in the order they were requested
+
+        This reads the names the suite was built with, so that asking what is in the suite never materialises
+        :attr:`dataset`.
+        """
+        return list(self._names)
 
     def get_prototype_computed_diagnostic(self) -> xr.DataArray:
         """An arbitrary diagnostic's computed value, used where any one diagnostic's shape/coords will do"""
@@ -1778,11 +1786,19 @@ class CalibrationDiagnosticSuite(DiagnosticSuite):
         if not is_dask_collection(self.dataset):
             return {name: processor.execute() for name, processor in processors.items()}
 
-        # One scheduler round trip for every diagnostic, rather than one per diagnostic
-        computed_dist_params = dask_compute(*(processor.build_lazy_collection() for processor in processors.values()))
+        # Two scheduler round trips for the whole suite, rather than two per diagnostic: a histogram cannot be
+        # built until its range is known, so the statistics have to come back before the counts are built.
+        # Both passes return a handful of scalars per diagnostic; the values themselves stay on the workers.
+        statistics = dask_compute(*(processor.build_lazy_collection() for processor in processors.values()))
+        counts = dask_compute(
+            *(
+                processor.build_counts(statistic)
+                for processor, statistic in zip(processors.values(), statistics, strict=True)
+            )
+        )
         return {
-            name: processor.build_result(result)
-            for (name, processor), result in zip(processors.items(), computed_dist_params, strict=True)
+            name: processor.build_histogram_data(statistic, count)
+            for (name, processor), statistic, count in zip(processors.items(), statistics, counts, strict=True)
         }
 
 
