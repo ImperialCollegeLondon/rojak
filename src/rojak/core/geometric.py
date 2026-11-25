@@ -11,7 +11,7 @@ circle between two coordinates and interpolating gridded data along them (:func:
 
 import itertools
 from collections.abc import Callable
-from enum import StrEnum
+from enum import IntEnum
 from typing import TYPE_CHECKING, Any
 
 import dask_geopandas as dgpd
@@ -331,11 +331,11 @@ def interpolate_to_geodesic_waypoints[T: (xr.Dataset, xr.DataArray)](
     )
 
 
-class DistanceUnits(StrEnum):
+class DistanceUnits(IntEnum):
     """Units for a computed distance"""
 
-    METERS = "meters"
-    KILOMETERS = "kilometers"
+    METERS = 1
+    KILOMETERS = 2
 
 
 @numba.njit
@@ -344,20 +344,24 @@ def haversine_distance(
     lat_1: np.ndarray,
     lon_2: np.ndarray,
     lat_2: np.ndarray,
-    # distance_units: DistanceUnits = DistanceUnits.KILOMETERS,
     /,
+    distance_units: DistanceUnits = DistanceUnits.METERS,
 ) -> np.ndarray:
     """
-    Haversine distance in m between two points as pairs of longitude and latitude
+    Haversine distance between two points as pairs of longitude and latitude
 
     Args:
         lon_1: Array of longitude in degrees for first pair
         lat_1: Array of latitudes in degrees for first pair
         lon_2: Array of longitude in degrees for second pair
         lat_2: Array of latitudes in degrees for second pair
+        distance_units: Units of the returned distance. Defaults to :attr:`DistanceUnits.METERS`.
 
     Returns:
-        haversine distance in meters
+        haversine distance in the units given by ``distance_units``
+
+    Raises:
+        ValueError: If ``distance_units`` is not a member of :class:`DistanceUnits`
 
     References:
         `Wikipedia on haversine distance <https://en.wikipedia.org/wiki/Haversine_formula#Formulation>`__
@@ -366,6 +370,12 @@ def haversine_distance(
     Examples:
     >>> float(haversine_distance(np.array(77.037),np.array(38.898), np.array(2.294), np.array(48.858)))
     5846821.4
+
+    The distance can instead be returned in kilometres.
+
+    >>> float(haversine_distance(np.array(77.037), np.array(38.898), np.array(2.294), np.array(48.858),
+    ...                          distance_units=DistanceUnits.KILOMETERS))
+    5846.8214
 
     """
 
@@ -386,5 +396,10 @@ def haversine_distance(
     )
 
     theta: np.ndarray = 2 * np.arcsin(np.sqrt(haversine_theta))
-    # earth_radius: float = EARTH_AVG_RADIUS if distance_units == DistanceUnits.METERS else EARTH_AVG_RADIUS * 1e-3
-    return theta * EARTH_AVG_RADIUS
+    if distance_units == DistanceUnits.METERS:
+        earth_radius: float = EARTH_AVG_RADIUS
+    elif distance_units == DistanceUnits.KILOMETERS:
+        earth_radius = EARTH_AVG_RADIUS * 1e-3
+    else:
+        raise ValueError("distance_units must be a member of DistanceUnits")
+    return theta * earth_radius

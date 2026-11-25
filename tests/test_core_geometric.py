@@ -9,6 +9,7 @@ from pyproj import Geod
 from shapely import geometry
 
 from rojak.core.geometric import (
+    DistanceUnits,
     create_grid_data_frame,
     create_polygon_spatial_grid_buckets,
     create_rectangular_spatial_grid_buckets,
@@ -66,7 +67,7 @@ def test_create_grid_data_frame_polygon():
 
 def test_haversine_distance():
     target_shape = (40, 50)
-    rng = np.random.default_rng()
+    rng = np.random.default_rng(42)
     lon_1 = (rng.random(size=target_shape, dtype=float) * 360.0) - 180.0
     lon_2 = (rng.random(size=target_shape, dtype=float) * 360.0) - 180.0
     lat_1 = (rng.random(size=target_shape, dtype=float) * 180.0) - 90.0
@@ -76,6 +77,83 @@ def test_haversine_distance():
     geod = Geod(ellps="WGS84")
     _, _, geod_distances = geod.inv(lon_1, lat_1, lon_2, lat_2)
     np.testing.assert_allclose(distances, geod_distances, rtol=1e-2)
+
+
+WASHINGTON_PARIS_METRES: float = 5846821.4
+
+
+def _scalar_pair() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    return (
+        np.array(77.037),
+        np.array(38.898),
+        np.array(2.294),
+        np.array(48.858),
+    )
+
+
+def _random_pairs(shape: tuple[int, ...]) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    rng = np.random.default_rng(42)
+    lon_1 = (rng.random(size=shape, dtype=float) * 360.0) - 180.0
+    lon_2 = (rng.random(size=shape, dtype=float) * 360.0) - 180.0
+    lat_1 = (rng.random(size=shape, dtype=float) * 180.0) - 90.0
+    lat_2 = (rng.random(size=shape, dtype=float) * 180.0) - 90.0
+    return lon_1, lat_1, lon_2, lat_2
+
+
+class TestHaversineDistanceUnits:
+    def test_default_units_are_metres(self) -> None:
+        result = haversine_distance(*_scalar_pair())
+        assert result == pytest.approx(WASHINGTON_PARIS_METRES, rel=1e-6)
+
+    def test_explicit_metres_matches_default(self) -> None:
+        pairs = _random_pairs((40, 50))
+        default = haversine_distance(*pairs)
+        explicit_positional = haversine_distance(*pairs, DistanceUnits.METERS)
+        explicit_keyword = haversine_distance(*pairs, distance_units=DistanceUnits.METERS)
+        np.testing.assert_array_equal(explicit_positional, default)
+        np.testing.assert_array_equal(explicit_keyword, default)
+
+    def test_kilometres_positional_is_metres_divided_by_1000(self) -> None:
+        pairs = _random_pairs((40, 50))
+        metres = haversine_distance(*pairs)
+        kilometres = haversine_distance(*pairs, DistanceUnits.KILOMETERS)
+        assert kilometres == pytest.approx(metres / 1000, rel=1e-9)
+
+    def test_kilometres_keyword_is_metres_divided_by_1000(self) -> None:
+        pairs = _random_pairs((40, 50))
+        metres = haversine_distance(*pairs)
+        kilometres = haversine_distance(*pairs, distance_units=DistanceUnits.KILOMETERS)
+        assert kilometres == pytest.approx(metres / 1000, rel=1e-9)
+
+    def test_kilometres_scalar_is_metres_divided_by_1000(self) -> None:
+        result = haversine_distance(*_scalar_pair(), distance_units=DistanceUnits.KILOMETERS)
+        assert result == pytest.approx(WASHINGTON_PARIS_METRES / 1000, rel=1e-6)
+
+    @pytest.mark.parametrize("distance_units", [DistanceUnits.METERS, DistanceUnits.KILOMETERS])
+    def test_zero_dimensional_inputs_return_python_float(self, distance_units: DistanceUnits) -> None:
+        result = haversine_distance(*_scalar_pair(), distance_units=distance_units)
+        assert type(result) is float
+
+    @pytest.mark.parametrize("shape", [(7,), (40, 50)])
+    @pytest.mark.parametrize("distance_units", [DistanceUnits.METERS, DistanceUnits.KILOMETERS])
+    def test_array_inputs_return_float64_array_of_same_shape(
+        self, shape: tuple[int, ...], distance_units: DistanceUnits
+    ) -> None:
+        result = haversine_distance(*_random_pairs(shape), distance_units=distance_units)
+        assert isinstance(result, np.ndarray)
+        assert result.dtype == np.float64
+        assert result.shape == shape
+
+    # The message text is not part of the contract, so only the exception type is asserted.
+    def test_invalid_units_positional_raise_value_error(self) -> None:
+        pairs = _random_pairs((4, 5))
+        with pytest.raises(ValueError):  # noqa: PT011
+            haversine_distance(*pairs, 3)  # type: ignore[arg-type]
+
+    def test_invalid_units_keyword_raise_value_error(self) -> None:
+        pairs = _random_pairs((4, 5))
+        with pytest.raises(ValueError):  # noqa: PT011
+            haversine_distance(*pairs, distance_units=3)  # type: ignore[arg-type]
 
 
 class TestInterpolateToWaypoints:
