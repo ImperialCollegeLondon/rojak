@@ -14,10 +14,12 @@
 """
 ``rojak data`` command group: retrieving and preprocessing the data rojak analyses consume
 
-This exposes three subcommand groups:
+This exposes four subcommand groups:
 
 - ``rojak data amdar ...`` (:data:`amdar_app`): download (:func:`retrieve`) and preprocess (:func:`preprocess`)
   AMDAR turbulence observations.
+- ``rojak data iata ...`` (:data:`iata_app`): preprocess (:func:`preprocess_iata`) IATA Turbulence Aware
+  aircraft-based automated turbulence reports, optionally grouping them into spatio-temporal clusters.
 - ``rojak data meteorology ...`` (:data:`meteorology_app`): download meteorological reanalysis data
   (:func:`retrieve_meteorology`).
 - ``rojak data utils ...`` (:data:`utils_app`): miscellaneous data file utilities (:func:`repartition_parquet`).
@@ -29,6 +31,7 @@ from typing import TYPE_CHECKING, Annotated, assert_never
 
 import dask.dataframe as dd
 import typer
+from pydantic import ValidationError
 from rich.progress import track
 
 from rojak.datalib.ecmwf.era5 import (
@@ -36,6 +39,7 @@ from rojak.datalib.ecmwf.era5 import (
     Era5DefaultsName,
     Era5Retriever,
 )
+from rojak.datalib.iata import ClusteringConfig, ConditionColumn, IataObsPreprocessor
 from rojak.datalib.madis.amdar import AcarsRetriever, MadisAmdarPreprocessor
 from rojak.orchestrator.configuration import AmdarDataSource
 
@@ -57,8 +61,13 @@ meteorology_app = typer.Typer(
     help="Download meteorological reanalysis data (currently: ECMWF ERA5) used to compute turbulence diagnostics",
     no_args_is_help=True,
 )
+iata_app = typer.Typer(
+    help="Preprocess IATA Turbulence Aware aircraft-based automated turbulence reports",
+    no_args_is_help=True,
+)
 utils_app = typer.Typer(help="Miscellaneous utilities for working with data files", no_args_is_help=True)
 data_app.add_typer(amdar_app, name="amdar")
+data_app.add_typer(iata_app, name="iata")
 data_app.add_typer(meteorology_app, name="meteorology")
 data_app.add_typer(utils_app, name="utils")
 
@@ -217,7 +226,7 @@ def preprocess(
             "--glob-pattern",
             help=(
                 "Glob pattern (relative to `--input_dir`) selecting which raw files to preprocess, e.g. `'*.gz'`. "
-                "Required when `--input_dir` is a directory; not used when it is a single file."
+                "Required when `--input_dir` is a directory; omit it when `--input_dir` is a single file."
             ),
         ),
     ] = None,
@@ -256,6 +265,158 @@ def preprocess_madis_amdar_data(input_dir: Path, output_dir: Path | None, glob_p
     if output_dir is None:
         output_dir = input_dir
     preprocessor.apply_preprocessor(output_dir)
+
+
+@iata_app.command(
+    "preprocess",
+    help=(
+        "Convert raw IATA Turbulence Aware CSV files into parquet files with the columns time (naive UTC), altitude "
+        "(feet), latitude, longitude, peak and mean. Reports with a missing or non-finite time, latitude, longitude or "
+        "altitude are dropped. With `--cluster`, reports whose condition column is strictly "
+        "greater than `--condition-threshold` are grouped into spatio-temporal clusters, adding the columns cluster "
+        "(-1 when a report is not in a cluster) and in_cluster."
+    ),
+)
+def preprocess_iata(
+    input_dir: Annotated[
+        Path,
+        typer.Option(
+            "-i",
+            "--input_dir",
+            help=(
+                "Directory containing the raw CSV files to preprocess, or a path to a single raw CSV file. If this is "
+                "a directory, `--glob-pattern` must also be given to select which files within it to preprocess."
+            ),
+            exists=True,
+            dir_okay=True,
+            file_okay=True,
+            readable=True,
+        ),
+    ],
+    output_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "-o",
+            "--output_dir",
+            help=(
+                "Directory to save the preprocessed parquet files into. Defaults to `--input_dir` if it is a "
+                "directory, or to the directory containing it if it is a single file."
+            ),
+            file_okay=False,
+            dir_okay=True,
+        ),
+    ] = None,
+    glob_pattern: Annotated[
+        str | None,
+        typer.Option(
+            "-g",
+            "--glob-pattern",
+            help=(
+                "Glob pattern (relative to `--input_dir`) selecting which raw files to preprocess, e.g. `'*.csv'`. "
+                "Required when `--input_dir` is a directory; omit it when `--input_dir` is a single file."
+            ),
+        ),
+    ] = None,
+    cluster: Annotated[
+        bool,
+        typer.Option(
+            "--cluster/--no-cluster",
+            help=(
+                "Group the reports into spatio-temporal clusters. Requires `--n-points`, `--max-separation-km`, "
+                "`--max-minutes`, `--condition-column` and `--condition-threshold`."
+            ),
+            rich_help_panel="Clustering",
+        ),
+    ] = False,
+    n_points: Annotated[
+        int | None,
+        typer.Option(
+            "--n-points",
+            help="Minimum number of neighbouring reports, the report itself included, for a report to be a core point",
+            min=1,
+            rich_help_panel="Clustering",
+        ),
+    ] = None,
+    max_separation_km: Annotated[
+        float | None,
+        typer.Option(
+            "--max-separation-km",
+            help="Largest great-circle separation, in kilometres, between neighbouring reports",
+            min=0,
+            rich_help_panel="Clustering",
+        ),
+    ] = None,
+    max_minutes: Annotated[
+        float | None,
+        typer.Option(
+            "--max-minutes",
+            help="Largest time difference, in minutes, between neighbouring reports",
+            min=0,
+            rich_help_panel="Clustering",
+        ),
+    ] = None,
+    max_altitude_delta_ft: Annotated[
+        float | None,
+        typer.Option(
+            "--max-altitude-delta-ft",
+            help="Largest altitude difference, in feet, between neighbouring reports. If omitted, altitude is ignored.",
+            min=0,
+            rich_help_panel="Clustering",
+        ),
+    ] = None,
+    condition_column: Annotated[
+        ConditionColumn | None,
+        typer.Option(
+            "--condition-column",
+            help="Turbulence value of each report that is compared with `--condition-threshold`",
+            case_sensitive=False,
+            rich_help_panel="Clustering",
+        ),
+    ] = None,
+    condition_threshold: Annotated[
+        float | None,
+        typer.Option(
+            "--condition-threshold",
+            help="Value the condition column must be strictly greater than for a report to be clustered",
+            rich_help_panel="Clustering",
+        ),
+    ] = None,
+) -> None:
+    """
+    Preprocess raw IATA Turbulence Aware CSV files into parquet files, optionally clustering the reports
+
+    Raises:
+        typer.BadParameter: If ``cluster`` is set and a required clustering option is missing, or if ``cluster`` is
+            not set and any clustering option is given
+    """
+    options: dict = {
+        "n_points": n_points,
+        "max_separation_km": max_separation_km,
+        "max_minutes": max_minutes,
+        "condition_column": condition_column,
+        "condition_threshold": condition_threshold,
+        "max_altitude_delta_ft": max_altitude_delta_ft,
+    }
+
+    def flag(field: str) -> str:
+        return f"--{field.replace('_', '-')}"
+
+    clustering: ClusteringConfig | None = None
+    if cluster:
+        try:
+            # Uses pydantic to check everything that is needed is present
+            clustering = ClusteringConfig.model_validate(options)
+        except ValidationError as error:
+            raise typer.BadParameter(
+                "; ".join(f"{flag(str(e['loc'][0]))}: {e['msg']}" for e in error.errors())
+            ) from error
+    elif given := [flag(name) for name, value in options.items() if value is not None]:
+        raise typer.BadParameter("These options can only be used with --cluster", param_hint=given)
+
+    if output_dir is None:
+        output_dir = input_dir if input_dir.is_dir() else input_dir.parent
+
+    IataObsPreprocessor(input_dir, glob_pattern=glob_pattern, clustering=clustering).apply_preprocessor(output_dir)
 
 
 class MeteorologyDataSource(StrEnum):
