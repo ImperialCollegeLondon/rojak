@@ -202,18 +202,22 @@ Retrieving Data
 
      Usage: rojak data [OPTIONS] COMMAND [ARGS]...
 
-     Perform operations on data
+     Retrieve, preprocess, and manage the input data used by rojak analyses
 
+    ╭─ Options ──────────────────────────────────────────────────────────────────────────────────╮
+    │ --help          Show this message and exit.                                                │
+    ╰────────────────────────────────────────────────────────────────────────────────────────────╯
+    ╭─ Commands ─────────────────────────────────────────────────────────────────────────────────╮
+    │ amdar        Download and preprocess AMDAR (Aircraft Meteorological Data Relay) turbulence │
+    │              observations. Currently supports MADIS                                        │
+    │ iata         Preprocess IATA Turbulence Aware aircraft-based automated turbulence reports  │
+    │ meteorology  Download meteorological reanalysis data (currently: ECMWF ERA5) used to       │
+    │              compute turbulence diagnostics                                                │
+    │ utils        Miscellaneous utilities for working with data files                           │
+    ╰────────────────────────────────────────────────────────────────────────────────────────────╯
 
-    ╭─ Options ────────────────────────────────────────────────────────────────────────────────╮
-    │ --help          Show this message and exit.                                              │
-    ╰──────────────────────────────────────────────────────────────────────────────────────────╯
-    ╭─ Commands ───────────────────────────────────────────────────────────────────────────────╮
-    │ amdar         Operations for AMDAR data                                                  │
-    │ meteorology   Operations for Meteorology data                                            │
-    ╰──────────────────────────────────────────────────────────────────────────────────────────╯
-
-As there are two main types of data, the operations that can be performed are split based on whether it is AMDAR data or meteorological data.
+The operations that can be performed are split by the type of data: aircraft turbulence observations (AMDAR data and
+IATA Turbulence Aware reports) or meteorological data.
 
 AMDAR Data
 ^^^^^^^^^^^^^^^^^
@@ -257,6 +261,80 @@ To use this processed AMDAR data in the turbulence analysis, the :py:class:`roja
         time_window:
           lower: "2024-01-01"
           upper: "2024-12-12T18:00"
+
+IATA Turbulence Aware Data
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+IATA Turbulence Aware provides aircraft-based automated turbulence reports. ``rojak`` does not download these
+reports; its ``iata preprocess`` command converts raw Turbulence Aware CSV files that you already have into
+`parquet <https://parquet.apache.org/>`__ files. Running ``--help`` with the command shows the possible arguments:
+
+.. code-block::
+
+    $ rojak data iata preprocess --help
+
+Each row of the output is one report, with the columns ``time`` (the observation time in UTC, without a timezone),
+``altitude`` (in feet), ``latitude``, ``longitude``, ``peak`` and ``mean``. A report with a missing or non-finite
+latitude, longitude, altitude or time is dropped, so the output can have fewer rows than the input. For example, to preprocess every CSV file in
+the ``~/iata_raw`` folder into the ``~/processed_iata`` folder, the command would be,
+
+.. code-block::
+
+    $ rojak data iata preprocess -i ~/iata_raw -g "*.csv" -o ~/processed_iata
+
+``-i`` is either a directory or a single CSV file. If it is a directory, ``-g`` is required: it is a glob pattern,
+relative to ``-i``, that selects the files to preprocess. If it is a single file, omit ``-g``. If ``-o`` is omitted, the
+parquet files are written into the input directory or, when ``-i`` is a single file, into the directory that contains
+it.
+
+Adding ``--cluster`` groups the reports that are close together in space, time and, optionally, altitude into clusters.
+Only reports whose condition value is strictly greater than the threshold (``>``) are clustered. ``--condition-column``
+selects which value is compared, ``peak`` or ``mean``, and ``--condition-threshold`` gives the threshold. The other
+reports are not clustered.
+
+When ``--cluster`` is given, ``--n-points``, ``--max-separation-km``, ``--max-minutes``, ``--condition-column`` and
+``--condition-threshold`` are all required. ``--max-separation-km`` and ``--max-minutes`` set how far apart in space and
+time two reports can be and still count as neighbours. ``--n-points`` is the number of neighbours, the report itself
+included, that a report needs to start a cluster. ``--max-altitude-delta-ft`` (in feet) optionally limits the altitude
+difference between neighbours; if it is omitted, altitude is ignored. None of these options may be given without
+``--cluster``. For example,
+
+.. code-block::
+
+    $ rojak data iata preprocess -i ~/iata_raw -g "*.csv" -o ~/processed_iata \
+        --cluster --n-points 3 --max-separation-km 50 --max-minutes 10 \
+        --condition-column peak --condition-threshold 0.2 --max-altitude-delta-ft 1000
+
+Clustering adds two columns to the output: ``cluster``, the id of the cluster each report belongs to, and
+``in_cluster``, which is true for a report in a cluster. ``cluster`` is -1 for a report that is not in a cluster, which
+includes every report whose condition value is not above the threshold. Clustering holds all the qualifying reports in
+memory at once, so it needs enough memory for them.
+
+The same preprocessing is available from Python through
+:py:class:`rojak.datalib.iata.IataObsPreprocessor`, which takes the clustering parameters as a
+:py:class:`rojak.datalib.iata.ClusteringConfig`. The following is the clustering example above, written
+in Python. Leave out ``clustering`` to skip clustering. Writing parquet needs ``pyarrow``, which the ``amdar`` and
+``cli`` extras install.
+
+.. code-block:: python
+
+    from pathlib import Path
+
+    from rojak.datalib.iata import ClusteringConfig, ConditionColumn, IataObsPreprocessor
+
+    preprocessor = IataObsPreprocessor(
+        Path("~/iata_raw").expanduser(),
+        glob_pattern="*.csv",
+        clustering=ClusteringConfig(
+            n_points=3,
+            max_separation_km=50,
+            max_minutes=10,
+            condition_column=ConditionColumn.PEAK,
+            condition_threshold=0.2,
+            max_altitude_delta_ft=1000,
+        ),
+    )
+    preprocessor.apply_preprocessor(Path("~/processed_iata").expanduser())
 
 .. _met_data:
 
