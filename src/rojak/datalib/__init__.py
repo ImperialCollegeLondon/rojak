@@ -19,6 +19,7 @@ Each subpackage implements the abstract interfaces defined in :mod:`rojak.core.d
 :class:`~rojak.core.data.AmdarDataRepository`, ...) for a specific data provider:
 
 - :mod:`rojak.datalib.ecmwf`: ECMWF ERA5 reanalysis meteorological data, via the Copernicus Climate Data Store.
+- :mod:`rojak.datalib.iata`: IATA Turbulence Aware aircraft-reported turbulence observations.
 - :mod:`rojak.datalib.madis`: MADIS ACARS aircraft-reported (AMDAR) turbulence observations.
 - :mod:`rojak.datalib.ukmo`: UK Met Office AMDAR turbulence observations.
 """
